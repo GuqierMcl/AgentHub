@@ -87,7 +87,7 @@ export function RightWorkbench({
   ]
 
   return (
-    <aside className="hidden min-h-0 min-w-0 flex-col border-border border-l bg-background lg:flex">
+    <aside className="flex h-full min-h-0 min-w-0 flex-col border-border border-l bg-background">
       <div className="flex min-h-16 shrink-0 items-center justify-between gap-3 border-border border-b px-4">
         <div className="flex min-w-0 items-center gap-2">
           <PanelRightIcon className="size-4 shrink-0 text-primary" />

@@ -1,23 +1,15 @@
 import { useCallback, useMemo, useState } from "react"
-import { BotIcon, PinIcon } from "lucide-react"
-
-import { Separator } from "@/components/ui/separator"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { cn } from "@/lib/utils"
 
-import { conversations, getAgentById } from "./mock-data"
-import { ChatComposer } from "./components/ChatComposer"
-import { ChatHeader } from "./components/ChatHeader"
+import { conversations } from "./mock-data"
+import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout"
 import { ConversationSidebar } from "./components/ConversationSidebar"
-import { MessageList } from "./components/MessageList"
 import {
   defaultPreviewTarget,
   defaultSelectedFilePath,
 } from "./right-workbench/mock-data"
-import {
-  RightWorkbench,
-  type RightWorkbenchTabId,
-} from "./right-workbench/RightWorkbench"
+import { type RightWorkbenchTabId } from "./right-workbench/RightWorkbench"
 import type { Artifact, ArtifactKind } from "./types"
 
 const artifactTabByType = {
@@ -51,8 +43,6 @@ export function WorkbenchPage() {
       ) ?? conversations[0],
     [activeConversationId]
   )
-  const primaryAgent = getAgentById(activeConversation.agentIds[0])
-
   useDocumentTitle({
     conversationTitle: activeConversation?.title,
   })
@@ -92,10 +82,10 @@ export function WorkbenchPage() {
   return (
     <main
       className={cn(
-        "grid h-svh min-h-0 overflow-hidden bg-muted text-foreground max-md:grid-rows-[15rem_minmax(0,1fr)]",
+        "grid h-svh min-h-0 overflow-hidden bg-muted text-foreground",
         isSidebarCollapsed
-          ? "md:grid-cols-[4.25rem_minmax(0,1fr)] lg:grid-cols-[4.25rem_minmax(0,1fr)_24rem]"
-          : "md:grid-cols-[20rem_minmax(0,1fr)] lg:grid-cols-[20rem_minmax(0,1fr)_24rem]"
+          ? "grid-cols-[4.25rem_minmax(0,1fr)]"
+          : "grid-cols-[20rem_minmax(0,1fr)]"
       )}
     >
       <ConversationSidebar
@@ -107,33 +97,12 @@ export function WorkbenchPage() {
           setIsSidebarCollapsed((collapsed) => !collapsed)
         }
       />
-
-      <section className="flex min-h-0 min-w-0 flex-col bg-background">
-        <ChatHeader conversation={activeConversation} />
-        <div className="flex shrink-0 items-center gap-2 border-border border-b bg-muted/40 px-5 py-2 text-muted-foreground text-xs">
-          <PinIcon className="size-3.5" />
-          <span className="truncate">
-            Pinned: 当前为静态 Workbench 原型，不接入后端或 LLM Provider。
-          </span>
-          {primaryAgent ? (
-            <>
-              <Separator className="h-4" orientation="vertical" />
-              <BotIcon className="size-3.5" />
-              <span className="truncate">{primaryAgent.role}</span>
-            </>
-          ) : null}
-        </div>
-        <MessageList
-          messages={activeConversation.messages}
-          onOpenArtifact={handleOpenArtifact}
-        />
-        <ChatComposer />
-      </section>
-
-      <RightWorkbench
-        activeTab={activeRightTab}
-        mountedTabs={mountedRightTabs}
-        onActiveTabChange={activateRightTab}
+      <WorkbenchContentLayout
+        activeConversation={activeConversation}
+        activeRightTab={activeRightTab}
+        mountedRightTabs={mountedRightTabs}
+        onActiveRightTabChange={activateRightTab}
+        onOpenArtifact={handleOpenArtifact}
         onSelectedFilePathChange={setSelectedFilePath}
         previewTarget={previewTarget}
         selectedArtifact={selectedArtifact}
