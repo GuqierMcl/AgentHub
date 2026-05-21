@@ -37,6 +37,109 @@ Hub Server 是 AgentHub 的控制面，负责业务状态管理和前端 API。�
 - SSE 或其他实时转发能力由 `hub-server` 面向前端提供，但事件来源应来自 `agent-runtime`。
 - 新增或修改 API 时，同步更新 `docs/contracts/API_CONTRACTS.md`。
 
+## OpenAPI 与 Swagger UI
+
+Hub Server 使用 `@hono/zod-openapi` 生成 OpenAPI 规范，使用 `@hono/swagger-ui` 提供 Swagger UI。
+
+### @hono/zod-openapi
+
+基于 Zod Schema 自动生成 OpenAPI 文档，同时复用 Zod Schema 完成请求校验。
+
+使用约定：
+
+- 路由定义应使用 `createRoute` + `app.openapi(route, handler)` 风格，替代普通 `app.get/post`。
+- 每个路由必须声明 `request.body`、`request.params`、`request.query` 等的 Zod Schema，以及 `responses` 的 Zod Schema。
+- Zod Schema 同时承担校验与文档生成双重职责，不需要额外维护独立的 OpenAPI 定义。
+- 校验失败时由框架自动返回结构化错误，格式与现有错误约定保持一致（`code: 'VALIDATION_ERROR'`）。
+- 非标准 REST 路由（如 SSE 端点）可以不纳入 OpenAPI，但应在文档中注明原因。
+
+### @hono/swagger-ui
+
+提供可交互的 API 文档界面。
+
+使用约定：
+
+- Swagger UI 挂载路径统一为 `/docs`，仅开发模式或通过配置开关启用。
+- 生产环境默认关闭 Swagger UI，避免暴露 API 细节。
+- OpenAPI JSON 端点挂载路径为 `/api/doc`，供前端或其他工具消费。
+- Swagger UI 和 OpenAPI 端点的启停应通过环境变量或配置控制，不硬编码开关。
+
+## 数据存储
+
+### 数据库
+
+Hub Server 使用 SQLite 作为持久化数据库，Prisma 作为 ORM，Zod 作为运行时校验层。
+
+#### SQLite
+
+选择理由：
+
+- 单文件部署，零运维，适合桌面端和本地优先场景。
+- 事务支持完整，满足会话、消息、Run 状态等业务一致性需求。
+- 与 Bun 运行时原生兼容，无需额外数据库进程。
+
+#### Prisma
+
+Hub Server 使用 Prisma 管理 SQLite 的 Schema、迁移和数据访问。
+
+使用约定：
+
+- 数据模型定义在 `prisma/schema.prisma` 中，以 Prisma Schema 作为数据建模的唯一来源。
+- 通过 `prisma migrate` 管理迁移，不手动编写 SQL DDL。
+- 数据访问统一通过 Prisma Client 进行，不使用原生 SQL 拼接。
+- Prisma 的 `datasources.db.url` 应动态指向数据目录下的 `hub.db`，不硬编码路径。
+- 新增或修改数据模型时，必须同步更新 `docs/architecture/DATA_MODEL.md`。
+
+#### Zod
+
+Hub Server 使用 Zod 进行 API 边界的运行时类型校验。
+
+使用约定：
+
+- 所有 API 请求体（POST / PUT / PATCH）必须使用 Zod Schema 校验后再进入业务逻辑。
+- 可在 Hono 中间件或路由入口完成校验，校验失败应返回结构化错误（`code: 'VALIDATION_ERROR'`，附带字段级错误信息）。
+- 可与 Hono 的 `zValidator` 中间件配合使用。
+- 环境变量、配置文件等外部输入同样应使用 Zod 校验。
+- Zod Schema 可作为 API 契约的类型来源，与 `docs/contracts/API_CONTRACTS.md` 保持同步。
+- 避免在业务逻辑中混用 Zod 校验和手动 if/else 断言，统一走 Schema。
+
+### 启动初始化
+
+Hub Server 在启动时必须完成数据库初始化：
+
+1. **解析数据目录**：通过 `getAppDataDir()` 获取数据目录路径。
+2. **确保目录存在**：若数据目录不存在，使用 `fs.mkdir(path, { recursive: true })` 递归创建。
+3. **执行 Prisma 迁移**：运行 `prisma migrate deploy`，确保表结构与应用版本一致。
+4. **初始化 Prisma Client**：创建 Prisma Client 实例并验证连接。
+
+初始化顺序约束：
+
+- 数据库初始化必须在 Hono 路由注册之前完成。
+- 若初始化失败，服务应终止启动并输出明确错误信息，不允许在无数据库状态下运行。
+- Prisma 迁移应幂等，重复执行不应导致数据丢失或冲突。
+
+### 数据目录
+
+数据文件存储在用户数据目录下，通过 Node.js API 动态获取，不硬编码路径：
+
+```ts
+import { getAppDataDir } from './path'
+
+const dbPath = path.join(getAppDataDir(), 'hub.db')
+```
+
+其中 `getAppDataDir()` 应基于以下方式实现：
+
+- 优先读取环境变量 `AGENTHUB_DATA_DIR`（支持自定义数据目录）。
+- 若未设置，使用 `path.join(os.homedir(), 'AppData', 'Roaming', 'AgentHub')`（Windows）或对应平台的用户数据目录。
+
+核心约束：
+
+- 不得硬编码任何平台特定的绝对路径。
+- 数据目录不存在时应自动创建。
+- 数据库文件应位于数据目录根下，命名为 `hub.db`。
+- 后续如需存储附件、产物文件等非数据库数据，统一放在数据目录下的子目录中（如 `artifacts/`、`uploads/`），子目录按需创建。
+
 ## 开发命令
 
 ```bash
