@@ -1,3 +1,7 @@
+import { useCallback, useState } from "react"
+import type { PanelSize } from "react-resizable-panels"
+import { usePanelRef } from "react-resizable-panels"
+
 import {
   ResizableHandle,
   ResizablePanel,
@@ -33,6 +37,30 @@ export function WorkbenchContentLayout({
   selectedArtifact,
   selectedFilePath,
 }: WorkbenchContentLayoutProps) {
+  const workspacePanelRef = usePanelRef()
+  const [isWorkspaceCollapsed, setIsWorkspaceCollapsed] = useState(false)
+
+  const handleToggleWorkspaceCollapsed = useCallback(() => {
+    const workspacePanel = workspacePanelRef.current
+
+    if (!workspacePanel) {
+      return
+    }
+
+    if (workspacePanel.isCollapsed()) {
+      workspacePanel.expand()
+      setIsWorkspaceCollapsed(false)
+      return
+    }
+
+    workspacePanel.collapse()
+    setIsWorkspaceCollapsed(true)
+  }, [workspacePanelRef])
+
+  const handleWorkspaceResize = useCallback((size: PanelSize) => {
+    setIsWorkspaceCollapsed(size.inPixels <= 72 || size.asPercentage <= 1)
+  }, [])
+
   return (
     <div className="h-full min-h-0 min-w-0 bg-background">
       <ResizablePanelGroup
@@ -55,14 +83,20 @@ export function WorkbenchContentLayout({
         <ResizablePanel
           className="h-full min-h-0 min-w-0"
           id="workspace"
+          collapsedSize="3.5rem"
+          collapsible
           defaultSize={36}
-          minSize={18}
+          minSize="23rem"
+          onResize={handleWorkspaceResize}
+          panelRef={workspacePanelRef}
         >
           <RightWorkbench
             activeTab={activeRightTab}
+            collapsed={isWorkspaceCollapsed}
             mountedTabs={mountedRightTabs}
             onActiveTabChange={onActiveRightTabChange}
             onSelectedFilePathChange={onSelectedFilePathChange}
+            onToggleCollapsed={handleToggleWorkspaceCollapsed}
             previewTarget={previewTarget}
             selectedArtifact={selectedArtifact}
             selectedFilePath={selectedFilePath}

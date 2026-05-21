@@ -1,12 +1,15 @@
 import {
   FileSearchIcon,
   FolderOpenIcon,
-  PanelRightIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
   RocketIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Tabs } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 
 import type { Artifact } from "../types"
 import { CodeReviewPanel } from "./components/CodeReviewPanel"
@@ -44,8 +47,10 @@ const rightWorkbenchTabs = [
 
 type RightWorkbenchProps = {
   activeTab: RightWorkbenchTabId
+  collapsed: boolean
   mountedTabs: ReadonlySet<RightWorkbenchTabId>
   onActiveTabChange: (tabId: RightWorkbenchTabId) => void
+  onToggleCollapsed: () => void
   selectedArtifact: Artifact | null
   selectedFilePath: string
   onSelectedFilePathChange: (path: string) => void
@@ -54,8 +59,10 @@ type RightWorkbenchProps = {
 
 export function RightWorkbench({
   activeTab,
+  collapsed,
   mountedTabs,
   onActiveTabChange,
+  onToggleCollapsed,
   selectedArtifact,
   selectedFilePath,
   onSelectedFilePathChange,
@@ -88,37 +95,59 @@ export function RightWorkbench({
 
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col border-border border-l bg-background">
-      <div className="flex min-h-16 shrink-0 items-center justify-between gap-3 border-border border-b px-4">
+      <div
+        className={cn(
+          "flex min-h-16 shrink-0 items-center gap-3 border-border border-b",
+          collapsed ? "justify-center px-2" : "justify-between px-4"
+        )}
+      >
         <div className="flex min-w-0 items-center gap-2">
-          <PanelRightIcon className="size-4 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h2 className="truncate font-semibold text-sm">产物工作台</h2>
-            <p className="truncate text-muted-foreground text-xs">
-              内联产物、预览、编辑与部署
-            </p>
-          </div>
+          <Button
+            aria-label={collapsed ? "展开产物工作台" : "收起产物工作台"}
+            onClick={onToggleCollapsed}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            {collapsed ? <PanelRightOpenIcon /> : <PanelRightCloseIcon />}
+          </Button>
+          {collapsed ? null : (
+            <div className="min-w-0">
+              <h2 className="truncate font-semibold text-sm">产物工作台</h2>
+              <p className="truncate text-muted-foreground text-xs">
+                内联产物、预览、编辑与部署
+              </p>
+            </div>
+          )}
         </div>
-        <Badge className="shrink-0" variant="outline">
-          cached
-        </Badge>
+        {collapsed ? null : (
+          <Badge className="shrink-0" variant="outline">
+            cached
+          </Badge>
+        )}
       </div>
 
-      <Tabs
-        className="flex min-h-0 flex-1 flex-col gap-0"
-        onValueChange={(value) =>
-          onActiveTabChange(value as RightWorkbenchTabId)
-        }
-        value={activeTab}
+      <div
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 flex-col",
+          collapsed && "hidden"
+        )}
       >
-        <RightWorkbenchTabBar
-          tabs={rightWorkbenchTabs}
-        />
-        <RightWorkbenchTabView
-          activeTab={activeTab}
-          mountedTabs={mountedTabs}
-          panels={panels}
-        />
-      </Tabs>
+        <Tabs
+          className="flex h-full min-h-0 flex-1 flex-col gap-0"
+          onValueChange={(value) =>
+            onActiveTabChange(value as RightWorkbenchTabId)
+          }
+          value={activeTab}
+        >
+          <RightWorkbenchTabBar tabs={rightWorkbenchTabs} />
+          <RightWorkbenchTabView
+            activeTab={activeTab}
+            mountedTabs={mountedTabs}
+            panels={panels}
+          />
+        </Tabs>
+      </div>
     </aside>
   )
 }
