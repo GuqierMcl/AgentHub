@@ -1,10 +1,8 @@
 import {
   PanelLeftCloseIcon,
-  SearchIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
@@ -80,17 +78,8 @@ export function ConversationSidebar({
         <>
           <div className="px-4 pt-2 pb-2">
             <div className="text-muted-foreground text-xs font-medium">
-              消息记录
+              对话列表
             </div>
-          </div>
-
-          <div className="mx-3 mb-3 grid shrink-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 rounded-lg border bg-background px-3 text-muted-foreground">
-            <SearchIcon className="size-4" />
-            <Input
-              aria-label="搜索会话"
-              className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-              placeholder="搜索会话或 Agent"
-            />
           </div>
 
           <ScrollArea className="min-h-0 flex-1">

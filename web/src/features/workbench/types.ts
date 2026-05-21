@@ -75,5 +75,6 @@ export type Conversation = {
   unread?: number
   pinned?: boolean
   archived?: boolean
+  running?: boolean
   messages: WorkbenchMessage[]
 }

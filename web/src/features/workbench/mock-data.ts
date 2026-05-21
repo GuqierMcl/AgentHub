@@ -51,6 +51,7 @@ export const conversations: Conversation[] = [
     activeAt: "09:42",
     unread: 2,
     pinned: true,
+    running: true,
     messages: [
       {
         id: "m1",
