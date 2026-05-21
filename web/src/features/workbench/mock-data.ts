@@ -49,6 +49,7 @@ export const conversations: Conversation[] = [
     agentIds: ["codex"],
     preview: "左侧会话、右侧聊天和内联产物卡片已收敛。",
     activeAt: "09:42",
+    workspace: "D:\\Projects\\AgentHub",
     unread: 2,
     pinned: true,
     running: true,
@@ -172,6 +173,7 @@ export const conversations: Conversation[] = [
     agentIds: ["orchestrator", "claude", "codex", "opencode"],
     preview: "Orchestrator 已拆分任务：规划、实现、验证。",
     activeAt: "昨天",
+    workspace: "D:\\Projects\\AgentHub",
     pinned: true,
     messages: [
       {
@@ -205,6 +207,7 @@ export const conversations: Conversation[] = [
     agentIds: ["claude"],
     preview: "内联网页预览卡片与代码编辑入口设计。",
     activeAt: "周二",
+    workspace: "D:\\Projects\\agent-hub-landing",
     archived: true,
     messages: [
       {

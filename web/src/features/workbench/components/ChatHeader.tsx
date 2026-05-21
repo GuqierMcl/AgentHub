@@ -1,4 +1,4 @@
-import { MoreHorizontalIcon, PinIcon } from "lucide-react"
+import { FolderIcon, MoreHorizontalIcon, PinIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,6 +39,10 @@ export function ChatHeader({ conversation }: ChatHeaderProps) {
           </div>
           <p className="truncate text-muted-foreground text-xs">
             {conversationAgents.map((agent) => agent.name).join(", ")}
+          </p>
+          <p className="flex items-center gap-1 truncate text-muted-foreground text-xs">
+            <FolderIcon className="size-3 shrink-0" />
+            {conversation.workspace.split("\\").pop()} · 工作区
           </p>
         </div>
       </div>

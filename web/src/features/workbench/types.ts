@@ -72,6 +72,7 @@ export type Conversation = {
   agentIds: string[]
   preview: string
   activeAt: string
+  workspace: string
   unread?: number
   pinned?: boolean
   archived?: boolean
