@@ -26,8 +26,17 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/components/ui/**/*.{ts,tsx}', 'src/components/ai-elements/**/*.{ts,tsx}'],
+    files: [
+      'src/components/ui/**/*.{ts,tsx}',
+      'src/components/ai-elements/**/*.{ts,tsx}',
+    ],
     rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-useless-assignment': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/static-components': 'off',
       'react-refresh/only-export-components': 'off',
     },
   },
