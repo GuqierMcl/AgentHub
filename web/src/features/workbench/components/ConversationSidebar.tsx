@@ -43,8 +43,8 @@ export function ConversationSidebar({
         )}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-semibold">
-            AH
+          <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg">
+            <img src="/logo.png" alt="AgentHub" className="size-full object-cover" />
           </div>
           {collapsed ? null : (
             <div className="min-w-0">
