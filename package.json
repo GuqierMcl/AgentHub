@@ -1,0 +1,11 @@
+{
+  "name": "agenthub",
+  "private": true,
+  "scripts": {
+    "dev:web": "cd web && bun dev",
+    "dev:server": "cd hub-server && bun dev"
+  },
+  "devDependencies": {
+    "shadcn": "^4.7.0"
+  }
+}
