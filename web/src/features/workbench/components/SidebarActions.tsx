@@ -30,7 +30,7 @@ function ActionButton({ collapsed, icon, label, onClick }: ActionButtonProps) {
       variant="ghost"
     >
       {icon}
-      {collapsed ? null : <span>{label}</span>}
+      {collapsed ? null : <span className="text-sm">{label}</span>}
     </Button>
   )
 
