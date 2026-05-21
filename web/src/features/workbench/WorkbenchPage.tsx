@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { BotIcon, PinIcon } from "lucide-react"
 
 import { Separator } from "@/components/ui/separator"
@@ -10,12 +10,40 @@ import { ChatComposer } from "./components/ChatComposer"
 import { ChatHeader } from "./components/ChatHeader"
 import { ConversationSidebar } from "./components/ConversationSidebar"
 import { MessageList } from "./components/MessageList"
+import {
+  defaultPreviewTarget,
+  defaultSelectedFilePath,
+} from "./right-workbench/mock-data"
+import {
+  RightWorkbench,
+  type RightWorkbenchTabId,
+} from "./right-workbench/RightWorkbench"
+import type { Artifact, ArtifactKind } from "./types"
+
+const artifactTabByType = {
+  code: "files",
+  deploy: "deploy",
+  diff: "review",
+  preview: "deploy",
+} satisfies Record<ArtifactKind, RightWorkbenchTabId>
 
 export function WorkbenchPage() {
   const [activeConversationId, setActiveConversationId] = useState(
     conversations[0].id
   )
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [activeRightTab, setActiveRightTab] =
+    useState<RightWorkbenchTabId>("review")
+  const [mountedRightTabs, setMountedRightTabs] = useState<
+    Set<RightWorkbenchTabId>
+  >(() => new Set(["review"]))
+  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(
+    null
+  )
+  const [selectedFilePath, setSelectedFilePath] = useState(
+    defaultSelectedFilePath
+  )
+  const [previewTarget, setPreviewTarget] = useState(defaultPreviewTarget)
   const activeConversation = useMemo(
     () =>
       conversations.find(
@@ -29,13 +57,45 @@ export function WorkbenchPage() {
     conversationTitle: activeConversation?.title,
   })
 
+  const activateRightTab = useCallback((tabId: RightWorkbenchTabId) => {
+    setActiveRightTab(tabId)
+    setMountedRightTabs((current) => {
+      if (current.has(tabId)) {
+        return current
+      }
+
+      const next = new Set(current)
+      next.add(tabId)
+      return next
+    })
+  }, [])
+
+  const handleOpenArtifact = useCallback((artifact: Artifact) => {
+    setSelectedArtifact(artifact)
+    activateRightTab(artifactTabByType[artifact.type])
+
+    if (artifact.type === "code") {
+      setSelectedFilePath(
+        "src/features/workbench/right-workbench/RightWorkbench.tsx"
+      )
+    }
+
+    if (artifact.type === "diff") {
+      setSelectedFilePath("src/features/workbench/WorkbenchPage.tsx")
+    }
+
+    if (artifact.type === "deploy" || artifact.type === "preview") {
+      setPreviewTarget(artifact.title)
+    }
+  }, [activateRightTab])
+
   return (
     <main
       className={cn(
         "grid h-svh min-h-0 overflow-hidden bg-muted text-foreground max-md:grid-rows-[15rem_minmax(0,1fr)]",
         isSidebarCollapsed
-          ? "md:grid-cols-[4.25rem_minmax(0,1fr)]"
-          : "md:grid-cols-[20rem_minmax(0,1fr)]"
+          ? "md:grid-cols-[4.25rem_minmax(0,1fr)] lg:grid-cols-[4.25rem_minmax(0,1fr)_24rem]"
+          : "md:grid-cols-[20rem_minmax(0,1fr)] lg:grid-cols-[20rem_minmax(0,1fr)_24rem]"
       )}
     >
       <ConversationSidebar
@@ -63,9 +123,22 @@ export function WorkbenchPage() {
             </>
           ) : null}
         </div>
-        <MessageList messages={activeConversation.messages} />
+        <MessageList
+          messages={activeConversation.messages}
+          onOpenArtifact={handleOpenArtifact}
+        />
         <ChatComposer />
       </section>
+
+      <RightWorkbench
+        activeTab={activeRightTab}
+        mountedTabs={mountedRightTabs}
+        onActiveTabChange={activateRightTab}
+        onSelectedFilePathChange={setSelectedFilePath}
+        previewTarget={previewTarget}
+        selectedArtifact={selectedArtifact}
+        selectedFilePath={selectedFilePath}
+      />
     </main>
   )
 }
