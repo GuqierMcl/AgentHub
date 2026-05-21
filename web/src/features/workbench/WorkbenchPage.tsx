@@ -3,6 +3,7 @@ import { BotIcon, PinIcon } from "lucide-react"
 
 import { Separator } from "@/components/ui/separator"
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
+import { cn } from "@/lib/utils"
 
 import { conversations, getAgentById } from "./mock-data"
 import { ChatComposer } from "./components/ChatComposer"
@@ -14,6 +15,7 @@ export function WorkbenchPage() {
   const [activeConversationId, setActiveConversationId] = useState(
     conversations[0].id
   )
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const activeConversation = useMemo(
     () =>
       conversations.find(
@@ -28,11 +30,22 @@ export function WorkbenchPage() {
   })
 
   return (
-    <main className="grid h-svh min-h-0 overflow-hidden bg-muted text-foreground md:grid-cols-[20rem_minmax(0,1fr)] max-md:grid-rows-[15rem_minmax(0,1fr)]">
+    <main
+      className={cn(
+        "grid h-svh min-h-0 overflow-hidden bg-muted text-foreground max-md:grid-rows-[15rem_minmax(0,1fr)]",
+        isSidebarCollapsed
+          ? "md:grid-cols-[4.25rem_minmax(0,1fr)]"
+          : "md:grid-cols-[20rem_minmax(0,1fr)]"
+      )}
+    >
       <ConversationSidebar
         activeConversationId={activeConversation.id}
+        collapsed={isSidebarCollapsed}
         conversations={conversations}
         onSelectConversation={setActiveConversationId}
+        onToggleCollapsed={() =>
+          setIsSidebarCollapsed((collapsed) => !collapsed)
+        }
       />
 
       <section className="flex min-h-0 min-w-0 flex-col bg-background">

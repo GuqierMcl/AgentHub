@@ -9,19 +9,25 @@ import { ConversationAvatar } from "./AgentAvatar"
 type ConversationListItemProps = {
   conversation: Conversation
   selected: boolean
+  collapsed?: boolean
   onSelect: (conversationId: string) => void
 }
 
 export function ConversationListItem({
+  collapsed = false,
   conversation,
   selected,
   onSelect,
 }: ConversationListItemProps) {
+  if (collapsed) {
+    return null
+  }
+
   return (
     <button
       className={cn(
-        "relative grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-background",
-        selected && "border-border bg-background shadow-xs"
+        "relative grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent",
+        selected && "border-primary/50 bg-accent"
       )}
       onClick={() => onSelect(conversation.id)}
       type="button"

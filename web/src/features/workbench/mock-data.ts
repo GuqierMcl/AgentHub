@@ -1,4 +1,10 @@
-import type { Agent, Conversation } from "./types"
+import type { Agent, Conversation, CurrentUser } from "./types"
+
+export const currentUser: CurrentUser = {
+  initials: "顾",
+  name: "顾七儿",
+  plan: "Pro",
+}
 
 export const agents: Agent[] = [
   {

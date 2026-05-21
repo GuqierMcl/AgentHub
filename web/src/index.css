@@ -58,6 +58,28 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+.dark {
+  --background: oklch(0.15 0.01 250);
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.2 0.01 250);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.2 0.01 250);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.85 0.02 250);
+  --primary-foreground: oklch(0.15 0.01 250);
+  --secondary: oklch(0.25 0.01 250);
+  --secondary-foreground: oklch(0.9 0 0);
+  --muted: oklch(0.22 0.01 250);
+  --muted-foreground: oklch(0.65 0.01 250);
+  --accent: oklch(0.25 0.015 220);
+  --accent-foreground: oklch(0.9 0 0);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(0.3 0.01 250);
+  --input: oklch(0.25 0.01 250);
+  --ring: oklch(0.55 0.04 245);
+  --sidebar: oklch(0.18 0.01 250);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -79,4 +101,31 @@ button,
 input,
 textarea {
   font: inherit;
+}
+
+@layer components {
+  .scrollbar-shadcn {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .scrollbar-shadcn::-webkit-scrollbar {
+    width: 0.625rem;
+  }
+  .scrollbar-shadcn::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-shadcn::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    background-color: var(--border);
+  }
+  .scrollbar-shadcn::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(
+      in oklch,
+      var(--border) 90%,
+      var(--foreground)
+    );
+  }
 }

@@ -24,6 +24,7 @@
 - 当前 Web 静态原型入口位于 `web/src/features/workbench/`，`App.tsx` 仅作为应用根组件和全局 Provider 容器。
 - Workbench 暂不接入后端、LLM Provider 或 Agent Runtime，只使用 mock 数据展示 IM 壳、会话列表、消息流、输入区和内联 Artifact。
 - Workbench 使用视口内滚动布局：页面根容器填满视口，不产生 `body` 级滚动；会话列表和消息流各自在内部滚动。
+- Workbench 左侧栏从上到下为品牌区、顶部功能入口、可折叠消息记录区和底部当前用户信息栏。折叠态只保留品牌标识、功能图标与用户入口，不显示会话记录文本。
 
 ## 开发命令
 

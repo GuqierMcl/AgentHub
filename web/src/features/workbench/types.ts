@@ -1,3 +1,5 @@
+import type { ToolUIPart } from "ai"
+
 export type AgentStatus = "online" | "busy" | "idle"
 
 export type Agent = {
@@ -7,6 +9,12 @@ export type Agent = {
   role: string
   status: AgentStatus
   capabilities: string[]
+}
+
+export type CurrentUser = {
+  name: string
+  plan: string
+  initials: string
 }
 
 export type ArtifactKind = "code" | "preview" | "diff" | "deploy"
@@ -69,4 +77,3 @@ export type Conversation = {
   archived?: boolean
   messages: WorkbenchMessage[]
 }
-import type { ToolUIPart } from "ai"
