@@ -124,10 +124,55 @@ export async function countConversations(filter: { status?: ConversationStatus }
   return db.conversation.count({ where })
 }
 
-export async function findConversationWithAgents(id: string) {
+export async function findConversationWithAgents(id: string): Promise<ConversationDetailOutput | null> {
   const db = getPrismaClient()
-  return db.conversation.findUnique({
+  const record = await db.conversation.findUnique({
     where: { id },
     include: { agents: { orderBy: { sortOrder: 'asc' } } },
   })
+  if (!record) return null
+  return toConversationDetailOutput(record)
+}
+
+export interface ConversationDetailOutput {
+  id: string
+  title: string
+  mode: string
+  status: string
+  orchestratorAgentId: string | null
+  lastMessageId: string | null
+  lastMessageAt: string | null
+  pinnedAt: string | null
+  archivedAt: string | null
+  metadataJson: MetadataJson
+  createdAt: string
+  updatedAt: string
+  agents: ConversationAgentDetailOutput[]
+}
+
+export interface ConversationAgentDetailOutput {
+  id: string
+  conversationId: string
+  agentId: string
+  role: string
+  sortOrder: number
+  joinedAt: string
+}
+
+function toConversationDetailOutput(record: Record<string, unknown>): ConversationDetailOutput {
+  const agents = (record.agents as Record<string, unknown>[]) ?? []
+  return {
+    ...Object.fromEntries(
+      Object.entries(record).filter(([k]) => k !== 'agents')
+    ),
+    metadataJson: JSON.parse((record.metadataJson as string) || '{}'),
+    agents: agents.map((a) => ({
+      id: a.id as string,
+      conversationId: a.conversationId as string,
+      agentId: a.agentId as string,
+      role: a.role as string,
+      sortOrder: a.sortOrder as number,
+      joinedAt: a.joinedAt as string,
+    })),
+  } as ConversationDetailOutput
 }

@@ -14,7 +14,8 @@
     "@prisma/client": "5",
     "hono": "^4.12.21",
     "nanoid": "^5.1.11",
-    "prisma": "5"
+    "prisma": "5",
+    "zod": "3"
   },
   "devDependencies": {
     "@types/bun": "latest",
