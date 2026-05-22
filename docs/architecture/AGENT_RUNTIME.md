@@ -353,6 +353,8 @@ cd agent-runtime && bun dev
 
 Agent Runtime 使用 Hono 承载内部执行 API。通用 Hono 约定见 `docs/reference/HONO.md`。
 
+**重要：实现任何 Hono 相关功能时，必须优先参考 Hono 官方 LLM 文档 `https://hono.dev/llms-small.txt`。**
+
 - Runtime API 面向 `hub-server`，不直接面向 `web`。
 - 内部执行 API 建议使用 `/runtime/*` 作为路径前缀。
 - 保留 `/health` 作为健康检查端点。

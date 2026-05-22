@@ -1,6 +1,13 @@
 # Hono 使用约定
 
-本文档记录 `hub-server` 与 `agent-runtime` 共同使用 Hono 时应遵守的项目约定。资料来源为 Hono 官方 LLM 文档入口 `https://hono.nodejs.cn/llms.txt` 及其指向的精简文档。
+本文档记录 `hub-server` 与 `agent-runtime` 共同使用 Hono 时应遵守的项目约定。
+
+**重要：涉及 Hono.js 框架的任何操作（路由、中间件、Context、流式输出、测试等），必须优先参考 Hono 官方 LLM 文档：**
+
+- **精简版（推荐，适合 LLM 读取）**：`https://hono.dev/llms-small.txt`
+- **完整版**：`https://hono.dev/llms.txt`
+
+资料来源为 Hono 官方 LLM 文档入口及其指向的精简文档。
 
 ## 定位
 
