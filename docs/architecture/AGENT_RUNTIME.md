@@ -12,16 +12,16 @@ Agent Runtime 不负责平台业务数据管理，不直接面向前端，也不
 
 ## 2. 设计定位
 
-Agent Runtime 在系统中的定位是：执行面负责运行 Agent，API Server 负责管理状态。
+Agent Runtime 在系统中的定位是：AgentHub 应用（含 Web + HubServer）的**侧车进程（Sidecar）**，负责运行 Agent。API Server 负责管理状态。
 
 整体关系如下：
 
 ```text
 Frontend
   ↓
-API Server
+API Server (HubServer)
   ↓
-Agent Runtime
+Agent Runtime (Sidecar)
   ↓
 Agent Adapter
   ↓
@@ -32,10 +32,79 @@ Claude Code / Codex / OpenCode / LLM Agent / Custom Agent
 
 - Frontend 只与 API Server 通信。
 - API Server 负责会话、消息、Agent 配置、Artifact、Run 状态等业务数据。
-- Agent Runtime 负责一次 Agent 任务的实际执行过程。
+- Agent Runtime 作为 Sidecar 进程，负责一次 Agent 任务的实际执行过程。
 - Agent Adapter 负责屏蔽不同 Agent 平台的调用差异。
 
-Agent Runtime 可以作为独立进程运行，也可以在早期作为 API Server 内部模块运行。但从最终架构上，应按照独立执行服务来设计，以便后续支持本地进程管理、桌面端集成、任务隔离和外部 Agent 接入。
+### 2.1 Sidecar 模式
+
+Agent Runtime 定位为 HubServer 的 Sidecar 进程。这意味着：
+
+- **生产环境**：HubServer 启动时，自动通过子进程方式拉起 Agent Runtime，并传入必要参数。
+- **开发环境**：支持手动独立启动 Agent Runtime，便于调试和热重载。
+- **进程隔离**：Agent Runtime 作为独立进程运行，拥有独立的端口和工作目录。
+- **生命周期绑定**：Agent Runtime 的生命周期由 HubServer 管理。
+
+架构决策详见 `docs/adr/ADR-001-sidecar-architecture.md`。
+
+### 2.2 启动与参数传递
+
+HubServer 在启动时通过 `Bun.spawn` 或等价方式启动 Agent Runtime 子进程。
+
+启动参数规范：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `--port` | number | 否 | Agent Runtime 监听端口，默认 `3001` |
+| `--host` | string | 否 | 监听地址，默认 `127.0.0.1` |
+| `--hub-callback` | string | 否 | HubServer 回调地址，用于 Runtime 反向通知 |
+| `--workdir` | string | 否 | 工作目录根路径，默认使用系统临时目录 |
+| `--log-level` | string | 否 | 日志级别：`debug` / `info` / `warn` / `error`，默认 `info` |
+
+配置优先级：命令行参数 > 环境变量 > 默认值。
+
+开发环境示例：
+
+```bash
+cd agent-runtime && bun dev -- --port 3001
+```
+
+生产环境由 HubServer 自动拉起，无需手动启动。
+
+### 2.3 健康检查与就绪信号
+
+Agent Runtime 必须暴露 `/health` 端点，用于 HubServer 判断其是否就绪。
+
+就绪判定流程：
+
+1. HubServer 启动 Agent Runtime 子进程。
+2. HubServer 轮询 `GET http://127.0.0.1:{port}/health`。
+3. Agent Runtime 返回 `200 OK` 且响应体包含 `"status": "ok"` 时，视为就绪。
+4. 超时（默认 10 秒）未就绪则标记启动失败，HubServer 应上报错误并决定是否重试。
+
+健康检查响应格式：
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "uptime": 12345
+}
+```
+
+### 2.4 进程退出与重启策略
+
+HubServer 必须管理 Agent Runtime 的生命周期：
+
+- **正常退出**：HubServer 收到 SIGTERM/SIGINT 时，先向 Agent Runtime 发送 SIGTERM，等待其优雅关闭（默认 5 秒），超时后发送 SIGKILL。
+- **异常退出**：HubServer 监听子进程 `exit` 事件。若非正常退出（exit code !== 0 且非 SIGTERM），应自动重启 Agent Runtime，采用指数退避策略（初始 1 秒，最大 30 秒）。
+- **连续失败**：连续重启失败 3 次后，HubServer 应停止重试，标记 Agent Runtime 为不可用，并向前端上报错误。
+
+信号处理：
+
+| 信号 | Agent Runtime 行为 |
+| --- | --- |
+| SIGTERM | 完成当前 Run，输出剩余事件，关闭 HTTP 服务，退出 |
+| SIGKILL | 立即终止（由 OS 强制执行） |
 
 ## 3. 核心职责
 
