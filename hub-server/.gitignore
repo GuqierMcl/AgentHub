@@ -1,2 +1,7 @@
 # deps
 node_modules/
+
+# database
+*.db
+*.db-journal
+prisma/dev.db

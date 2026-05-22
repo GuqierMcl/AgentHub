@@ -1,12 +1,22 @@
 {
   "name": "hub",
   "scripts": {
-    "dev": "bun run --hot src/index.ts"
+    "dev": "bun run --hot src/index.ts",
+    "prisma:generate": "bunx prisma generate",
+    "prisma:migrate:dev": "bunx prisma migrate dev",
+    "prisma:migrate:deploy": "bunx prisma migrate deploy",
+    "prisma:migrate:reset": "bunx prisma migrate reset",
+    "prisma:studio": "bunx prisma studio",
+    "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.12.21"
+    "@prisma/client": "5",
+    "hono": "^4.12.21",
+    "nanoid": "^5.1.11",
+    "prisma": "5"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^5.8.0"
   }
 }
