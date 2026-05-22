@@ -65,6 +65,7 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 - 默认使用结构化 JSON 响应；错误响应应包含稳定 `code` 与可读 `message`。
 - SSE 或其他实时转发能力由 `hub-server` 面向前端提供，但事件来源应来自 `agent-runtime`。
 - 新增或修改 API 时，同步更新 `docs/contracts/API_CONTRACTS.md`。
+- **重要：实现任何 Hono 相关功能时，必须优先参考 Hono 官方 LLM 文档 `https://hono.dev/llms-small.txt`。**
 
 ## 开发命令
 

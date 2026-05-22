@@ -159,6 +159,7 @@ Keep implementation MVP-first. Complete the core chat-to-agent loop before polis
 ### Backend and Runtime
 
 - Use Hono idioms for routing and middleware.
+- When working with Hono.js, **always consult the official LLM docs first**: `https://hono.dev/llms-small.txt`
 - Validate inputs at API boundaries.
 - Return structured errors with stable codes where practical.
 - Keep `hub-server` product APIs separate from `agent-runtime` execution APIs.
