@@ -1,11 +1,12 @@
 {
   "compilerOptions": {
-    "strict": true,
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx",
-    "types": ["node", "bun"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "skipLibCheck": true
+      "strict": true,
+      "jsx": "react-jsx",
+      "jsxImportSource": "hono/jsx",
+      "types": ["node", "bun"],
+      "module": "ESNext",
+      "moduleResolution": "bundler",
+      "skipLibCheck": true,
+      "target": "ES2022"
   }
 }

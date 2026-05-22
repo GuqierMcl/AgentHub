@@ -1,6 +1,7 @@
-import { Hono } from 'hono'
+import { Hono, Context, Next } from 'hono'
 import { cors } from 'hono/cors'
 import { config } from './config'
+import { ProviderService } from './provider'
 import router from './routers'
 
 const app = new Hono()
@@ -20,6 +21,15 @@ if (config.cors.length > 0) {
   app.use('*', cors())
 }
 
+// 初始化 ProviderService
+const providerService = new ProviderService(config.dataDir)
+
+// 注入 ProviderService 到 Context
+app.use('*', async (c: Context, next: Next) => {
+  c.set('providerService', providerService)
+  await next()
+})
+
 // 组合路由
 app.route('/', router)
 
@@ -30,7 +40,7 @@ const banner = `
   ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ███████║██║   ██║██████╔╝
   ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ██╔══██║██║   ██║██╔══██╗
   ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ██║  ██║╚██████╔╝██████╔╝
-  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═════╝
+  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ 
 `
 
 // 启动服务器
@@ -40,6 +50,14 @@ const server = Bun.serve({
   fetch: app.fetch,
 })
 
-console.log(banner)
-console.log(`Agent Runtime listening on ${server.url}`)
-console.log(`Data directory: ${config.dataDir}`)
+// 初始化 ProviderService
+providerService.initialize().then(() => {
+  console.log(banner)
+  console.log(`Agent Runtime listening on ${server.url}`)
+  console.log(`Data directory: ${config.dataDir}`)
+}).catch((error) => {
+  console.error('Failed to initialize ProviderService:', error)
+  console.log(banner)
+  console.log(`Agent Runtime listening on ${server.url}`)
+  console.log(`Data directory: ${config.dataDir}`)
+})
