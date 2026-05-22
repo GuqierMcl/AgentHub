@@ -5,6 +5,7 @@ import {
   ExternalLinkIcon,
   LayoutPanelTopIcon,
 } from "lucide-react"
+import type { KeyboardEvent } from "react"
 
 import {
   Artifact,
@@ -16,6 +17,7 @@ import {
   ArtifactTitle,
 } from "@/components/ai-elements/artifact"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
 import type { Artifact as WorkbenchArtifact, ArtifactKind } from "../types"
 
@@ -28,13 +30,37 @@ const artifactIconByType = {
 
 type ArtifactPreviewProps = {
   artifact: WorkbenchArtifact
+  onOpen?: (artifact: WorkbenchArtifact) => void
 }
 
-export function ArtifactPreview({ artifact }: ArtifactPreviewProps) {
+export function ArtifactPreview({ artifact, onOpen }: ArtifactPreviewProps) {
   const Icon = artifactIconByType[artifact.type]
+  const handleOpen = () => {
+    onOpen?.(artifact)
+  }
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!onOpen) {
+      return
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      handleOpen()
+    }
+  }
 
   return (
-    <Artifact className="max-w-xl shadow-none">
+    <Artifact
+      className={cn(
+        "max-w-xl shadow-none",
+        onOpen &&
+          "cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/20"
+      )}
+      onClick={onOpen ? handleOpen : undefined}
+      onKeyDown={handleKeyDown}
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+    >
       <ArtifactHeader className="gap-3 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <Icon className="size-4 shrink-0 text-muted-foreground" />
@@ -51,6 +77,14 @@ export function ArtifactPreview({ artifact }: ArtifactPreviewProps) {
           <ArtifactAction
             icon={ExternalLinkIcon}
             label="Open artifact"
+            onClick={
+              onOpen
+                ? (event) => {
+                    event.stopPropagation()
+                    handleOpen()
+                  }
+                : undefined
+            }
             tooltip="Open"
           />
         </ArtifactActions>

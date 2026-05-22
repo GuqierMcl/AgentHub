@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "dev:web": "cd web && bun dev",
-    "dev:server": "cd hub-server && bun dev"
+    "dev:server": "cd hub-server && bun dev",
+    "dev:runtime": "cd agent-runtime && bun dev"
   },
   "devDependencies": {
     "shadcn": "^4.7.0"

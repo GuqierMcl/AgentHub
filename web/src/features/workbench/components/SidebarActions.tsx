@@ -1,4 +1,4 @@
-import { BotIcon, PanelLeftOpenIcon, PlusIcon } from "lucide-react"
+import { BotIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -30,7 +30,7 @@ function ActionButton({ collapsed, icon, label, onClick }: ActionButtonProps) {
       variant="ghost"
     >
       {icon}
-      {collapsed ? null : <span>{label}</span>}
+      {collapsed ? null : <span className="text-sm">{label}</span>}
     </Button>
   )
 
@@ -64,6 +64,11 @@ export function SidebarActions({
         collapsed={collapsed}
         icon={<PlusIcon data-icon="inline-start" />}
         label="新聊天"
+      />
+      <ActionButton
+        collapsed={collapsed}
+        icon={<SearchIcon data-icon="inline-start" />}
+        label="搜索聊天"
       />
       <ActionButton
         collapsed={collapsed}

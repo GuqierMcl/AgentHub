@@ -1,6 +1,7 @@
-import { ArchiveIcon, PinIcon } from "lucide-react"
+import { ArchiveIcon, FolderIcon, PinIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 
 import type { Conversation } from "../types"
@@ -38,12 +39,17 @@ export function ConversationListItem({
           <span className="truncate text-sm font-semibold">
             {conversation.title}
           </span>
-          <span className="shrink-0 text-muted-foreground text-xs">
+          <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs">
+            {conversation.running && <Spinner className="size-3" />}
             {conversation.activeAt}
           </span>
         </span>
         <span className="line-clamp-1 text-muted-foreground text-xs">
           {conversation.preview}
+        </span>
+        <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
+          <FolderIcon className="size-3 shrink-0" />
+          {conversation.workspace.split("\\").pop()}
         </span>
         <span className="flex min-w-0 items-center gap-1">
           <Badge variant={conversation.mode === "group" ? "default" : "secondary"}>

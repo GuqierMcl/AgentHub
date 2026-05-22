@@ -1,7 +1,9 @@
 {
   "name": "agent-runtime",
   "scripts": {
-    "dev": "bun run --hot src/index.ts"
+    "dev": "bun run --hot src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile dist/agent-runtime",
+    "start": "./dist/agent-runtime"
   },
   "dependencies": {
     "ai": "^6.0.188",
@@ -9,6 +11,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/node": "^25.9.1"
   }
 }

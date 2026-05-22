@@ -33,15 +33,16 @@ import {
 } from "@/components/ai-elements/tool"
 
 import { getAgentById } from "../mock-data"
-import type { WorkbenchMessage } from "../types"
+import type { Artifact, WorkbenchMessage } from "../types"
 import { AgentAvatar } from "./AgentAvatar"
 import { ArtifactPreview } from "./ArtifactPreview"
 
 type MessageItemProps = {
   message: WorkbenchMessage
+  onOpenArtifact?: (artifact: Artifact) => void
 }
 
-export function MessageItem({ message }: MessageItemProps) {
+export function MessageItem({ message, onOpenArtifact }: MessageItemProps) {
   const agent = getAgentById(message.agentId)
   const versions = message.versions?.length
     ? message.versions
@@ -114,7 +115,11 @@ export function MessageItem({ message }: MessageItemProps) {
                 {message.artifacts?.length ? (
                   <div className="mt-3 flex flex-col gap-2">
                     {message.artifacts.map((artifact) => (
-                      <ArtifactPreview artifact={artifact} key={artifact.id} />
+                      <ArtifactPreview
+                        artifact={artifact}
+                        key={artifact.id}
+                        onOpen={onOpenArtifact}
+                      />
                     ))}
                   </div>
                 ) : null}
