@@ -40,7 +40,7 @@ const rawConfig = {
   port: values.port ?? process.env.PORT ?? "4096",
   hostname: values.hostname ?? process.env.HOSTNAME ?? "127.0.0.1",
   cors: values.cors ?? (process.env.CORS ? process.env.CORS.split(",") : []),
-  dataDir: resolve(values["data-dir"] ?? process.env.AGENT_RUNTIME_DATA_DIR ?? "./data"),
+  dataDir: resolve(values["data-dir"] ?? process.env.AGENT_RUNTIME_DATA_DIR ?? "./data-tmp"),
 };
 
 // 验证配置
