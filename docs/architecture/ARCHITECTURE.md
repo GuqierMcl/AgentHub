@@ -20,12 +20,13 @@ web -> hub-server -> agent-runtime
 
 `agent-runtime/` 是执行面，负责 LLM 调用、外部 Agent 适配器、Orchestrator 编排、工具调用、权限检查、沙箱策略、Workspace 管理和 Artifact 生成。
 
-Agent Runtime 可以在早期以内嵌模块形式实现，但架构设计必须按照独立执行服务来约束，以便后续支持本地进程管理、桌面端集成、任务隔离和外部 Agent 接入。
+Agent Runtime 定位为 HubServer 的**侧车进程（Sidecar）**。生产环境中，HubServer 启动时自动拉起 Agent Runtime 子进程并传入参数；开发环境下支持手动独立启动。架构决策详见 `docs/adr/ADR-001-sidecar-architecture.md`。
 
 ## 边界规则
 
 - 前端到后端的请求必须经过 `hub-server`。
 - 所有 AI 执行必须经过 `agent-runtime`。
+- `agent-runtime` 是 `hub-server` 的 Sidecar 进程，由 `hub-server` 管理其生命周期。
 - `agent-runtime` 不直接写业务数据库，只输出结构化事件。
 - API 与事件契约必须记录在 `docs/contracts/API_CONTRACTS.md`。
 - 权限、沙箱与执行环境变化必须记录在 `docs/architecture/AGENT_RUNTIME.md`。

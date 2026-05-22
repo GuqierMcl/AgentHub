@@ -44,10 +44,13 @@ AgentHub/
 
 ### `agent-runtime/`
 
-- Runs as a sidecar process using Node/Bun + Hono.
+- Runs as a **Sidecar process** for the AgentHub application (Web + HubServer).
+- In production, HubServer automatically spawns agent-runtime at startup and manages its lifecycle (health check, auto-restart, graceful shutdown).
+- In development, agent-runtime can be started independently for debugging and hot-reload.
 - Owns all AI execution concerns: LLM calls, external agent adapters, orchestration, tool calls, permissions, sandbox policy, and artifact generation.
 - The frontend must not call LLM providers directly or hold LLM credentials.
 - External agent integrations such as Claude Code, Codex, OpenCode, and custom agents must go through this layer.
+- See `docs/adr/ADR-001-sidecar-architecture.md` for architectural decision.
 
 ---
 
@@ -56,6 +59,7 @@ AgentHub/
 - Required flow: `web -> hub-server -> agent-runtime`.
 - `web` should call `hub-server` APIs only.
 - `hub-server` should coordinate product state and delegate AI execution to `agent-runtime`.
+- `agent-runtime` is a Sidecar process managed by `hub-server` (see `docs/adr/ADR-001-sidecar-architecture.md`).
 - `agent-runtime` should expose controlled runtime APIs to `hub-server`, not directly to browser UI.
 - LLM credentials, provider adapters, command execution, file access, deployment, and network-sensitive operations belong in `agent-runtime`.
 - When adding or changing cross-process behavior, update `docs/contracts/API_CONTRACTS.md` and the relevant architecture doc.
@@ -94,6 +98,8 @@ cd agent-runtime && bun dev
 ```
 
 `agent-runtime` may not have its runnable scaffold yet. When implementing it, add a local `package.json` and document the commands in `docs/architecture/AGENT_RUNTIME.md`.
+
+Note: In production, agent-runtime is automatically started by hub-server as a Sidecar process. The `bun dev` command is for development/debugging only.
 
 ### Verification Policy
 

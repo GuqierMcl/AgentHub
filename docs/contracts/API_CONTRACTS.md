@@ -5,8 +5,10 @@
 ## 进程流向
 
 ```text
-web -> hub-server -> agent-runtime
+web -> hub-server -> agent-runtime (Sidecar)
 ```
+
+生产环境中，`agent-runtime` 是 `hub-server` 的 Sidecar 子进程，由 `hub-server` 在启动时自动拉起。详见 `docs/adr/ADR-001-sidecar-architecture.md`。
 
 ## 契约规则
 
@@ -21,6 +23,50 @@ web -> hub-server -> agent-runtime
 - `agent-runtime` 只输出结构化事件，不直接写业务数据库。
 - `hub-server` 负责消费 Runtime 事件，并持久化为消息、Artifact、Diff、部署记录和 Run 状态。
 - Hono 相关通用约定见 `docs/reference/HONO.md`。
+
+## Sidecar 通信契约
+
+### 启动参数
+
+HubServer 启动 Agent Runtime 时，传入以下命令行参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `--port` | number | 否 | Agent Runtime 监听端口，默认 `3001` |
+| `--host` | string | 否 | 监听地址，默认 `127.0.0.1` |
+| `--hub-callback` | string | 否 | HubServer 回调地址 |
+| `--workdir` | string | 否 | 工作目录根路径 |
+| `--log-level` | string | 否 | 日志级别，默认 `info` |
+
+### 健康检查
+
+**端点**：`GET /health`
+
+**成功响应** (200 OK)：
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "uptime": 12345
+}
+```
+
+HubServer 通过轮询此端点判断 Agent Runtime 是否就绪。超时（默认 10 秒）未返回 `200` 则视为启动失败。
+
+### 内部调用鉴权
+
+HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服务凭证。MVP 阶段可使用共享密钥（通过环境变量或启动参数传递），后续可升级为更安全的鉴权机制。
+
+### 错误码约定
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `RUNTIME_NOT_READY` | 503 | Agent Runtime 尚未就绪 |
+| `RUN_INVALID_INPUT` | 400 | 请求参数校验失败 |
+| `RUN_NOT_FOUND` | 404 | 指定的 Run 不存在 |
+| `RUN_TIMEOUT` | 504 | Run 执行超时 |
+| `ADAPTER_ERROR` | 502 | Agent Adapter 调用失败 |
 
 ## 初始契约范围
 
