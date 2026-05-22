@@ -7,7 +7,8 @@
     "prisma:migrate:deploy": "bunx prisma migrate deploy",
     "prisma:migrate:reset": "bunx prisma migrate reset",
     "prisma:studio": "bunx prisma studio",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@prisma/client": "5",

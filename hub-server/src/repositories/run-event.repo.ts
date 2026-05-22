@@ -12,9 +12,28 @@ export interface CreateRunEventInput {
   payloadJson?: PayloadJson
 }
 
-export async function createRunEvent(input: CreateRunEventInput) {
+export interface RunEventOutput {
+  id: string
+  runId: string
+  conversationId: string
+  agentId: string | null
+  messageId: string | null
+  type: string
+  sequence: number
+  payloadJson: PayloadJson
+  createdAt: string
+}
+
+function toOutput(record: Record<string, unknown>): RunEventOutput {
+  return {
+    ...record,
+    payloadJson: JSON.parse((record.payloadJson as string) || '{}'),
+  } as RunEventOutput
+}
+
+export async function createRunEvent(input: CreateRunEventInput): Promise<RunEventOutput> {
   const db = getPrismaClient()
-  return db.runEvent.create({
+  const record = await db.runEvent.create({
     data: {
       id: generateId('evt'),
       runId: input.runId,
@@ -27,39 +46,45 @@ export async function createRunEvent(input: CreateRunEventInput) {
       createdAt: new Date().toISOString(),
     },
   })
+  return toOutput(record as Record<string, unknown>)
 }
 
-export async function findRunEventById(id: string) {
+export async function findRunEventById(id: string): Promise<RunEventOutput | null> {
   const db = getPrismaClient()
-  return db.runEvent.findUnique({ where: { id } })
+  const record = await db.runEvent.findUnique({ where: { id } })
+  if (!record) return null
+  return toOutput(record as Record<string, unknown>)
 }
 
-export async function listRunEventsByRun(runId: string) {
+export async function listRunEventsByRun(runId: string): Promise<RunEventOutput[]> {
   const db = getPrismaClient()
-  return db.runEvent.findMany({
+  const records = await db.runEvent.findMany({
     where: { runId },
     orderBy: { sequence: 'asc' },
   })
+  return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
-export async function listRunEventsByConversation(conversationId: string, opts?: { limit?: number; offset?: number }) {
+export async function listRunEventsByConversation(conversationId: string, opts?: { limit?: number; offset?: number }): Promise<RunEventOutput[]> {
   const db = getPrismaClient()
-  return db.runEvent.findMany({
+  const records = await db.runEvent.findMany({
     where: { conversationId },
     orderBy: { sequence: 'asc' },
     take: opts?.limit ?? 200,
     skip: opts?.offset ?? 0,
   })
+  return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
-export async function listRunEventsByType(type: string, opts?: { limit?: number; offset?: number }) {
+export async function listRunEventsByType(type: string, opts?: { limit?: number; offset?: number }): Promise<RunEventOutput[]> {
   const db = getPrismaClient()
-  return db.runEvent.findMany({
+  const records = await db.runEvent.findMany({
     where: { type },
     orderBy: { sequence: 'asc' },
     take: opts?.limit ?? 100,
     skip: opts?.offset ?? 0,
   })
+  return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
 export async function deleteRunEventsByRun(runId: string) {
@@ -67,10 +92,10 @@ export async function deleteRunEventsByRun(runId: string) {
   return db.runEvent.deleteMany({ where: { runId } })
 }
 
-export async function createRunEvents(inputs: CreateRunEventInput[]) {
+export async function createRunEvents(inputs: CreateRunEventInput[]): Promise<RunEventOutput[]> {
   const db = getPrismaClient()
   const now = new Date().toISOString()
-  return db.$transaction(
+  const results = await db.$transaction(
     inputs.map(input =>
       db.runEvent.create({
         data: {
@@ -87,4 +112,5 @@ export async function createRunEvents(inputs: CreateRunEventInput[]) {
       })
     )
   )
+  return results.map(r => toOutput(r as Record<string, unknown>))
 }

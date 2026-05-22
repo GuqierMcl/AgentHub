@@ -19,10 +19,31 @@ export interface UpdateMessagePartInput {
   payloadJson?: PayloadJson
 }
 
-export async function createMessagePart(input: CreateMessagePartInput) {
+export interface MessagePartOutput {
+  id: string
+  messageId: string
+  conversationId: string
+  runId: string | null
+  partIndex: number
+  type: string
+  state: string
+  text: string | null
+  payloadJson: PayloadJson
+  createdAt: string
+  updatedAt: string
+}
+
+function toOutput(record: Record<string, unknown>): MessagePartOutput {
+  return {
+    ...record,
+    payloadJson: JSON.parse((record.payloadJson as string) || '{}'),
+  } as MessagePartOutput
+}
+
+export async function createMessagePart(input: CreateMessagePartInput): Promise<MessagePartOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()
-  return db.messagePart.create({
+  const record = await db.messagePart.create({
     data: {
       id: generateId('part'),
       messageId: input.messageId,
@@ -37,40 +58,46 @@ export async function createMessagePart(input: CreateMessagePartInput) {
       updatedAt: now,
     },
   })
+  return toOutput(record as Record<string, unknown>)
 }
 
-export async function findMessagePartById(id: string) {
+export async function findMessagePartById(id: string): Promise<MessagePartOutput | null> {
   const db = getPrismaClient()
-  return db.messagePart.findUnique({ where: { id } })
+  const record = await db.messagePart.findUnique({ where: { id } })
+  if (!record) return null
+  return toOutput(record as Record<string, unknown>)
 }
 
-export async function listMessagePartsByMessage(messageId: string) {
+export async function listMessagePartsByMessage(messageId: string): Promise<MessagePartOutput[]> {
   const db = getPrismaClient()
-  return db.messagePart.findMany({
+  const records = await db.messagePart.findMany({
     where: { messageId },
     orderBy: { partIndex: 'asc' },
   })
+  return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
-export async function listMessagePartsByConversation(conversationId: string, opts?: { limit?: number; offset?: number }) {
+export async function listMessagePartsByConversation(conversationId: string, opts?: { limit?: number; offset?: number }): Promise<MessagePartOutput[]> {
   const db = getPrismaClient()
-  return db.messagePart.findMany({
+  const records = await db.messagePart.findMany({
     where: { conversationId },
     orderBy: { partIndex: 'asc' },
     take: opts?.limit ?? 200,
     skip: opts?.offset ?? 0,
   })
+  return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
-export async function listMessagePartsByRun(runId: string) {
+export async function listMessagePartsByRun(runId: string): Promise<MessagePartOutput[]> {
   const db = getPrismaClient()
-  return db.messagePart.findMany({
+  const records = await db.messagePart.findMany({
     where: { runId },
     orderBy: { partIndex: 'asc' },
   })
+  return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
-export async function updateMessagePart(id: string, input: UpdateMessagePartInput) {
+export async function updateMessagePart(id: string, input: UpdateMessagePartInput): Promise<MessagePartOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,7 +106,8 @@ export async function updateMessagePart(id: string, input: UpdateMessagePartInpu
   if (input.text !== undefined) data.text = input.text
   if (input.payloadJson !== undefined) data.payloadJson = JSON.stringify(input.payloadJson)
 
-  return db.messagePart.update({ where: { id }, data })
+  const record = await db.messagePart.update({ where: { id }, data })
+  return toOutput(record as Record<string, unknown>)
 }
 
 export async function deleteMessagePart(id: string) {
@@ -92,10 +120,10 @@ export async function deleteMessagePartsByMessage(messageId: string) {
   return db.messagePart.deleteMany({ where: { messageId } })
 }
 
-export async function createMessageParts(inputs: CreateMessagePartInput[]) {
+export async function createMessageParts(inputs: CreateMessagePartInput[]): Promise<MessagePartOutput[]> {
   const db = getPrismaClient()
   const now = new Date().toISOString()
-  return db.$transaction(
+  const results = await db.$transaction(
     inputs.map(input =>
       db.messagePart.create({
         data: {
@@ -114,4 +142,5 @@ export async function createMessageParts(inputs: CreateMessagePartInput[]) {
       })
     )
   )
+  return results.map(r => toOutput(r as Record<string, unknown>))
 }

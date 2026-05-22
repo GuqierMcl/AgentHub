@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid'
 
 const ID_LENGTH = 8
 
-type IdPrefix = 'conv' | 'msg' | 'part' | 'run' | 'evt' | 'art' | 'ver' | 'pr'
+type IdPrefix = 'conv' | 'msg' | 'part' | 'run' | 'evt' | 'art' | 'ver' | 'pr' | 'mp'
 
 const prefixes: Record<IdPrefix, string> = {
   conv: 'conv_',
@@ -13,6 +13,7 @@ const prefixes: Record<IdPrefix, string> = {
   art: 'art_',
   ver: 'ver_',
   pr: 'pr_',
+  mp: 'mp_',
 }
 
 export function generateId(prefix: IdPrefix): string {

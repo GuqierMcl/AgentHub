@@ -17,7 +17,7 @@ export async function createMessagePin(input: CreateMessagePinInput) {
   const db = getPrismaClient()
   return db.messagePin.create({
     data: {
-      id: generateId('part'),
+      id: generateId('mp'),
       conversationId: input.conversationId,
       messageId: input.messageId,
       note: input.note ?? null,
