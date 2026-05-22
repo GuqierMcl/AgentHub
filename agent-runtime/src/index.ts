@@ -42,3 +42,4 @@ const server = Bun.serve({
 
 console.log(banner)
 console.log(`Agent Runtime listening on ${server.url}`)
+console.log(`Data directory: ${config.dataDir}`)
