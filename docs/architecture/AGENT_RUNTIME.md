@@ -153,24 +153,23 @@ Orchestrator 的职责包括：
 
 MVP 阶段，Orchestrator 不需要做复杂 DAG 调度，可以先采用“计划生成 + 顺序执行 + 汇总结果”的模式。后续再扩展并行调度、失败恢复和冲突处理。
 
-### 3.3 Agent Adapter 统一接入
+### 3.3 Agent Executor 统一执行
 
-Agent Runtime 需要通过统一 Adapter 层接入不同类型的 Agent。这是 Agent Runtime 的核心设计之一。
+Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent Runtime 的核心设计之一。
 
-不同 Agent 的运行方式可能完全不同：
+内部智能体的运行方式可能不同，但对 Runtime 上层必须表现为同一套执行协议：
 
 | Agent 类型 | 运行方式 |
 | --- | --- |
-| 普通 LLM Agent | 通过模型 API 调用 |
-| 自建 Agent | 使用用户配置的 System Prompt 和工具集运行 |
-| Claude Code | 可能通过 CLI 或 SDK 接入 |
-| Codex | 可能通过 CLI 或相关工具接入 |
-| OpenCode | 可能通过 CLI、服务或本地进程接入 |
+| 普通 LLM 主智能体 | 通过模型 API 调用 |
+| 系统预设主智能体 | 使用统一执行器与系统提示词运行 |
+| 用户自定义主智能体 | 使用用户配置的 System Prompt 和模型运行 |
+| 子智能体 | Runtime 内部能力单元，由主智能体委派调用 |
 | Mock Agent | 用于 Demo 和测试 |
 
-如果没有统一 Adapter 层，API Server 和 Runtime 内部都会被不同 Agent 的调用方式污染。
+如果没有统一执行层，Runtime 内部会被不同智能体的调用方式污染。
 
-因此，Agent Runtime 应将不同 Agent 的差异封装到 Adapter 内部，对上层只暴露统一的执行语义：
+因此，Agent Runtime 应将内部智能体差异封装到统一 `AgentExecutor` 内部，对上层只暴露统一的执行语义：
 
 - 启动 Agent。
 - 传入上下文。
@@ -180,9 +179,13 @@ Agent Runtime 需要通过统一 Adapter 层接入不同类型的 Agent。这是
 - 接收错误信息。
 - 返回统一事件。
 
-课题要求通过统一适配器层屏蔽 Claude Code、Codex、OpenCode 等主流 Agent 平台差异，并支持用户自建 Agent，因此 Adapter 是 Agent Runtime 的关键架构点。
+### 3.4 外部智能体 Adapter
 
-### 3.4 上下文组装
+Claude Code、Codex、OpenCode 等外部 Agent 平台差异，应该被封装在 Adapter 内部，对上层只暴露统一事件。
+
+课题要求通过统一适配器层屏蔽 Claude Code、Codex、OpenCode 等主流 Agent 平台差异，并支持用户自建 Agent，因此 Adapter 仍然是 Agent Runtime 的关键架构点，但它只面向外部智能体。
+
+### 3.5 上下文组装
 
 Agent Runtime 不直接管理完整业务数据库，但在执行前需要由 API Server 提供必要上下文。
 
@@ -206,7 +209,7 @@ Runtime 需要将这些上下文整理成 Agent 可理解的输入。
 
 因此，Agent Runtime 不只是简单把用户输入转发给模型，而是要承担“执行上下文编排”的职责。
 
-### 3.5 产物生成与执行环境管理
+### 3.6 产物生成与执行环境管理
 
 Agent 的输出不仅是文本，还可能是代码、网页、文档、Diff、部署状态等结构化产物。
 
@@ -239,7 +242,7 @@ Agent Runtime 需要负责将 Agent 的执行结果转化为平台可识别的�
 
 MVP 阶段，Workspace 可以是轻量本地目录；后续可以演进为沙箱、容器或远程执行环境。
 
-### 3.6 事件流输出
+### 3.7 事件流输出
 
 Agent Runtime 不应只返回一个最终结果，而应输出一条持续的事件流。
 
@@ -287,7 +290,8 @@ Agent Runtime 负责执行过程，包括：
 
 - Orchestrator 调度。
 - Agent 选择。
-- Agent Adapter 调用。
+- Agent Executor 调用。
+- 外部 Agent Adapter 调用。
 - LLM 调用。
 - CLI Agent 进程管理。
 - Workspace 管理。

@@ -67,6 +67,124 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `RUN_NOT_FOUND` | 404 | 指定的 Run 不存在 |
 | `RUN_TIMEOUT` | 504 | Run 执行超时 |
 | `ADAPTER_ERROR` | 502 | Agent Adapter 调用失败 |
+| `AGENT_NOT_FOUND` | 404 | 指定的 Agent 不存在，或隐藏 Agent 未授权查看 |
+| `AGENT_INVALID_FILTER` | 400 | Agent 查询参数无效 |
+| `AGENT_REGISTRY_UNAVAILABLE` | 503 | Agent 注册表不可用 |
+
+## Runtime Agents API
+
+Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的智能体注册表。本 API 只面向 `hub-server`，不直接面向浏览器。
+
+### 查询智能体列表
+
+**端点**：`GET /runtime/agents`
+
+默认只返回：
+
+- `tier = "primary"`
+- `visibility = "visible"`
+- `enabled = true`
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `includeHidden` | `true` / `false` | 否 | `false` | 是否包含隐藏子智能体 |
+| `enabledOnly` | `true` / `false` | 否 | `true` | 是否只返回启用的智能体 |
+| `tier` | `primary` / `subagent` | 否 | 默认 `primary` | 按主智能体或子智能体过滤 |
+| `origin` | `system` / `user` / `external` | 否 | 无 | 按来源过滤 |
+
+成功响应：
+
+```json
+{
+  "agents": [
+    {
+      "id": "orchestrator",
+      "name": "Orchestrator",
+      "description": "Default entry agent that understands the task, chooses the right agents, and summarizes the final answer.",
+      "tier": "primary",
+      "origin": "system",
+      "visibility": "visible",
+      "entryPolicy": "default",
+      "delegationPolicy": "can-delegate",
+      "executorType": "orchestrator",
+      "capabilities": ["routing", "planning", "delegation", "aggregation"],
+      "enabled": true,
+      "readonly": true
+    }
+  ]
+}
+```
+
+失败响应：
+
+```json
+{
+  "error": {
+    "code": "AGENT_INVALID_FILTER",
+    "message": "Invalid agent filter query",
+    "details": []
+  }
+}
+```
+
+### 查询智能体详情
+
+**端点**：`GET /runtime/agents/:agentId`
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `includeHidden` | `true` / `false` | 否 | `false` | 是否允许查询隐藏子智能体 |
+
+行为规则：
+
+- 可见主智能体可直接查询。
+- 隐藏子智能体默认返回 `AGENT_NOT_FOUND`。
+- 查询隐藏子智能体时必须显式传入 `includeHidden=true`。
+
+成功响应：
+
+```json
+{
+  "id": "orchestrator",
+  "name": "Orchestrator",
+  "description": "Default entry agent that understands the task, chooses the right agents, and summarizes the final answer.",
+  "tier": "primary",
+  "origin": "system",
+  "visibility": "visible",
+  "entryPolicy": "default",
+  "delegationPolicy": "can-delegate",
+  "executorType": "orchestrator",
+  "capabilities": ["routing", "planning", "delegation", "aggregation"],
+  "enabled": true,
+  "readonly": true,
+  "allowedSubagents": ["explore", "general", "file", "deploy"],
+  "allowedTools": [],
+  "permissionPolicy": {
+    "filesystem": "none",
+    "shell": "none",
+    "network": "none",
+    "deploy": "none",
+    "requiresApproval": false
+  }
+}
+```
+
+外部智能体详情会返回脱敏后的 `external` 配置，不返回底层命令参数：
+
+```json
+{
+  "external": {
+    "provider": "opencode",
+    "outputFormat": "event-stream",
+    "workingDirectoryPolicy": "runtime-workspace",
+    "configDirectoryPolicy": "runtime-managed"
+  }
+}
+```
 
 ## 初始契约范围
 

@@ -1,6 +1,7 @@
 import { Hono, Context, Next } from 'hono'
 import { cors } from 'hono/cors'
 import { config } from './config'
+import { AgentRegistry } from './agents'
 import { ProviderService } from './provider'
 import router from './routers'
 
@@ -23,10 +24,12 @@ if (config.cors.length > 0) {
 
 // 初始化 ProviderService
 const providerService = new ProviderService(config.dataDir)
+const agentRegistry = new AgentRegistry(config.dataDir)
 
 // 注入 ProviderService 到 Context
 app.use('*', async (c: Context, next: Next) => {
   c.set('providerService', providerService)
+  c.set('agentRegistry', agentRegistry)
   await next()
 })
 
@@ -50,13 +53,16 @@ const server = Bun.serve({
   fetch: app.fetch,
 })
 
-// 初始化 ProviderService
-providerService.initialize().then(() => {
+// 初始化 Runtime services
+Promise.all([
+  providerService.initialize(),
+  agentRegistry.initialize(),
+]).then(() => {
   console.log(banner)
   console.log(`Agent Runtime listening on ${server.url}`)
   console.log(`Data directory: ${config.dataDir}`)
 }).catch((error) => {
-  console.error('Failed to initialize ProviderService:', error)
+  console.error('Failed to initialize Agent Runtime services:', error)
   console.log(banner)
   console.log(`Agent Runtime listening on ${server.url}`)
   console.log(`Data directory: ${config.dataDir}`)
