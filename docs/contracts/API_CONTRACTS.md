@@ -70,6 +70,8 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `AGENT_NOT_FOUND` | 404 | 指定的 Agent 不存在，或隐藏 Agent 未授权查看 |
 | `AGENT_INVALID_FILTER` | 400 | Agent 查询参数无效 |
 | `AGENT_REGISTRY_UNAVAILABLE` | 503 | Agent 注册表不可用 |
+| `RUN_INVALID_PARTICIPANTS` | 400 | RunInput 中的会话智能体成员不合法 |
+| `RUN_INVALID_ENTRY_AGENT` | 400 | RunInput 无法解析合法入口智能体 |
 
 ## Runtime Agents API
 
@@ -185,6 +187,195 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
   }
 }
 ```
+
+## Runtime RunInput 会话入口规则
+
+Runtime Run API 尚未实现；本节先记录后续 `POST /runtime/runs` 必须遵守的 IM 会话入口契约。
+
+RunInput 必须携带会话模式和当前会话智能体成员：
+
+```ts
+type RuntimeConversationMode = "single" | "group"
+
+type RunInput = {
+  conversationId: string
+  mode: RuntimeConversationMode
+  participantAgentIds: string[]
+  addressedAgentIds?: string[]
+  userMessage: unknown
+  history: unknown[]
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+| --- | --- |
+| `mode` | `single` 表示单聊，`group` 表示群聊 |
+| `participantAgentIds` | 当前会话包含的主智能体成员，由 HubServer 提供 |
+| `addressedAgentIds` | 当前用户消息显式 @ 的主智能体；为空表示未显式指定 |
+
+入口解析规则：
+
+| 场景 | 入口智能体 |
+| --- | --- |
+| 单聊 | `participantAgentIds[0]` |
+| 群聊且 `addressedAgentIds` 非空 | `addressedAgentIds` |
+| 群聊且 `addressedAgentIds` 为空 | `orchestrator` |
+
+校验规则：
+
+- 单聊必须且只能包含一个可见、启用、可调用的主智能体。
+- 单聊入口不能是 `orchestrator`。
+- 群聊必须包含 `orchestrator`。
+- 群聊成员只能是可见、启用的主智能体。
+- `addressedAgentIds` 必须是 `participantAgentIds` 的子集。
+- 子智能体不能作为会话成员，也不能被用户显式 @。
+- 当前阶段 `addressedAgentIds` 最多只能包含 1 个主智能体；多个 @ 的并行执行留待后续版本。
+- 成员校验失败返回 `RUN_INVALID_PARTICIPANTS`。
+- 入口解析失败返回 `RUN_INVALID_ENTRY_AGENT`。
+
+## Runtime Runs API
+
+Runtime Runs API 用于启动一次智能体执行。本阶段只实现 in-memory Run、MockExecutor 和最小 SSE 事件流，不持久化数据库，不调用真实模型，不执行工具。
+
+### 创建 Run
+
+**端点**：`POST /runtime/runs`
+
+请求体：
+
+```json
+{
+  "conversationId": "conv_123",
+  "mode": "single",
+  "participantAgentIds": ["coder"],
+  "addressedAgentIds": [],
+  "userMessage": {
+    "role": "user",
+    "content": "请帮我看一下这个组件。"
+  },
+  "history": []
+}
+```
+
+成功响应 (201 Created)：
+
+```json
+{
+  "runId": "run_xxx",
+  "status": "queued",
+  "entryAgentIds": ["coder"],
+  "entryReason": "single_participant",
+  "eventsUrl": "/runtime/runs/run_xxx/events"
+}
+```
+
+入口原因：
+
+| `entryReason` | 说明 |
+| --- | --- |
+| `single_participant` | 单聊入口为该单聊绑定的主智能体 |
+| `group_default_orchestrator` | 群聊未显式 @，入口为 `orchestrator` |
+| `group_addressed_agent` | 群聊显式 @ 单个主智能体，入口为被 @ 的智能体 |
+
+失败响应：
+
+```json
+{
+  "error": {
+    "code": "RUN_INVALID_PARTICIPANTS",
+    "message": "Group chat must include orchestrator"
+  }
+}
+```
+
+### 查询 Run
+
+**端点**：`GET /runtime/runs/:runId`
+
+成功响应：
+
+```json
+{
+  "id": "run_xxx",
+  "status": "completed",
+  "input": {
+    "conversationId": "conv_123",
+    "mode": "single",
+    "participantAgentIds": ["coder"],
+    "addressedAgentIds": [],
+    "userMessage": {
+      "role": "user",
+      "content": "请帮我看一下这个组件。"
+    },
+    "history": []
+  },
+  "entryAgentIds": ["coder"],
+  "entryReason": "single_participant",
+  "createdAt": "2026-05-23T00:00:00.000Z",
+  "updatedAt": "2026-05-23T00:00:00.000Z"
+}
+```
+
+不存在时返回 `RUN_NOT_FOUND`。
+
+### 订阅 Run 事件
+
+**端点**：`GET /runtime/runs/:runId/events`
+
+响应类型：`text/event-stream`
+
+行为：
+
+- 订阅时先按顺序 replay 已有事件。
+- Run 未结束时继续推送新事件。
+- Run 到达终态事件后关闭流。
+- 不存在时返回 `RUN_NOT_FOUND`。
+
+事件格式：
+
+```text
+event: message.delta
+data: {"id":"evt_xxx","runId":"run_xxx","type":"message.delta","timestamp":"2026-05-23T00:00:00.000Z","agentId":"coder","data":{"delta":"Coder received the task."}}
+```
+
+本阶段事件类型：
+
+```text
+run.started
+agent.entry.resolved
+agent.started
+message.delta
+message.completed
+agent.completed
+run.completed
+run.failed
+run.cancelled
+```
+
+事件字段：
+
+```ts
+type RunEvent = {
+  id: string
+  runId: string
+  type: string
+  timestamp: string
+  agentId?: string
+  data?: unknown
+}
+```
+
+### 取消 Run
+
+**端点**：`POST /runtime/runs/:runId/cancel`
+
+行为：
+
+- `queued` / `running` Run 会转为 `cancelled` 并输出 `run.cancelled`。
+- 已经是 `completed`、`failed`、`cancelled` 的 Run 保持原状态。
+- 不存在时返回 `RUN_NOT_FOUND`。
 
 ## 初始契约范围
 

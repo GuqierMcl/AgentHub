@@ -81,14 +81,147 @@ MVP 子智能体建议如下：
 Runtime 创建 Run 时，需要先解析入口智能体：
 
 ```text
-如果 RunInput 显式指定 agentId：
-  使用指定主智能体作为入口
+如果 mode = single：
+  使用该单聊绑定的主智能体作为入口
+  单聊入口不能是 orchestrator 或子智能体
 
-如果 RunInput 未指定 agentId：
-  使用 orchestrator 作为默认入口
+如果 mode = group 且用户显式 @ 了一个或多个主智能体：
+  使用被 @ 的主智能体作为入口
+  被 @ 的智能体必须属于当前群聊
+
+如果 mode = group 且用户没有显式 @ 主智能体：
+  使用 orchestrator 作为入口
+  群聊必须包含 orchestrator
 ```
 
 用户显式选择外部智能体、系统预设主智能体或自定义主智能体时，Runtime 不应强制再绕回 orchestrator。这样可以保留用户明确意图。
+
+IM 会话的成员关系由 HubServer 管理。Runtime 不创建或持久化会话成员，只在每次 Run 中接收执行态的会话参与者列表，并校验入口解析是否合法。
+
+### 3.1.1 IM 会话参与者模型
+
+AgentHub 的 IM 体验要求不同会话拥有不同的主智能体成员。Runtime 的 RunInput 必须携带当前会话的执行态成员信息。
+
+推荐结构：
+
+```ts
+type RuntimeConversationMode = "single" | "group"
+
+type RunInput = {
+  conversationId: string
+  mode: RuntimeConversationMode
+  participantAgentIds: string[]
+  addressedAgentIds?: string[]
+  userMessage: RuntimeMessage
+  history: RuntimeMessage[]
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+| --- | --- |
+| `mode` | 单聊或群聊 |
+| `participantAgentIds` | 当前会话包含的主智能体成员 |
+| `addressedAgentIds` | 当前用户消息显式 @ 的主智能体；为空表示未显式指定 |
+
+约束：
+
+- `participantAgentIds` 只能包含可见、启用、可调用的主智能体。
+- `participantAgentIds` 不能包含子智能体。
+- 单聊必须且只能包含一个非 `orchestrator` 主智能体。
+- 群聊必须包含 `orchestrator`，由 HubServer 创建群聊时自动加入。
+- 群聊可以包含系统预设主智能体、用户自定义主智能体和外部主智能体。
+- `addressedAgentIds` 必须是 `participantAgentIds` 的子集。
+- 用户不能显式 @ 子智能体。
+
+### 3.1.2 单聊规则
+
+单聊用于用户与一个明确主智能体直接对话。
+
+规则：
+
+- 用户创建单聊时，应从 `GET /runtime/agents` 返回的可见主智能体中选择。
+- 单聊候选列表应排除 `entryPolicy = "default"` 的 `orchestrator`。
+- 单聊可以选择外部主智能体。
+- 单聊不自动加入 `orchestrator`。
+- 单聊 Run 未提供 `addressedAgentIds` 时，入口就是该单聊绑定的主智能体。
+
+示例：
+
+```json
+{
+  "mode": "single",
+  "participantAgentIds": ["coder"],
+  "addressedAgentIds": []
+}
+```
+
+入口解析结果：
+
+```json
+{
+  "entryAgentIds": ["coder"],
+  "reason": "single_participant"
+}
+```
+
+### 3.1.3 群聊规则
+
+群聊用于多个主智能体协作。
+
+创建规则：
+
+- 用户选择多个可见主智能体。
+- HubServer 自动加入 `orchestrator`。
+- HubServer 需要对成员列表去重。
+- 用户不需要手动选择 `orchestrator`。
+- 当前阶段 `addressedAgentIds` 只允许包含 1 个主智能体；后续计划扩展为并行 @ 多个主智能体。
+
+运行规则：
+
+- 用户没有显式 @ 主智能体时，入口是 `orchestrator`。
+- 用户显式 @ 一个或多个主智能体时，入口是被 @ 的主智能体。
+- 被 @ 的主智能体必须属于当前群聊。
+- 用户不能显式 @ 子智能体。
+
+默认群聊入口示例：
+
+```json
+{
+  "mode": "group",
+  "participantAgentIds": ["orchestrator", "coder", "reviewer", "opencode"],
+  "addressedAgentIds": []
+}
+```
+
+入口解析结果：
+
+```json
+{
+  "entryAgentIds": ["orchestrator"],
+  "reason": "group_default_orchestrator"
+}
+```
+
+显式 @ 示例：
+
+```json
+{
+  "mode": "group",
+  "participantAgentIds": ["orchestrator", "coder", "reviewer", "opencode"],
+  "addressedAgentIds": ["reviewer"]
+}
+```
+
+入口解析结果：
+
+```json
+{
+  "entryAgentIds": ["reviewer"],
+  "reason": "group_addressed_agents"
+}
+```
 
 ### 3.2 调度职责
 
@@ -373,16 +506,22 @@ type AgentRelation = {
 ### 7.1 用户入口解析
 
 ```text
-RunInput.agentId 存在：
-  1. AgentRegistry 查找 agentId
-  2. 要求 tier = primary
-  3. 要求 visibility = visible
-  4. 要求 entryPolicy = callable 或 default
-  5. 通过后作为入口智能体
+mode = single：
+  1. participantAgentIds 必须有且只有一个
+  2. 该智能体必须是 visible primary callable
+  3. 该智能体不能是 orchestrator
+  4. 通过后作为入口智能体
 
-RunInput.agentId 不存在：
-  1. 使用 entryPolicy = default 的 orchestrator
-  2. 如果缺失则 run.failed
+mode = group 且 addressedAgentIds 非空：
+  1. addressedAgentIds 必须全部属于 participantAgentIds
+  2. 每个 addressed agent 必须是 visible primary callable 或 default
+  3. 不允许 addressed agent 是子智能体
+  4. 通过后使用 addressedAgentIds 作为入口智能体
+
+mode = group 且 addressedAgentIds 为空：
+  1. participantAgentIds 必须包含 orchestrator
+  2. orchestrator 必须是 visible primary default
+  3. 通过后使用 orchestrator 作为入口智能体
 ```
 
 ### 7.2 委派校验
@@ -655,7 +794,10 @@ MVP 可以先只生成 `permission.requested`，由 HubServer 和前端后续补
 
 完成标准：
 
-- 未指定 `agentId` 时默认进入 `orchestrator`。
+- 单聊未显式 @ 时进入该单聊绑定的主智能体。
+- 群聊未显式 @ 时默认进入 `orchestrator`。
+- 群聊显式 @ 时进入被 @ 的主智能体。
+- 当前阶段 `addressedAgentIds` 只允许 1 个主智能体。
 - 指定子智能体作为入口会被拒绝。
 - 运行态事件可通过 SSE 读取。
 
@@ -721,4 +863,3 @@ MVP 可以先只生成 `permission.requested`，由 HubServer 和前端后续补
 - 委派关系使用显式 `AgentRelation` 或 `allowedSubagents`，不得靠 prompt 隐式执行。
 - 外部智能体通过 Adapter 接入，默认作为 terminal 主智能体。
 - 权限必须结构化声明并在调用前校验。
-
