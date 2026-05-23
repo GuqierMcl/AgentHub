@@ -151,7 +151,7 @@ Orchestrator 的职责包括：
 
 课题要求 Orchestrator 在群聊模式下自动理解用户意图，将复杂任务拆解并分派给合适的子 Agent；子 Agent 完成后，再由 Orchestrator 聚合产出并汇报结果。
 
-MVP 阶段，Orchestrator 不需要做复杂 DAG 调度，可以先采用“计划生成 + 顺序执行 + 汇总结果”的模式。后续再扩展并行调度、失败恢复和冲突处理。
+MVP 阶段，Orchestrator 不需要做复杂 DAG 调度，可以先采用“计划生成 + `run_task` 顺序执行 + 汇总结果”的模式。`run_task` 是 Runtime 内部任务工具，只对 Orchestrator 可见，用于顺序调用允许的主智能体或子智能体。后续再扩展并行调度、失败恢复和冲突处理。
 
 ### 3.3 Agent Executor 统一执行
 
@@ -174,7 +174,7 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - 启动 Agent。
 - 传入上下文。
 - 接收流式输出。
-- 接收工具调用。
+- 接收工具调用与内部任务派发。
 - 接收产物结果。
 - 接收错误信息。
 - 返回统一事件。

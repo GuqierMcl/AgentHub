@@ -44,6 +44,10 @@ export const RunEventTypeSchema = z.enum([
   "run.started",
   "agent.entry.resolved",
   "agent.started",
+  "orchestrator.plan.created",
+  "task.started",
+  "task.completed",
+  "task.failed",
   "message.delta",
   "message.completed",
   "agent.completed",
@@ -53,14 +57,56 @@ export const RunEventTypeSchema = z.enum([
 ])
 export type RunEventType = z.infer<typeof RunEventTypeSchema>
 
-export type RunEvent = {
-  id: string
-  runId: string
-  type: RunEventType
-  timestamp: string
-  agentId?: string
-  data?: unknown
-}
+export const RunEventSchema = z.object({
+  id: z.string(),
+  runId: z.string(),
+  type: RunEventTypeSchema,
+  timestamp: z.string(),
+  agentId: z.string().optional(),
+  parentAgentId: z.string().optional(),
+  taskId: z.string().optional(),
+  data: z.unknown().optional(),
+})
+export type RunEvent = z.infer<typeof RunEventSchema>
+
+export const OrchestratorRiskLevelSchema = z.enum(["low", "medium", "high"])
+export type OrchestratorRiskLevel = z.infer<typeof OrchestratorRiskLevelSchema>
+
+export const OrchestratorTaskSchema = z.object({
+  taskId: z.string().min(1),
+  targetAgentId: z.string().min(1),
+  title: z.string().min(1),
+  instruction: z.string().min(1),
+  expectedOutput: z.string().min(1),
+  requiredCapabilities: z.array(z.string()).default([]),
+  riskLevel: OrchestratorRiskLevelSchema,
+})
+export type OrchestratorTask = z.infer<typeof OrchestratorTaskSchema>
+
+export const OrchestratorPlanSchema = z.object({
+  intent: z.string().min(1),
+  entryAgentId: z.string().min(1),
+  tasks: z.array(OrchestratorTaskSchema),
+  summaryInstruction: z.string().min(1),
+})
+export type OrchestratorPlan = z.infer<typeof OrchestratorPlanSchema>
+
+export const TaskExecutionStatusSchema = z.enum([
+  "completed",
+  "failed",
+  "cancelled",
+])
+export type TaskExecutionStatus = z.infer<typeof TaskExecutionStatusSchema>
+
+export const TaskExecutionResultSchema = z.object({
+  taskId: z.string().min(1),
+  targetAgentId: z.string().min(1),
+  status: TaskExecutionStatusSchema,
+  summary: z.string(),
+  data: z.unknown().optional(),
+  events: z.array(RunEventSchema),
+})
+export type TaskExecutionResult = z.infer<typeof TaskExecutionResultSchema>
 
 export type RunRecord = {
   id: string
@@ -88,6 +134,9 @@ export type AgentExecutionContext = {
   input: RunInput
   agent: AgentDefinition
   signal: AbortSignal
+  task?: OrchestratorTask
+  parentAgentId?: string
+  runTask?: (task: OrchestratorTask) => Promise<TaskExecutionResult>
 }
 
 export type AgentExecutor = {

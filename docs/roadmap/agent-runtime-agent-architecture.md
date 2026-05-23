@@ -142,7 +142,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。Orchestrator V1、AI SDK 执行器和外部 Adapter 实接仍保留到后续阶段。
+阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已进入第一轮实现：`orchestrator` 的最小编排路径、`run_task` 内部任务工具和顺序委派已落地；并行 DAG、AI SDK 执行器和外部 Adapter 实接仍保留到后续阶段。
 
 ## 已完成
 
@@ -155,11 +155,12 @@ Agent Runtime 智能体架构
 - 阶段 2 已落地 `AgentExecutor`、最小 RunEvent 协议和 `MockExecutor`。
 - 阶段 3 已落地 `POST /runtime/runs`、`GET /runtime/runs/:runId`、`GET /runtime/runs/:runId/events`、`POST /runtime/runs/:runId/cancel`。
 - 阶段 3 已落地 IM 会话入口解析：单聊绑定主智能体、群聊默认 `orchestrator`、群聊单 @ 指定主智能体。
+- 阶段 4 已落地 `orchestrator` 最小编排执行、`run_task` 内部任务工具、任务生命周期事件和顺序委派。
 
 ## 待办
 
 - 补充 `AiSdkExecutor` 模板。
-- 实现 `orchestrator` 规则版计划与委派流程。
+- 扩展 `orchestrator` 的更完整计划策略、汇总策略和错误恢复。
 - 实现外部智能体 Adapter 骨架。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
 

@@ -1,5 +1,6 @@
 export { EntryResolver, RunInputValidationError } from "./entry-resolver"
 export { MockExecutor } from "./mock-executor"
+export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
 export type {
@@ -14,6 +15,11 @@ export type {
   EntryResolution,
   AgentExecutionContext,
   AgentExecutor,
+  OrchestratorRiskLevel,
+  OrchestratorTask,
+  OrchestratorPlan,
+  TaskExecutionStatus,
+  TaskExecutionResult,
   RunCreateResponse,
   RunRecordResponse,
 } from "./types"
@@ -24,6 +30,12 @@ export {
   RunStatusSchema,
   EntryReasonSchema,
   RunEventTypeSchema,
+  RunEventSchema,
+  OrchestratorRiskLevelSchema,
+  OrchestratorTaskSchema,
+  OrchestratorPlanSchema,
+  TaskExecutionStatusSchema,
+  TaskExecutionResultSchema,
   RunCreateResponseSchema,
   RunRecordResponseSchema,
 } from "./types"

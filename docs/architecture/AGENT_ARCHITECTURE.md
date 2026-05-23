@@ -236,7 +236,9 @@ type RunInput = {
 - 汇总子任务输出。
 - 输出面向用户的最终答复。
 
-MVP 先采用“计划生成 + 顺序执行 + 汇总”的模型，暂不做复杂 DAG。
+MVP 先采用“计划生成 + `run_task` 顺序执行 + 汇总”的模型，暂不做复杂 DAG。
+
+`run_task` 是 Runtime 内部任务工具，只对 `orchestrator` 可见，用于顺序调用允许的主智能体或子智能体。并行 DAG 任务委派是后续专门阶段，不在本轮展开。
 
 ```text
 RunInput
@@ -601,8 +603,9 @@ run.started
 agent.entry.resolved
 agent.started
 orchestrator.plan.created
-agent.delegation.started
-agent.delegation.completed
+task.started
+task.completed
+task.failed
 message.delta
 message.completed
 permission.requested
@@ -628,6 +631,8 @@ type RunEventBase = {
 ```
 
 这样 HubServer 可以持久化完整执行轨迹，并在前端展示“由哪个主智能体委派了哪个内部能力”。
+
+其中 `task.*` 事件表示 `orchestrator` 通过 `run_task` 发起的内部任务生命周期，建议携带 `taskId`、`parentAgentId` 和 `targetAgentId` 等字段，便于追踪委派链路。
 
 ## 10. Runtime 模块划分
 

@@ -2,13 +2,19 @@ import type { AgentRegistry } from "../agents"
 import { createChildLogger } from "../logger"
 import { EntryResolver, RunInputValidationError } from "./entry-resolver"
 import { MockExecutor } from "./mock-executor"
+import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
 import type {
+  AgentExecutionContext,
+  AgentExecutor,
+  OrchestratorTask,
   RunEvent,
   RunInput,
   RunRecord,
   RunStatus,
+  TaskExecutionResult,
 } from "./types"
+import type { AgentDefinition } from "../agents"
 
 const log = createChildLogger("run-manager")
 
@@ -18,22 +24,56 @@ type RunExecutionState = {
   abortController: AbortController
 }
 
+class TaskExecutionError extends Error {
+  constructor(
+    public code:
+      | "TASK_SOURCE_CANNOT_DELEGATE"
+      | "TASK_TARGET_NOT_FOUND"
+      | "TASK_TARGET_DISABLED"
+      | "TASK_TARGET_NOT_ALLOWED"
+      | "TASK_EXECUTION_ABORTED"
+      | "TASK_EXECUTION_FAILED",
+    message: string,
+    public details?: unknown
+  ) {
+    super(message)
+    this.name = "TaskExecutionError"
+  }
+}
+
 export class RunManager {
   private entryResolver: EntryResolver
   private mockExecutor = new MockExecutor()
+  private orchestratorExecutor: OrchestratorExecutor
   private runs: Map<string, RunRecord> = new Map()
   private events: Map<string, RunEvent[]> = new Map()
   private subscriptions: Map<string, Set<RunSubscription>> = new Map()
   private executionState: Map<string, RunExecutionState> = new Map()
 
-  constructor(agentRegistry: AgentRegistry) {
+  constructor(private agentRegistry: AgentRegistry) {
     this.entryResolver = new EntryResolver(agentRegistry)
+    this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry)
   }
 
   createRun(input: RunInput): RunRecord {
-    log.info("Resolving entry agent for run")
+    log.info(
+      {
+        conversationId: input.conversationId,
+        mode: input.mode,
+        participantAgentIds: input.participantAgentIds,
+        addressedAgentIds: input.addressedAgentIds ?? [],
+      },
+      "Resolving entry agent for run"
+    )
+
     const resolution = this.entryResolver.resolve(input)
-    log.info({ entryAgentIds: resolution.entryAgentIds, entryReason: resolution.entryReason }, "Entry agent resolved")
+    log.info(
+      {
+        entryAgentIds: resolution.entryAgentIds,
+        entryReason: resolution.entryReason,
+      },
+      "Entry agent resolved"
+    )
 
     const now = new Date().toISOString()
     const run: RunRecord = {
@@ -52,7 +92,7 @@ export class RunManager {
     const abortController = new AbortController()
     this.executionState.set(run.id, { abortController })
 
-    log.info({ runId: run.id }, "Run created, scheduling execution")
+    log.info({ runId: run.id, entryAgentId: resolution.entryAgents[0].id }, "Run created, scheduling execution")
     queueMicrotask(() => {
       void this.executeRun(run.id, resolution.entryAgents[0], abortController)
     })
@@ -106,9 +146,17 @@ export class RunManager {
     return run
   }
 
+  private resolveExecutor(agent: AgentDefinition): AgentExecutor {
+    if (agent.id === "orchestrator") {
+      return this.orchestratorExecutor
+    }
+
+    return this.mockExecutor
+  }
+
   private async executeRun(
     runId: string,
-    agent: NonNullable<ReturnType<EntryResolver["resolve"]>["entryAgents"][number]>,
+    agent: AgentDefinition,
     abortController: AbortController
   ): Promise<void> {
     const run = this.runs.get(runId)
@@ -129,19 +177,13 @@ export class RunManager {
         entryReason: run.entryReason,
       }))
 
-      log.info({ runId, agentId: agent.id, executorType: agent.executorType }, "Executing agent")
-      for await (const event of this.mockExecutor.execute({
-        runId,
-        input: run.input,
+      log.info({ runId, agentId: agent.id, executorType: agent.executorType }, "Executing entry agent")
+      await this.executeAgentExecution({
+        run,
         agent,
-        signal: abortController.signal,
-      })) {
-        if (abortController.signal.aborted || run.status === "cancelled") {
-          log.info({ runId }, "Run aborted during execution")
-          return
-        }
-        this.emit(event)
-      }
+        abortController,
+        onEvent: (event) => this.emit(event),
+      })
 
       if (abortController.signal.aborted || run.status === "cancelled") {
         log.info({ runId }, "Run aborted after execution loop")
@@ -161,16 +203,298 @@ export class RunManager {
 
       const message = error instanceof Error ? error.message : "Run failed"
       run.error = {
-        code: error instanceof RunInputValidationError ? error.code : "RUN_FAILED",
+        code: error instanceof RunInputValidationError
+          ? error.code
+          : error instanceof TaskExecutionError
+            ? error.code
+            : "RUN_FAILED",
         message,
       }
       this.updateRunStatus(run, "failed")
       this.emit(createRunEvent(runId, "run.failed", undefined, run.error))
       log.error({ runId, error: message }, "Run failed")
     } finally {
-      if (run.status !== "cancelled") {
-        this.executionState.delete(runId)
+      this.executionState.delete(runId)
+    }
+  }
+
+  private async executeAgentExecution(options: {
+    run: RunRecord
+    agent: AgentDefinition
+    abortController: AbortController
+    onEvent: (event: RunEvent) => void
+    parentAgentId?: string
+    task?: OrchestratorTask
+  }): Promise<RunEvent[]> {
+    const { run, agent, abortController, onEvent, parentAgentId, task } = options
+    const executor = this.resolveExecutor(agent)
+    const events: RunEvent[] = []
+
+    const context: AgentExecutionContext = {
+      runId: run.id,
+      input: run.input,
+      agent,
+      signal: abortController.signal,
+      parentAgentId,
+      task,
+    }
+
+    if (agent.id === "orchestrator") {
+      context.runTask = async (nextTask) => this.executeTask({
+        run,
+        sourceAgent: agent,
+        task: nextTask,
+        abortController,
+      })
+    }
+
+    for await (const event of executor.execute(context)) {
+      if (abortController.signal.aborted || run.status === "cancelled") {
+        log.info({ runId: run.id, agentId: agent.id }, "Execution aborted during agent event stream")
+        break
       }
+
+      const normalizedEvent = this.normalizeEvent(event, parentAgentId, task?.taskId)
+      events.push(normalizedEvent)
+      onEvent(normalizedEvent)
+    }
+
+    return events
+  }
+
+  private async executeTask(options: {
+    run: RunRecord
+    sourceAgent: AgentDefinition
+    task: OrchestratorTask
+    abortController: AbortController
+  }): Promise<TaskExecutionResult> {
+    const { run, sourceAgent, task, abortController } = options
+    const lifecycleEvents: RunEvent[] = []
+
+    const startedEvent = this.createTaskLifecycleEvent(run.id, sourceAgent.id, "task.started", task, {
+      targetAgentId: task.targetAgentId,
+      title: task.title,
+      instruction: task.instruction,
+      riskLevel: task.riskLevel,
+    })
+    lifecycleEvents.push(startedEvent)
+
+    try {
+      const targetAgent = this.resolveTaskTarget(sourceAgent, task.targetAgentId)
+
+      if (abortController.signal.aborted || run.status === "cancelled") {
+        throw new TaskExecutionError(
+          "TASK_EXECUTION_ABORTED",
+          "Task execution was cancelled before the target agent started",
+          { taskId: task.taskId, targetAgentId: targetAgent.id }
+        )
+      }
+
+      log.info(
+        {
+          runId: run.id,
+          sourceAgentId: sourceAgent.id,
+          taskId: task.taskId,
+          targetAgentId: targetAgent.id,
+        },
+        "Executing delegated task"
+      )
+
+      const targetEvents: RunEvent[] = []
+      await this.executeAgentExecution({
+        run,
+        agent: targetAgent,
+        abortController,
+        parentAgentId: sourceAgent.id,
+        task,
+        onEvent: (event) => {
+          targetEvents.push(event)
+        },
+      })
+
+      lifecycleEvents.push(...targetEvents)
+
+      if (abortController.signal.aborted || this.getRun(run.id)?.status === "cancelled") {
+        throw new TaskExecutionError(
+          "TASK_EXECUTION_ABORTED",
+          "Task execution was cancelled",
+          { taskId: task.taskId, targetAgentId: targetAgent.id }
+        )
+      }
+
+      const summary = this.extractTaskSummary(targetEvents, targetAgent, task)
+      const completedEvent = this.createTaskLifecycleEvent(run.id, sourceAgent.id, "task.completed", task, {
+        targetAgentId: targetAgent.id,
+        summary,
+        eventCount: targetEvents.length,
+      })
+      lifecycleEvents.push(completedEvent)
+
+      log.info(
+        {
+          runId: run.id,
+          sourceAgentId: sourceAgent.id,
+          taskId: task.taskId,
+          targetAgentId: targetAgent.id,
+          eventCount: targetEvents.length,
+        },
+        "Delegated task completed"
+      )
+
+      return {
+        taskId: task.taskId,
+        targetAgentId: targetAgent.id,
+        status: "completed",
+        summary,
+        data: {
+          eventCount: targetEvents.length,
+        },
+        events: lifecycleEvents,
+      }
+    } catch (error) {
+      const taskError = error instanceof TaskExecutionError
+        ? error
+        : new TaskExecutionError(
+            "TASK_EXECUTION_FAILED",
+            error instanceof Error ? error.message : "Task execution failed",
+            { taskId: task.taskId, targetAgentId: task.targetAgentId }
+          )
+
+      const failedEvent = this.createTaskLifecycleEvent(run.id, sourceAgent.id, "task.failed", task, {
+        code: taskError.code,
+        message: taskError.message,
+        details: taskError.details,
+      })
+      lifecycleEvents.push(failedEvent)
+
+      log.warn(
+        {
+          runId: run.id,
+          sourceAgentId: sourceAgent.id,
+          taskId: task.taskId,
+          targetAgentId: task.targetAgentId,
+          code: taskError.code,
+          message: taskError.message,
+        },
+        "Delegated task failed"
+      )
+
+      return {
+        taskId: task.taskId,
+        targetAgentId: task.targetAgentId,
+        status: taskError.code === "TASK_EXECUTION_ABORTED" ? "cancelled" : "failed",
+        summary: taskError.message,
+        data: taskError.details,
+        events: lifecycleEvents,
+      }
+    }
+  }
+
+  private resolveTaskTarget(sourceAgent: AgentDefinition, targetAgentId: string): AgentDefinition {
+    if (sourceAgent.delegationPolicy !== "can-delegate") {
+      throw new TaskExecutionError(
+        "TASK_SOURCE_CANNOT_DELEGATE",
+        `Agent ${sourceAgent.id} is not allowed to delegate tasks`,
+        { sourceAgentId: sourceAgent.id }
+      )
+    }
+
+    const targetAgent = this.agentRegistry.getAgent(targetAgentId)
+    if (!targetAgent) {
+      throw new TaskExecutionError(
+        "TASK_TARGET_NOT_FOUND",
+        `Target agent ${targetAgentId} does not exist`,
+        { targetAgentId }
+      )
+    }
+
+    if (!targetAgent.enabled) {
+      throw new TaskExecutionError(
+        "TASK_TARGET_DISABLED",
+        `Target agent ${targetAgentId} is disabled`,
+        { targetAgentId }
+      )
+    }
+
+    if (targetAgent.id === sourceAgent.id) {
+      throw new TaskExecutionError(
+        "TASK_TARGET_NOT_ALLOWED",
+        `Agent ${sourceAgent.id} cannot delegate to itself`,
+        { sourceAgentId: sourceAgent.id, targetAgentId }
+      )
+    }
+
+    const relationExists = this.agentRegistry
+      .listRelations({
+        enabledOnly: true,
+        fromAgentId: sourceAgent.id,
+        toAgentId: targetAgent.id,
+      })
+      .length > 0
+
+    const allowedByPreset = sourceAgent.allowedSubagents.includes(targetAgent.id)
+
+    if (!relationExists && !allowedByPreset) {
+      throw new TaskExecutionError(
+        "TASK_TARGET_NOT_ALLOWED",
+        `Agent ${sourceAgent.id} is not allowed to delegate to ${targetAgent.id}`,
+        {
+          sourceAgentId: sourceAgent.id,
+          targetAgentId: targetAgent.id,
+        }
+      )
+    }
+
+    return targetAgent
+  }
+
+  private extractTaskSummary(
+    events: RunEvent[],
+    targetAgent: AgentDefinition,
+    task: OrchestratorTask
+  ): string {
+    const lastCompletedMessage = [...events]
+      .reverse()
+      .find((event) => event.type === "message.completed" && event.agentId === targetAgent.id)
+
+    const content = typeof lastCompletedMessage?.data === "object" && lastCompletedMessage?.data
+      ? (lastCompletedMessage.data as { content?: string }).content
+      : undefined
+
+    if (content && content.trim().length > 0) {
+      return content
+    }
+
+    return `${targetAgent.name} completed task "${task.title}".`
+  }
+
+  private createTaskLifecycleEvent(
+    runId: string,
+    sourceAgentId: string,
+    type: "task.started" | "task.completed" | "task.failed",
+    task: OrchestratorTask,
+    data: Record<string, unknown>
+  ): RunEvent {
+    const event = createRunEvent(runId, type, sourceAgentId, {
+      taskId: task.taskId,
+      targetAgentId: task.targetAgentId,
+      task,
+      ...data,
+    })
+    event.taskId = task.taskId
+    event.parentAgentId = sourceAgentId
+    return event
+  }
+
+  private normalizeEvent(
+    event: RunEvent,
+    parentAgentId?: string,
+    taskId?: string
+  ): RunEvent {
+    return {
+      ...event,
+      parentAgentId: event.parentAgentId ?? parentAgentId,
+      taskId: event.taskId ?? taskId,
     }
   }
 
@@ -202,4 +526,3 @@ export class RunManager {
     }
   }
 }
-
