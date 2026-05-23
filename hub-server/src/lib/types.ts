@@ -1,0 +1,24 @@
+export type ConversationMode = 'single' | 'group'
+export type ConversationStatus = 'active' | 'archived'
+export type MessageRole = 'user' | 'assistant' | 'system'
+export type SenderType = 'user' | 'agent' | 'system' | 'orchestrator'
+export type MessageStatus = 'created' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+export type FinishReason = 'stop' | 'length' | 'error' | 'cancelled'
+export type PartState = 'streaming' | 'done' | 'error'
+export type RunMode = 'single' | 'group' | 'orchestrated'
+export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type ArtifactType = 'code' | 'webpage' | 'document' | 'diff' | 'deployment'
+export type ArtifactStatus = 'draft' | 'ready' | 'failed'
+export type ArtifactVersionSource = 'agent' | 'user' | 'diff_apply'
+export type PermissionType = 'file_read' | 'file_write' | 'command_execute' | 'network_access' | 'deployment'
+export type PermissionStatus = 'pending' | 'approved' | 'rejected' | 'expired'
+export type AgentRole = 'primary' | 'member' | 'orchestrator'
+export type SortOrder = 'asc' | 'desc'
+
+export type MetadataJson = Record<string, unknown>
+export type PayloadJson = Record<string, unknown>
+export type InputJson = Record<string, unknown>
+export type PlanJson = Record<string, unknown>
+export type ErrorJson = Record<string, unknown>
+export type DiffJson = Record<string, unknown>
+export type UiMessageJson = Record<string, unknown>

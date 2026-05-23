@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Conversation {
+  id                   String  @id @map("id")
+  title                String  @map("title")
+  mode                 String  @map("mode")
+  status               String  @default("active") @map("status")
+  orchestratorAgentId  String? @map("orchestrator_agent_id")
+  lastMessageId        String? @map("last_message_id")
+  lastMessageAt        String? @map("last_message_at")
+  pinnedAt             String? @map("pinned_at")
+  archivedAt           String? @map("archived_at")
+  metadataJson         String  @default("{}") @map("metadata_json")
+  createdAt            String  @map("created_at")
+  updatedAt            String  @map("updated_at")
+
+  agents       ConversationAgent[]
+  messages     Message[]
+  pins         MessagePin[]
+  runs         Run[]
+  artifacts    Artifact[]
+  permissions  PermissionRequest[]
+
+  @@index([status, lastMessageAt], map: "idx_conversations_status_last_message_at")
+  @@index([pinnedAt], map: "idx_conversations_pinned_at")
+  @@map("conversations")
+}
+
+model ConversationAgent {
+  id             String @id @map("id")
+  conversationId String @map("conversation_id")
+  agentId        String @map("agent_id")
+  role           String @map("role")
+  joinedAt       String @map("joined_at")
+  sortOrder      Int    @default(0) @map("sort_order")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, agentId], map: "uq_conversation_agents_conv_agent")
+  @@index([conversationId], map: "idx_conversation_agents_conversation_id")
+  @@map("conversation_agents")
+}
+
+model Message {
+  id                String  @id @map("id")
+  conversationId    String  @map("conversation_id")
+  runId             String? @map("run_id")
+  role              String  @map("role")
+  senderType        String  @map("sender_type")
+  senderId          String? @map("sender_id")
+  agentId           String? @map("agent_id")
+  parentMessageId   String? @map("parent_message_id")
+  regeneratedFromId String? @map("regenerated_from_id")
+  status            String  @default("created") @map("status")
+  finishReason      String? @map("finish_reason")
+  metadataJson      String  @default("{}") @map("metadata_json")
+  uiMessageJson     String? @map("ui_message_json")
+  createdAt         String  @map("created_at")
+  updatedAt         String  @map("updated_at")
+  completedAt       String? @map("completed_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  run          Run?         @relation("RunMessages", fields: [runId], references: [id])
+  triggerForRun Run[]       @relation("RunTriggerMessage")
+  parts        MessagePart[]
+  pins         MessagePin[]
+
+  @@index([conversationId, createdAt], map: "idx_messages_conversation_id_created_at")
+  @@index([runId], map: "idx_messages_run_id")
+  @@index([senderId], map: "idx_messages_sender_id")
+  @@index([parentMessageId], map: "idx_messages_parent_message_id")
+  @@map("messages")
+}
+
+model MessagePart {
+  id             String  @id @map("id")
+  messageId      String  @map("message_id")
+  conversationId String  @map("conversation_id")
+  runId          String? @map("run_id")
+  partIndex      Int     @map("part_index")
+  type           String  @map("type")
+  state          String  @default("streaming") @map("state")
+  text           String? @map("text")
+  payloadJson    String  @default("{}") @map("payload_json")
+  createdAt      String  @map("created_at")
+  updatedAt      String  @map("updated_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, partIndex], map: "uq_message_parts_message_part_index")
+  @@index([messageId, partIndex], map: "idx_message_parts_message_id_part_index")
+  @@index([conversationId], map: "idx_message_parts_conversation_id")
+  @@index([runId], map: "idx_message_parts_run_id")
+  @@index([type], map: "idx_message_parts_type")
+  @@map("message_parts")
+}
+
+model MessagePin {
+  id             String @id @map("id")
+  conversationId String @map("conversation_id")
+  messageId      String @map("message_id")
+  note           String? @map("note")
+  sortOrder      Int    @default(0) @map("sort_order")
+  createdAt      String @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, messageId], map: "uq_message_pins_conv_message")
+  @@index([conversationId], map: "idx_message_pins_conversation_id")
+  @@map("message_pins")
+}
+
+model Run {
+  id                   String  @id @map("id")
+  conversationId       String  @map("conversation_id")
+  triggerMessageId     String  @map("trigger_message_id")
+  mode                 String  @map("mode")
+  status               String  @default("queued") @map("status")
+  runtimeId            String? @map("runtime_id")
+  orchestratorAgentId  String? @map("orchestrator_agent_id")
+  inputJson            String  @default("{}") @map("input_json")
+  planJson             String? @map("plan_json")
+  errorJson            String? @map("error_json")
+  startedAt            String? @map("started_at")
+  completedAt          String? @map("completed_at")
+  createdAt            String  @map("created_at")
+  updatedAt            String  @map("updated_at")
+
+  conversation    Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  triggerMessage  Message           @relation("RunTriggerMessage", fields: [triggerMessageId], references: [id])
+  events          RunEvent[]
+  messages        Message[]         @relation("RunMessages")
+  artifacts       Artifact[]
+  permissions     PermissionRequest[]
+
+  @@index([conversationId, createdAt], map: "idx_runs_conversation_id_created_at")
+  @@index([triggerMessageId], map: "idx_runs_trigger_message_id")
+  @@index([status], map: "idx_runs_status")
+  @@map("runs")
+}
+
+model RunEvent {
+  id             String  @id @map("id")
+  runId          String  @map("run_id")
+  conversationId String  @map("conversation_id")
+  agentId        String? @map("agent_id")
+  messageId      String? @map("message_id")
+  type           String  @map("type")
+  sequence       Int     @map("sequence")
+  payloadJson    String  @default("{}") @map("payload_json")
+  createdAt      String  @map("created_at")
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence], map: "uq_run_events_run_sequence")
+  @@index([runId, sequence], map: "idx_run_events_run_id_sequence")
+  @@index([conversationId], map: "idx_run_events_conversation_id")
+  @@index([agentId], map: "idx_run_events_agent_id")
+  @@index([type], map: "idx_run_events_type")
+  @@map("run_events")
+}
+
+model Artifact {
+  id               String  @id @map("id")
+  conversationId   String  @map("conversation_id")
+  runId            String? @map("run_id")
+  messageId        String? @map("message_id")
+  createdByAgentId String? @map("created_by_agent_id")
+  type             String  @map("type")
+  title            String  @map("title")
+  status           String  @default("draft") @map("status")
+  currentVersionId String? @map("current_version_id")
+  metadataJson     String  @default("{}") @map("metadata_json")
+  createdAt        String  @map("created_at")
+  updatedAt        String  @map("updated_at")
+
+  conversation Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  run         Run?             @relation(fields: [runId], references: [id])
+  versions    ArtifactVersion[]
+
+  @@index([conversationId], map: "idx_artifacts_conversation_id")
+  @@index([runId], map: "idx_artifacts_run_id")
+  @@index([createdByAgentId], map: "idx_artifacts_created_by_agent_id")
+  @@index([type, status], map: "idx_artifacts_type_status")
+  @@map("artifacts")
+}
+
+model ArtifactVersion {
+  id               String  @id @map("id")
+  artifactId       String  @map("artifact_id")
+  version          Int     @map("version")
+  source           String  @map("source")
+  language         String? @map("language")
+  content          String  @map("content")
+  summary          String? @map("summary")
+  diffJson         String? @map("diff_json")
+  createdByAgentId String? @map("created_by_agent_id")
+  createdAt        String  @map("created_at")
+
+  artifact Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, version], map: "uq_artifact_versions_artifact_version")
+  @@index([artifactId, version], map: "idx_artifact_versions_artifact_id_version")
+  @@map("artifact_versions")
+}
+
+model PermissionRequest {
+  id             String  @id @map("id")
+  conversationId String  @map("conversation_id")
+  runId          String  @map("run_id")
+  agentId        String  @map("agent_id")
+  messageId      String? @map("message_id")
+  permissionType String  @map("permission_type")
+  target         String  @map("target")
+  description    String  @map("description")
+  status         String  @default("pending") @map("status")
+  resolvedAt    String? @map("resolved_at")
+  expiresAt     String? @map("expires_at")
+  metadataJson   String  @default("{}") @map("metadata_json")
+  createdAt      String  @map("created_at")
+  updatedAt      String  @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  run          Run          @relation(fields: [runId], references: [id])
+
+  @@index([conversationId], map: "idx_permission_requests_conversation_id")
+  @@index([runId], map: "idx_permission_requests_run_id")
+  @@index([status], map: "idx_permission_requests_status")
+  @@index([agentId], map: "idx_permission_requests_agent_id")
+  @@map("permission_requests")
+}
