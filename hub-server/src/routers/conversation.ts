@@ -1,5 +1,6 @@
 import { Hono, Context } from 'hono'
 import type { ConversationService } from '../services/conversation.service'
+import type { Logger } from 'pino'
 import {
   ListConversationsQuerySchema,
   CreateConversationBodySchema,
@@ -9,6 +10,7 @@ import {
 declare module 'hono' {
   interface ContextVariableMap {
     conversationService: ConversationService
+    logger: Logger
   }
 }
 

@@ -4,12 +4,16 @@ import fs from 'node:fs'
 import { initDatabase, closeDatabase } from './lib/db'
 import { errorHandler } from './lib/errors'
 import { ConversationService } from './services/conversation.service'
+import { RuntimeClient } from './lib/runtime'
 import { config } from './config'
+import { logger, requestLogger } from './lib/logger'
 import router from './routers'
 
 const app = new Hono()
 
 app.onError(errorHandler)
+
+app.use('*', requestLogger())
 
 if (config.cors.length > 0) {
   app.use('*', cors({
@@ -25,29 +29,31 @@ if (config.cors.length > 0) {
 }
 
 const conversationService = new ConversationService()
+const runtimeClient = new RuntimeClient(config.runtimeUrl)
 
 app.use('*', async (c: Context, next: Next) => {
   c.set('conversationService', conversationService)
+  c.set('runtimeClient', runtimeClient)
   await next()
 })
 
 app.route('/', router)
 
 async function start() {
+  logger.level = config.logLevel
   fs.mkdirSync(config.dataDir, { recursive: true })
   await initDatabase(config.dbUrl)
 
-  console.log(`Hub Server listening on http://${config.hostname}:${config.port}`)
-  console.log(`Data directory: ${config.dataDir}`)
+  logger.info({ port: config.port, hostname: config.hostname, dataDir: config.dataDir, runtimeUrl: config.runtimeUrl }, 'Hub Server listening')
 }
 
 start().catch((err) => {
-  console.error('Failed to start:', err)
+  logger.fatal({ err }, 'Failed to start')
   process.exit(1)
 })
 
 const shutdown = async () => {
-  console.log('Shutting down...')
+  logger.info('Shutting down')
   await closeDatabase()
   process.exit(0)
 }

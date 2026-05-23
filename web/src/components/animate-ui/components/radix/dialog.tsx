@@ -1,5 +1,4 @@
-import * as React from "react";
-import { XIcon } from "lucide-react";
+import { XIcon } from 'lucide-react';
 
 import {
   Dialog as DialogPrimitive,
@@ -21,9 +20,8 @@ import {
   type DialogTriggerProps as DialogTriggerPrimitiveProps,
   type DialogOverlayProps as DialogOverlayPrimitiveProps,
   type DialogCloseProps as DialogClosePrimitiveProps,
-  type DialogFlipDirection,
-} from "@/components/animate-ui/primitives/radix/dialog";
-import { cn } from "@/lib/utils";
+} from '@/components/animate-ui/primitives/radix/dialog';
+import { cn } from '@/lib/utils';
 
 type DialogProps = DialogPrimitiveProps;
 
@@ -37,15 +35,6 @@ function DialogTrigger(props: DialogTriggerProps) {
   return <DialogTriggerPrimitive {...props} />;
 }
 
-type DialogPortalProps = Omit<
-  React.ComponentProps<typeof DialogPortalPrimitive>,
-  "forceMount"
->;
-
-function DialogPortal(props: DialogPortalProps) {
-  return <DialogPortalPrimitive {...props} />;
-}
-
 type DialogCloseProps = DialogClosePrimitiveProps;
 
 function DialogClose(props: DialogCloseProps) {
@@ -57,7 +46,7 @@ type DialogOverlayProps = DialogOverlayPrimitiveProps;
 function DialogOverlay({ className, ...props }: DialogOverlayProps) {
   return (
     <DialogOverlayPrimitive
-      className={cn("fixed inset-0 z-50 bg-black/40 backdrop-blur-sm", className)}
+      className={cn('fixed inset-0 z-50 bg-black/50', className)}
       {...props}
     />
   );
@@ -65,31 +54,28 @@ function DialogOverlay({ className, ...props }: DialogOverlayProps) {
 
 type DialogContentProps = DialogContentPrimitiveProps & {
   showCloseButton?: boolean;
-  from?: DialogFlipDirection;
 };
 
 function DialogContent({
   className,
   children,
   showCloseButton = true,
-  from = "left",
   ...props
 }: DialogContentProps) {
   return (
     <DialogPortalPrimitive>
       <DialogOverlay />
       <DialogContentPrimitive
-        from={from}
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl bg-background p-6 text-sm text-foreground shadow-lg outline-none sm:max-w-[960px]",
+          'bg-background fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg sm:max-w-lg',
           className,
         )}
         {...props}
       >
         {children}
         {showCloseButton && (
-          <DialogClosePrimitive className="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg border-none bg-transparent hover:bg-muted">
-            <XIcon className="h-4 w-4" />
+          <DialogClosePrimitive className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4">
+            <XIcon />
             <span className="sr-only">Close</span>
           </DialogClosePrimitive>
         )}
@@ -103,32 +89,23 @@ type DialogHeaderProps = DialogHeaderPrimitiveProps;
 function DialogHeader({ className, ...props }: DialogHeaderProps) {
   return (
     <DialogHeaderPrimitive
-      className={cn("flex flex-col gap-1.5", className)}
+      className={cn('flex flex-col gap-2 text-center sm:text-left', className)}
       {...props}
     />
   );
 }
 
-type DialogFooterProps = DialogFooterPrimitiveProps & {
-  showCloseButton?: boolean;
-};
+type DialogFooterProps = DialogFooterPrimitiveProps;
 
-function DialogFooter({
-  className,
-  showCloseButton = false,
-  children,
-  ...props
-}: DialogFooterProps) {
+function DialogFooter({ className, ...props }: DialogFooterProps) {
   return (
     <DialogFooterPrimitive
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
         className,
       )}
       {...props}
-    >
-      {children}
-    </DialogFooterPrimitive>
+    />
   );
 }
 
@@ -137,7 +114,7 @@ type DialogTitleProps = DialogTitlePrimitiveProps;
 function DialogTitle({ className, ...props }: DialogTitleProps) {
   return (
     <DialogTitlePrimitive
-      className={cn("text-base leading-none font-medium", className)}
+      className={cn('text-lg leading-none font-semibold', className)}
       {...props}
     />
   );
@@ -148,10 +125,7 @@ type DialogDescriptionProps = DialogDescriptionPrimitiveProps;
 function DialogDescription({ className, ...props }: DialogDescriptionProps) {
   return (
     <DialogDescriptionPrimitive
-      className={cn(
-        "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
-        className,
-      )}
+      className={cn('text-muted-foreground text-sm', className)}
       {...props}
     />
   );
@@ -159,13 +133,19 @@ function DialogDescription({ className, ...props }: DialogDescriptionProps) {
 
 export {
   Dialog,
+  DialogTrigger,
   DialogClose,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
-  DialogOverlay,
-  DialogPortal,
+  DialogFooter,
   DialogTitle,
-  DialogTrigger,
+  DialogDescription,
+  type DialogProps,
+  type DialogTriggerProps,
+  type DialogCloseProps,
+  type DialogContentProps,
+  type DialogHeaderProps,
+  type DialogFooterProps,
+  type DialogTitleProps,
+  type DialogDescriptionProps,
 };
