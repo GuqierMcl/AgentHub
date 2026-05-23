@@ -1,4 +1,4 @@
-import type { AgentRegistry } from "../agents"
+import type { AgentDefinition, AgentRegistry } from "../agents"
 import { createChildLogger } from "../logger"
 import { EntryResolver, RunInputValidationError } from "./entry-resolver"
 import { MockExecutor } from "./mock-executor"
@@ -14,7 +14,6 @@ import type {
   RunStatus,
   TaskExecutionResult,
 } from "./types"
-import type { AgentDefinition } from "../agents"
 
 const log = createChildLogger("run-manager")
 
@@ -31,6 +30,8 @@ class TaskExecutionError extends Error {
       | "TASK_TARGET_NOT_FOUND"
       | "TASK_TARGET_DISABLED"
       | "TASK_TARGET_NOT_ALLOWED"
+      | "TASK_DEPENDENCY_FAILED"
+      | "TASK_DEPENDENCY_CYCLE"
       | "TASK_EXECUTION_ABORTED"
       | "TASK_EXECUTION_FAILED",
     message: string,
@@ -39,6 +40,11 @@ class TaskExecutionError extends Error {
     super(message)
     this.name = "TaskExecutionError"
   }
+}
+
+type TaskDispatchOptions = {
+  groupId?: string
+  parentTaskId?: string
 }
 
 export class RunManager {
@@ -225,8 +231,19 @@ export class RunManager {
     onEvent: (event: RunEvent) => void
     parentAgentId?: string
     task?: OrchestratorTask
+    groupId?: string
+    parentTaskId?: string
   }): Promise<RunEvent[]> {
-    const { run, agent, abortController, onEvent, parentAgentId, task } = options
+    const {
+      run,
+      agent,
+      abortController,
+      onEvent,
+      parentAgentId,
+      task,
+      groupId,
+      parentTaskId,
+    } = options
     const executor = this.resolveExecutor(agent)
     const events: RunEvent[] = []
 
@@ -237,14 +254,18 @@ export class RunManager {
       signal: abortController.signal,
       parentAgentId,
       task,
+      groupId,
+      parentTaskId,
     }
 
     if (agent.id === "orchestrator") {
-      context.runTask = async (nextTask) => this.executeTask({
+      context.runTask = async (nextTask, dispatchOptions = {}) => this.executeTask({
         run,
         sourceAgent: agent,
         task: nextTask,
         abortController,
+        groupId: dispatchOptions.groupId,
+        parentTaskId: dispatchOptions.parentTaskId,
       })
     }
 
@@ -254,7 +275,7 @@ export class RunManager {
         break
       }
 
-      const normalizedEvent = this.normalizeEvent(event, parentAgentId, task?.taskId)
+      const normalizedEvent = this.normalizeEvent(event, parentAgentId, task?.taskId, groupId, parentTaskId)
       events.push(normalizedEvent)
       onEvent(normalizedEvent)
     }
@@ -267,17 +288,29 @@ export class RunManager {
     sourceAgent: AgentDefinition
     task: OrchestratorTask
     abortController: AbortController
+    groupId?: string
+    parentTaskId?: string
   }): Promise<TaskExecutionResult> {
-    const { run, sourceAgent, task, abortController } = options
+    const { run, sourceAgent, task, abortController, groupId, parentTaskId } = options
     const lifecycleEvents: RunEvent[] = []
+    const taskParentTaskId = parentTaskId ?? task.dependsOn[0]
 
-    const startedEvent = this.createTaskLifecycleEvent(run.id, sourceAgent.id, "task.started", task, {
-      targetAgentId: task.targetAgentId,
-      title: task.title,
-      instruction: task.instruction,
-      riskLevel: task.riskLevel,
-    })
+    const startedEvent = this.createTaskLifecycleEvent(
+      run.id,
+      sourceAgent.id,
+      "task.started",
+      task,
+      {
+        targetAgentId: task.targetAgentId,
+        title: task.title,
+        instruction: task.instruction,
+        riskLevel: task.riskLevel,
+      },
+      groupId,
+      taskParentTaskId
+    )
     lifecycleEvents.push(startedEvent)
+    this.emit(startedEvent)
 
     try {
       const targetAgent = this.resolveTaskTarget(sourceAgent, task.targetAgentId)
@@ -296,23 +329,24 @@ export class RunManager {
           sourceAgentId: sourceAgent.id,
           taskId: task.taskId,
           targetAgentId: targetAgent.id,
+          groupId,
+          parentTaskId: taskParentTaskId,
         },
         "Executing delegated task"
       )
 
-      const targetEvents: RunEvent[] = []
-      await this.executeAgentExecution({
+      const childEvents = await this.executeAgentExecution({
         run,
         agent: targetAgent,
         abortController,
         parentAgentId: sourceAgent.id,
         task,
-        onEvent: (event) => {
-          targetEvents.push(event)
-        },
+        groupId,
+        parentTaskId: task.taskId,
+        onEvent: (event) => this.emit(event),
       })
 
-      lifecycleEvents.push(...targetEvents)
+      lifecycleEvents.push(...childEvents)
 
       if (abortController.signal.aborted || this.getRun(run.id)?.status === "cancelled") {
         throw new TaskExecutionError(
@@ -322,13 +356,22 @@ export class RunManager {
         )
       }
 
-      const summary = this.extractTaskSummary(targetEvents, targetAgent, task)
-      const completedEvent = this.createTaskLifecycleEvent(run.id, sourceAgent.id, "task.completed", task, {
-        targetAgentId: targetAgent.id,
-        summary,
-        eventCount: targetEvents.length,
-      })
+      const summary = this.extractTaskSummary(childEvents, targetAgent, task)
+      const completedEvent = this.createTaskLifecycleEvent(
+        run.id,
+        sourceAgent.id,
+        "task.completed",
+        task,
+        {
+          targetAgentId: targetAgent.id,
+          summary,
+          eventCount: childEvents.length,
+        },
+        groupId,
+        taskParentTaskId
+      )
       lifecycleEvents.push(completedEvent)
+      this.emit(completedEvent)
 
       log.info(
         {
@@ -336,7 +379,8 @@ export class RunManager {
           sourceAgentId: sourceAgent.id,
           taskId: task.taskId,
           targetAgentId: targetAgent.id,
-          eventCount: targetEvents.length,
+          eventCount: childEvents.length,
+          groupId,
         },
         "Delegated task completed"
       )
@@ -346,8 +390,11 @@ export class RunManager {
         targetAgentId: targetAgent.id,
         status: "completed",
         summary,
+        dependsOn: task.dependsOn,
+        groupId,
+        parentTaskId: taskParentTaskId,
         data: {
-          eventCount: targetEvents.length,
+          eventCount: childEvents.length,
         },
         events: lifecycleEvents,
       }
@@ -360,12 +407,21 @@ export class RunManager {
             { taskId: task.taskId, targetAgentId: task.targetAgentId }
           )
 
-      const failedEvent = this.createTaskLifecycleEvent(run.id, sourceAgent.id, "task.failed", task, {
-        code: taskError.code,
-        message: taskError.message,
-        details: taskError.details,
-      })
+      const failedEvent = this.createTaskLifecycleEvent(
+        run.id,
+        sourceAgent.id,
+        "task.failed",
+        task,
+        {
+          code: taskError.code,
+          message: taskError.message,
+          details: taskError.details,
+        },
+        groupId,
+        taskParentTaskId
+      )
       lifecycleEvents.push(failedEvent)
+      this.emit(failedEvent)
 
       log.warn(
         {
@@ -375,6 +431,7 @@ export class RunManager {
           targetAgentId: task.targetAgentId,
           code: taskError.code,
           message: taskError.message,
+          groupId,
         },
         "Delegated task failed"
       )
@@ -384,6 +441,9 @@ export class RunManager {
         targetAgentId: task.targetAgentId,
         status: taskError.code === "TASK_EXECUTION_ABORTED" ? "cancelled" : "failed",
         summary: taskError.message,
+        dependsOn: task.dependsOn,
+        groupId,
+        parentTaskId: taskParentTaskId,
         data: taskError.details,
         events: lifecycleEvents,
       }
@@ -473,28 +533,37 @@ export class RunManager {
     sourceAgentId: string,
     type: "task.started" | "task.completed" | "task.failed",
     task: OrchestratorTask,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
+    groupId?: string,
+    parentTaskId?: string
   ): RunEvent {
     const event = createRunEvent(runId, type, sourceAgentId, {
       taskId: task.taskId,
       targetAgentId: task.targetAgentId,
+      dependsOn: task.dependsOn,
       task,
       ...data,
     })
     event.taskId = task.taskId
     event.parentAgentId = sourceAgentId
+    event.parentTaskId = parentTaskId
+    event.groupId = groupId
     return event
   }
 
   private normalizeEvent(
     event: RunEvent,
     parentAgentId?: string,
-    taskId?: string
+    taskId?: string,
+    groupId?: string,
+    parentTaskId?: string
   ): RunEvent {
     return {
       ...event,
       parentAgentId: event.parentAgentId ?? parentAgentId,
+      parentTaskId: event.parentTaskId ?? parentTaskId,
       taskId: event.taskId ?? taskId,
+      groupId: event.groupId ?? groupId,
     }
   }
 

@@ -142,7 +142,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已进入第一轮实现：`orchestrator` 的最小编排路径、`run_task` 内部任务工具和顺序委派已落地；并行 DAG、AI SDK 执行器和外部 Adapter 实接仍保留到后续阶段。
+阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已进入第二轮实现：`orchestrator` 的 DAG 调度、`run_task` 内部任务工具和批次并行委派已落地；AI SDK 执行器和外部 Adapter 实接仍保留到后续阶段。
 
 ## 已完成
 
@@ -155,7 +155,7 @@ Agent Runtime 智能体架构
 - 阶段 2 已落地 `AgentExecutor`、最小 RunEvent 协议和 `MockExecutor`。
 - 阶段 3 已落地 `POST /runtime/runs`、`GET /runtime/runs/:runId`、`GET /runtime/runs/:runId/events`、`POST /runtime/runs/:runId/cancel`。
 - 阶段 3 已落地 IM 会话入口解析：单聊绑定主智能体、群聊默认 `orchestrator`、群聊单 @ 指定主智能体。
-- 阶段 4 已落地 `orchestrator` 最小编排执行、`run_task` 内部任务工具、任务生命周期事件和顺序委派。
+- 阶段 4 已落地 `orchestrator` DAG 执行、`run_task` 内部任务工具、任务组事件、任务生命周期事件和并行委派。
 
 ## 待办
 
@@ -182,3 +182,4 @@ Agent Runtime 智能体架构
 - 第一轮实现阶段 1，并附带完成只读 Agents API。
 - 补充 IM 会话入口规则：单聊入口为绑定主智能体，群聊无 @ 入口为 orchestrator，群聊有 @ 入口为被 @ 主智能体。
 - 第二轮实现阶段 2，并推进阶段 3：Run/Event 骨架、MockExecutor、Run API、SSE replay 和取消能力。
+- 第三轮实现阶段 4：`orchestrator` 的 `run_task` DAG 调度、任务组事件、依赖表达和批次并行委派。

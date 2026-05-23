@@ -45,6 +45,8 @@ export const RunEventTypeSchema = z.enum([
   "agent.entry.resolved",
   "agent.started",
   "orchestrator.plan.created",
+  "task.group.started",
+  "task.group.completed",
   "task.started",
   "task.completed",
   "task.failed",
@@ -64,7 +66,9 @@ export const RunEventSchema = z.object({
   timestamp: z.string(),
   agentId: z.string().optional(),
   parentAgentId: z.string().optional(),
+  parentTaskId: z.string().optional(),
   taskId: z.string().optional(),
+  groupId: z.string().optional(),
   data: z.unknown().optional(),
 })
 export type RunEvent = z.infer<typeof RunEventSchema>
@@ -80,6 +84,7 @@ export const OrchestratorTaskSchema = z.object({
   expectedOutput: z.string().min(1),
   requiredCapabilities: z.array(z.string()).default([]),
   riskLevel: OrchestratorRiskLevelSchema,
+  dependsOn: z.array(z.string().min(1)).default([]),
 })
 export type OrchestratorTask = z.infer<typeof OrchestratorTaskSchema>
 
@@ -103,6 +108,9 @@ export const TaskExecutionResultSchema = z.object({
   targetAgentId: z.string().min(1),
   status: TaskExecutionStatusSchema,
   summary: z.string(),
+  dependsOn: z.array(z.string().min(1)).default([]),
+  groupId: z.string().optional(),
+  parentTaskId: z.string().optional(),
   data: z.unknown().optional(),
   events: z.array(RunEventSchema),
 })
@@ -136,7 +144,12 @@ export type AgentExecutionContext = {
   signal: AbortSignal
   task?: OrchestratorTask
   parentAgentId?: string
-  runTask?: (task: OrchestratorTask) => Promise<TaskExecutionResult>
+  groupId?: string
+  parentTaskId?: string
+  runTask?: (task: OrchestratorTask, options?: {
+    groupId?: string
+    parentTaskId?: string
+  }) => Promise<TaskExecutionResult>
 }
 
 export type AgentExecutor = {

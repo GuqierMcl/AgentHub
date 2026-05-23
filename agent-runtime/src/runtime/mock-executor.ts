@@ -12,7 +12,7 @@ export class MockExecutor implements AgentExecutor {
   executorType = "mock" as const
 
   async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
-    const { agent, runId, signal, task, parentAgentId } = context
+    const { agent, runId, signal, task, parentAgentId, groupId, parentTaskId } = context
 
     if (signal.aborted) {
       log.info({ runId, agentId: agent.id }, "Mock execution aborted before start")
@@ -25,6 +25,8 @@ export class MockExecutor implements AgentExecutor {
     })
     started.taskId = task?.taskId
     started.parentAgentId = parentAgentId
+    started.parentTaskId = parentTaskId
+    started.groupId = groupId
     yield started
 
     await sleep(10)
@@ -44,6 +46,8 @@ export class MockExecutor implements AgentExecutor {
     })
     delta.taskId = task?.taskId
     delta.parentAgentId = parentAgentId
+    delta.parentTaskId = parentTaskId
+    delta.groupId = groupId
     yield delta
 
     await sleep(10)
@@ -57,6 +61,8 @@ export class MockExecutor implements AgentExecutor {
     })
     completed.taskId = task?.taskId
     completed.parentAgentId = parentAgentId
+    completed.parentTaskId = parentTaskId
+    completed.groupId = groupId
     yield completed
 
     const agentCompleted = createRunEvent(runId, "agent.completed", agent.id, {
@@ -64,6 +70,8 @@ export class MockExecutor implements AgentExecutor {
     })
     agentCompleted.taskId = task?.taskId
     agentCompleted.parentAgentId = parentAgentId
+    agentCompleted.parentTaskId = parentTaskId
+    agentCompleted.groupId = groupId
     yield agentCompleted
 
     log.info({ runId, agentId: agent.id }, "Mock execution completed")

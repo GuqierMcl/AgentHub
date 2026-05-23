@@ -239,7 +239,7 @@ type RunInput = {
 
 Runtime Runs API 用于启动一次智能体执行。本阶段只实现 in-memory Run、MockExecutor 和最小 SSE 事件流，不持久化数据库，不调用真实模型，不执行工具。
 
-当前阶段已经包含 `orchestrator` 的最小编排路径：`orchestrator` 可以通过内部 `run_task` 顺序调用允许的主智能体或子智能体，但尚不支持并行 DAG。
+当前阶段已经包含 `orchestrator` 的最小编排路径：`orchestrator` 可以通过内部 `run_task` 调度允许的主智能体或子智能体，并通过 `dependsOn` 表达 DAG 依赖；无依赖任务可批次并行执行。
 
 ### 创建 Run
 
@@ -349,6 +349,8 @@ run.started
 agent.entry.resolved
 agent.started
 orchestrator.plan.created
+task.group.started
+task.group.completed
 task.started
 task.completed
 task.failed
@@ -370,7 +372,9 @@ type RunEvent = {
   timestamp: string
   agentId?: string
   parentAgentId?: string
+  parentTaskId?: string
   taskId?: string
+  groupId?: string
   data?: unknown
 }
 ```

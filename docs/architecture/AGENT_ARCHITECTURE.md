@@ -236,9 +236,9 @@ type RunInput = {
 - 汇总子任务输出。
 - 输出面向用户的最终答复。
 
-MVP 先采用“计划生成 + `run_task` 顺序执行 + 汇总”的模型，暂不做复杂 DAG。
+MVP 先采用“计划生成 + `run_task` DAG 调度 + 批次并行执行 + 汇总”的模型。
 
-`run_task` 是 Runtime 内部任务工具，只对 `orchestrator` 可见，用于顺序调用允许的主智能体或子智能体。并行 DAG 任务委派是后续专门阶段，不在本轮展开。
+`run_task` 是 Runtime 内部任务工具，只对 `orchestrator` 可见，用于调度允许的主智能体或子智能体。任务之间可通过 `dependsOn` 表达依赖关系；没有依赖的任务可并行启动。并行 DAG 委派由 Runtime 内部调度，不引入独立控制层。
 
 ```text
 RunInput
@@ -249,7 +249,7 @@ ContextBuilder 组装上下文
   ↓
 Planner 生成 OrchestratorPlan
   ↓
-DelegationRunner 顺序调用主智能体或子智能体
+DAG 调度器按依赖关系并行或顺序调用主智能体或子智能体
   ↓
 Aggregator 汇总结果
   ↓
@@ -583,6 +583,7 @@ type OrchestratorTask = {
   expectedOutput: string
   requiredCapabilities: string[]
   riskLevel: "low" | "medium" | "high"
+  dependsOn: string[]
 }
 ```
 
@@ -593,6 +594,7 @@ type OrchestratorTask = {
 - 高风险任务必须触发权限检查或审批事件。
 - 计划中的任务数量不能超过限制。
 - 不允许模型生成任意不存在的智能体 ID 后直接执行。
+- `dependsOn` 必须引用同一计划中的有效任务，且不能形成循环依赖。
 
 ## 9. RunEvent 设计要求
 
@@ -603,6 +605,8 @@ run.started
 agent.entry.resolved
 agent.started
 orchestrator.plan.created
+task.group.started
+task.group.completed
 task.started
 task.completed
 task.failed
@@ -632,7 +636,7 @@ type RunEventBase = {
 
 这样 HubServer 可以持久化完整执行轨迹，并在前端展示“由哪个主智能体委派了哪个内部能力”。
 
-其中 `task.*` 事件表示 `orchestrator` 通过 `run_task` 发起的内部任务生命周期，建议携带 `taskId`、`parentAgentId` 和 `targetAgentId` 等字段，便于追踪委派链路。
+其中 `task.*` 事件表示 `orchestrator` 通过 `run_task` 发起的内部任务生命周期，建议携带 `taskId`、`parentAgentId`、`parentTaskId`、`groupId` 和 `targetAgentId` 等字段，便于追踪委派链路和批次归属。
 
 ## 10. Runtime 模块划分
 
