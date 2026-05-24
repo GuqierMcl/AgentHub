@@ -1,4 +1,5 @@
 export { AgentStore } from "./agent-store"
+export { AgentModelBindingStore } from "./agent-model-binding-store"
 export { AgentRegistry } from "./agent-registry"
 export { presetAgents, presetAgentRelations } from "./preset-agents"
 export { presetSubagents } from "./preset-subagents"
@@ -7,6 +8,8 @@ export type {
   AgentOrigin,
   AgentVisibility,
   AgentModelRef,
+  AgentModelBindingMap,
+  AgentModelBindingUpdateRequest,
   AgentEntryPolicy,
   AgentDelegationPolicy,
   AgentExecutorType,
@@ -27,6 +30,9 @@ export {
   AgentTierSchema,
   AgentOriginSchema,
   AgentVisibilitySchema,
+  AgentModelRefSchema,
+  AgentModelBindingMapSchema,
+  AgentModelBindingUpdateRequestSchema,
   AgentEntryPolicySchema,
   AgentDelegationPolicySchema,
   AgentExecutorTypeSchema,

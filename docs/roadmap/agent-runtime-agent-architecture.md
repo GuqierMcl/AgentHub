@@ -142,7 +142,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已进入第二轮实现：`orchestrator` 的 DAG 调度、`run_task` 内部任务工具和批次并行委派已落地。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析和 agent 模型绑定回显；工具循环、复杂计划与外部 Adapter 实接仍保留到后续阶段。
+阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已进入第二轮实现：`orchestrator` 的 DAG 调度、`run_task` 内部任务工具和批次并行委派已落地。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显，以及按主智能体配置模型的 API；工具循环、复杂计划与外部 Adapter 实接仍保留到后续阶段。
 
 ## 已完成
 
@@ -156,7 +156,7 @@ Agent Runtime 智能体架构
 - 阶段 3 已落地 `POST /runtime/runs`、`GET /runtime/runs/:runId`、`GET /runtime/runs/:runId/events`、`POST /runtime/runs/:runId/cancel`。
 - 阶段 3 已落地 IM 会话入口解析：单聊绑定主智能体、群聊默认 `orchestrator`、群聊单 @ 指定主智能体。
 - 阶段 4 已落地 `orchestrator` DAG 执行、`run_task` 内部任务工具、任务组事件、任务生命周期事件和并行委派。
-- 阶段 5 已落地最小 `AiSdkExecutor`、provider/model 解析和智能体模型绑定返回。
+- 阶段 5 已落地最小 `AiSdkExecutor`、provider/model 解析、智能体模型绑定返回，以及 agent 模型绑定 API。
 
 ## 待办
 

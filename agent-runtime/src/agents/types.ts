@@ -10,10 +10,17 @@ export type AgentOrigin = z.infer<typeof AgentOriginSchema>
 export const AgentVisibilitySchema = z.enum(["visible", "hidden"])
 export type AgentVisibility = z.infer<typeof AgentVisibilitySchema>
 
-export type AgentModelRef = {
-  providerId: string
-  modelId: string
-}
+export const AgentModelRefSchema = z.object({
+  providerId: z.string().min(1),
+  modelId: z.string().min(1),
+})
+export type AgentModelRef = z.infer<typeof AgentModelRefSchema>
+
+export const AgentModelBindingMapSchema = z.record(z.string(), AgentModelRefSchema)
+export type AgentModelBindingMap = z.infer<typeof AgentModelBindingMapSchema>
+
+export const AgentModelBindingUpdateRequestSchema = AgentModelRefSchema
+export type AgentModelBindingUpdateRequest = z.infer<typeof AgentModelBindingUpdateRequestSchema>
 
 export const AgentEntryPolicySchema = z.enum(["default", "callable", "not-callable"])
 export type AgentEntryPolicy = z.infer<typeof AgentEntryPolicySchema>
@@ -63,10 +70,7 @@ export const AgentDefinitionSchema = z.object({
   delegationPolicy: AgentDelegationPolicySchema,
   executorType: AgentExecutorTypeSchema,
   systemPrompt: z.string().optional(),
-  modelRef: z.object({
-    providerId: z.string().min(1),
-    modelId: z.string().min(1),
-  }).optional(),
+  modelRef: AgentModelRefSchema.optional(),
   capabilities: z.array(z.string()).default([]),
   allowedSubagents: z.array(z.string()).default([]),
   allowedTools: z.array(z.string()).default([]),

@@ -72,6 +72,8 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `AGENT_REGISTRY_UNAVAILABLE` | 503 | Agent 注册表不可用 |
 | `RUN_INVALID_PARTICIPANTS` | 400 | RunInput 中的会话智能体成员不合法 |
 | `RUN_INVALID_ENTRY_AGENT` | 400 | RunInput 无法解析合法入口智能体 |
+| `AGENT_MODEL_BINDING_INVALID` | 400 | 智能体模型绑定参数或 provider/model 不可用 |
+| `AGENT_MODEL_BINDING_NOT_ALLOWED` | 403 | 当前智能体不允许绑定模型 |
 
 ## Runtime Agents API
 
@@ -210,6 +212,36 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 ```
 
 如果智能体配置了 `modelRef`，列表和详情都可以透出该绑定；`resolvedModel` 仅在 provider 与 model 都可解析时返回，否则为空。
+
+### 绑定智能体模型
+
+**端点**：`PUT /runtime/agents/:agentId/model`
+
+请求体：
+
+```json
+{
+  "providerId": "openai",
+  "modelId": "gpt-5.1"
+}
+```
+
+规则：
+
+- 仅允许可见、启用、内部的主智能体绑定模型。
+- `orchestrator`、隐藏子智能体、外部智能体不允许绑定。
+- provider 与 model 必须存在且启用。
+
+成功响应：返回更新后的 agent detail，包含 `modelRef` 和 `resolvedModel`。
+
+**端点**：`DELETE /runtime/agents/:agentId/model`
+
+规则：
+
+- 清除该智能体的模型绑定覆盖。
+- 若智能体本身存在基础 `modelRef`，清除后会回退到基础配置。
+
+成功响应：返回更新后的 agent detail。
 
 ## Runtime RunInput 会话入口规则
 

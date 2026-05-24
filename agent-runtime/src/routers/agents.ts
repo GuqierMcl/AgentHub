@@ -3,6 +3,7 @@ import { AgentRegistry } from "../agents"
 import {
   AgentListQuerySchema,
   AgentDetailQuerySchema,
+  AgentModelBindingUpdateRequestSchema,
   type AgentDefinition,
   type AgentDetailResponse,
   type AgentSummaryResponse,
@@ -84,6 +85,28 @@ function registryUnavailable(c: Context) {
   }, 503)
 }
 
+function agentModelBindingNotAllowed(c: Context, agentId: string, reason: string) {
+  return c.json({
+    error: {
+      code: "AGENT_MODEL_BINDING_NOT_ALLOWED",
+      message: `Agent ${agentId} cannot bind a model`,
+      details: {
+        reason,
+      },
+    },
+  }, 403)
+}
+
+function agentModelBindingInvalid(c: Context, details: unknown) {
+  return c.json({
+    error: {
+      code: "AGENT_MODEL_BINDING_INVALID",
+      message: "Invalid agent model binding",
+      details,
+    },
+  }, 400)
+}
+
 agents.get("/runtime/agents", (c: Context) => {
   const result = AgentListQuerySchema.safeParse({
     includeHidden: c.req.query("includeHidden"),
@@ -147,6 +170,110 @@ agents.get("/runtime/agents/:agentId", (c: Context) => {
   }
 
   return c.json(serializeAgentDetail(agent, providerService))
+})
+
+agents.put("/runtime/agents/:agentId/model", async (c: Context) => {
+  const registry = c.get("agentRegistry")
+  const providerService = c.get("providerService")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  const agentId = c.req.param("agentId")
+  const agent = registry.getAgent(agentId)
+  if (!agent || agent.visibility === "hidden") {
+    return c.json({
+      error: {
+        code: "AGENT_NOT_FOUND",
+        message: `Agent ${agentId} not found`,
+      },
+    }, 404)
+  }
+
+  if (!registry.isModelBindingAllowed(agentId)) {
+    return agentModelBindingNotAllowed(c, agentId, "only visible enabled primary AI SDK agents can bind models")
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const result = AgentModelBindingUpdateRequestSchema.safeParse(body)
+  if (!result.success) {
+    return agentModelBindingInvalid(c, result.error.issues)
+  }
+
+  const provider = providerService.getProvider(result.data.providerId)
+  if (!provider) {
+    return agentModelBindingInvalid(c, [
+      {
+        path: ["providerId"],
+        message: `Provider ${result.data.providerId} not found`,
+      },
+    ])
+  }
+
+  if (!provider.enabled) {
+    return agentModelBindingInvalid(c, [
+      {
+        path: ["providerId"],
+        message: `Provider ${provider.id} is disabled`,
+      },
+    ])
+  }
+
+  const model = providerService.getModel(result.data.providerId, result.data.modelId)
+  if (!model) {
+    return agentModelBindingInvalid(c, [
+      {
+        path: ["modelId"],
+        message: `Model ${result.data.providerId}/${result.data.modelId} not found`,
+      },
+    ])
+  }
+
+  if (!model.enabled) {
+    return agentModelBindingInvalid(c, [
+      {
+        path: ["modelId"],
+        message: `Model ${result.data.providerId}/${result.data.modelId} is disabled`,
+      },
+    ])
+  }
+
+  const updatedAgent = await registry.setAgentModelBinding(agentId, result.data)
+  if (!updatedAgent) {
+    return agentModelBindingNotAllowed(c, agentId, "binding is not supported for this agent")
+  }
+
+  return c.json(serializeAgentDetail(updatedAgent, providerService))
+})
+
+agents.delete("/runtime/agents/:agentId/model", async (c: Context) => {
+  const registry = c.get("agentRegistry")
+  const providerService = c.get("providerService")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  const agentId = c.req.param("agentId")
+  const agent = registry.getAgent(agentId)
+  if (!agent || agent.visibility === "hidden") {
+    return c.json({
+      error: {
+        code: "AGENT_NOT_FOUND",
+        message: `Agent ${agentId} not found`,
+      },
+    }, 404)
+  }
+
+  if (!registry.isModelBindingAllowed(agentId)) {
+    return agentModelBindingNotAllowed(c, agentId, "only visible enabled primary AI SDK agents can clear model bindings")
+  }
+
+  const updatedAgent = await registry.clearAgentModelBinding(agentId)
+  if (!updatedAgent) {
+    return agentModelBindingNotAllowed(c, agentId, "binding is not supported for this agent")
+  }
+
+  return c.json(serializeAgentDetail(updatedAgent, providerService))
 })
 
 export default agents
