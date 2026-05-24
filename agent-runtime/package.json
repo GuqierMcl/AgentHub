@@ -2,6 +2,7 @@
   "name": "agent-runtime",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
+    "test": "bun test",
     "build": "bun build src/index.ts --compile --outfile dist/agent-runtime",
     "start": "./dist/agent-runtime"
   },
