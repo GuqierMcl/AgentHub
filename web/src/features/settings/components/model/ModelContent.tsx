@@ -1,36 +1,79 @@
-import { useEffect, useState, useCallback, useMemo } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { SearchIcon } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { runtimeApi } from "../../api/runtime"
-import type { ProviderDetail, ModelResponse } from "../../types"
+import type { ProviderDetail, ProviderProtocol } from "../../types"
 import { ModelCard } from "./ModelCard"
+import { useToast } from "../toast"
+
+const protocolLabels: Record<ProviderProtocol, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  openai_compatible: "OpenAI 兼容",
+}
+
+let fetchPromise: Promise<ProviderDetail[]> | null = null
+
+async function fetchConnectedProviders(): Promise<ProviderDetail[]> {
+  if (fetchPromise) return fetchPromise
+  fetchPromise = (async () => {
+    try {
+      const data = await runtimeApi.getProviders()
+      const connectedIds = data.providers
+        .filter((p) => p.has_api_key)
+        .map((p) => p.id)
+      const details = await Promise.all(
+        connectedIds.map((id) => runtimeApi.getProvider(id))
+      )
+      return details
+    } finally {
+      fetchPromise = null
+    }
+  })()
+  return fetchPromise
+}
 
 export function ModelContent() {
+  const { addToast } = useToast()
   const [providers, setProviders] = useState<ProviderDetail[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [toggling, setToggling] = useState<string | null>(null)
-
-  const fetchProviders = useCallback(async () => {
-    try {
-      const data = await runtimeApi.getProviders()
-      const details = await Promise.all(
-        data.providers.map((p) => runtimeApi.getProvider(p.id))
-      )
-      setProviders(details)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "获取模型列表失败")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set())
+  const expandedInitRef = useRef(false)
 
   useEffect(() => {
-    fetchProviders()
-  }, [fetchProviders])
+    let cancelled = false
+    fetchConnectedProviders().then((details) => {
+      if (cancelled) return
+      setProviders(details)
+      setError(null)
+      if (!expandedInitRef.current && details.length > 0) {
+        expandedInitRef.current = true
+        setExpandedProviders(new Set([details[0].id]))
+      }
+      setLoading(false)
+    }).catch((err) => {
+      if (cancelled) return
+      setError(err instanceof Error ? err.message : "获取模型列表失败")
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const toggleExpand = useCallback((providerId: string) => {
+    setExpandedProviders((prev) => {
+      const next = new Set(prev)
+      if (next.has(providerId)) {
+        next.delete(providerId)
+      } else {
+        next.add(providerId)
+      }
+      return next
+    })
+  }, [])
 
   const handleToggle = useCallback(
     async (providerId: string, modelId: string, enabled: boolean) => {
@@ -54,31 +97,15 @@ export function ModelContent() {
             }
           })
         )
+        addToast("模型配置已更新", "success")
       } catch {
-        // toggle error is non-critical, ignore
+        addToast("操作失败，请重试", "error")
       } finally {
         setToggling(null)
       }
     },
-    []
+    [addToast]
   )
-
-  const connectedProviders = useMemo(
-    () => providers.filter((p) => p.has_api_key),
-    [providers]
-  )
-
-  const connectedModels = useMemo(() => {
-    const models: Array<{ model: ModelResponse; providerName: string }> = []
-    for (const p of connectedProviders) {
-      for (const m of Object.values(p.models)) {
-        if (m.enabled) {
-          models.push({ model: m, providerName: p.name })
-        }
-      }
-    }
-    return models
-  }, [connectedProviders])
 
   const filteredProviders = useMemo(() => {
     const q = search.toLowerCase()
@@ -107,7 +134,7 @@ export function ModelContent() {
   if (error) {
     return (
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold">模型</h3>
+      <h3 className="text-base font-semibold">模型</h3>
         <div className="rounded-xl bg-muted/30 px-4 py-3">
           <p className="text-sm text-destructive">{error}</p>
         </div>
@@ -115,45 +142,13 @@ export function ModelContent() {
     )
   }
 
+  const hasConnectedProviders = providers.length > 0
+
   return (
     <div className="space-y-6">
-      <h3 className="text-sm font-semibold">模型</h3>
+        <h3 className="text-base font-semibold">模型</h3>
 
       <div className="space-y-3">
-        <span className="text-sm font-medium">
-          配置已连接提供商的可用模型
-        </span>
-        {connectedModels.length === 0 ? (
-          <div className="rounded-xl bg-muted/30 px-4 py-8 text-center">
-            <p className="text-sm text-muted-foreground">
-              {connectedProviders.length === 0
-                ? "未配置提供商"
-                : "暂无已启用的模型"}
-            </p>
-          </div>
-        ) : (
-          connectedModels.map(({ model, providerName }) => (
-            <ModelCard
-              key={`${providerName}-${model.id}`}
-              model={model}
-              providerName={providerName}
-              onToggle={(enabled) =>
-                handleToggle(
-                  providers.find((p) =>
-                    Object.values(p.models).some((m) => m.id === model.id)
-                  )?.id || "",
-                  model.id,
-                  enabled
-                )
-              }
-              disabled={toggling === `${providers.find((p) => Object.values(p.models).some((m) => m.id === model.id))?.id}/${model.id}`}
-            />
-          ))
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <span className="text-sm font-medium">全部模型</span>
         <div className="relative">
           <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -163,31 +158,64 @@ export function ModelContent() {
             className="pl-9"
           />
         </div>
-        <div className="space-y-4">
-          {filteredProviders.map((provider) => (
-            <div key={provider.id} className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{provider.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {Object.values(provider.models).length} 个模型
-                </span>
-              </div>
-              <div className="space-y-2">
-                {Object.values(provider.models).map((model) => (
-                  <ModelCard
-                    key={model.id}
-                    model={model}
-                    providerName={provider.name}
-                    onToggle={(enabled) =>
-                      handleToggle(provider.id, model.id, enabled)
-                    }
-                    disabled={toggling === `${provider.id}/${model.id}`}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        {!hasConnectedProviders ? (
+          <div className="rounded-xl bg-muted/30 px-4 py-8 text-center">
+            <p className="text-sm font-medium">尚未连接提供商</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              在供应商页面连接提供商后，即可在此处管理其可用模型。
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {filteredProviders.map((provider) => {
+              const models = Object.values(provider.models)
+              const enabledCount = models.filter((m) => m.enabled).length
+              const isExpanded = expandedProviders.has(provider.id)
+
+              return (
+                <div key={provider.id} className="rounded-xl bg-muted/30">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(provider.id)}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{provider.name}</span>
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {protocolLabels[provider.api_protocol]}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {enabledCount}/{models.length} 个模型已启用
+                      </span>
+                    </div>
+                    <svg
+                      className={`size-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {isExpanded && (
+                    <div className="space-y-2 px-4 pb-3">
+                      {models.map((model) => (
+                        <ModelCard
+                          key={model.id}
+                          model={model}
+                          onToggle={(enabled) =>
+                            handleToggle(provider.id, model.id, enabled)
+                          }
+                          disabled={toggling === `${provider.id}/${model.id}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

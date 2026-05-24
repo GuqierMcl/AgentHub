@@ -13,11 +13,13 @@ export function useControlledState<T, Rest extends any[] = []>(
 ): readonly [T, (next: T, ...args: Rest) => void] {
   const { value, defaultValue, onChange } = props;
 
-  const [internalState, setInternalState] = React.useState<T>(
-    defaultValue as T,
+  const [state, setInternalState] = React.useState<T>(
+    value !== undefined ? value : (defaultValue as T),
   );
 
-  const state = value !== undefined ? value : internalState;
+  React.useEffect(() => {
+    if (value !== undefined) setInternalState(value);
+  }, [value]);
 
   const setState = React.useCallback(
     (next: T, ...args: Rest) => {

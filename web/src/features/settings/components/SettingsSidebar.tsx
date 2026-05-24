@@ -1,7 +1,17 @@
-import { APP_NAME, APP_VERSION } from "@/config/app"
-import { cn } from "@/lib/utils"
+import { APP_NAME } from "@/config/app"
+import pkg from "../../../../package.json"
 
 import type { SettingsTabId } from "../types"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/animate-ui/components/radix/sidebar"
 
 type SettingsSidebarProps = {
   activeTab: SettingsTabId
@@ -16,44 +26,30 @@ const menuItems = [
 
 export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps) {
   return (
-    <div className="w-[160px] flex flex-col">
-      <div className="flex-1">
-        <div
-          className="mb-3 px-3 text-xs font-medium"
-          style={{ color: "rgb(115, 115, 115)" }}
-        >
-          AI 能力
-        </div>
-        <nav className="space-y-1">
-          {menuItems.map((item) => {
-            const isActive = activeTab === item.key
-            return (
-              <button
-                key={item.key}
-                onClick={() => onTabChange(item.key)}
-                className={cn(
-                  "flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors",
-                  isActive
-                    ? "font-medium"
-                    : "hover:bg-[rgb(240,240,240)] font-normal"
-                )}
-                style={{
-                  color: "rgb(23, 23, 23)",
-                  backgroundColor: isActive ? "rgb(234, 234, 234)" : undefined,
-                }}
-              >
-                {item.label}
-              </button>
-            )
-          })}
-        </nav>
-      </div>
-      <div className="mt-4 pb-2">
-        <div className="text-xs" style={{ color: "rgb(115, 115, 115)" }}>
+    <Sidebar collapsible="none" className="w-[160px] bg-background">
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>AI 能力</SidebarGroupLabel>
+          <SidebarMenu>
+            {menuItems.map((item) => (
+              <SidebarMenuItem key={item.key}>
+                <SidebarMenuButton
+                  isActive={activeTab === item.key}
+                  onClick={() => onTabChange(item.key)}
+                >
+                  {item.label}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        <div className="px-2 text-xs" style={{ color: "var(--sidebar-foreground, oklch(0.48 0.015 250))" }}>
           <div className="font-medium">{APP_NAME}</div>
-          <div>{APP_VERSION}</div>
+          <div>{pkg.version}</div>
         </div>
-      </div>
-    </div>
+      </SidebarFooter>
+    </Sidebar>
   )
 }
