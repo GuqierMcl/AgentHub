@@ -17,7 +17,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        from="left"
+        from="top"
         className="w-[960px] p-4"
         showCloseButton={true}
         onPointerDownOutside={(e) => e.preventDefault()}
@@ -26,7 +26,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <DialogDescription className="sr-only">
           管理AI能力相关的运行时、供应商和模型设置
         </DialogDescription>
-        <div className="flex min-h-[600px]">
+        <div className="flex h-[600px]">
           <SettingsSidebar activeTab={activeTab} onTabChange={setActiveTab} />
           <SettingsContent activeTab={activeTab} />
         </div>
