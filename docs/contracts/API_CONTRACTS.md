@@ -163,6 +163,27 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
   "capabilities": ["routing", "planning", "delegation", "aggregation"],
   "enabled": true,
   "readonly": true,
+  "modelRef": {
+    "providerId": "openai",
+    "modelId": "gpt-5.1"
+  },
+  "resolvedModel": {
+    "providerId": "openai",
+    "modelId": "gpt-5.1",
+    "providerProtocol": "openai",
+    "providerName": "OpenAI",
+    "modelName": "GPT-5.1",
+    "upstreamModelId": "gpt-5.1",
+    "contextLength": 128000,
+    "outputLength": 4096,
+    "capabilities": {
+      "supports_tools": true,
+      "supports_vision": true,
+      "supports_reasoning": true,
+      "temperature": true
+    },
+    "enabled": true
+  },
   "allowedSubagents": ["explore", "general", "file", "deploy"],
   "allowedTools": [],
   "permissionPolicy": {
@@ -187,6 +208,8 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
   }
 }
 ```
+
+如果智能体配置了 `modelRef`，列表和详情都可以透出该绑定；`resolvedModel` 仅在 provider 与 model 都可解析时返回，否则为空。
 
 ## Runtime RunInput 会话入口规则
 

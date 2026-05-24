@@ -6,6 +6,7 @@ export type {
   AgentTier,
   AgentOrigin,
   AgentVisibility,
+  AgentModelRef,
   AgentEntryPolicy,
   AgentDelegationPolicy,
   AgentExecutorType,
@@ -19,6 +20,7 @@ export type {
   AgentRelationListOptions,
   AgentSummaryResponse,
   AgentDetailResponse,
+  AgentResolvedModelResponse,
   AgentListResponse,
 } from "./types"
 export {

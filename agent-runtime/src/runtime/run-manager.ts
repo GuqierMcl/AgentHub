@@ -1,6 +1,8 @@
 import type { AgentDefinition, AgentRegistry } from "../agents"
+import type { ProviderService } from "../provider"
 import { createChildLogger } from "../logger"
 import { EntryResolver, RunInputValidationError } from "./entry-resolver"
+import { AiSdkExecutor } from "./ai-sdk-executor"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
@@ -49,6 +51,7 @@ type TaskDispatchOptions = {
 
 export class RunManager {
   private entryResolver: EntryResolver
+  private aiSdkExecutor: AiSdkExecutor
   private mockExecutor = new MockExecutor()
   private orchestratorExecutor: OrchestratorExecutor
   private runs: Map<string, RunRecord> = new Map()
@@ -56,8 +59,12 @@ export class RunManager {
   private subscriptions: Map<string, Set<RunSubscription>> = new Map()
   private executionState: Map<string, RunExecutionState> = new Map()
 
-  constructor(private agentRegistry: AgentRegistry) {
+  constructor(
+    private agentRegistry: AgentRegistry,
+    providerService: ProviderService
+  ) {
     this.entryResolver = new EntryResolver(agentRegistry)
+    this.aiSdkExecutor = new AiSdkExecutor(providerService)
     this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry)
   }
 
@@ -153,11 +160,18 @@ export class RunManager {
   }
 
   private resolveExecutor(agent: AgentDefinition): AgentExecutor {
-    if (agent.id === "orchestrator") {
-      return this.orchestratorExecutor
+    switch (agent.executorType) {
+      case "orchestrator":
+        return this.orchestratorExecutor
+      case "ai-sdk":
+        return this.aiSdkExecutor
+      case "mock":
+        return this.mockExecutor
+      case "external-adapter":
+        return this.mockExecutor
+      default:
+        return this.mockExecutor
     }
-
-    return this.mockExecutor
   }
 
   private async executeRun(

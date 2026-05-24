@@ -6,6 +6,9 @@
     "start": "./dist/agent-runtime"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.79",
+    "@ai-sdk/openai": "^3.0.65",
+    "@ai-sdk/openai-compatible": "^2.0.48",
     "ai": "^6.0.188",
     "hono": "^4.12.21",
     "pino": "^10.3.1",

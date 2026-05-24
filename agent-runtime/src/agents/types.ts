@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { ProviderProtocol } from "../provider"
 
 export const AgentTierSchema = z.enum(["primary", "subagent"])
 export type AgentTier = z.infer<typeof AgentTierSchema>
@@ -8,6 +9,11 @@ export type AgentOrigin = z.infer<typeof AgentOriginSchema>
 
 export const AgentVisibilitySchema = z.enum(["visible", "hidden"])
 export type AgentVisibility = z.infer<typeof AgentVisibilitySchema>
+
+export type AgentModelRef = {
+  providerId: string
+  modelId: string
+}
 
 export const AgentEntryPolicySchema = z.enum(["default", "callable", "not-callable"])
 export type AgentEntryPolicy = z.infer<typeof AgentEntryPolicySchema>
@@ -126,18 +132,40 @@ export type AgentSummaryResponse = {
   capabilities: string[]
   enabled: boolean
   readonly: boolean
+  modelRef?: AgentModelRef
+  resolvedModel?: AgentResolvedModelResponse
 }
 
 export type AgentDetailResponse = AgentSummaryResponse & {
   allowedSubagents: string[]
   allowedTools: string[]
   permissionPolicy: AgentPermissionPolicy
+  modelRef?: AgentModelRef
+  resolvedModel?: AgentResolvedModelResponse
   external?: {
     provider: ExternalAgentConfig["provider"]
     outputFormat: ExternalAgentConfig["outputFormat"]
     workingDirectoryPolicy: ExternalAgentConfig["workingDirectoryPolicy"]
     configDirectoryPolicy: ExternalAgentConfig["configDirectoryPolicy"]
   }
+}
+
+export type AgentResolvedModelResponse = {
+  providerId: string
+  modelId: string
+  providerProtocol: ProviderProtocol
+  providerName: string
+  modelName: string
+  upstreamModelId: string
+  contextLength: number
+  outputLength: number
+  capabilities: {
+    supports_tools: boolean
+    supports_vision: boolean
+    supports_reasoning: boolean
+    temperature: boolean
+  }
+  enabled: boolean
 }
 
 export type AgentListResponse = {

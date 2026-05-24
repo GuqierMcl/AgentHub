@@ -179,6 +179,8 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - 接收错误信息。
 - 返回统一事件。
 
+当前实现中，`executorType = "ai-sdk"` 的主智能体会先通过 `ProviderService` 解析 `modelRef`，再交给 AI SDK 的 `streamText` 执行；`orchestrator` 仍然保留专用执行路径，不走普通模型直出。
+
 ### 3.4 外部智能体 Adapter
 
 Claude Code、Codex、OpenCode 等外部 Agent 平台差异，应该被封装在 Adapter 内部，对上层只暴露统一事件。

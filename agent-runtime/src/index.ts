@@ -26,7 +26,7 @@ if (config.cors.length > 0) {
 // 初始化 ProviderService
 const providerService = new ProviderService(config.dataDir)
 const agentRegistry = new AgentRegistry(config.dataDir)
-const runManager = new RunManager(agentRegistry)
+const runManager = new RunManager(agentRegistry, providerService)
 
 // 注入 ProviderService 到 Context
 app.use('*', async (c: Context, next: Next) => {

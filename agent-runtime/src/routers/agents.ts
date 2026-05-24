@@ -7,16 +7,23 @@ import {
   type AgentDetailResponse,
   type AgentSummaryResponse,
 } from "../agents"
+import { resolveAgentModelSnapshot } from "../runtime/model-resolver"
+import type { ProviderService } from "../provider"
 
 declare module "hono" {
   interface ContextVariableMap {
     agentRegistry: AgentRegistry
+    providerService: ProviderService
   }
 }
 
 const agents = new Hono()
 
-function serializeAgentSummary(agent: AgentDefinition): AgentSummaryResponse {
+function serializeAgentSummary(
+  agent: AgentDefinition,
+  providerService: ProviderService
+): AgentSummaryResponse {
+  const resolvedModel = resolveAgentModelSnapshot(providerService, agent)
   return {
     id: agent.id,
     name: agent.name,
@@ -30,15 +37,23 @@ function serializeAgentSummary(agent: AgentDefinition): AgentSummaryResponse {
     capabilities: agent.capabilities,
     enabled: agent.enabled,
     readonly: agent.readonly,
+    modelRef: agent.modelRef,
+    resolvedModel: resolvedModel ?? undefined,
   }
 }
 
-function serializeAgentDetail(agent: AgentDefinition): AgentDetailResponse {
+function serializeAgentDetail(
+  agent: AgentDefinition,
+  providerService: ProviderService
+): AgentDetailResponse {
+  const resolvedModel = resolveAgentModelSnapshot(providerService, agent)
   return {
-    ...serializeAgentSummary(agent),
+    ...serializeAgentSummary(agent, providerService),
     allowedSubagents: agent.allowedSubagents,
     allowedTools: agent.allowedTools,
     permissionPolicy: agent.permissionPolicy,
+    modelRef: agent.modelRef,
+    resolvedModel: resolvedModel ?? undefined,
     external: agent.external
       ? {
           provider: agent.external.provider,
@@ -82,6 +97,7 @@ agents.get("/runtime/agents", (c: Context) => {
   }
 
   const registry = c.get("agentRegistry")
+  const providerService = c.get("providerService")
   if (!registry.isInitialized()) {
     return registryUnavailable(c)
   }
@@ -98,7 +114,7 @@ agents.get("/runtime/agents", (c: Context) => {
   })
 
   return c.json({
-    agents: visibleAgents.map(serializeAgentSummary),
+    agents: visibleAgents.map((agent: AgentDefinition) => serializeAgentSummary(agent, providerService)),
   })
 })
 
@@ -112,6 +128,7 @@ agents.get("/runtime/agents/:agentId", (c: Context) => {
   }
 
   const registry = c.get("agentRegistry")
+  const providerService = c.get("providerService")
   if (!registry.isInitialized()) {
     return registryUnavailable(c)
   }
@@ -129,7 +146,7 @@ agents.get("/runtime/agents/:agentId", (c: Context) => {
     }, 404)
   }
 
-  return c.json(serializeAgentDetail(agent))
+  return c.json(serializeAgentDetail(agent, providerService))
 })
 
 export default agents

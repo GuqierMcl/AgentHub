@@ -142,7 +142,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已进入第二轮实现：`orchestrator` 的 DAG 调度、`run_task` 内部任务工具和批次并行委派已落地；AI SDK 执行器和外部 Adapter 实接仍保留到后续阶段。
+阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已进入第二轮实现：`orchestrator` 的 DAG 调度、`run_task` 内部任务工具和批次并行委派已落地。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析和 agent 模型绑定回显；工具循环、复杂计划与外部 Adapter 实接仍保留到后续阶段。
 
 ## 已完成
 
@@ -156,12 +156,13 @@ Agent Runtime 智能体架构
 - 阶段 3 已落地 `POST /runtime/runs`、`GET /runtime/runs/:runId`、`GET /runtime/runs/:runId/events`、`POST /runtime/runs/:runId/cancel`。
 - 阶段 3 已落地 IM 会话入口解析：单聊绑定主智能体、群聊默认 `orchestrator`、群聊单 @ 指定主智能体。
 - 阶段 4 已落地 `orchestrator` DAG 执行、`run_task` 内部任务工具、任务组事件、任务生命周期事件和并行委派。
+- 阶段 5 已落地最小 `AiSdkExecutor`、provider/model 解析和智能体模型绑定返回。
 
 ## 待办
 
-- 补充 `AiSdkExecutor` 模板。
 - 扩展 `orchestrator` 的更完整计划策略、汇总策略和错误恢复。
 - 实现外部智能体 Adapter 骨架。
+- 补充 AI SDK 工具循环、结构化输出和更完整的 agent 运行参数映射。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
 
 ## 风险与待确认点

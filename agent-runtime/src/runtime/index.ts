@@ -1,4 +1,5 @@
 export { EntryResolver, RunInputValidationError } from "./entry-resolver"
+export { AiSdkExecutor } from "./ai-sdk-executor"
 export { MockExecutor } from "./mock-executor"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager } from "./run-manager"
