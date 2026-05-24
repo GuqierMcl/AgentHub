@@ -248,6 +248,8 @@ Agent Runtime 需要负责将 Agent 的执行结果转化为平台可识别的�
 
 MVP 阶段，Workspace 可以是轻量本地目录；后续可以演进为沙箱、容器或远程执行环境。
 
+Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。
+
 ### 3.7 事件流输出
 
 Agent Runtime 不应只返回一个最终结果，而应输出一条持续的事件流。

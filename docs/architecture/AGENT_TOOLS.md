@@ -244,6 +244,7 @@ Runtime 内部还会保留 trace，用于 UI 展示和事件重放。
 - 网络外联
 
 `run_task` 默认不需要审批，但它委派的目标任务仍必须满足被委派智能体的权限与可见性约束。
+文件系统类工具应通过 `docs/architecture/AGENT_RUNTIME_BACKEND.md` 定义的 Workspace Backend 访问真实存储；本地文件系统只是第一版后端实现。
 
 ## 10. 允许的后续扩展
 
@@ -257,6 +258,7 @@ Runtime 内部还会保留 trace，用于 UI 展示和事件重放。
 - `deploy_task`
 - 浏览器类工具
 - 外部 MCP / Adapter 桥接工具
+- 文件工具和沙箱工具在进入实现前，必须先定义对应 backend capability、审批语义和外部授权策略。
 
 新增工具必须先完成：
 
