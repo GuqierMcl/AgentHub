@@ -155,6 +155,10 @@ export type AgentExecutionContext = {
   parentTaskId?: string
   emitEvent?: (event: RunEvent) => void
   workspaceService?: WorkspaceService
+  executeTask?: (task: OrchestratorTask, options?: {
+    groupId?: string
+    parentTaskId?: string
+  }) => Promise<TaskExecutionResult>
   runTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string

@@ -191,7 +191,7 @@ agents.put("/runtime/agents/:agentId/model", async (c: Context) => {
   }
 
   if (!registry.isModelBindingAllowed(agentId)) {
-    return agentModelBindingNotAllowed(c, agentId, "only visible enabled primary AI SDK agents can bind models")
+    return agentModelBindingNotAllowed(c, agentId, "only visible enabled internal primary agents can bind models")
   }
 
   const body = await c.req.json().catch(() => null)
@@ -265,7 +265,7 @@ agents.delete("/runtime/agents/:agentId/model", async (c: Context) => {
   }
 
   if (!registry.isModelBindingAllowed(agentId)) {
-    return agentModelBindingNotAllowed(c, agentId, "only visible enabled primary AI SDK agents can clear model bindings")
+    return agentModelBindingNotAllowed(c, agentId, "only visible enabled internal primary agents can clear model bindings")
   }
 
   const updatedAgent = await registry.clearAgentModelBinding(agentId)

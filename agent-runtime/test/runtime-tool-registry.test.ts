@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { createRunEvent, type AgentExecutionContext, type RunEvent, type RunInput, type TaskExecutionResult } from "../src/runtime"
 import type { AgentDefinition } from "../src/agents"
 import { RuntimeToolRegistry, createRunTaskTool } from "../src/runtime/tools"
+import type { ToolDefinition } from "../src/runtime/tools"
+import { z } from "zod"
 
 const orchestratorAgent: AgentDefinition = {
   id: "orchestrator",
@@ -81,6 +83,24 @@ function asTaskResult(value: unknown): TaskExecutionResult | undefined {
 
   const candidate = value as { taskResult?: TaskExecutionResult }
   return candidate.taskResult
+}
+
+const visibleTool: ToolDefinition<{}, { ok: boolean }> = {
+  name: "ls",
+  description: "List visible files",
+  inputSchema: z.object({}),
+  riskLevel: "low",
+  requiresApproval: false,
+  allowedAgents: ["orchestrator", "coder"],
+  async execute() {
+    return {
+      status: "completed",
+      summary: "ok",
+      data: {
+        ok: true,
+      },
+    }
+  },
 }
 
 describe("RuntimeToolRegistry", () => {
@@ -390,5 +410,41 @@ describe("RuntimeToolRegistry", () => {
     expect(invalidInput.error?.code).toBe("TOOL_INVALID_INPUT")
     expect(events.filter((event) => event.type === "tool.failed")).toHaveLength(1)
     expect(events.some((event) => event.type === "task.started")).toBe(false)
+  })
+
+  test("buildAiSdkToolSettings keeps run_task visible only for orchestrator", () => {
+    const registry = new RuntimeToolRegistry()
+    registry.register(createRunTaskTool())
+    registry.register(visibleTool)
+
+    const orchestratorContext = createBaseContext({
+      agent: {
+        ...orchestratorAgent,
+        allowedTools: ["run_task", "ls"],
+      },
+    }).context
+
+    const orchestratorSettings = registry.buildAiSdkToolSettings(orchestratorContext, {
+      includeInternal: true,
+    })
+    expect(orchestratorSettings?.activeTools).toEqual(["run_task", "ls"])
+
+    const coderContext = createBaseContext({
+      agent: {
+        ...orchestratorAgent,
+        id: "coder",
+        name: "Coder",
+        entryPolicy: "callable",
+        modelRef: {
+          providerId: "deepseek",
+          modelId: "deepseek-v4-pro",
+        },
+        allowedTools: ["run_task", "ls"],
+      },
+    }).context
+
+    const coderSettings = registry.buildAiSdkToolSettings(coderContext)
+    expect(coderSettings?.activeTools).toEqual(["ls"])
+    expect(coderSettings?.activeTools).not.toContain("run_task")
   })
 })

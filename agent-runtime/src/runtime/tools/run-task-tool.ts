@@ -38,7 +38,8 @@ export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelDa
     requiresApproval: false,
     allowedAgents: ["orchestrator"],
     async execute(input, context): Promise<ToolExecutionResult<RunTaskModelData, RunTaskRuntimeData>> {
-      if (!context.runTask) {
+      const executeTask = context.executeTask ?? context.runTask
+      if (!executeTask) {
         return {
           status: "failed",
           summary: "run_task is not available in this execution context",
@@ -60,7 +61,7 @@ export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelDa
         dependsOn: context.task?.dependsOn ?? input.dependsOn,
       }
 
-      const taskResult = await context.runTask(task, {
+      const taskResult = await executeTask(task, {
         groupId: context.groupId,
         parentTaskId: context.parentTaskId,
       })
@@ -89,4 +90,3 @@ export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelDa
     },
   }
 }
-

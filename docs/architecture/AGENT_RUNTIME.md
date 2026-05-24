@@ -181,9 +181,9 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - 接收错误信息。
 - 返回统一事件。
 
-当前实现中，`executorType = "ai-sdk"` 的主智能体会先通过 `ProviderService` 解析 `modelRef`，再交给 AI SDK 的 `streamText` 执行；`orchestrator` 仍然保留专用执行路径，不走普通模型直出。
+当前实现中，`executorType = "ai-sdk"` 的主智能体会先通过 `ProviderService` 解析 `modelRef`，再交给 AI SDK 的 `streamText` 执行；`orchestrator` 也通过专用 `OrchestratorExecutor` 走 AI SDK `streamText` + `run_task` 工具调用路径，仍然遵守同一套 `RunEvent` 协议。
 
-主智能体的模型绑定是运行时配置覆盖层，持久化到 `config.dataDir` 下的 agent 模型绑定文件中，并在注册表加载时合并到 agent 定义。
+主智能体的模型绑定是运行时配置覆盖层，持久化到 `config.dataDir` 下的 agent 模型绑定文件中，并在注册表加载时合并到 agent 定义。`orchestrator` 已被纳入允许绑定模型的内部主智能体集合，外部智能体和隐藏子智能体仍不在这套绑定层内。
 
 ### 3.4 外部智能体 Adapter
 

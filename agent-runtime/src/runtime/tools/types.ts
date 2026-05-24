@@ -39,6 +39,10 @@ export type ToolExecutionContext = {
   task?: OrchestratorTask
   emitEvent: (event: RunEvent) => void
   workspaceService?: WorkspaceService
+  executeTask?: (task: OrchestratorTask, options?: {
+    groupId?: string
+    parentTaskId?: string
+  }) => Promise<TaskExecutionResult>
   runTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string

@@ -109,9 +109,13 @@ export class RuntimeToolRegistry {
     }
   }
 
-  buildAiSdkToolSettings(baseContext: AgentExecutionContext): AiSdkToolSettings | null {
+  buildAiSdkToolSettings(
+    baseContext: AgentExecutionContext,
+    options: RuntimeToolListOptions = {}
+  ): AiSdkToolSettings | null {
     const visibleTools = this.listToolsForAgent(baseContext.agent.id, {
       allowedToolNames: baseContext.agent.allowedTools,
+      includeInternal: options.includeInternal,
     })
     if (visibleTools.length === 0) {
       return null
@@ -167,6 +171,7 @@ export class RuntimeToolRegistry {
       task: options.task ?? baseContext.task,
       emitEvent: baseContext.emitEvent ?? (() => {}),
       workspaceService: baseContext.workspaceService,
+      executeTask: baseContext.executeTask,
       runTask: baseContext.runTask,
     }
   }

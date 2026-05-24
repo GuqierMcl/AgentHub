@@ -203,6 +203,8 @@ Runtime 内部还会保留 trace，用于 UI 展示和事件重放。
 - 父智能体只获得最终结果。
 - 内部任务与直接用户调用共享同一套事件协议。
 
+Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.executeTask` 负责裸任务生命周期，`RuntimeToolRegistry.executeTool("run_task", ...)` 只负责在外层补上 `tool.started` / `tool.completed` / `tool.failed`。这样一个 `run_task` 调用只会对应一组工具事件和一组任务事件，不会出现双层工具包装。
+
 ## 8. 并发、取消与失败
 
 ### 8.1 并发

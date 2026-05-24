@@ -105,17 +105,20 @@ Agent Runtime 智能体架构
 - 指定子智能体作为入口会被拒绝。
 - 运行态事件可通过 SSE 读取。
 
-### 阶段 4：Orchestrator V1
+### 阶段 4：Orchestrator AI SDK Tool Calling V1
 
 目标：
 
-- 实现规则版 `orchestrator` 计划生成。
-- 支持委派 `explore`、`general`、`file`、`deploy` 等子智能体。
-- 支持结构化汇总输出。
+- 通过 AI SDK `streamText` 让 `orchestrator` 成为真实的 tool-calling 主智能体。
+- 暴露 `run_task` 内部任务工具，仅供 `orchestrator` 调用。
+- 支持委派 `explore`、`general`、`file`、`deploy` 以及其他允许的主智能体。
+- 支持结构化汇总输出，并保留任务图与工具事件供 UI 回放。
 
 验收：
 
-- `orchestrator` 能生成 plan 并驱动子智能体执行。
+- `orchestrator` 能在群聊默认入口下通过 `run_task` 委派其他智能体。
+- `run_task` 仅 `orchestrator` 可见、可调用。
+- 工具调用、任务生命周期和最终汇总都能通过 SSE 正确回放。
 - 高风险子智能体会触发权限检查。
 
 ### 阶段 5：AI SDK 执行器模板
@@ -163,7 +166,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 DAG 调度、`run_task` 内部任务工具和批次并行委派；本轮进一步把工具体系抽成正式的 Runtime Tool 底座，并将 `run_task` 统一纳入工具事件与 AI SDK 工具注册流程。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显，以及按主智能体配置模型的 API。阶段 6 已完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 继续保留外部 Adapter 骨架。
+阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；本轮进一步把工具体系抽成正式的 Runtime Tool 底座，并将 `run_task` 统一纳入工具事件与 AI SDK 工具注册流程。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显，以及按主智能体配置模型的 API。阶段 6 已完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 继续保留外部 Adapter 骨架。
 
 ## 已完成
 
@@ -176,9 +179,9 @@ Agent Runtime 智能体架构
 - 阶段 2 已落地 `AgentExecutor`、最小 RunEvent 协议和 `MockExecutor`。
 - 阶段 3 已落地 `POST /runtime/runs`、`GET /runtime/runs/:runId`、`GET /runtime/runs/:runId/events`、`POST /runtime/runs/:runId/cancel`。
 - 阶段 3 已落地 IM 会话入口解析：单聊绑定主智能体、群聊默认 `orchestrator`、群聊单 @ 指定主智能体。
-- 阶段 4 已落地 `orchestrator` DAG 执行、`run_task` 内部任务工具、任务组事件、任务生命周期事件和并行委派。
+- 阶段 4 已落地 `orchestrator` AI SDK tool calling、`run_task` 内部任务工具、任务组事件、任务生命周期事件和并行委派。
 - 阶段 4-5 之间已补齐 Runtime Tool 基础设施、`run_task` 正式工具化、工具事件协议和 AI SDK 工具注册骨架。
-- 阶段 5 已落地最小 `AiSdkExecutor`、provider/model 解析、智能体模型绑定返回，以及 agent 模型绑定 API。
+- 阶段 5 已落地最小 `AiSdkExecutor`、provider/model 解析、`orchestrator` / 主智能体模型绑定返回，以及 agent 模型绑定 API。
 - 阶段 6 已落地 `WorkspaceService`、`LocalWorkspaceBackend`、沙箱外访问请求与授权挂载语义，以及首批只读文件工具 `ls`、`read_file`、`glob`、`grep`。
 - `AGENT_RUNTIME_BACKEND.md` 已建立，明确 Workspace Backend、沙箱外访问审批和本地优先实现。
 - `AGENT_TOOLS.md` 已建立，明确工具可见性、`run_task` 语义、事件流和并发约束。
@@ -207,10 +210,11 @@ Agent Runtime 智能体架构
 
 - 根据对话补充了 `orchestrator` 的特殊系统预设主智能体定位。
 - 明确内部智能体共享统一执行协议，不引入兼容层。
-- 将实现路径拆为注册表、统一执行接口、Run API、Orchestrator V1、AI SDK 模板和外部 Adapter 骨架六个阶段。
+- 将实现路径拆为注册表、统一执行接口、Run API、Orchestrator AI SDK Tool Calling、AI SDK 模板和外部 Adapter 骨架六个阶段。
 - 第一轮实现阶段 1，并附带完成只读 Agents API。
 - 补充 IM 会话入口规则：单聊入口为绑定主智能体，群聊无 @ 入口为 orchestrator，群聊有 @ 入口为被 @ 主智能体。
 - 第二轮实现阶段 2，并推进阶段 3：Run/Event 骨架、MockExecutor、Run API、SSE replay 和取消能力。
 - 第三轮实现阶段 4：`orchestrator` 的 `run_task` DAG 调度、任务组事件、依赖表达和批次并行委派。
 - 第四轮把 Runtime Tool 基础设施正式落地，并将 `run_task` 工具化，统一接入 AI SDK 工具注册骨架。
 - 第五轮完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 保留外部智能体 Adapter 骨架。
+- 最新一轮已把 `orchestrator` 迁移到真实 AI SDK tool calling，并通过 `deepseek/deepseek-v4-pro` 在 4096 端口完成群聊与单聊 smoke 验证。

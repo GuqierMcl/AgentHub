@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { createChildLogger } from "../logger"
 import { EntryResolver, RunInputValidationError } from "./entry-resolver"
 import { AiSdkExecutor } from "./ai-sdk-executor"
+import { AgentModelResolutionError } from "./model-resolver"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
@@ -80,7 +81,7 @@ export class RunManager {
       this.toolRegistry.register(tool)
     }
     this.aiSdkExecutor = new AiSdkExecutor(providerService, this.toolRegistry)
-    this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry)
+    this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry, providerService, this.toolRegistry)
     this.workspaceService = workspaceService ?? new WorkspaceService({
       workdir: resolveDefaultWorkspaceRoot(),
     })
@@ -243,10 +244,15 @@ export class RunManager {
       run.error = {
         code: error instanceof RunInputValidationError
           ? error.code
+          : error instanceof AgentModelResolutionError
+            ? error.code
           : error instanceof TaskExecutionError
             ? error.code
             : "RUN_FAILED",
         message,
+        details: error instanceof AgentModelResolutionError || error instanceof TaskExecutionError
+          ? error.details
+          : undefined,
       }
       this.updateRunStatus(run, "failed")
       this.emit(createRunEvent(runId, "run.failed", undefined, run.error))
@@ -304,17 +310,19 @@ export class RunManager {
     }
 
     if (agent.id === "orchestrator") {
+      context.executeTask = async (taskToExecute, taskDispatchOptions = {}) => this.executeTask({
+        run,
+        sourceAgent: agent,
+        task: taskToExecute,
+        abortController,
+        groupId: taskDispatchOptions.groupId,
+        parentTaskId: taskDispatchOptions.parentTaskId,
+      })
+
       context.runTask = async (nextTask, dispatchOptions = {}) => {
         const toolResult = await this.toolRegistry.executeTool("run_task", nextTask, {
           ...context,
-          runTask: async (taskToExecute, taskDispatchOptions = {}) => this.executeTask({
-            run,
-            sourceAgent: agent,
-            task: taskToExecute,
-            abortController,
-            groupId: taskDispatchOptions.groupId,
-            parentTaskId: taskDispatchOptions.parentTaskId,
-          }),
+          executeTask: context.executeTask,
         }, {
           toolCallId: `tool_run_task_${nextTask.taskId}`,
           groupId: dispatchOptions.groupId,

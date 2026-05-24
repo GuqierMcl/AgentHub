@@ -204,8 +204,7 @@ export class AgentRegistry {
       agent.visibility === "visible" &&
       agent.enabled &&
       agent.origin !== "external" &&
-      agent.executorType === "ai-sdk" &&
-      agent.id !== "orchestrator"
+      (agent.executorType === "ai-sdk" || agent.executorType === "orchestrator")
     )
   }
 

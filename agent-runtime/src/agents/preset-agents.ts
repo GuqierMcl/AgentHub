@@ -23,7 +23,7 @@ export const presetAgents: AgentDefinition[] = [
     executorType: "orchestrator",
     capabilities: ["routing", "planning", "delegation", "aggregation"],
     allowedSubagents: orchestrationSubagents,
-    allowedTools: [],
+    allowedTools: ["run_task"],
     permissionPolicy: llmReadOnlyPolicy,
     enabled: true,
     readonly: true,

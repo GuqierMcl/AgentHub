@@ -19,6 +19,7 @@ export class AgentModelResolutionError extends Error {
       | "MODEL_PROVIDER_NOT_FOUND"
       | "MODEL_NOT_FOUND"
       | "MODEL_DISABLED"
+      | "MODEL_TOOLS_UNSUPPORTED"
       | "MODEL_UNSUPPORTED_PROVIDER",
     message: string,
     public details?: unknown

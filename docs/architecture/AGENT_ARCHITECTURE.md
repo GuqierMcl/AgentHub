@@ -236,7 +236,7 @@ type RunInput = {
 - 汇总子任务输出。
 - 输出面向用户的最终答复。
 
-MVP 先采用“计划生成 + `run_task` DAG 调度 + 批次并行执行 + 汇总”的模型。
+MVP 已落地为“AI SDK `streamText` + `run_task` 内部任务工具 + 批次并行执行 + 汇总”的模型。`orchestrator` 仍然是普通主智能体，只是它拥有默认入口语义和更强的委派能力；Runtime 负责把工具调用包装成任务事件，并在必要时做二次校验与汇总。
 
 `run_task` 是 Runtime 内部任务工具，只对 `orchestrator` 可见，用于调度允许的主智能体或子智能体。任务之间可通过 `dependsOn` 表达依赖关系；没有依赖的任务可并行启动。并行 DAG 委派由 Runtime 内部调度，不引入独立控制层。
 
@@ -589,6 +589,8 @@ type OrchestratorTask = {
 }
 ```
 
+在当前 V1 实现里，这个 plan 更像是 orchestrator 内部的任务图语义；模型可以通过 `run_task` 逐步表达委派，不一定单独产出 plan 事件。
+
 计划生成后，Runtime 需要做二次校验：
 
 - `targetAgentId` 必须存在。
@@ -611,19 +613,21 @@ task.group.started
 task.group.completed
 task.started
 task.completed
-task.failed
-tool.started
-tool.completed
-tool.failed
-message.delta
+ task.failed
+ tool.started
+ tool.completed
+ tool.failed
+ message.delta
 message.completed
 permission.requested
 artifact.created
 diff.proposed
 agent.completed
-run.completed
-run.failed
+ run.completed
+ run.failed
 ```
+
+其中 `orchestrator.plan.created` 目前保留为后续可视化和调试事件的扩展点，当前 AI SDK orchestrator V1 主路径不强制发送该事件。
 
 事件载荷要包含足够的追踪信息：
 

@@ -74,6 +74,12 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `RUN_INVALID_ENTRY_AGENT` | 400 | RunInput 无法解析合法入口智能体 |
 | `AGENT_MODEL_BINDING_INVALID` | 400 | 智能体模型绑定参数或 provider/model 不可用 |
 | `AGENT_MODEL_BINDING_NOT_ALLOWED` | 403 | 当前智能体不允许绑定模型 |
+| `MODEL_BINDING_MISSING` | 400 | 智能体未配置模型绑定 |
+| `MODEL_PROVIDER_NOT_FOUND` | 404 | 绑定的 provider 不存在 |
+| `MODEL_NOT_FOUND` | 404 | 绑定的 model 不存在 |
+| `MODEL_DISABLED` | 400 | 绑定的 provider 或 model 已禁用 |
+| `MODEL_TOOLS_UNSUPPORTED` | 400 | 绑定的模型不支持工具调用 |
+| `MODEL_UNSUPPORTED_PROVIDER` | 400 | provider 协议不受 Runtime 支持 |
 | `TOOL_NOT_FOUND` | 404 | 请求的工具不存在 |
 | `TOOL_NOT_ALLOWED` | 403 | 当前智能体不允许使用该工具 |
 | `TOOL_INVALID_INPUT` | 400 | 工具输入未通过 schema 校验 |
@@ -192,7 +198,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "enabled": true
   },
   "allowedSubagents": ["explore", "general", "file", "deploy"],
-  "allowedTools": [],
+  "allowedTools": ["run_task"],
   "permissionPolicy": {
     "filesystem": "none",
     "shell": "none",
@@ -233,8 +239,8 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 规则：
 
-- 仅允许可见、启用、内部的主智能体绑定模型。
-- `orchestrator`、隐藏子智能体、外部智能体不允许绑定。
+- 仅允许可见、启用的内部主智能体绑定模型，当前也包括 `orchestrator`。
+- 隐藏子智能体和外部智能体不允许绑定。
 - provider 与 model 必须存在且启用。
 
 成功响应：返回更新后的 agent detail，包含 `modelRef` 和 `resolvedModel`。
@@ -425,6 +431,8 @@ run.completed
 run.failed
 run.cancelled
 ```
+
+`orchestrator.plan.created` 目前保留为后续可视化和调试的扩展事件；当前 AI SDK orchestrator V1 主路径不强制发送该事件。
 
 事件字段：
 
