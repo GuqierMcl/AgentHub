@@ -1,6 +1,7 @@
 import type { z } from "zod"
 import type { ToolSet } from "ai"
 import type { AgentDefinition } from "../../agents"
+import type { WorkspaceService } from "../workspace"
 import type {
   OrchestratorRiskLevel,
   OrchestratorTask,
@@ -37,6 +38,7 @@ export type ToolExecutionContext = {
   parentTaskId?: string
   task?: OrchestratorTask
   emitEvent: (event: RunEvent) => void
+  workspaceService?: WorkspaceService
   runTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string
@@ -64,6 +66,7 @@ export type RuntimeToolExecuteOptions = {
 
 export type RuntimeToolListOptions = {
   includeInternal?: boolean
+  allowedToolNames?: string[]
 }
 
 export type AiSdkToolSettings = {

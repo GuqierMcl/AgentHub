@@ -27,8 +27,13 @@ export class RuntimeToolRegistry {
     agentId: string,
     options: RuntimeToolListOptions = {}
   ): ToolDefinition<any, any, any>[] {
+    const allowedToolNames = options.allowedToolNames
+      ? new Set(options.allowedToolNames)
+      : null
+
     return Array.from(this.tools.values())
       .filter((definition) => definition.allowedAgents.includes(agentId))
+      .filter((definition) => !allowedToolNames || allowedToolNames.has(definition.name))
       .filter((definition) => options.includeInternal || definition.name !== "run_task")
   }
 
@@ -105,7 +110,9 @@ export class RuntimeToolRegistry {
   }
 
   buildAiSdkToolSettings(baseContext: AgentExecutionContext): AiSdkToolSettings | null {
-    const visibleTools = this.listToolsForAgent(baseContext.agent.id)
+    const visibleTools = this.listToolsForAgent(baseContext.agent.id, {
+      allowedToolNames: baseContext.agent.allowedTools,
+    })
     if (visibleTools.length === 0) {
       return null
     }
@@ -159,6 +166,7 @@ export class RuntimeToolRegistry {
       parentTaskId: options.parentTaskId ?? baseContext.parentTaskId,
       task: options.task ?? baseContext.task,
       emitEvent: baseContext.emitEvent ?? (() => {}),
+      workspaceService: baseContext.workspaceService,
       runTask: baseContext.runTask,
     }
   }

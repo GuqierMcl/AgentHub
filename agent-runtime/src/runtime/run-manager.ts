@@ -1,12 +1,15 @@
 import type { AgentDefinition, AgentRegistry } from "../agents"
 import type { ProviderService } from "../provider"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 import { createChildLogger } from "../logger"
 import { EntryResolver, RunInputValidationError } from "./entry-resolver"
 import { AiSdkExecutor } from "./ai-sdk-executor"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
-import { RuntimeToolRegistry, createRunTaskTool } from "./tools"
+import { RuntimeToolRegistry, createRunTaskTool, createWorkspaceReadOnlyTools } from "./tools"
+import { WorkspaceService } from "./workspace"
 import type {
   AgentExecutionContext,
   AgentExecutor,
@@ -19,6 +22,10 @@ import type {
 } from "./types"
 
 const log = createChildLogger("run-manager")
+
+function resolveDefaultWorkspaceRoot(): string {
+  return join(tmpdir(), "agent-runtime-workspace")
+}
 
 type RunSubscription = (event: RunEvent) => void
 
@@ -56,6 +63,7 @@ export class RunManager {
   private mockExecutor = new MockExecutor()
   private orchestratorExecutor: OrchestratorExecutor
   private toolRegistry = new RuntimeToolRegistry()
+  private workspaceService: WorkspaceService
   private runs: Map<string, RunRecord> = new Map()
   private events: Map<string, RunEvent[]> = new Map()
   private subscriptions: Map<string, Set<RunSubscription>> = new Map()
@@ -63,12 +71,19 @@ export class RunManager {
 
   constructor(
     private agentRegistry: AgentRegistry,
-    providerService: ProviderService
+    providerService: ProviderService,
+    workspaceService?: WorkspaceService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
     this.toolRegistry.register(createRunTaskTool())
+    for (const tool of createWorkspaceReadOnlyTools()) {
+      this.toolRegistry.register(tool)
+    }
     this.aiSdkExecutor = new AiSdkExecutor(providerService, this.toolRegistry)
     this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry)
+    this.workspaceService = workspaceService ?? new WorkspaceService({
+      workdir: resolveDefaultWorkspaceRoot(),
+    })
   }
 
   createRun(input: RunInput): RunRecord {
@@ -285,6 +300,7 @@ export class RunManager {
       groupId,
       parentTaskId,
       emitEvent: emitExecutionEvent,
+      workspaceService: this.workspaceService,
     }
 
     if (agent.id === "orchestrator") {

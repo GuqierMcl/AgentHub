@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 // 定义配置模式
 const configSchema = z.object({
@@ -8,6 +9,7 @@ const configSchema = z.object({
   hostname: z.string(),
   cors: z.array(z.string()),
   dataDir: z.string(),
+  workdir: z.string(),
 });
 
 // 解析命令行参数
@@ -30,6 +32,9 @@ const { values } = parseArgs({
       type: "string",
       short: "d",
     },
+    workdir: {
+      type: "string",
+    },
   },
   strict: true,
   allowPositionals: false,
@@ -41,6 +46,7 @@ const rawConfig = {
   hostname: values.hostname ?? process.env.HOSTNAME ?? "127.0.0.1",
   cors: values.cors ?? (process.env.CORS ? process.env.CORS.split(",") : []),
   dataDir: resolve(values["data-dir"] ?? process.env.AGENT_RUNTIME_DATA_DIR ?? "./data-tmp"),
+  workdir: resolve(values.workdir ?? process.env.AGENT_RUNTIME_WORKDIR ?? join(tmpdir(), "agent-runtime-workspace")),
 };
 
 // 验证配置

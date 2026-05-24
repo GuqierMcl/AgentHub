@@ -163,7 +163,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 DAG 调度、`run_task` 内部任务工具和批次并行委派；本轮进一步把工具体系抽成正式的 Runtime Tool 底座，并将 `run_task` 统一纳入工具事件与 AI SDK 工具注册流程。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显，以及按主智能体配置模型的 API。当前路线图新增阶段 6，专门承接 Workspace Backend、沙箱外访问审批与首批只读文件工具实现；阶段 7 继续保留外部 Adapter 骨架。
+阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 DAG 调度、`run_task` 内部任务工具和批次并行委派；本轮进一步把工具体系抽成正式的 Runtime Tool 底座，并将 `run_task` 统一纳入工具事件与 AI SDK 工具注册流程。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显，以及按主智能体配置模型的 API。阶段 6 已完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 继续保留外部 Adapter 骨架。
 
 ## 已完成
 
@@ -179,6 +179,7 @@ Agent Runtime 智能体架构
 - 阶段 4 已落地 `orchestrator` DAG 执行、`run_task` 内部任务工具、任务组事件、任务生命周期事件和并行委派。
 - 阶段 4-5 之间已补齐 Runtime Tool 基础设施、`run_task` 正式工具化、工具事件协议和 AI SDK 工具注册骨架。
 - 阶段 5 已落地最小 `AiSdkExecutor`、provider/model 解析、智能体模型绑定返回，以及 agent 模型绑定 API。
+- 阶段 6 已落地 `WorkspaceService`、`LocalWorkspaceBackend`、沙箱外访问请求与授权挂载语义，以及首批只读文件工具 `ls`、`read_file`、`glob`、`grep`。
 - `AGENT_RUNTIME_BACKEND.md` 已建立，明确 Workspace Backend、沙箱外访问审批和本地优先实现。
 - `AGENT_TOOLS.md` 已建立，明确工具可见性、`run_task` 语义、事件流和并发约束。
 
@@ -186,9 +187,9 @@ Agent Runtime 智能体架构
 
 - 扩展 `orchestrator` 的更完整计划策略、汇总策略和错误恢复。
 - 补充 AI SDK 工具循环、结构化输出和更完整的 agent 运行参数映射。
-- 实现 Workspace Backend 与首批只读文件工具，并将沙箱外访问审批闭环接入工具事件。
 - 实现外部智能体 Adapter 骨架。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
+- 继续扩展文件写入、Patch 应用和更复杂的沙箱审批闭环。
 
 ## 风险与待确认点
 
@@ -212,4 +213,4 @@ Agent Runtime 智能体架构
 - 第二轮实现阶段 2，并推进阶段 3：Run/Event 骨架、MockExecutor、Run API、SSE replay 和取消能力。
 - 第三轮实现阶段 4：`orchestrator` 的 `run_task` DAG 调度、任务组事件、依赖表达和批次并行委派。
 - 第四轮把 Runtime Tool 基础设施正式落地，并将 `run_task` 工具化，统一接入 AI SDK 工具注册骨架。
-- 新增阶段 6：Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 保留外部智能体 Adapter 骨架。
+- 第五轮完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 保留外部智能体 Adapter 骨架。

@@ -5,6 +5,8 @@ export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
 export { RuntimeToolRegistry, createRunTaskTool } from "./tools"
+export { createWorkspaceReadOnlyTools } from "./tools"
+export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
 export type {
   RuntimeConversationMode,
   RuntimeMessage,
@@ -34,6 +36,27 @@ export type {
   ToolExecutionResult,
   ToolExecutionStatus,
 } from "./tools"
+export type {
+  ExternalAccessGrant,
+  ExternalAccessRequest,
+  SandboxPolicy,
+  WorkspaceAccessAllowed,
+  WorkspaceAccessApprovalRequired,
+  WorkspaceAccessDenied,
+  WorkspaceAccessNotFound,
+  WorkspaceAccessResolution,
+  WorkspaceBackend,
+  WorkspaceBackendCapabilities,
+  WorkspaceContentBlock,
+  WorkspaceError,
+  WorkspaceErrorCode,
+  WorkspaceGrepMatch,
+  WorkspaceHandle,
+  WorkspaceListEntry,
+  WorkspaceReadFileResult,
+  WorkspaceTargetKind,
+  WorkspaceAccessMode,
+} from "./workspace"
 export {
   RuntimeConversationModeSchema,
   RuntimeMessageSchema,
@@ -50,4 +73,5 @@ export {
   RunCreateResponseSchema,
   RunRecordResponseSchema,
 } from "./types"
+export type { AgentDefinition } from "../agents"
 

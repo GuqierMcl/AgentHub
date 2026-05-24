@@ -308,3 +308,13 @@ type ExternalAccessGrant = {
 - 用户显式指定沙箱外目录或文件时，必须先审批。
 - 审批通过后以受控授权挂载的方式暴露访问，不直接放开整机文件系统。
 - 工具只处理 workspace-relative 路径，真实绝对路径只存在于 backend 内部和审计记录中。
+
+## 13. 当前实现状态
+
+截至本轮，Workspace Backend 已完成第一版落地：
+
+- `LocalWorkspaceBackend` 已实现 workspace-relative 路径解析、越界拒绝、symlink 越界防护和敏感文件屏蔽。
+- `WorkspaceService` 已统一处理主 workspace、外部访问请求去重、审批通过后的受控 grant，以及路径到 backend 的分发。
+- 首批只读工具 `ls`、`read_file`、`glob`、`grep` 已接入 Runtime Tool Registry。
+- `read_file` 已支持图片多模态返回。
+- 沙箱外路径访问会先产生 `permission.requested` 相关事件，再进入审批与受控授权流程。

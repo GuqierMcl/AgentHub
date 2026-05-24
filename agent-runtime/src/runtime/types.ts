@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { AgentDefinitionSchema, type AgentDefinition } from "../agents"
+import type { WorkspaceService } from "./workspace"
 
 export const RuntimeConversationModeSchema = z.enum(["single", "group"])
 export type RuntimeConversationMode = z.infer<typeof RuntimeConversationModeSchema>
@@ -153,6 +154,7 @@ export type AgentExecutionContext = {
   groupId?: string
   parentTaskId?: string
   emitEvent?: (event: RunEvent) => void
+  workspaceService?: WorkspaceService
   runTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string
