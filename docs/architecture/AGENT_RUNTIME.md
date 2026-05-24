@@ -153,6 +153,8 @@ Orchestrator 的职责包括：
 
 MVP 阶段，Orchestrator 不需要做复杂 DAG 调度器外置化，可以直接在 Runtime 内采用“计划生成 + `run_task` DAG 调度 + 批次并行执行 + 汇总结果”的模式。`run_task` 是 Runtime 内部任务工具，只对 Orchestrator 可见，用于调度允许的主智能体或子智能体。任务之间可通过 `dependsOn` 表达依赖关系。后续再扩展更复杂的并行恢复和冲突处理。
 
+工具体系、`run_task` 语义、工具事件和审批边界的正式设计见 `docs/architecture/AGENT_TOOLS.md`。
+
 ### 3.3 Agent Executor 统一执行
 
 Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent Runtime 的核心设计之一。

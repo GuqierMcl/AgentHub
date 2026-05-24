@@ -240,6 +240,8 @@ MVP 先采用“计划生成 + `run_task` DAG 调度 + 批次并行执行 + 汇�
 
 `run_task` 是 Runtime 内部任务工具，只对 `orchestrator` 可见，用于调度允许的主智能体或子智能体。任务之间可通过 `dependsOn` 表达依赖关系；没有依赖的任务可并行启动。并行 DAG 委派由 Runtime 内部调度，不引入独立控制层。
 
+工具体系的正式契约、事件流、审批与并发语义见 `docs/architecture/AGENT_TOOLS.md`。
+
 ```text
 RunInput
   ↓
