@@ -36,6 +36,14 @@ const { values } = parseArgs({
       type: 'string',
       short: 'd',
     },
+    'runtime-url': {
+      type: 'string',
+      short: 'r',
+    },
+    'log-level': {
+      type: 'string',
+      short: 'l',
+    },
   },
   strict: true,
   allowPositionals: false,
@@ -47,6 +55,8 @@ const configSchema = z.object({
   cors: z.array(z.string()),
   dataDir: z.string().min(1),
   dbUrl: z.string().min(1),
+  runtimeUrl: z.string().min(1),
+  logLevel: z.string().min(1),
 })
 
 const dataDir = resolve(values['data-dir'] ?? getDefaultDataDir())
@@ -57,6 +67,8 @@ const rawConfig = {
   cors: values.cors ?? (process.env.CORS ? process.env.CORS.split(',') : []),
   dataDir,
   dbUrl: `file:${resolve(dataDir, 'hub.db')}`,
+  runtimeUrl: values['runtime-url'] ?? process.env.AGENTHUB_RUNTIME_URL ?? 'http://127.0.0.1:4096',
+  logLevel: values['log-level'] ?? process.env.LOG_LEVEL ?? 'debug',
 }
 
 export const config = configSchema.parse(rawConfig)

@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { HTTPException } from 'hono/http-exception'
+import { logger } from './logger'
 
 export class AppError extends HTTPException {
   code: string
@@ -27,7 +28,7 @@ export function errorHandler(err: unknown, c: Context) {
     )
   }
 
-  console.error('Unhandled error:', err)
+  logger.error({ err }, 'Unhandled error')
   return c.json(
     { error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
     500,
@@ -40,4 +41,12 @@ export function notFound(code: string, message: string): AppError {
 
 export function badRequest(code: string, message: string): AppError {
   return new AppError(400, code, message)
+}
+
+export function runtimeNotReady(message?: string): AppError {
+  return new AppError(503, 'RUNTIME_NOT_READY', message ?? 'Agent Runtime is not available')
+}
+
+export function badGateway(code: string, message: string): AppError {
+  return new AppError(502, code, message)
 }

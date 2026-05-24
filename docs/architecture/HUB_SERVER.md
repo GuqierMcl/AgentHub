@@ -170,6 +170,47 @@ const dbPath = path.join(getAppDataDir(), 'hub.db')
 - 数据库文件应位于数据目录根下，命名为 `hub.db`。
 - 后续如需存储附件、产物文件等非数据库数据，统一放在数据目录下的子目录中（如 `artifacts/`、`uploads/`），子目录按需创建。
 
+## 日志
+
+Hub Server 使用 Pino 作为结构化日志库，禁止直接使用 `console.log/error/warn/info/debug`。
+
+### 基本规则
+
+- 所有日志输出必须通过 Pino logger 实例，禁止 `console.*`。
+- 生产环境输出 JSON 格式，不使用 `pino-pretty` 美化。
+- 每个 HTTP 请求绑定唯一 `reqId`，通过 `logger.child({ reqId })` 创建请求级子日志。
+- 日志级别通过 `--log-level` CLI 参数或 `LOG_LEVEL` 环境变量配置，默认开发 `debug`、生产 `info`。
+
+### 日志级别语义
+
+| 级别 | 语义 | 典型场景 |
+|---|---|---|
+| `fatal` | 服务不可恢复错误 | 数据库初始化失败 |
+| `error` | 请求级错误，服务继续运行 | 未捕获异常、Runtime 转发失败 |
+| `warn` | 非预期但可恢复 | 配置使用了默认值 |
+| `info` | 关键业务事件 | 服务启动/关闭、请求完成 |
+| `debug` | 调试信息 | 路由匹配、转发详情 |
+| `trace` | 极细粒度 | 函数进入/退出 |
+
+### 日志禁止事项
+
+- 不在校验通过的请求体上打日志（避免泄露 API key 等敏感数据）。
+- 不在正常运行的热路径上打 `info` 以上级别日志。
+- 不在循环内部打日志。
+
+### 文件组织
+
+- 日志创建与配置在 `src/lib/logger.ts`。
+- 请求日志中间件也在 `src/lib/logger.ts` 中导出。
+- 其他模块通过 `import { logger } from '../lib/logger'` 使用。
+
+### 设计约束
+
+- Pino logger 在 `src/lib/logger.ts` 中以单例方式创建和导出。
+- 请求日志中间件在 `src/index.ts` 中注册为 Hono 全局中间件。
+- `src/lib/errors.ts` 的 `errorHandler` 使用 `logger.error` 替代 `console.error`。
+- `RuntimeClient` 转发失败时使用 `logger.error` 记录详情。
+
 ## 开发命令
 
 ```bash

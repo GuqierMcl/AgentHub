@@ -13,12 +13,13 @@ import type { CurrentUser } from "../types"
 
 type CurrentUserBarProps = {
   collapsed: boolean
+  onOpenSettings: () => void
   user: CurrentUser
 }
 
-export function CurrentUserBar({ collapsed, user }: CurrentUserBarProps) {
+export function CurrentUserBar({ collapsed, onOpenSettings, user }: CurrentUserBarProps) {
   const settingsButton = (
-    <Button aria-label="用户设置" size="icon-sm" type="button" variant="ghost">
+    <Button aria-label="用户设置" onClick={onOpenSettings} size="icon-sm" type="button" variant="ghost">
       <SettingsIcon />
     </Button>
   )

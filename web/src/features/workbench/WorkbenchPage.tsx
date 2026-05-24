@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { conversations } from "./mock-data"
 import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout"
 import { ConversationSidebar } from "./components/ConversationSidebar"
+import { SettingsDialog } from "../settings/SettingsDialog"
 import {
   defaultPreviewTarget,
   defaultSelectedFilePath,
@@ -36,6 +37,7 @@ export function WorkbenchPage() {
     defaultSelectedFilePath
   )
   const [previewTarget, setPreviewTarget] = useState(defaultPreviewTarget)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const activeConversation = useMemo(
     () =>
       conversations.find(
@@ -58,6 +60,10 @@ export function WorkbenchPage() {
       next.add(tabId)
       return next
     })
+  }, [])
+
+  const handleOpenSettings = useCallback(() => {
+    setSettingsOpen(true)
   }, [])
 
   const handleOpenArtifact = useCallback((artifact: Artifact) => {
@@ -93,6 +99,7 @@ export function WorkbenchPage() {
         collapsed={isSidebarCollapsed}
         conversations={conversations}
         onSelectConversation={setActiveConversationId}
+        onOpenSettings={handleOpenSettings}
         onToggleCollapsed={() =>
           setIsSidebarCollapsed((collapsed) => !collapsed)
         }
@@ -108,6 +115,7 @@ export function WorkbenchPage() {
         selectedArtifact={selectedArtifact}
         selectedFilePath={selectedFilePath}
       />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </main>
   )
 }
