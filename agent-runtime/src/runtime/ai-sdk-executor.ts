@@ -6,8 +6,16 @@ import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
 import type { ProviderService } from "../provider"
 
 const log = createChildLogger("ai-sdk-executor")
+const DEFAULT_TEMPERATURE = 0.3
 
-function normalizeHistoryMessages(context: AgentExecutionContext): ModelMessage[] {
+type AiSdkExecutionSettings = {
+  system: string
+  messages: ModelMessage[]
+  maxOutputTokens: number
+  temperature?: number
+}
+
+function buildSystemPrompt(context: AgentExecutionContext): string {
   const systemNotes: string[] = []
 
   if (context.agent.systemPrompt) {
@@ -38,25 +46,39 @@ function normalizeHistoryMessages(context: AgentExecutionContext): ModelMessage[
     systemNotes.push(`This execution was delegated by agent: ${context.parentAgentId}`)
   }
 
-  const userMessages = context.input.history
+  return systemNotes.join("\n\n")
+}
+
+function normalizeHistoryMessages(context: AgentExecutionContext): ModelMessage[] {
+  return context.input.history
     .filter((message) => message.role !== "system")
     .map((message) => ({
       role: message.role,
       content: message.content,
     }) satisfies ModelMessage)
+    .concat({
+      role: "user",
+      content: context.input.userMessage.content,
+    })
+}
 
-  userMessages.push({
-    role: "user",
-    content: context.input.userMessage.content,
-  })
+function buildExecutionSettings(
+  context: AgentExecutionContext,
+  maxOutputTokens: number,
+  supportsTemperature: boolean
+): AiSdkExecutionSettings {
+  const system = buildSystemPrompt(context)
+  const messages = normalizeHistoryMessages(context)
+  const temperature = supportsTemperature && maxOutputTokens > 0
+    ? DEFAULT_TEMPERATURE
+    : undefined
 
-  return [
-    {
-      role: "system",
-      content: systemNotes.join("\n\n"),
-    },
-    ...userMessages,
-  ]
+  return {
+    system,
+    messages,
+    maxOutputTokens,
+    temperature,
+  }
 }
 
 export class AiSdkExecutor implements AgentExecutor {
@@ -80,6 +102,8 @@ export class AiSdkExecutor implements AgentExecutor {
         providerId: resolution.provider.id,
         modelId: resolution.model.id,
         providerProtocol: resolution.provider.api_protocol,
+        maxOutputTokens: resolution.resolvedModel.outputLength,
+        temperature: resolution.resolvedModel.capabilities.temperature ? DEFAULT_TEMPERATURE : undefined,
       },
       "Resolved AI SDK model for execution"
     )
@@ -97,8 +121,11 @@ export class AiSdkExecutor implements AgentExecutor {
 
     const result = streamText({
       model: resolution.languageModel,
-      messages: normalizeHistoryMessages(context),
-      allowSystemInMessages: true,
+      ...buildExecutionSettings(
+        context,
+        resolution.resolvedModel.outputLength,
+        resolution.resolvedModel.capabilities.temperature
+      ),
       abortSignal: signal,
       onError: ({ error }) => {
         log.warn(
