@@ -612,6 +612,9 @@ task.group.completed
 task.started
 task.completed
 task.failed
+tool.started
+tool.completed
+tool.failed
 message.delta
 message.completed
 permission.requested
@@ -633,6 +636,8 @@ type RunEventBase = {
   agentId?: string
   parentAgentId?: string
   taskId?: string
+  toolCallId?: string
+  toolName?: string
 }
 ```
 

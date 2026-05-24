@@ -4,6 +4,7 @@ export { MockExecutor } from "./mock-executor"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
+export { RuntimeToolRegistry, createRunTaskTool } from "./tools"
 export type {
   RuntimeConversationMode,
   RuntimeMessage,
@@ -24,6 +25,15 @@ export type {
   RunCreateResponse,
   RunRecordResponse,
 } from "./types"
+export type {
+  AiSdkToolSettings,
+  RuntimeToolExecuteOptions,
+  RuntimeToolListOptions,
+  ToolDefinition,
+  ToolExecutionContext,
+  ToolExecutionResult,
+  ToolExecutionStatus,
+} from "./tools"
 export {
   RuntimeConversationModeSchema,
   RuntimeMessageSchema,

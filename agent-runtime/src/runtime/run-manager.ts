@@ -6,6 +6,7 @@ import { AiSdkExecutor } from "./ai-sdk-executor"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
+import { RuntimeToolRegistry, createRunTaskTool } from "./tools"
 import type {
   AgentExecutionContext,
   AgentExecutor,
@@ -54,6 +55,7 @@ export class RunManager {
   private aiSdkExecutor: AiSdkExecutor
   private mockExecutor = new MockExecutor()
   private orchestratorExecutor: OrchestratorExecutor
+  private toolRegistry = new RuntimeToolRegistry()
   private runs: Map<string, RunRecord> = new Map()
   private events: Map<string, RunEvent[]> = new Map()
   private subscriptions: Map<string, Set<RunSubscription>> = new Map()
@@ -64,7 +66,8 @@ export class RunManager {
     providerService: ProviderService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
-    this.aiSdkExecutor = new AiSdkExecutor(providerService)
+    this.toolRegistry.register(createRunTaskTool())
+    this.aiSdkExecutor = new AiSdkExecutor(providerService, this.toolRegistry)
     this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry)
   }
 
@@ -261,6 +264,17 @@ export class RunManager {
     const executor = this.resolveExecutor(agent)
     const events: RunEvent[] = []
 
+    const emitExecutionEvent = (event: RunEvent): void => {
+      if (abortController.signal.aborted || run.status === "cancelled") {
+        log.info({ runId: run.id, agentId: agent.id }, "Execution aborted before event emission")
+        return
+      }
+
+      const normalizedEvent = this.normalizeEvent(event, parentAgentId, task?.taskId, groupId, parentTaskId)
+      events.push(normalizedEvent)
+      onEvent(normalizedEvent)
+    }
+
     const context: AgentExecutionContext = {
       runId: run.id,
       input: run.input,
@@ -270,17 +284,52 @@ export class RunManager {
       task,
       groupId,
       parentTaskId,
+      emitEvent: emitExecutionEvent,
     }
 
     if (agent.id === "orchestrator") {
-      context.runTask = async (nextTask, dispatchOptions = {}) => this.executeTask({
-        run,
-        sourceAgent: agent,
-        task: nextTask,
-        abortController,
-        groupId: dispatchOptions.groupId,
-        parentTaskId: dispatchOptions.parentTaskId,
-      })
+      context.runTask = async (nextTask, dispatchOptions = {}) => {
+        const toolResult = await this.toolRegistry.executeTool("run_task", nextTask, {
+          ...context,
+          runTask: async (taskToExecute, taskDispatchOptions = {}) => this.executeTask({
+            run,
+            sourceAgent: agent,
+            task: taskToExecute,
+            abortController,
+            groupId: taskDispatchOptions.groupId,
+            parentTaskId: taskDispatchOptions.parentTaskId,
+          }),
+        }, {
+          toolCallId: `tool_run_task_${nextTask.taskId}`,
+          groupId: dispatchOptions.groupId,
+          parentTaskId: dispatchOptions.parentTaskId,
+          task: nextTask,
+        })
+
+        const taskResult = (
+          typeof toolResult.runtime === "object" &&
+          toolResult.runtime &&
+          "taskResult" in toolResult.runtime
+        )
+          ? (toolResult.runtime as { taskResult?: TaskExecutionResult }).taskResult
+          : undefined
+
+        if (taskResult) {
+          return taskResult
+        }
+
+        return {
+          taskId: nextTask.taskId,
+          targetAgentId: nextTask.targetAgentId,
+          status: toolResult.status === "cancelled" ? "cancelled" : "failed",
+          summary: toolResult.summary,
+          dependsOn: nextTask.dependsOn,
+          groupId: dispatchOptions.groupId,
+          parentTaskId: dispatchOptions.parentTaskId,
+          data: toolResult.error,
+          events: [],
+        } satisfies TaskExecutionResult
+      }
     }
 
     for await (const event of executor.execute(context)) {
@@ -289,9 +338,7 @@ export class RunManager {
         break
       }
 
-      const normalizedEvent = this.normalizeEvent(event, parentAgentId, task?.taskId, groupId, parentTaskId)
-      events.push(normalizedEvent)
-      onEvent(normalizedEvent)
+      emitExecutionEvent(event)
     }
 
     return events

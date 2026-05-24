@@ -50,6 +50,10 @@ export const RunEventTypeSchema = z.enum([
   "task.started",
   "task.completed",
   "task.failed",
+  "tool.started",
+  "tool.completed",
+  "tool.failed",
+  "permission.requested",
   "message.delta",
   "message.completed",
   "agent.completed",
@@ -69,6 +73,8 @@ export const RunEventSchema = z.object({
   parentTaskId: z.string().optional(),
   taskId: z.string().optional(),
   groupId: z.string().optional(),
+  toolCallId: z.string().optional(),
+  toolName: z.string().optional(),
   data: z.unknown().optional(),
 })
 export type RunEvent = z.infer<typeof RunEventSchema>
@@ -146,6 +152,7 @@ export type AgentExecutionContext = {
   parentAgentId?: string
   groupId?: string
   parentTaskId?: string
+  emitEvent?: (event: RunEvent) => void
   runTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string

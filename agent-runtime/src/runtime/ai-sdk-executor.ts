@@ -1,8 +1,9 @@
-import { streamText, type ModelMessage } from "ai"
+import { stepCountIs, streamText, type ModelMessage } from "ai"
 import { createChildLogger } from "../logger"
 import { resolveAgentLanguageModel } from "./model-resolver"
 import { createRunEvent } from "./run-events"
 import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
+import type { RuntimeToolRegistry } from "./tools"
 import type { ProviderService } from "../provider"
 
 const log = createChildLogger("ai-sdk-executor")
@@ -84,7 +85,10 @@ function buildExecutionSettings(
 export class AiSdkExecutor implements AgentExecutor {
   executorType = "ai-sdk" as const
 
-  constructor(private providerService: ProviderService) {}
+  constructor(
+    private providerService: ProviderService,
+    private toolRegistry?: RuntimeToolRegistry
+  ) {}
 
   async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
     const { agent, runId, signal, task, parentAgentId, groupId, parentTaskId } = context
@@ -104,6 +108,9 @@ export class AiSdkExecutor implements AgentExecutor {
         providerProtocol: resolution.provider.api_protocol,
         maxOutputTokens: resolution.resolvedModel.outputLength,
         temperature: resolution.resolvedModel.capabilities.temperature ? DEFAULT_TEMPERATURE : undefined,
+        toolCount: resolution.resolvedModel.capabilities.supports_tools && this.toolRegistry
+          ? this.toolRegistry.listToolsForAgent(agent.id).length
+          : 0,
       },
       "Resolved AI SDK model for execution"
     )
@@ -119,6 +126,10 @@ export class AiSdkExecutor implements AgentExecutor {
     started.groupId = groupId
     yield started
 
+    const toolSettings = resolution.resolvedModel.capabilities.supports_tools && this.toolRegistry
+      ? this.toolRegistry.buildAiSdkToolSettings(context)
+      : null
+
     const result = streamText({
       model: resolution.languageModel,
       ...buildExecutionSettings(
@@ -126,6 +137,13 @@ export class AiSdkExecutor implements AgentExecutor {
         resolution.resolvedModel.outputLength,
         resolution.resolvedModel.capabilities.temperature
       ),
+      ...(toolSettings
+        ? {
+            tools: toolSettings.tools,
+            activeTools: toolSettings.activeTools,
+            stopWhen: stepCountIs(5),
+          }
+        : {}),
       abortSignal: signal,
       onError: ({ error }) => {
         log.warn(

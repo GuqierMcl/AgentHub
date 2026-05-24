@@ -285,3 +285,14 @@ Runtime 内部还会保留 trace，用于 UI 展示和事件重放。
 - 单个工具失败不自动取消其他并发工具。
 - 工具事件主要面向 UI 和追踪，父智能体只看最终结果。
 - `run_task` 产生的事件流可被 UI 订阅，但不会回灌给父智能体作为输入。
+
+## 13. 当前实现状态
+
+截至本轮，Runtime 工具体系已经进入可执行状态：
+
+- 已实现 `RuntimeToolRegistry`，负责工具注册、可见性过滤、输入校验与工具事件派发。
+- 已将 `run_task` 正式封装为 Runtime Tool，且仅 `orchestrator` 可见、可调用。
+- `run_task` 单次只拉起一个目标智能体执行一个任务，返回统一结构化结果。
+- `tool.started`、`tool.completed`、`tool.failed`、`permission.requested` 已纳入 RunEvent 协议。
+- `AiSdkExecutor` 已可接收工具注册表；只有模型支持 tools 且当前 agent 存在可见工具时，才会向 AI SDK 注入工具定义。
+- 当前仍未开放文件写入、部署、shell、网络等高风险工具，后续新工具必须先补齐命名、风险等级、审批与事件语义。

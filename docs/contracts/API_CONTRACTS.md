@@ -74,6 +74,11 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `RUN_INVALID_ENTRY_AGENT` | 400 | RunInput 无法解析合法入口智能体 |
 | `AGENT_MODEL_BINDING_INVALID` | 400 | 智能体模型绑定参数或 provider/model 不可用 |
 | `AGENT_MODEL_BINDING_NOT_ALLOWED` | 403 | 当前智能体不允许绑定模型 |
+| `TOOL_NOT_FOUND` | 404 | 请求的工具不存在 |
+| `TOOL_NOT_ALLOWED` | 403 | 当前智能体不允许使用该工具 |
+| `TOOL_INVALID_INPUT` | 400 | 工具输入未通过 schema 校验 |
+| `TOOL_EXECUTION_FAILED` | 502 | 工具执行失败 |
+| `TOOL_EXECUTION_ABORTED` | 499 | 工具执行被取消或中止 |
 
 ## Runtime Agents API
 
@@ -409,6 +414,10 @@ task.group.completed
 task.started
 task.completed
 task.failed
+tool.started
+tool.completed
+tool.failed
+permission.requested
 message.delta
 message.completed
 agent.completed
@@ -430,9 +439,18 @@ type RunEvent = {
   parentTaskId?: string
   taskId?: string
   groupId?: string
+  toolCallId?: string
+  toolName?: string
   data?: unknown
 }
 ```
+
+工具事件的附加约束：
+
+- `tool.started`、`tool.completed`、`tool.failed` 必须携带 `toolCallId` 与 `toolName`。
+- `tool.failed` 的 `data` 应尽量包含结构化错误码、错误消息和可调试细节。
+- `permission.requested` 用于预留审批流程事件，后续可在高风险工具接入时扩展 `permissionId`、`riskLevel` 和审批结果。
+- `run_task` 的工具事件只用于 UI 与追踪，不作为父智能体的模型上下文输入。
 
 ### 取消 Run
 
