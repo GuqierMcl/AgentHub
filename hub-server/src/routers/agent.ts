@@ -27,6 +27,12 @@ agent.get('/api/runtime/agents', async (c: Context) => {
   return c.json(data, status as 200)
 })
 
+agent.get('/api/runtime/agents/authoring-options', async (c: Context) => {
+  const client = c.get('runtimeClient')
+  const { data, status } = await client.forward('GET', '/runtime/agents/authoring-options', undefined, { raw: true })
+  return c.json(data, status as 200)
+})
+
 agent.get('/api/runtime/agents/:agentId', async (c: Context) => {
   const client = c.get('runtimeClient')
   const agentId = c.req.param('agentId')!

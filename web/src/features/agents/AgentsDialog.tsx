@@ -35,7 +35,6 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
 
   // Filter state
   const [filterEnabledOnly, setFilterEnabledOnly] = useState(true)
-  const [filterTier, setFilterTier] = useState<"all" | "primary" | "subagent">("primary")
   const [filterOrigin, setFilterOrigin] = useState<"all" | "system" | "user" | "external">("all")
 
   // Form dialog state
@@ -51,29 +50,24 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
     setLoading(true)
     setError(null)
     try {
-      const allTiers = filterTier === "all"
       const data = await agentsApi.list({
         enabledOnly: filterEnabledOnly,
-        tier: filterTier !== "all" ? filterTier : undefined,
+        tier: "primary",
         origin: filterOrigin !== "all" ? filterOrigin : undefined,
-        allTiers,
       })
-      const filtered = allTiers
-        ? data.agents.filter((a) => a.visibility === "visible")
-        : data.agents
-      setAgents(filtered)
+      setAgents(data.agents)
     } catch (err) {
       setError(err instanceof Error ? err.message : "获取智能体列表失败")
     } finally {
       setLoading(false)
     }
-  }, [filterEnabledOnly, filterTier, filterOrigin])
+  }, [filterEnabledOnly, filterOrigin])
 
   useEffect(() => {
     if (open) {
       fetchAgents()
     }
-  }, [open, filterEnabledOnly, filterTier, filterOrigin, fetchAgents])
+  }, [open, filterEnabledOnly, filterOrigin, fetchAgents])
 
   const handleCreate = useCallback(() => {
     setEditAgent(null)
@@ -139,20 +133,6 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
               <SelectContent>
                 <SelectItem value="enabled">仅启用的</SelectItem>
                 <SelectItem value="all">全部</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={filterTier}
-              onValueChange={(v) => setFilterTier(v as typeof filterTier)}
-            >
-              <SelectTrigger className="h-8 text-xs w-[120px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="primary">主智能体</SelectItem>
-                <SelectItem value="subagent">子智能体</SelectItem>
-                <SelectItem value="all">全部层级</SelectItem>
               </SelectContent>
             </Select>
 

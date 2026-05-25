@@ -11,14 +11,14 @@ export function RuntimePanel() {
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">健康状态</div>
-              <div className="text-sm text-muted-foreground">AI Engine 最近一次健康检查结果</div>
+              <div className="text-sm text-muted-foreground">Agent Runtime 最近一次健康检查结果</div>
             </div>
             <Badge variant="default" className="bg-green-600 hover:bg-green-600">健康</Badge>
           </div>
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">版本</div>
-              <div className="text-sm text-muted-foreground">AI Engine 健康检查返回的版本</div>
+              <div className="text-sm text-muted-foreground">Agent Runtime 健康检查返回的版本</div>
             </div>
             <div className="text-muted-foreground">0.2.0</div>
           </div>
@@ -38,7 +38,7 @@ export function RuntimePanel() {
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">Endpoint</div>
-              <div className="text-sm text-muted-foreground">本机 AI Engine 端口</div>
+              <div className="text-sm text-muted-foreground">本机 Agent Runtime 端口</div>
             </div>
             <div className="text-muted-foreground">8787</div>
           </div>

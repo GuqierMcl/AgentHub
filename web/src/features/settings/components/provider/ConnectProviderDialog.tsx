@@ -145,8 +145,8 @@ export function ConnectProviderDialog({
               </DialogTitle>
               <DialogDescription>
                 {isCustom
-                  ? "编辑自定义供应商的配置信息，并保存到 AI Engine 本地配置。"
-                  : "API 密钥和 API Base 只会保存到 AI Engine 的本地配置中。"}
+                  ? "编辑自定义供应商的配置信息，并保存到 Agent Runtime 本地配置。"
+                  : "API 密钥和 API Base 只会保存到 Agent Runtime 的本地配置中。"}
               </DialogDescription>
             </DialogHeader>
 

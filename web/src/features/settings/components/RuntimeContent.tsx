@@ -115,7 +115,7 @@ export function RuntimeContent() {
         <div className="rounded-xl bg-muted/30 px-4">
           <SettingsItem
             label="健康状态"
-            description="AI Engine 最近一次健康检查结果"
+            description="Agent Runtime 最近一次健康检查结果"
             className="border-b border-border/50"
           >
             {loading ? (
@@ -141,7 +141,7 @@ export function RuntimeContent() {
         <div className="rounded-xl bg-muted/30 px-4">
           <SettingsItem
             label="Endpoint"
-            description="本机 AI Engine 端口"
+            description="本机 Agent Runtime 端口"
             className="border-b border-border/50"
           >
             <span>{port}</span>

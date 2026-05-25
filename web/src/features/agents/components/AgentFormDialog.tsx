@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from "react"
 import { XIcon, PlusIcon } from "lucide-react"
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -15,7 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { agentsApi } from "../api/agents"
 import type {
   AgentDetail,
@@ -204,280 +210,281 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent from="top" className="w-[560px] h-[85vh] p-0 flex flex-col">
-        <div className="px-6 pt-6 pb-2 shrink-0">
+      <DialogContent from="top" className="w-[540px] p-6">
+        <DialogHeader>
           <DialogTitle>{isLoading ? "加载中..." : isEdit ? "编辑智能体" : "新增智能体"}</DialogTitle>
-          <DialogDescription className="sr-only">
+          <DialogDescription>
             {isEdit ? "修改智能体配置" : "创建自定义智能体"}
           </DialogDescription>
-        </div>
+        </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="px-6 pb-4 space-y-4">
-            {isLoading ? (
-              <>
-                <div className="space-y-1.5">
-                  <Skeleton className="h-4 w-8" />
-                  <Skeleton className="h-9 w-full" />
-                </div>
-                <div className="space-y-1.5">
-                  <Skeleton className="h-4 w-12" />
-                  <Skeleton className="h-9 w-full" />
-                </div>
-                <div className="space-y-1.5">
-                  <Skeleton className="h-4 w-16" />
-                  <Skeleton className="h-9 w-full" />
-                </div>
-                <div className="space-y-1.5">
-                  <Skeleton className="h-4 w-20" />
-                  <Skeleton className="h-[120px] w-full" />
-                </div>
-                <div className="space-y-1.5">
-                  <Skeleton className="h-4 w-16" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-6 w-16" />
-                    <Skeleton className="h-6 w-16" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-16" />
-                  <div className="grid grid-cols-2 gap-3">
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                </div>
-              </>
-            ) : (
+        <div className="space-y-4 py-2">
+          {isLoading ? (
             <>
-            {isEdit && (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">ID</label>
-                <Input value={agentId} disabled className="bg-muted" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-8" />
+                <Skeleton className="h-9 w-full" />
               </div>
-            )}
-
-            {!isEdit && (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">ID</label>
-                <Input
-                  value={agentId}
-                  onChange={(e) => setAgentId(e.target.value)}
-                  placeholder="留空自动生成 (规则：小写字母开头，仅允许 a-z 0-9 _ -)"
-                  disabled={isReadonly}
-                />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-12" />
+                <Skeleton className="h-9 w-full" />
               </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">名称 *</label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="智能体显示名称"
-                disabled={isReadonly}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">描述 *</label>
-              <Input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="简短描述智能体的功能"
-                disabled={isReadonly}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">系统提示词 *</label>
-              <Textarea
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-                placeholder="定义智能体的行为、角色和能力"
-                className="min-h-[120px]"
-                disabled={isReadonly}
-              />
-            </div>
-
-            {isEdit && (
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">启用</label>
-                <Switch
-                  checked={enabled}
-                  onCheckedChange={setEnabled}
-                  disabled={isReadonly}
-                />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-9 w-full" />
               </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">能力标签</label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {capabilities.map((cap) => (
-                  <Badge key={cap} variant="secondary" className="gap-1">
-                    {cap}
-                    {!isReadonly && (
-                      <button
-                        type="button"
-                        onClick={() => removeCapability(cap)}
-                        className="ml-0.5 hover:text-destructive"
-                      >
-                        <XIcon className="size-3" />
-                      </button>
-                    )}
-                  </Badge>
-                ))}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-[120px] w-full" />
               </div>
-              {!isReadonly && (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-16" />
                 <div className="flex gap-2">
-                  <Input
-                    value={capInput}
-                    onChange={(e) => setCapInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        addCapability()
-                      }
-                    }}
-                    placeholder="输入能力名称"
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addCapability}
-                  >
-                    <PlusIcon className="size-4" />
-                  </Button>
+                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-6 w-16" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-16" />
+                <div className="grid grid-cols-2 gap-3">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {isEdit && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">ID</label>
+                  <Input value={agentId} disabled className="bg-muted" />
                 </div>
               )}
-            </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">允许的工具</label>
-              <div className="flex flex-wrap gap-2">
-                {allowedToolOptions.map((tool) => (
-                  <label
-                    key={tool.value}
-                    className="flex items-center gap-1.5 text-sm cursor-pointer"
-                  >
-                    <Checkbox
-                      checked={allowedTools.includes(tool.value)}
-                      onCheckedChange={() => toggleTool(tool.value)}
-                      disabled={isReadonly}
-                      size="sm"
-                    />
-                    {tool.label}
-                  </label>
-                ))}
+              {!isEdit && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">ID</label>
+                  <Input
+                    value={agentId}
+                    onChange={(e) => setAgentId(e.target.value)}
+                    placeholder="留空自动生成 (规则：小写字母开头，仅允许 a-z 0-9 _ -)"
+                    disabled={isReadonly}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    小写字母开头，仅允许小写字母、数字、下划线和连字符。
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">名称 *</label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="智能体显示名称"
+                  disabled={isReadonly}
+                />
               </div>
-            </div>
 
-            {isEdit && subagentOptions.length > 0 && (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">允许的子智能体</label>
-                <div className="flex flex-wrap gap-2">
-                  {subagentOptions.map((sub) => (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">描述 *</label>
+                <Input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="简短描述智能体的功能"
+                  disabled={isReadonly}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">系统提示词 *</label>
+                <Textarea
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                  placeholder="定义智能体的行为、角色和能力"
+                  className="min-h-[100px]"
+                  disabled={isReadonly}
+                />
+              </div>
+
+              {isEdit && (
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">启用</label>
+                  <Switch
+                    checked={enabled}
+                    onCheckedChange={setEnabled}
+                    disabled={isReadonly}
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">能力标签</label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {capabilities.map((cap) => (
+                    <Badge key={cap} variant="secondary" className="gap-1">
+                      {cap}
+                      {!isReadonly && (
+                        <button
+                          type="button"
+                          onClick={() => removeCapability(cap)}
+                          className="ml-0.5 hover:text-destructive"
+                        >
+                          <XIcon className="size-3" />
+                        </button>
+                      )}
+                    </Badge>
+                  ))}
+                </div>
+                {!isReadonly && (
+                  <div className="flex gap-2">
+                    <Input
+                      value={capInput}
+                      onChange={(e) => setCapInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          addCapability()
+                        }
+                      }}
+                      placeholder="输入能力名称"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addCapability}
+                    >
+                      <PlusIcon className="size-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">允许的工具</label>
+                <div className="flex flex-wrap gap-3">
+                  {allowedToolOptions.map((tool) => (
                     <label
-                      key={sub.id}
+                      key={tool.value}
                       className="flex items-center gap-1.5 text-sm cursor-pointer"
                     >
                       <Checkbox
-                        checked={allowedSubagents.includes(sub.id)}
-                        onCheckedChange={() => toggleSubagent(sub.id)}
+                        checked={allowedTools.includes(tool.value)}
+                        onCheckedChange={() => toggleTool(tool.value)}
                         disabled={isReadonly}
                         size="sm"
                       />
-                      {sub.name}
+                      {tool.label}
                     </label>
                   ))}
                 </div>
               </div>
-            )}
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">权限策略</label>
-              <div className="grid grid-cols-2 gap-3">
-                {(Object.keys(permissionOptions) as Array<keyof typeof permissionOptions>).map(
-                  (key) => (
-                    <div key={key} className="space-y-1">
-                      <label className="text-xs text-muted-foreground capitalize">
-                        {key === "filesystem"
-                          ? "文件系统"
-                          : key === "shell"
-                            ? "Shell"
-                            : key === "network"
-                              ? "网络"
-                              : "部署"}
-                      </label>
-                      <Select
-                        value={permissionPolicy[key]}
-                        onValueChange={(val) =>
-                          setPermissionPolicy((prev) => ({
-                            ...prev,
-                            [key]: val,
-                          }))
-                        }
-                        disabled={isReadonly}
+              {isEdit && subagentOptions.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">允许的子智能体</label>
+                  <div className="flex flex-wrap gap-3">
+                    {subagentOptions.map((sub) => (
+                      <label
+                        key={sub.id}
+                        className="flex items-center gap-1.5 text-sm cursor-pointer"
                       >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {permissionOptions[key].map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )
-                )}
+                        <Checkbox
+                          checked={allowedSubagents.includes(sub.id)}
+                          onCheckedChange={() => toggleSubagent(sub.id)}
+                          disabled={isReadonly}
+                          size="sm"
+                        />
+                        {sub.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">权限策略</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {(Object.keys(permissionOptions) as Array<keyof typeof permissionOptions>).map(
+                    (key) => (
+                      <div key={key} className="space-y-1">
+                        <label className="text-xs text-muted-foreground">
+                          {key === "filesystem"
+                            ? "文件系统"
+                            : key === "shell"
+                              ? "Shell"
+                              : key === "network"
+                                ? "网络"
+                                : "部署"}
+                        </label>
+                        <Select
+                          value={permissionPolicy[key]}
+                          onValueChange={(val) =>
+                            setPermissionPolicy((prev) => ({
+                              ...prev,
+                              [key]: val,
+                            }))
+                          }
+                          disabled={isReadonly}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {permissionOptions[key].map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )
+                  )}
+                </div>
+                <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
+                  <Checkbox
+                    checked={permissionPolicy.requiresApproval}
+                    onCheckedChange={(checked) =>
+                      setPermissionPolicy((prev) => ({
+                        ...prev,
+                        requiresApproval: checked === true,
+                      }))
+                    }
+                    disabled={isReadonly}
+                    size="sm"
+                  />
+                  需要审批
+                </label>
               </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
-                <Checkbox
-                  checked={permissionPolicy.requiresApproval}
-                  onCheckedChange={(checked) =>
-                    setPermissionPolicy((prev) => ({
-                      ...prev,
-                      requiresApproval: checked === true,
-                    }))
-                  }
-                  disabled={isReadonly}
-                  size="sm"
-                />
-                需要审批
-              </label>
-            </div>
 
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+              {error && (
+                <p className="text-sm text-destructive">{error}</p>
+              )}
             </>
-            )}
-          </div>
-        </ScrollArea>
+          )}
+        </div>
 
-        {isReadonly ? (
-          <div className="flex items-center justify-end gap-2 px-6 pb-6 pt-2 border-t shrink-0">
+        <DialogFooter>
+          {isReadonly ? (
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               关闭
             </Button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-end gap-2 px-6 pb-6 pt-2 border-t shrink-0">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSubmit} disabled={saving || isLoading || !name.trim() || !description.trim() || !systemPrompt.trim()}>
-              {saving ? "保存中..." : "保存"}
-            </Button>
-          </div>
-        )}
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                取消
+              </Button>
+              <Button onClick={handleSubmit} disabled={saving || isLoading || !name.trim() || !description.trim() || !systemPrompt.trim()}>
+                {saving ? "保存中..." : "保存"}
+              </Button>
+            </>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

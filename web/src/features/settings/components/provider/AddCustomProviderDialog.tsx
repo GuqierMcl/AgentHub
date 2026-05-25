@@ -101,7 +101,7 @@ export function AddCustomProviderDialog({
         <DialogHeader>
           <DialogTitle>连接自定义供应商</DialogTitle>
           <DialogDescription>
-            添加与 OpenAI API 兼容的供应商，并保存到 AI Engine 本地配置。
+            添加与 OpenAI API 兼容的供应商，并保存到 Agent Runtime 本地配置。
           </DialogDescription>
         </DialogHeader>
 
