@@ -155,6 +155,8 @@ MVP 阶段，Orchestrator 不需要做复杂 DAG 调度器外置化，可以直�
 
 Runtime 不再通过全局 `AgentRelation` 或 `agent-relations.json` 判断委派关系。主智能体之间的协作边界来自每次 Run 的 `participantAgentIds`，主智能体到隐藏子智能体的授权来自 `allowedSubagents`。
 
+`planner` 与 `orchestrator` 的边界需要保持清晰：`orchestrator` 产出的是当前 Run 的执行计划，并可以通过 `run_task` 真实委派任务；`planner` 产出的是面向人类评审和决策的方案，不负责运行时路由、委派或汇总。当前 preset 中 `planner.delegationPolicy = "terminal"`，避免它成为第二个调度器。
+
 工具体系、`write_plan`、`run_task` 语义、工具事件和审批边界的正式设计见 `docs/architecture/AGENT_TOOLS.md`。
 
 ### 3.3 Agent Executor 统一执行

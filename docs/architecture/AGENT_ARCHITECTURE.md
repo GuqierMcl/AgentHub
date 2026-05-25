@@ -273,6 +273,23 @@ RunEvent 流输出
 
 当前阶段只有 `orchestrator` 可以通过 `run_task` 调用其他主智能体，且目标主智能体必须属于当前 Run 的 `participantAgentIds`。其他主智能体默认不调用其他主智能体；后续如需开放，也必须继续受当前会话成员边界约束，避免跨会话隐式委派。
 
+### 3.3.1 Planner 与 Orchestrator 的职责边界
+
+`planner` 是系统预设主智能体，但它不是第二个 `orchestrator`。两者都可能“写计划”，但计划的用途不同：
+
+| 智能体 | 计划类型 | 用途 |
+| --- | --- | --- |
+| `orchestrator` | 运行时执行计划 | 服务当前 Run 的路由、委派、任务状态和结果汇总 |
+| `planner` | 人类可读方案 | 服务需求澄清、技术方案、阶段拆分、风险分析和验收标准 |
+
+约束：
+
+- `orchestrator` 可以使用 `write_plan` 和 `run_task`，并负责实际任务调度。
+- `planner` 不使用 `write_plan` / `run_task`，不声明已经委派其他智能体，也不负责运行时汇总。
+- 用户显式 @ `planner` 时，预期得到可评审、可转交执行的方案，而不是启动执行流程。
+- `orchestrator` 可以在群聊中把规划咨询类任务委派给 `planner`，但真正的执行编排仍由 `orchestrator` 完成。
+- `planner` 的 `delegationPolicy` 为 `terminal`，避免它在未来工具扩展中无意变成嵌套调度器。
+
 ### 3.4 内部智能体统一执行协议
 
 内部智能体指系统预设主智能体与子智能体。它们不需要各自的兼容层，而应共享同一套 Runtime 执行协议。

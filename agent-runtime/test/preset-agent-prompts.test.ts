@@ -17,4 +17,14 @@ describe("preset agent system prompts", () => {
       expect(agent.systemPrompt).toBe(prompt)
     }
   })
+
+  test("planner is a planning advisor, not a runtime orchestrator", () => {
+    const planner = presetAgents.find((agent) => agent.id === "planner")
+
+    expect(planner?.delegationPolicy).toBe("terminal")
+    expect(planner?.allowedSubagents).toEqual([])
+    expect(planner?.allowedTools).not.toContain("run_task")
+    expect(presetAgentSystemPrompts.planner).toContain("你不是 Orchestrator")
+    expect(presetAgentSystemPrompts.planner).toContain("不要声称已经调用、委派或安排其他智能体执行任务")
+  })
 })
