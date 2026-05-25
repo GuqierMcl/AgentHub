@@ -55,8 +55,6 @@ export type ToolDefinition<TInput = unknown, TData = unknown, TRuntime = unknown
   inputSchema: z.ZodType<TInput>
   riskLevel: OrchestratorRiskLevel
   requiresApproval: boolean | ((input: TInput, context: ToolExecutionContext) => boolean | Promise<boolean>)
-  allowedAgents: string[]
-  allowedOrigins?: AgentDefinition["origin"][]
   internal?: boolean
   execute(input: TInput, context: ToolExecutionContext): Promise<ToolExecutionResult<TData, TRuntime>>
 }
@@ -72,7 +70,6 @@ export type RuntimeToolExecuteOptions = {
 
 export type RuntimeToolListOptions = {
   includeInternal?: boolean
-  allowedToolNames?: string[]
 }
 
 export type AiSdkToolSettings = {

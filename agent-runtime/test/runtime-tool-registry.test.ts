@@ -17,7 +17,7 @@ const orchestratorAgent: AgentDefinition = {
   executorType: "orchestrator",
   capabilities: ["routing", "delegation"],
   allowedSubagents: ["explore"],
-  allowedTools: [],
+  allowedTools: ["write_plan", "run_task"],
   permissionPolicy: {
     filesystem: "none",
     shell: "none",
@@ -91,7 +91,6 @@ const visibleTool: ToolDefinition<{}, { ok: boolean }> = {
   inputSchema: z.object({}),
   riskLevel: "low",
   requiresApproval: false,
-  allowedAgents: ["orchestrator", "coder"],
   async execute() {
     return {
       status: "completed",
@@ -109,8 +108,6 @@ const userOriginTool: ToolDefinition<{}, { ok: boolean }> = {
   inputSchema: z.object({}),
   riskLevel: "low",
   requiresApproval: false,
-  allowedAgents: [],
-  allowedOrigins: ["user"],
   async execute() {
     return {
       status: "completed",
@@ -537,6 +534,44 @@ describe("RuntimeToolRegistry", () => {
     expect(events.some((event) => event.type.startsWith("task."))).toBe(false)
   })
 
+  test("agent allowedTools is the only registry visibility boundary", async () => {
+    const registry = new RuntimeToolRegistry()
+    registry.register(visibleTool)
+    registry.register(userOriginTool)
+
+    const agentWithLs: AgentDefinition = {
+      ...orchestratorAgent,
+      id: "coder",
+      name: "Coder",
+      entryPolicy: "callable",
+      executorType: "ai-sdk",
+      allowedTools: ["ls"],
+    }
+    const allowedContext = createBaseContext({
+      agent: agentWithLs,
+    }).context
+
+    expect(registry.listToolsForAgent(agentWithLs).map((definition) => definition.name)).toEqual(["ls"])
+
+    const allowed = await registry.executeTool("ls", {}, allowedContext)
+    expect(allowed.status).toBe("completed")
+
+    const blocked = await registry.executeTool("grep", {}, allowedContext)
+    expect(blocked.status).toBe("failed")
+    expect(blocked.error?.code).toBe("TOOL_NOT_ALLOWED")
+
+    const agentWithGrep: AgentDefinition = {
+      ...agentWithLs,
+      id: "custom_writer",
+      name: "Custom Writer",
+      origin: "user",
+      allowedTools: ["grep"],
+      readonly: false,
+    }
+
+    expect(registry.listToolsForAgent(agentWithGrep).map((definition) => definition.name)).toEqual(["grep"])
+  })
+
   test("buildAiSdkToolSettings keeps internal tools visible only for orchestrator internal mode", () => {
     const registry = new RuntimeToolRegistry()
     registry.register(createWritePlanTool())
@@ -575,7 +610,7 @@ describe("RuntimeToolRegistry", () => {
     expect(coderSettings?.activeTools).not.toContain("run_task")
   })
 
-  test("user-origin agents can receive explicitly allowed non-internal tools", async () => {
+  test("user agents can receive explicitly allowed non-internal tools", async () => {
     const registry = new RuntimeToolRegistry()
     registry.register(userOriginTool)
 

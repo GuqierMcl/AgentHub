@@ -109,9 +109,7 @@ export class AiSdkExecutor implements AgentExecutor {
         maxOutputTokens: resolution.resolvedModel.outputLength,
         temperature: resolution.resolvedModel.capabilities.temperature ? DEFAULT_TEMPERATURE : undefined,
         toolCount: resolution.resolvedModel.capabilities.supports_tools && this.toolRegistry
-          ? this.toolRegistry.listToolsForAgent(agent, {
-              allowedToolNames: agent.allowedTools,
-            }).length
+          ? this.toolRegistry.listToolsForAgent(agent).length
           : 0,
       },
       "Resolved AI SDK model for execution"

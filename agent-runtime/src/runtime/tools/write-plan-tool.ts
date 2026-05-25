@@ -43,7 +43,6 @@ export function createWritePlanTool(): ToolDefinition<WritePlanInput, WritePlanM
     inputSchema: WritePlanInputSchema,
     riskLevel: "low",
     requiresApproval: false,
-    allowedAgents: ["orchestrator"],
     internal: true,
     async execute(input): Promise<ToolExecutionResult<WritePlanModelData>> {
       return {

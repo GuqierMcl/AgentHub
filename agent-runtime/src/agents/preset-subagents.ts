@@ -21,7 +21,7 @@ export const presetSubagents: AgentDefinition[] = [
     executorType: "mock",
     capabilities: ["context", "codebase-scan", "read-only"],
     allowedSubagents: [],
-    allowedTools: [],
+    allowedTools: ["ls", "read_file", "glob", "grep"],
     permissionPolicy: {
       filesystem: "read",
       shell: "none",
@@ -61,7 +61,7 @@ export const presetSubagents: AgentDefinition[] = [
     executorType: "mock",
     capabilities: ["file-read", "file-write", "diff", "patch"],
     allowedSubagents: [],
-    allowedTools: [],
+    allowedTools: ["ls", "read_file", "glob", "grep"],
     permissionPolicy: {
       filesystem: "write",
       shell: "none",

@@ -62,20 +62,17 @@ Adapter Tools 属于外部智能体平台内部的工具模型，例如 OpenCode
 
 工具可用性不是全局常量，而是运行时计算结果。
 
-工具是否可见，由以下条件共同决定：
+工具是否可见，由 `AgentDefinition.allowedTools` 统一决定：
 
 - `agent.allowedTools`
-- `agent.permissionPolicy`
-- `agent.executorType`
-- `agent.delegationPolicy`
-- 当前 Run 的模式和状态
-- 当前工具是否需要审批
 
 结论：
 
-- `run_task` 只允许 `orchestrator` 使用。
-- `write_plan` 只允许 `orchestrator` 使用。
-- 文件、部署、网络类工具必须额外受权限约束。
+- `RuntimeToolRegistry` 不维护工具侧智能体白名单。
+- `preset-agents.ts`、`preset-subagents.ts` 和用户自定义智能体配置中的 `allowedTools` 是工具可见性的事实来源。
+- `run_task`、`write_plan` 只应出现在 `orchestrator.allowedTools` 中。
+- `internal` 只表示默认不注入普通 AI SDK tool set；Orchestrator 专用路径可通过 `includeInternal=true` 取到 internal tools，但仍必须满足 `allowedTools`。
+- 文件、部署、网络类工具的具体执行仍必须通过权限策略、沙箱和审批流程约束。
 - 外部智能体默认不进入 Runtime Tool Registry。
 
 ## 5. 工具契约
@@ -87,7 +84,7 @@ Adapter Tools 属于外部智能体平台内部的工具模型，例如 OpenCode
 - `inputSchema`
 - `riskLevel`
 - `requiresApproval`
-- `allowedAgents`
+- `internal`
 - `execute`
 
 推荐定义：
@@ -99,7 +96,7 @@ type ToolDefinition = {
   inputSchema: unknown
   riskLevel: "low" | "medium" | "high"
   requiresApproval: boolean | ((input: unknown) => boolean | Promise<boolean>)
-  allowedAgents: string[]
+  internal?: boolean
   execute(input: unknown, context: unknown): Promise<unknown>
 }
 ```
@@ -346,8 +343,8 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 
 截至本轮，Runtime 工具体系已经进入可执行状态：
 
-- 已实现 `RuntimeToolRegistry`，负责工具注册、可见性过滤、输入校验与工具事件派发。
-- 已实现通用 `internal` 工具标记；普通 AI SDK 主智能体默认看不到 internal tools，Orchestrator 专用路径通过 `includeInternal=true` 获取。
+- 已实现 `RuntimeToolRegistry`，负责工具注册、按 `agent.allowedTools` 过滤、输入校验与工具事件派发。
+- 已实现通用 `internal` 工具标记；普通 AI SDK 主智能体默认看不到 internal tools，Orchestrator 专用路径通过 `includeInternal=true` 获取，但工具权限仍由 `allowedTools` 决定。
 - 已将 `write_plan` 正式封装为 Runtime Tool，且仅 `orchestrator` 可见、可调用。
 - `write_plan` 通过 `tool.completed.data.plan` 输出 UI 可渲染计划，只产生 `tool.*` 事件，不产生 `task.*` 事件。
 - 已将 `run_task` 正式封装为 Runtime Tool，且仅 `orchestrator` 可见、可调用。

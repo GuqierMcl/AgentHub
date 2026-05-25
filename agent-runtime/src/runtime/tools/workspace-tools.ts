@@ -3,15 +3,6 @@ import { createRunEvent } from "../run-events"
 import type { WorkspaceAccessResolution, WorkspaceGrepMatch, WorkspaceListEntry } from "../workspace"
 import type { ToolDefinition, ToolExecutionContext, ToolExecutionResult } from "./types"
 
-const WORKSPACE_TOOL_AGENTS = [
-  "coder",
-  "reviewer",
-  "writer",
-  "planner",
-  "explore",
-  "file",
-]
-
 const lsInputSchema = z.object({
   path: z.string().optional().default("."),
 })
@@ -300,8 +291,6 @@ function createWorkspaceTool<TInput, TData>(
     description,
     inputSchema,
     riskLevel,
-    allowedAgents: WORKSPACE_TOOL_AGENTS,
-    allowedOrigins: ["user"],
     requiresApproval: async (input, context) => {
       const path = pathSelector(input)
       return maybeRequestApproval(context, name, path, approvalReason)
