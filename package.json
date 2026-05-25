@@ -4,9 +4,11 @@
   "scripts": {
     "dev:web": "cd web && bun dev",
     "dev:server": "cd hub-server && bun dev",
-    "dev:runtime": "cd agent-runtime && bun dev"
+    "dev:runtime": "cd agent-runtime && bun dev",
+    "dev": "concurrently --names \"WEB,HUB-SERVER,AGENT-RUNTIME\" -c \"cyan.bold,green.bold,blue.bold\" \"bun dev:web\" \"bun dev:server\" \"bun dev:runtime\""
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "shadcn": "^4.7.0"
   }
 }
