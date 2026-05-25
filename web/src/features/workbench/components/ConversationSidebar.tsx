@@ -18,6 +18,7 @@ type ConversationSidebarProps = {
   collapsed: boolean
   onSelectConversation: (conversationId: string) => void
   onOpenSettings: () => void
+  onOpenAgents: () => void
   onToggleCollapsed: () => void
 }
 
@@ -27,6 +28,7 @@ export function ConversationSidebar({
   collapsed,
   onSelectConversation,
   onOpenSettings,
+  onOpenAgents,
   onToggleCollapsed,
 }: ConversationSidebarProps) {
   return (
@@ -72,6 +74,7 @@ export function ConversationSidebar({
       <SidebarActions
         collapsed={collapsed}
         onToggleCollapsed={onToggleCollapsed}
+        onOpenAgents={onOpenAgents}
       />
 
       {collapsed ? (

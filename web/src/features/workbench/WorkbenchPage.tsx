@@ -6,6 +6,8 @@ import { conversations } from "./mock-data"
 import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout"
 import { ConversationSidebar } from "./components/ConversationSidebar"
 import { SettingsDialogWithToast } from "../settings/SettingsDialog"
+import { AgentsDialog } from "../agents/AgentsDialog"
+import { ToastProvider } from "../settings/components/toast"
 import {
   defaultPreviewTarget,
   defaultSelectedFilePath,
@@ -38,6 +40,7 @@ export function WorkbenchPage() {
   )
   const [previewTarget, setPreviewTarget] = useState(defaultPreviewTarget)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [agentsOpen, setAgentsOpen] = useState(false)
   const activeConversation = useMemo(
     () =>
       conversations.find(
@@ -64,6 +67,10 @@ export function WorkbenchPage() {
 
   const handleOpenSettings = useCallback(() => {
     setSettingsOpen(true)
+  }, [])
+
+  const handleOpenAgents = useCallback(() => {
+    setAgentsOpen(true)
   }, [])
 
   const handleOpenArtifact = useCallback((artifact: Artifact) => {
@@ -100,6 +107,7 @@ export function WorkbenchPage() {
         conversations={conversations}
         onSelectConversation={setActiveConversationId}
         onOpenSettings={handleOpenSettings}
+        onOpenAgents={handleOpenAgents}
         onToggleCollapsed={() =>
           setIsSidebarCollapsed((collapsed) => !collapsed)
         }
@@ -116,6 +124,9 @@ export function WorkbenchPage() {
         selectedFilePath={selectedFilePath}
       />
       <SettingsDialogWithToast open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <ToastProvider>
+        <AgentsDialog open={agentsOpen} onOpenChange={setAgentsOpen} />
+      </ToastProvider>
     </main>
   )
 }
