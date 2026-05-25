@@ -119,6 +119,10 @@ body {
   overflow: hidden;
 }
 
+button {
+  cursor: pointer;
+}
+
 button,
 input,
 textarea {
