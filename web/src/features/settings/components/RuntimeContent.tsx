@@ -7,9 +7,15 @@ type HealthResponse = {
   uptime: number
 }
 
+type RuntimeInfoResponse = {
+  mode: string
+  runtime: {
+    url: string
+    port: number
+  }
+}
+
 const POLL_INTERVAL = 5000
-const RUNTIME_PORT = 4096
-const RUNTIME_MODE = "生产模式"
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso)
@@ -61,8 +67,20 @@ function StatusBadge({ status }: { status: string }) {
 
 export function RuntimeContent() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfoResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const fetchRuntimeInfo = useCallback(async () => {
+    try {
+      const res = await fetch("/api/runtime/info")
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data: RuntimeInfoResponse = await res.json()
+      setRuntimeInfo(data)
+    } catch {
+      // runtime info fetch failure is non-critical
+    }
+  }, [])
 
   const fetchHealth = useCallback(async () => {
     try {
@@ -82,14 +100,18 @@ export function RuntimeContent() {
 
   useEffect(() => {
     fetchHealth()
+    fetchRuntimeInfo()
     const timer = setInterval(fetchHealth, POLL_INTERVAL)
     return () => clearInterval(timer)
-  }, [fetchHealth])
+  }, [fetchHealth, fetchRuntimeInfo])
+
+  const port = runtimeInfo?.runtime.port ?? "-"
+  const mode = runtimeInfo?.mode ?? "-"
 
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold">运行状态</h3>
+        <h3 className="text-base font-semibold">运行状态</h3>
         <div className="rounded-xl bg-muted/30 px-4">
           <SettingsItem
             label="健康状态"
@@ -103,13 +125,6 @@ export function RuntimeContent() {
             ) : (
               <StatusBadge status="error" />
             )}
-          </SettingsItem>
-          <SettingsItem
-            label="版本"
-            description="AI Engine 健康检查返回的版本"
-            className="border-b border-border/50"
-          >
-            <span className="text-muted-foreground">-</span>
           </SettingsItem>
           <SettingsItem label="最近检查" description="最后一次健康检查完成时间">
             {health?.timestamp ? (
@@ -129,10 +144,10 @@ export function RuntimeContent() {
             description="本机 AI Engine 端口"
             className="border-b border-border/50"
           >
-            <span>{RUNTIME_PORT}</span>
+            <span>{port}</span>
           </SettingsItem>
-          <SettingsItem label="运行模式" description="由 Tauri 后端解析得到">
-            <span>{RUNTIME_MODE}</span>
+          <SettingsItem label="运行模式" description="由后端解析得到">
+            <span>{mode}</span>
           </SettingsItem>
         </div>
       </div>

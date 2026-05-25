@@ -1,10 +1,12 @@
 import { useState } from "react";
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { SidebarProvider, SidebarInset } from "@/components/animate-ui/components/radix/sidebar";
 
 import type { SettingsTabId } from "./types";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { SettingsContent } from "./components/SettingsContent";
+import { ToastProvider } from "./components/toast";
 
 type SettingsDialogProps = {
   open: boolean;
@@ -26,11 +28,24 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <DialogDescription className="sr-only">
           管理AI能力相关的运行时、供应商和模型设置
         </DialogDescription>
-        <div className="flex h-[600px]">
+        <SidebarProvider
+          className="min-h-0 h-full"
+          style={{ "--sidebar-width": "160px" } as React.CSSProperties}
+        >
           <SettingsSidebar activeTab={activeTab} onTabChange={setActiveTab} />
-          <SettingsContent activeTab={activeTab} />
-        </div>
+          <SidebarInset className="h-[600px]">
+            <SettingsContent activeTab={activeTab} />
+          </SidebarInset>
+        </SidebarProvider>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function SettingsDialogWithToast({ open, onOpenChange }: SettingsDialogProps) {
+  return (
+    <ToastProvider>
+      <SettingsDialog open={open} onOpenChange={onOpenChange} />
+    </ToastProvider>
   );
 }

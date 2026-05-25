@@ -1,6 +1,7 @@
 import { Hono, Context } from 'hono'
 import type { RuntimeClient } from '../lib/runtime'
 import type { Logger } from 'pino'
+import { config } from '../config'
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -76,6 +77,17 @@ provider.get('/api/runtime/health', async (c: Context) => {
   const client = c.get('runtimeClient')
   const { data, status } = await client.forward('GET', '/health')
   return c.json(data, status as 200)
+})
+
+provider.get('/api/runtime/info', (c: Context) => {
+  const port = parseInt(new URL(config.runtimeUrl).port, 10) || 80
+  return c.json({
+    mode: config.env,
+    runtime: {
+      url: config.runtimeUrl,
+      port,
+    },
+  })
 })
 
 export default provider

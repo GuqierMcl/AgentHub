@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { conversations } from "./mock-data"
 import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout"
 import { ConversationSidebar } from "./components/ConversationSidebar"
-import { SettingsDialog } from "../settings/SettingsDialog"
+import { SettingsDialogWithToast } from "../settings/SettingsDialog"
 import {
   defaultPreviewTarget,
   defaultSelectedFilePath,
@@ -115,7 +115,7 @@ export function WorkbenchPage() {
         selectedArtifact={selectedArtifact}
         selectedFilePath={selectedFilePath}
       />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsDialogWithToast open={settingsOpen} onOpenChange={setSettingsOpen} />
     </main>
   )
 }

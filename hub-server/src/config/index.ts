@@ -57,6 +57,7 @@ const configSchema = z.object({
   dbUrl: z.string().min(1),
   runtimeUrl: z.string().min(1),
   logLevel: z.string().min(1),
+  env: z.enum(['development', 'production']),
 })
 
 const dataDir = resolve(values['data-dir'] ?? getDefaultDataDir())
@@ -69,6 +70,7 @@ const rawConfig = {
   dbUrl: `file:${resolve(dataDir, 'hub.db')}`,
   runtimeUrl: values['runtime-url'] ?? process.env.AGENTHUB_RUNTIME_URL ?? 'http://127.0.0.1:4096',
   logLevel: values['log-level'] ?? process.env.LOG_LEVEL ?? 'debug',
+  env: (process.env.NODE_ENV === 'production' ? 'production' : 'development'),
 }
 
 export const config = configSchema.parse(rawConfig)

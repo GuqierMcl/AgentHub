@@ -22,6 +22,11 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -50,6 +55,11 @@
   --input: oklch(0.955 0.004 250);
   --ring: oklch(0.62 0.04 245);
   --sidebar: oklch(0.965 0.004 250);
+  --sidebar-foreground: oklch(0.18 0.01 250);
+  --sidebar-accent: oklch(0.91 0.004 250);
+  --sidebar-accent-foreground: oklch(0.18 0.01 250);
+  --sidebar-border: oklch(0.925 0.004 250);
+  --sidebar-ring: oklch(0.62 0.04 245);
   color: var(--foreground);
   background: var(--background);
   font-synthesis: none;
@@ -78,6 +88,11 @@
   --input: oklch(0.235 0.008 250);
   --ring: oklch(0.55 0.04 245);
   --sidebar: oklch(0.18 0.01 250);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-accent: oklch(0.25 0.015 220);
+  --sidebar-accent-foreground: oklch(0.9 0 0);
+  --sidebar-border: oklch(0.255 0.008 250);
+  --sidebar-ring: oklch(0.55 0.04 245);
 }
 
 *,
