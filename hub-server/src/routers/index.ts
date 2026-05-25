@@ -2,6 +2,7 @@ import { Hono, Context } from 'hono'
 import conversation from './conversation'
 import provider from './provider'
 import agent from './agent'
+import runs from './runs'
 
 const router = new Hono()
 
@@ -17,9 +18,6 @@ router.get('/health', (c: Context) => {
 router.route('/', conversation)
 router.route('/', provider)
 router.route('/', agent)
-
-// 后续新增领域路由在此添加：
-// import message from './message'
-// router.route('/', message)
+router.route('/', runs)
 
 export default router
