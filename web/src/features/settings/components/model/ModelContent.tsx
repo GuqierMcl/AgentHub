@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { SearchIcon } from "lucide-react"
+import { toast } from "sonner"
 
 import { Input } from "@/components/ui/input"
 import { runtimeApi } from "../../api/runtime"
 import type { ProviderDetail, ProviderProtocol } from "../../types"
 import { ModelCard } from "./ModelCard"
-import { useToast } from "../toast"
 
 const protocolLabels: Record<ProviderProtocol, string> = {
   openai: "OpenAI",
@@ -35,7 +35,6 @@ async function fetchConnectedProviders(): Promise<ProviderDetail[]> {
 }
 
 export function ModelContent() {
-  const { addToast } = useToast()
   const [providers, setProviders] = useState<ProviderDetail[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -97,14 +96,14 @@ export function ModelContent() {
             }
           })
         )
-        addToast("模型配置已更新", "success")
+        toast.success("模型配置已更新")
       } catch {
-        addToast("操作失败，请重试", "error")
+        toast.error("操作失败，请重试")
       } finally {
         setToggling(null)
       }
     },
-    [addToast]
+    []
   )
 
   const filteredProviders = useMemo(() => {

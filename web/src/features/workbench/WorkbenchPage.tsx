@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { Toaster } from "sonner";
 
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { cn } from "@/lib/utils";
@@ -6,9 +7,8 @@ import { cn } from "@/lib/utils";
 import { conversations } from "./mock-data";
 import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout";
 import { ConversationSidebar } from "./components/ConversationSidebar";
-import { SettingsDialogWithToast } from "../settings/SettingsDialog";
+import { SettingsDialog } from "../settings/SettingsDialog";
 import { AgentsDialog } from "../agents/AgentsDialog";
-import { ToastProvider } from "../settings/components/toast";
 import {
   defaultPreviewTarget,
   defaultSelectedFilePath,
@@ -106,13 +106,12 @@ export function WorkbenchPage() {
         }
       />
       <WorkbenchContentLayout activeConversation={activeConversation} />
-      <SettingsDialogWithToast
+      <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
       />
-      <ToastProvider>
-        <AgentsDialog open={agentsOpen} onOpenChange={setAgentsOpen} />
-      </ToastProvider>
+      <AgentsDialog open={agentsOpen} onOpenChange={setAgentsOpen} />
+      <Toaster position="top-center" richColors />
     </main>
   );
 }

@@ -18,7 +18,43 @@ export type AgentPermissionPolicy = {
   requiresApproval: boolean
 }
 
-export type UserAgentAllowedTool = "ls" | "read_file" | "glob" | "grep"
+export type UserAgentAllowedTool = "ls" | "read_file" | "glob" | "grep" | "write_file" | "edit_file"
+
+export type AuthoringToolOption = {
+  id: string
+  name: string
+  description: string
+  category: string
+  riskLevel: "low" | "medium" | "high"
+  approvalPolicy: "contextual" | "always" | "never"
+  requiredPermissions: Record<string, string>
+}
+
+export type AuthoringCapabilityTag = {
+  id: string
+  name: string
+  category: string
+}
+
+export type AuthoringSubagentOption = {
+  id: string
+  name: string
+  description: string
+  capabilities: string[]
+}
+
+export type AuthoringDefaults = {
+  allowedTools: string[]
+  allowedSubagents: string[]
+  permissionPolicy: AgentPermissionPolicy
+}
+
+export type AuthoringOptionsResponse = {
+  tools: AuthoringToolOption[]
+  capabilityTags: AuthoringCapabilityTag[]
+  subagents: AuthoringSubagentOption[]
+  defaults: AuthoringDefaults
+}
 
 export type AgentResolvedModel = {
   providerId: string

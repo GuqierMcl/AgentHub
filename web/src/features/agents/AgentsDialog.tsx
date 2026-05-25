@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { PlusIcon, Loader2Icon } from "lucide-react"
+import { toast } from "sonner"
 import {
   Dialog,
   DialogContent,
@@ -16,7 +17,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { agentsApi } from "./api/agents"
-import { useToast } from "../settings/components/toast"
 import type { AgentSummary, AgentDetail } from "./types"
 import { AgentCard } from "./components/AgentCard"
 import { AgentFormDialog } from "./components/AgentFormDialog"
@@ -28,7 +28,6 @@ type AgentsDialogProps = {
 }
 
 export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
-  const { addToast } = useToast()
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -81,12 +80,12 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
     agentsApi.get(agent.id).then((detail) => {
       setEditAgent(detail)
     }).catch((err) => {
-      addToast(err instanceof Error ? err.message : "获取智能体详情失败", "error")
+      toast.error(err instanceof Error ? err.message : "获取智能体详情失败")
       setFormOpen(false)
     }).finally(() => {
       setEditingId(null)
     })
-  }, [addToast])
+  }, [])
 
   const handleDeleteClick = useCallback((agent: AgentSummary) => {
     setDeleteTarget(agent)
@@ -95,15 +94,15 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
 
   const handleFormSaved = useCallback(() => {
     setFormOpen(false)
-    addToast(editAgent ? "智能体已更新" : "智能体已创建", "success")
+    toast.success(editAgent ? "智能体已更新" : "智能体已创建")
     fetchAgents()
-  }, [editAgent, addToast, fetchAgents])
+  }, [editAgent, fetchAgents])
 
   const handleDeleted = useCallback(() => {
     setDeleteOpen(false)
-    addToast("智能体已删除", "success")
+    toast.success("智能体已删除")
     fetchAgents()
-  }, [addToast, fetchAgents])
+  }, [fetchAgents])
 
   return (
     <>

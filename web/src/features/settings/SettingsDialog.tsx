@@ -6,7 +6,6 @@ import { SidebarProvider, SidebarInset } from "@/components/animate-ui/component
 import type { SettingsTabId } from "./types";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { SettingsContent } from "./components/SettingsContent";
-import { ToastProvider } from "./components/toast";
 
 type SettingsDialogProps = {
   open: boolean;
@@ -39,13 +38,5 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </SidebarProvider>
       </DialogContent>
     </Dialog>
-  );
-}
-
-export function SettingsDialogWithToast({ open, onOpenChange }: SettingsDialogProps) {
-  return (
-    <ToastProvider>
-      <SettingsDialog open={open} onOpenChange={onOpenChange} />
-    </ToastProvider>
   );
 }

@@ -5,6 +5,7 @@ import type {
   UserAgentCreateRequest,
   UserAgentUpdateRequest,
   AgentModelRef,
+  AuthoringOptionsResponse,
 } from "../types"
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -41,6 +42,10 @@ export const agentsApi = {
     if (params?.origin) query.set("origin", params.origin)
     const qs = query.toString()
     return request(`/api/runtime/agents${qs ? `?${qs}` : ""}`)
+  },
+
+  authoringOptions(): Promise<AuthoringOptionsResponse> {
+    return request("/api/runtime/agents/authoring-options")
   },
 
   get(agentId: string): Promise<AgentDetail> {
