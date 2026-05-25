@@ -98,11 +98,14 @@ export class AiSdkExecutor implements AgentExecutor {
       return
     }
 
-    const resolution = resolveAgentLanguageModel(this.providerService, agent)
+    const resolution = resolveAgentLanguageModel(this.providerService, agent, {
+      modelSourceAgent: context.modelSourceAgent,
+    })
     log.info(
       {
         runId,
         agentId: agent.id,
+        modelSourceAgentId: resolution.resolvedModel.modelSourceAgentId,
         providerId: resolution.provider.id,
         modelId: resolution.model.id,
         providerProtocol: resolution.provider.api_protocol,

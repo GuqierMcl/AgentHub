@@ -46,25 +46,29 @@ export function resolveAgentModelSnapshot(
     return null
   }
 
-  return buildResolvedModelSnapshot(provider, model)
+  return buildResolvedModelSnapshot(provider, model, agent.id)
 }
 
 export function resolveAgentLanguageModel(
   providerService: ProviderService,
-  agent: AgentDefinition
+  agent: AgentDefinition,
+  options: {
+    modelSourceAgent?: AgentDefinition
+  } = {}
 ): {
   provider: ProviderInfo
   model: ProviderModel
   languageModel: LanguageModel
   resolvedModel: AgentResolvedModelResponse
 } {
-  const modelRef = requireModelRef(agent)
+  const modelSourceAgent = resolveModelSourceAgent(agent, options.modelSourceAgent)
+  const modelRef = requireModelRef(agent, modelSourceAgent)
   const provider = providerService.getProvider(modelRef.providerId)
   if (!provider) {
     throw new AgentModelResolutionError(
       "MODEL_PROVIDER_NOT_FOUND",
       `Provider ${modelRef.providerId} not found for agent ${agent.id}`,
-      { agentId: agent.id, modelRef }
+      { agentId: agent.id, modelSourceAgentId: modelSourceAgent.id, modelRef }
     )
   }
 
@@ -72,7 +76,7 @@ export function resolveAgentLanguageModel(
     throw new AgentModelResolutionError(
       "MODEL_DISABLED",
       `Provider ${provider.id} is disabled for agent ${agent.id}`,
-      { agentId: agent.id, providerId: provider.id, modelRef }
+      { agentId: agent.id, modelSourceAgentId: modelSourceAgent.id, providerId: provider.id, modelRef }
     )
   }
 
@@ -81,7 +85,7 @@ export function resolveAgentLanguageModel(
     throw new AgentModelResolutionError(
       "MODEL_NOT_FOUND",
       `Model ${modelRef.providerId}/${modelRef.modelId} not found for agent ${agent.id}`,
-      { agentId: agent.id, modelRef }
+      { agentId: agent.id, modelSourceAgentId: modelSourceAgent.id, modelRef }
     )
   }
 
@@ -89,17 +93,18 @@ export function resolveAgentLanguageModel(
     throw new AgentModelResolutionError(
       "MODEL_DISABLED",
       `Model ${modelRef.providerId}/${modelRef.modelId} is disabled for agent ${agent.id}`,
-      { agentId: agent.id, modelRef }
+      { agentId: agent.id, modelSourceAgentId: modelSourceAgent.id, modelRef }
     )
   }
 
   const providerInstance = getProviderInstance(provider)
   const languageModel = providerInstance.languageModel(model.upstream_id)
-  const resolvedModel = buildResolvedModelSnapshot(provider, model)
+  const resolvedModel = buildResolvedModelSnapshot(provider, model, modelSourceAgent.id)
 
   log.info(
     {
       agentId: agent.id,
+      modelSourceAgentId: modelSourceAgent.id,
       providerId: provider.id,
       modelId: model.id,
       providerProtocol: provider.api_protocol,
@@ -115,22 +120,45 @@ export function resolveAgentLanguageModel(
   }
 }
 
-function requireModelRef(agent: AgentDefinition): AgentModelRef {
-  if (!agent.modelRef) {
+function resolveModelSourceAgent(agent: AgentDefinition, modelSourceAgent?: AgentDefinition): AgentDefinition {
+  if (agent.tier !== "subagent") {
+    return agent
+  }
+
+  if (!modelSourceAgent) {
     throw new AgentModelResolutionError(
       "MODEL_BINDING_MISSING",
-      `Agent ${agent.id} does not have a model binding`,
+      `Subagent ${agent.id} requires a caller model binding source`,
       { agentId: agent.id }
     )
   }
 
-  return agent.modelRef
+  return modelSourceAgent
 }
 
-function buildResolvedModelSnapshot(provider: ProviderInfo, model: ProviderModel): AgentResolvedModelResponse {
+function requireModelRef(agent: AgentDefinition, modelSourceAgent: AgentDefinition): AgentModelRef {
+  if (!modelSourceAgent.modelRef) {
+    throw new AgentModelResolutionError(
+      "MODEL_BINDING_MISSING",
+      agent.tier === "subagent"
+        ? `Subagent ${agent.id} cannot inherit a model because caller ${modelSourceAgent.id} does not have a model binding`
+        : `Agent ${agent.id} does not have a model binding`,
+      { agentId: agent.id, modelSourceAgentId: modelSourceAgent.id }
+    )
+  }
+
+  return modelSourceAgent.modelRef
+}
+
+function buildResolvedModelSnapshot(
+  provider: ProviderInfo,
+  model: ProviderModel,
+  modelSourceAgentId?: string
+): AgentResolvedModelResponse {
   return {
     providerId: provider.id,
     modelId: model.id,
+    modelSourceAgentId,
     providerProtocol: provider.api_protocol,
     providerName: provider.name,
     modelName: model.name,

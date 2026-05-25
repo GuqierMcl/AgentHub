@@ -171,6 +171,21 @@ describe("RunManager tool smoke", () => {
     const providerService = {} as ProviderService
     const runManager = new RunManager(registry, providerService)
 
+    ;(runManager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+      }): AsyncIterable<RunEvent> {
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: `${context.agent.id} handled the delegated task.`,
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
     ;(runManager as any).orchestratorExecutor = {
       executorType: "orchestrator",
       async *execute(context: {
@@ -252,5 +267,87 @@ describe("RunManager tool smoke", () => {
     expect(toolStartedEvents).toHaveLength(2)
     expect(new Set(toolStartedEvents.map((event) => event.toolCallId)).size).toBe(2)
     expect(toolStartedEvents.every((event) => event.toolName === "run_task")).toBe(true)
+  })
+
+  test("delegated subagents inherit the direct caller model source while keeping their own tools", async () => {
+    const registry = await createInitializedRegistry()
+    const providerService = {} as ProviderService
+    const runManager = new RunManager(registry, providerService)
+    const observed: Array<{
+      agentId: string
+      modelSourceAgentId?: string
+      allowedTools: string[]
+    }> = []
+
+    ;(runManager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: {
+        runId: string
+        agent: { id: string; allowedTools: string[] }
+        modelSourceAgent?: { id: string }
+      }): AsyncIterable<RunEvent> {
+        observed.push({
+          agentId: context.agent.id,
+          modelSourceAgentId: context.modelSourceAgent?.id,
+          allowedTools: context.agent.allowedTools,
+        })
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: `${context.agent.id} completed`,
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    ;(runManager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+        runTask?: (task: OrchestratorTask) => Promise<{
+          status: "completed" | "failed" | "cancelled"
+          summary: string
+        }>
+      }): AsyncIterable<RunEvent> {
+        const result = await context.runTask?.({
+          taskId: "task_file_subagent",
+          targetAgentId: "file",
+          title: "Edit a file",
+          instruction: "Prepare a file edit.",
+          expectedOutput: "A file edit result",
+          requiredCapabilities: ["file-write"],
+          riskLevel: "medium",
+          dependsOn: [],
+        })
+
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: result?.summary ?? "",
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_subagent_model_source",
+      mode: "group",
+      participantAgentIds: ["orchestrator"],
+      addressedAgentIds: [],
+      userMessage: {
+        role: "user",
+        content: "Ask the file subagent to prepare an edit.",
+      },
+      history: [],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const fileExecution = observed.find((entry) => entry.agentId === "file")
+    expect(runManager.getRun(run.id)?.status).toBe("completed")
+    expect(fileExecution?.modelSourceAgentId).toBe("orchestrator")
+    expect(fileExecution?.allowedTools).toEqual(expect.arrayContaining(["write_file", "edit_file"]))
+    expect(fileExecution?.allowedTools).not.toContain("run_task")
   })
 })

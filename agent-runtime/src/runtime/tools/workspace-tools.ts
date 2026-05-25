@@ -1,6 +1,14 @@
 import { z } from "zod"
 import { createRunEvent } from "../run-events"
-import type { WorkspaceAccessResolution, WorkspaceGrepMatch, WorkspaceListEntry } from "../workspace"
+import { WorkspaceError } from "../workspace"
+import type {
+  WorkspaceAccessMode,
+  WorkspaceAccessResolution,
+  WorkspaceEditFileResult,
+  WorkspaceGrepMatch,
+  WorkspaceListEntry,
+  WorkspaceWriteFileResult,
+} from "../workspace"
 import type { ToolDefinition, ToolExecutionContext, ToolExecutionResult } from "./types"
 
 const lsInputSchema = z.object({
@@ -20,6 +28,19 @@ const grepInputSchema = z.object({
   path: z.string().min(1),
   pattern: z.string().min(1),
   maxResults: z.number().int().positive().max(200).optional(),
+})
+
+const writeFileInputSchema = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+  overwrite: z.boolean().optional().default(false),
+})
+
+const editFileInputSchema = z.object({
+  path: z.string().min(1),
+  search: z.string().min(1),
+  replace: z.string(),
+  expectedReplacements: z.number().int().positive().max(1000).optional(),
 })
 
 type WorkspaceToolInput = {
@@ -132,7 +153,12 @@ async function resolveAccess(
   context: ToolExecutionContext,
   toolName: string,
   path: string,
-  reason: string
+  reason: string,
+  accessMode: WorkspaceAccessMode,
+  options: {
+    targetKind?: "file" | "directory"
+    allowMissingTarget?: boolean
+  } = {}
 ): Promise<WorkspaceAccessResolution | { kind: "unavailable" }> {
   const workspaceService = context.workspaceService
   if (!workspaceService) {
@@ -143,9 +169,11 @@ async function resolveAccess(
     runId: context.runId,
     agentId: context.agent.id,
     path: normalizePath(path),
-    accessMode: "read",
+    accessMode,
     reason,
     toolName,
+    targetKind: options.targetKind,
+    allowMissingTarget: options.allowMissingTarget,
   })
 }
 
@@ -153,9 +181,14 @@ async function prepareApproval(
   context: ToolExecutionContext,
   toolName: string,
   path: string,
-  reason: string
+  reason: string,
+  accessMode: WorkspaceAccessMode,
+  options: {
+    targetKind?: "file" | "directory"
+    allowMissingTarget?: boolean
+  } = {}
 ): Promise<import("./types").ToolApprovalDraft | null> {
-  const decision = await resolveAccess(context, toolName, path, reason)
+  const decision = await resolveAccess(context, toolName, path, reason, accessMode, options)
   if (decision.kind !== "approval_required") {
     return null
   }
@@ -179,9 +212,14 @@ async function runWithAccess<TData>(
   context: ToolExecutionContext,
   path: string,
   reason: string,
+  accessMode: WorkspaceAccessMode,
+  options: {
+    targetKind?: "file" | "directory"
+    allowMissingTarget?: boolean
+  },
   onAllowed: (decision: Extract<WorkspaceAccessResolution, { kind: "allowed" }>) => Promise<ToolExecutionResult<TData>>
 ): Promise<ToolExecutionResult<TData>> {
-  const decision = await resolveAccess(context, toolName, path, reason)
+  const decision = await resolveAccess(context, toolName, path, reason, accessMode, options)
 
   if (decision.kind === "unavailable") {
     return createUnsupportedResult(toolName)
@@ -199,7 +237,14 @@ async function runWithAccess<TData>(
     return createDeniedResult(decision.code, decision.message, decision.details)
   }
 
-  return onAllowed(decision)
+  try {
+    return await onAllowed(decision)
+  } catch (error) {
+    if (error instanceof WorkspaceError) {
+      return createDeniedResult(error.code, error.message, error.details)
+    }
+    throw error
+  }
 }
 
 function formatListResult(entries: WorkspaceListEntry[], path: string): ToolExecutionResult<{ entries: WorkspaceListEntry[] }> {
@@ -250,12 +295,33 @@ function formatGrepResult(matches: WorkspaceGrepMatch[], pattern: string): ToolE
   }
 }
 
+function formatWriteResult(result: WorkspaceWriteFileResult): ToolExecutionResult<WorkspaceWriteFileResult> {
+  return {
+    status: "completed",
+    summary: `${result.created ? "Created" : "Wrote"} ${result.path}`,
+    data: result,
+  }
+}
+
+function formatEditResult(result: WorkspaceEditFileResult): ToolExecutionResult<WorkspaceEditFileResult> {
+  return {
+    status: "completed",
+    summary: `Edited ${result.path} with ${result.replacements} replacement${result.replacements === 1 ? "" : "s"}`,
+    data: result,
+  }
+}
+
 function createWorkspaceTool<TInput, TData>(
   name: string,
   displayName: string,
   description: string,
   inputSchema: z.ZodType<TInput>,
   riskLevel: "low" | "medium" | "high",
+  accessMode: WorkspaceAccessMode,
+  accessOptions: {
+    targetKind?: "file" | "directory"
+    allowMissingTarget?: boolean
+  },
   pathSelector: (input: TInput) => string,
   approvalReason: string,
   executor: (
@@ -272,17 +338,17 @@ function createWorkspaceTool<TInput, TData>(
     inputSchema,
     riskLevel,
     requiredPermissions: {
-      filesystem: "read",
+      filesystem: accessMode === "read" ? "read" : "write",
     },
     approvalPolicy: "contextual",
     configurableByUserAgent: true,
     prepareApproval: async (input, context) => {
       const path = pathSelector(input)
-      return prepareApproval(context, name, path, approvalReason)
+      return prepareApproval(context, name, path, approvalReason, accessMode, accessOptions)
     },
     async execute(input, context) {
       const path = pathSelector(input)
-      return runWithAccess(name, context, path, approvalReason, async (decision) => executor(input, context, decision))
+      return runWithAccess(name, context, path, approvalReason, accessMode, accessOptions, async (decision) => executor(input, context, decision))
     },
   }
 }
@@ -295,9 +361,11 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
       "List files and directories in a workspace path.",
       lsInputSchema,
       "low",
+      "read",
+      {},
       (input: WorkspaceToolInput) => input.path,
       "List workspace contents",
-      async (_input, context, decision) => {
+      async (_input, _context, decision) => {
         const entries = await decision.backend.listFiles(decision.relativePath)
         return formatListResult(entries, decision.logicalPath)
       }
@@ -308,6 +376,10 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
       "Read a text file or image file from a workspace path.",
       readFileInputSchema,
       "low",
+      "read",
+      {
+        targetKind: "file",
+      },
       (input: { path: string }) => input.path,
       "Read file content",
       async (_input, _context, decision) => {
@@ -321,6 +393,8 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
       "Find files and directories by glob pattern.",
       globInputSchema,
       "low",
+      "read",
+      {},
       (input: { path: string; pattern: string }) => input.path,
       "Search workspace paths with glob",
       async (input, _context, decision) => {
@@ -335,6 +409,8 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
       "Search for text across files and directories in a workspace path.",
       grepInputSchema,
       "low",
+      "read",
+      {},
       (input: { path: string; pattern: string; maxResults?: number }) => input.path,
       "Search text with grep",
       async (input, _context, decision) => {
@@ -342,5 +418,70 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
         return formatGrepResult(matches.slice(0, input.maxResults ?? 50), input.pattern)
       }
     ),
+  ]
+}
+
+export function createWorkspaceWriteTools(): Array<ToolDefinition<any, any>> {
+  return [
+    createWorkspaceTool(
+      "write_file",
+      "Write file",
+      "Create or overwrite a UTF-8 text file in the workspace.",
+      writeFileInputSchema,
+      "medium",
+      "write",
+      {
+        targetKind: "file",
+        allowMissingTarget: true,
+      },
+      (input: { path: string }) => input.path,
+      "Write file content",
+      async (input, _context, decision) => {
+        if (!decision.backend.writeFile) {
+          return createDeniedResult(
+            "WORKSPACE_UNSUPPORTED_OPERATION",
+            "The current workspace backend does not support write_file"
+          )
+        }
+        const result = await decision.backend.writeFile(decision.relativePath, input.content, {
+          overwrite: input.overwrite,
+        })
+        return formatWriteResult(result)
+      }
+    ),
+    createWorkspaceTool(
+      "edit_file",
+      "Edit file",
+      "Apply a precise search/replace edit to a UTF-8 text file in the workspace.",
+      editFileInputSchema,
+      "medium",
+      "write",
+      {
+        targetKind: "file",
+      },
+      (input: { path: string }) => input.path,
+      "Edit file content",
+      async (input, _context, decision) => {
+        if (!decision.backend.editFile) {
+          return createDeniedResult(
+            "WORKSPACE_UNSUPPORTED_OPERATION",
+            "The current workspace backend does not support edit_file"
+          )
+        }
+        const result = await decision.backend.editFile(decision.relativePath, {
+          search: input.search,
+          replace: input.replace,
+          expectedReplacements: input.expectedReplacements,
+        })
+        return formatEditResult(result)
+      }
+    ),
+  ]
+}
+
+export function createWorkspaceTools(): Array<ToolDefinition<any, any>> {
+  return [
+    ...createWorkspaceReadOnlyTools(),
+    ...createWorkspaceWriteTools(),
   ]
 }

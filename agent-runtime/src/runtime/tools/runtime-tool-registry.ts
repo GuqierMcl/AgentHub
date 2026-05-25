@@ -11,7 +11,7 @@ import type {
 } from "./types"
 import type { AgentAuthoringToolOption, AgentPermissionPolicy } from "../../agents"
 import { createRunTaskTool } from "./run-task-tool"
-import { createWorkspaceReadOnlyTools } from "./workspace-tools"
+import { createWorkspaceTools } from "./workspace-tools"
 import { createWritePlanTool } from "./write-plan-tool"
 
 const PERMISSION_RANKS = {
@@ -310,7 +310,7 @@ export function createDefaultRuntimeToolRegistry(): RuntimeToolRegistry {
   const registry = new RuntimeToolRegistry()
   registry.register(createWritePlanTool())
   registry.register(createRunTaskTool())
-  for (const definition of createWorkspaceReadOnlyTools()) {
+  for (const definition of createWorkspaceTools()) {
     registry.register(definition)
   }
   return registry

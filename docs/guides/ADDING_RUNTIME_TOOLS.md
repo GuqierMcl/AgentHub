@@ -67,9 +67,9 @@ Tool Catalog 由注册的 `ToolDefinition` 组成，是工具风险、权限要�
 - `approvalPolicy`：工具是否始终审批、按上下文审批或无需审批。
 - Workspace Backend 或外部 Adapter 的实际访问边界。
 
-审批不写入 agent 配置。文件、部署、shell、网络类工具必须有明确审批路径；沙箱外文件访问和敏感文件显式读取必须通过 Workspace Backend 的 scoped grant 流程，并由 `RuntimePermissionService` 在同一 Run 中等待和续跑。
+审批不写入 agent 配置。文件、部署、shell、网络类工具必须有明确审批路径；沙箱外文件访问、敏感文件显式读取、敏感写入和沙箱外写入必须通过 Workspace Backend 的 scoped grant 流程，并由 `RuntimePermissionService` 在同一 Run 中等待和续跑。
 
-后续实现 `write_file` / `edit_file` 时，必须声明 `requiredPermissions: { filesystem: "write" }`。沙箱内普通文件修改可在具备写权限时直接执行；沙箱内敏感文件写入、沙箱外任何写入或编辑必须审批，外部写入还必须先补 write grant。
+`write_file` / `edit_file` 已按 `requiredPermissions: { filesystem: "write" }` 接入。后续新增写类工具也必须遵守同一规则：沙箱内普通文件修改可在具备写权限时直接执行；沙箱内敏感文件写入、沙箱外任何写入或编辑必须审批，并通过 write grant 恢复执行。
 
 ## 6. 事件和契约
 

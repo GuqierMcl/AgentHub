@@ -44,9 +44,9 @@ export const presetAgents: AgentDefinition[] = [
     },
     capabilities: ["implementation", "refactor", "tests"],
     allowedSubagents: ["explore", "general", "file"],
-    allowedTools: ["ls", "read_file", "glob", "grep"],
+    allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file"],
     permissionPolicy: {
-      filesystem: "read",
+      filesystem: "write",
       shell: "none",
       network: "none",
       deploy: "none",
@@ -98,9 +98,9 @@ export const presetAgents: AgentDefinition[] = [
     },
     capabilities: ["documentation", "copywriting", "summarization"],
     allowedSubagents: ["general"],
-    allowedTools: ["ls", "read_file", "glob", "grep"],
+    allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file"],
     permissionPolicy: {
-      filesystem: "read",
+      filesystem: "write",
       shell: "none",
       network: "none",
       deploy: "none",

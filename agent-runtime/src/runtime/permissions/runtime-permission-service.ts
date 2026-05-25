@@ -100,7 +100,7 @@ export class RuntimePermissionService {
     }
 
     if (decision.approved && request.workspaceRequestId) {
-      const grant = this.workspaceService?.approveReadAccess(request.workspaceRequestId)
+      const grant = this.workspaceService?.approveAccess(request.workspaceRequestId)
       if (!grant) {
         throw new RuntimePermissionError(
           "PERMISSION_GRANT_FAILED",

@@ -444,9 +444,9 @@ Runtime 当前支持通过内部 `/runtime/agents` API 创建、更新和删除�
 - 用户不能通过 CRUD 创建隐藏子智能体或外部智能体。
 - 用户不能覆盖、更新或删除系统预设智能体。
 - `allowedSubagents` 只能引用已注册、启用、隐藏的子智能体。
-- `allowedTools` 首版只允许 `ls`、`read_file`、`glob`、`grep` 四个只读文件工具。
+- `allowedTools` 允许 Tool Catalog 暴露给用户智能体的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。
 - `write_plan`、`run_task` 仍是 `orchestrator` 的内部工具，不能授予用户自定义智能体。
-- `permissionPolicy` 首版限制为只读能力：文件权限只允许 `none` 或 `read`，shell、network、deploy 工具权限必须为 `none`。
+- 选择写工具时，`permissionPolicy.filesystem` 必须显式为 `write`；shell、network、deploy 工具权限必须为 `none`。
 
 用户自定义智能体的 `systemPrompt` 可通过详情接口返回，供 HubServer 或后续配置 UI 回显；系统预设智能体的系统提示词不通过 Runtime API 暴露。
 
@@ -466,6 +466,16 @@ type AgentExecutorType =
 - `ai-sdk` 用于普通 LLM 主智能体、系统预设主智能体、用户自定义主智能体和部分子智能体。
 - `mock` 用于开发和测试。
 - `external-adapter` 用于外部智能体平台接入。
+
+### 5.2.1 子智能体模型继承
+
+隐藏子智能体不支持独立模型绑定。运行时执行子智能体时，模型选择固定继承直接调用方智能体的 `modelRef`：
+
+- 主智能体执行使用自身模型绑定。
+- 子智能体执行使用调用方模型绑定。
+- 模型继承只影响模型选择，不继承调用方的 `allowedTools`、`permissionPolicy`、`systemPrompt` 或身份。
+- `resolvedModel.modelSourceAgentId` 用于记录本次模型来源。
+- 如果调用方没有可解析模型绑定，子智能体执行返回 `MODEL_BINDING_MISSING`。
 
 ### 5.3 权限策略
 

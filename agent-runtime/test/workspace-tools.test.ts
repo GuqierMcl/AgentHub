@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { RuntimePermissionService, RuntimeToolRegistry, createWorkspaceReadOnlyTools, WorkspaceService } from "../src/runtime"
+import {
+  RuntimePermissionService,
+  RuntimeToolRegistry,
+  createWorkspaceReadOnlyTools,
+  createWorkspaceWriteTools,
+  WorkspaceService,
+} from "../src/runtime"
 import type { AgentDefinition, RunEvent, RunInput } from "../src/runtime"
 
 const PNG_BASE64 =
@@ -33,6 +39,19 @@ const coderAgent: AgentDefinition = {
   },
   enabled: true,
   readonly: true,
+}
+
+const writableAgent: AgentDefinition = {
+  ...coderAgent,
+  id: "writer",
+  name: "Writer",
+  allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file"],
+  permissionPolicy: {
+    filesystem: "write",
+    shell: "none",
+    network: "none",
+    deploy: "none",
+  },
 }
 
 async function createWorkspaceFixture(runId: string): Promise<{
@@ -413,6 +432,187 @@ describe("Workspace read-only tools", () => {
       signal: new AbortController().signal,
       emitEvent: () => {},
     }, { toolCallId: "tool_no_workspace" })
+
+    expect(result.status).toBe("failed")
+    expect(result.error?.code).toBe("WORKSPACE_NOT_BOUND")
+  })
+
+  test("write_file and edit_file modify ordinary workspace files without approval", async () => {
+    const { workspaceService, workspaceRoot } = await createWorkspaceFixture("run_workspace_write")
+    const registry = new RuntimeToolRegistry()
+    for (const tool of createWorkspaceWriteTools()) {
+      registry.register(tool)
+    }
+
+    const events: RunEvent[] = []
+    const context = {
+      runId: "run_workspace_write",
+      input: createBaseRunInput(),
+      agent: writableAgent,
+      signal: new AbortController().signal,
+      emitEvent: (event: RunEvent) => events.push(event),
+      workspaceService,
+      permissionService: new RuntimePermissionService(workspaceService),
+    }
+
+    const created = await registry.executeTool("write_file", {
+      path: "src/generated.txt",
+      content: "hello from write_file",
+    }, context, { toolCallId: "tool_write_create" })
+    expect(created.status).toBe("completed")
+    expect(created.data).toMatchObject({
+      path: "src/generated.txt",
+      created: true,
+      overwritten: false,
+    })
+    expect(await readFile(join(workspaceRoot, "src", "generated.txt"), "utf-8")).toBe("hello from write_file")
+    expect(events.some((event) => event.type === "permission.requested")).toBe(false)
+
+    const conflict = await registry.executeTool("write_file", {
+      path: "src/generated.txt",
+      content: "should not replace",
+    }, context, { toolCallId: "tool_write_conflict" })
+    expect(conflict.status).toBe("failed")
+    expect(conflict.error?.code).toBe("WORKSPACE_PATH_ALREADY_EXISTS")
+    expect(await readFile(join(workspaceRoot, "src", "generated.txt"), "utf-8")).toBe("hello from write_file")
+
+    const edited = await registry.executeTool("edit_file", {
+      path: "src/index.ts",
+      search: "value = 1",
+      replace: "value = 2",
+      expectedReplacements: 1,
+    }, context, { toolCallId: "tool_edit" })
+    expect(edited.status).toBe("completed")
+    expect(edited.data).toMatchObject({
+      path: "src/index.ts",
+      replacements: 1,
+      changed: true,
+    })
+    expect(await readFile(join(workspaceRoot, "src", "index.ts"), "utf-8")).toContain("value = 2")
+
+    const missingSearch = await registry.executeTool("edit_file", {
+      path: "src/index.ts",
+      search: "not present",
+      replace: "replacement",
+    }, context, { toolCallId: "tool_edit_missing" })
+    expect(missingSearch.status).toBe("failed")
+    expect(missingSearch.error?.code).toBe("WORKSPACE_EDIT_CONFLICT")
+  })
+
+  test("sensitive workspace writes require approval and resume with a write grant", async () => {
+    const { workspaceService, workspaceRoot } = await createWorkspaceFixture("run_workspace_sensitive_write")
+    const registry = new RuntimeToolRegistry()
+    for (const tool of createWorkspaceWriteTools()) {
+      registry.register(tool)
+    }
+
+    const events: RunEvent[] = []
+    const context = {
+      runId: "run_workspace_sensitive_write",
+      input: createBaseRunInput(),
+      agent: writableAgent,
+      signal: new AbortController().signal,
+      emitEvent: (event: RunEvent) => events.push(event),
+      workspaceService,
+      permissionService: new RuntimePermissionService(workspaceService),
+    }
+
+    const first = await registry.executeTool("write_file", {
+      path: ".env",
+      content: "SECRET=updated",
+      overwrite: true,
+    }, context, { toolCallId: "tool_sensitive_write" })
+    expect(first.status).toBe("failed")
+    expect(first.error?.code).toBe("TOOL_APPROVAL_REQUIRED")
+    expect(events.some((event) => event.type === "tool.started")).toBe(false)
+
+    const request = workspaceService.listExternalAccessRequests()[0]!
+    expect(request.accessMode).toBe("write")
+    expect(request.approvalReason).toBe("sensitive_write")
+    expect(workspaceService.approveWriteAccess(request.requestId)?.accessMode).toBe("write")
+
+    const approved = await registry.executeTool("write_file", {
+      path: ".env",
+      content: "SECRET=updated",
+      overwrite: true,
+    }, context, { toolCallId: "tool_sensitive_write_approved" })
+    expect(approved.status).toBe("completed")
+    expect(await readFile(join(workspaceRoot, ".env"), "utf-8")).toBe("SECRET=updated")
+  })
+
+  test("external ordinary and external sensitive writes require scoped write approval", async () => {
+    const { workspaceService, externalRoot } = await createWorkspaceFixture("run_workspace_external_write")
+    const registry = new RuntimeToolRegistry()
+    for (const tool of createWorkspaceWriteTools()) {
+      registry.register(tool)
+    }
+
+    const events: RunEvent[] = []
+    const context = {
+      runId: "run_workspace_external_write",
+      input: createBaseRunInput(),
+      agent: writableAgent,
+      signal: new AbortController().signal,
+      emitEvent: (event: RunEvent) => events.push(event),
+      workspaceService,
+      permissionService: new RuntimePermissionService(workspaceService),
+    }
+
+    const externalFile = join(externalRoot, "generated.txt")
+    const first = await registry.executeTool("write_file", {
+      path: externalFile,
+      content: "external write",
+    }, context, { toolCallId: "tool_external_write" })
+    expect(first.status).toBe("failed")
+    expect(first.error?.code).toBe("TOOL_APPROVAL_REQUIRED")
+    expect(JSON.stringify(events)).not.toContain(externalRoot)
+
+    const externalRequest = workspaceService.listExternalAccessRequests()[0]!
+    expect(externalRequest.accessMode).toBe("write")
+    expect(externalRequest.approvalReason).toBe("external_write")
+    workspaceService.approveWriteAccess(externalRequest.requestId)
+
+    const approved = await registry.executeTool("write_file", {
+      path: externalFile,
+      content: "external write",
+    }, context, { toolCallId: "tool_external_write_approved" })
+    expect(approved.status).toBe("completed")
+    expect((approved.data as { path: string }).path).toStartWith("mounts/")
+    expect(await readFile(externalFile, "utf-8")).toBe("external write")
+
+    events.length = 0
+    const sensitive = await registry.executeTool("write_file", {
+      path: join(externalRoot, ".env"),
+      content: "EXTERNAL_SECRET=updated",
+      overwrite: true,
+    }, context, { toolCallId: "tool_external_sensitive_write" })
+    expect(sensitive.status).toBe("failed")
+    expect(sensitive.error?.code).toBe("TOOL_APPROVAL_REQUIRED")
+    expect(events.filter((event) => event.type === "permission.requested")).toHaveLength(1)
+    expect(JSON.stringify(events)).not.toContain(externalRoot)
+
+    const sensitiveRequest = workspaceService.listExternalAccessRequests().find((candidate) =>
+      candidate.status === "pending"
+    )!
+    expect(sensitiveRequest.accessMode).toBe("write")
+    expect(sensitiveRequest.approvalReason).toBe("external_sensitive_write")
+  })
+
+  test("write tools fail clearly without a bound workspace", async () => {
+    const registry = new RuntimeToolRegistry()
+    for (const tool of createWorkspaceWriteTools()) {
+      registry.register(tool)
+    }
+    const result = await registry.executeTool("write_file", {
+      path: "src/generated.txt",
+      content: "no workspace",
+    }, {
+      runId: "run_no_workspace_write",
+      input: createBaseRunInput(),
+      agent: writableAgent,
+      signal: new AbortController().signal,
+      emitEvent: () => {},
+    }, { toolCallId: "tool_no_workspace_write" })
 
     expect(result.status).toBe("failed")
     expect(result.error?.code).toBe("WORKSPACE_NOT_BOUND")

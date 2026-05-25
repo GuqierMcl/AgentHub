@@ -16,6 +16,12 @@ import type {
   UserAgentUpdateRequest,
 } from "./types"
 
+const FILESYSTEM_PERMISSION_RANK = {
+  none: 0,
+  read: 1,
+  write: 2,
+} as const
+
 export class AgentRegistryMutationError extends Error {
   constructor(
     public code:
@@ -57,8 +63,12 @@ export class AgentRegistry {
         console.warn(`Ignoring user agent "${agent.id}" because it conflicts with a system preset`)
         continue
       }
-      this.baseAgents.set(agent.id, this.cloneAgent(agent))
-      this.agents.set(agent.id, this.applyModelBinding(agent))
+      const normalizedAgent = this.normalizeLoadedUserAgent(agent)
+      if (!normalizedAgent) {
+        continue
+      }
+      this.baseAgents.set(normalizedAgent.id, this.cloneAgent(normalizedAgent))
+      this.agents.set(normalizedAgent.id, this.applyModelBinding(normalizedAgent))
     }
 
     this.applyBindingsToRegisteredAgents()
@@ -368,17 +378,18 @@ export class AgentRegistry {
     const configurableTools = this.toolCatalog.listUserConfigurableTools()
     const selectedTools = configurableTools.filter((tool) => allowedTools.includes(tool.id))
 
-    if (normalized.filesystem === "write") {
-      violations.push({
-        path: ["permissionPolicy", "filesystem"],
-        message: "User agents cannot request filesystem write permission in this CRUD version",
-      })
-    }
+    const requiredFilesystem = selectedTools
+      .map((tool) => tool.requiredPermissions.filesystem)
+      .filter((value): value is NonNullable<typeof value> => Boolean(value))
+      .sort((left, right) => FILESYSTEM_PERMISSION_RANK[right] - FILESYSTEM_PERMISSION_RANK[left])[0]
 
-    if (selectedTools.some((tool) => tool.requiredPermissions.filesystem === "read") && normalized.filesystem !== "read") {
+    if (
+      requiredFilesystem &&
+      FILESYSTEM_PERMISSION_RANK[normalized.filesystem] < FILESYSTEM_PERMISSION_RANK[requiredFilesystem]
+    ) {
       violations.push({
         path: ["permissionPolicy", "filesystem"],
-        message: "Read-only file tools require filesystem read permission",
+        message: `Selected tools require filesystem ${requiredFilesystem} permission`,
       })
     }
 
@@ -430,6 +441,31 @@ export class AgentRegistry {
     }
 
     return normalized
+  }
+
+  private normalizeLoadedUserAgent(agent: AgentDefinition): AgentDefinition | null {
+    const normalized = this.cloneAgent(agent)
+    if (normalized.tier === "subagent" && normalized.modelRef) {
+      console.warn(`Ignoring modelRef on subagent "${normalized.id}" because subagents inherit the caller model`)
+      delete normalized.modelRef
+    }
+
+    if (normalized.origin !== "user") {
+      return normalized
+    }
+
+    try {
+      normalized.allowedTools = this.normalizeAllowedTools(normalized.allowedTools)
+      normalized.allowedSubagents = this.normalizeAllowedSubagents(normalized.allowedSubagents)
+      normalized.permissionPolicy = this.normalizeUserPermissionPolicy(
+        normalized.permissionPolicy,
+        normalized.allowedTools
+      )
+      return normalized
+    } catch (error) {
+      console.warn(`Ignoring invalid user agent "${normalized.id}"`, error)
+      return null
+    }
   }
 
   private async persistAgentsOrRollback(

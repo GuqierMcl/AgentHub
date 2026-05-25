@@ -38,6 +38,15 @@ export type WorkspaceReadApprovalReason =
   | "sensitive_read"
   | "external_sensitive_read"
 
+export type WorkspaceWriteApprovalReason =
+  | "external_write"
+  | "sensitive_write"
+  | "external_sensitive_write"
+
+export type WorkspaceAccessApprovalReason =
+  | WorkspaceReadApprovalReason
+  | WorkspaceWriteApprovalReason
+
 export type WorkspaceContentBlock =
   | { type: "text"; text: string }
   | { type: "image"; mimeType: string; data: string; encoding: "base64" }
@@ -47,6 +56,27 @@ export type WorkspaceReadFileResult = {
   mimeType: string
   size: number
   blocks: WorkspaceContentBlock[]
+}
+
+export type WorkspaceWriteFileResult = {
+  path: string
+  size: number
+  bytesWritten: number
+  created: boolean
+  overwritten: boolean
+}
+
+export type WorkspaceEditFilePatch = {
+  search: string
+  replace: string
+  expectedReplacements?: number
+}
+
+export type WorkspaceEditFileResult = {
+  path: string
+  size: number
+  replacements: number
+  changed: boolean
 }
 
 export type WorkspaceListEntry = {
@@ -68,12 +98,15 @@ export type WorkspaceErrorCode =
   | "WORKSPACE_EXTERNAL_ACCESS_PENDING_APPROVAL"
   | "WORKSPACE_NOT_A_DIRECTORY"
   | "WORKSPACE_NOT_A_FILE"
+  | "WORKSPACE_PARENT_NOT_FOUND"
   | "WORKSPACE_PATH_NOT_FOUND"
+  | "WORKSPACE_PATH_ALREADY_EXISTS"
   | "WORKSPACE_PATH_OUTSIDE_ROOT"
   | "WORKSPACE_SERVICE_UNAVAILABLE"
   | "WORKSPACE_NOT_BOUND"
   | "WORKSPACE_SENSITIVE_PATH_BLOCKED"
   | "WORKSPACE_SYMLINK_ESCAPE"
+  | "WORKSPACE_EDIT_CONFLICT"
   | "WORKSPACE_UNSUPPORTED_OPERATION"
 
 export class WorkspaceError extends Error {
@@ -95,7 +128,7 @@ export type ExternalAccessRequest = {
   targetKind: WorkspaceTargetKind
   accessMode: WorkspaceAccessMode
   reason: string
-  approvalReason: WorkspaceReadApprovalReason
+  approvalReason: WorkspaceAccessApprovalReason
   logicalPath: string
   outsideWorkspace: boolean
   riskLevel: "low" | "medium" | "high"
@@ -167,8 +200,8 @@ export type WorkspaceBackend = {
   listFiles(path: string): Promise<WorkspaceListEntry[]>
   glob(pattern: string, cwd?: string): Promise<string[]>
   grep(pattern: string, path: string): Promise<WorkspaceGrepMatch[]>
-  writeFile?(path: string, content: string): Promise<void>
-  editFile?(path: string, patch: string): Promise<void>
+  writeFile?(path: string, content: string, options?: { overwrite?: boolean }): Promise<WorkspaceWriteFileResult>
+  editFile?(path: string, patch: WorkspaceEditFilePatch): Promise<WorkspaceEditFileResult>
   createSnapshot?(): Promise<{ snapshotId: string }>
   restoreSnapshot?(snapshotId: string): Promise<void>
 }
