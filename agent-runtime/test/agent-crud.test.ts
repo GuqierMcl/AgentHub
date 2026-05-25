@@ -14,7 +14,13 @@ const readOnlyPolicy = {
   network: "none",
   deploy: "none",
 } as const
-const EXPECTED_AUTHORING_TOOL_IDS = ["ls", "read_file", "glob", "grep"] as const
+const writePolicy = {
+  filesystem: "write",
+  shell: "none",
+  network: "none",
+  deploy: "none",
+} as const
+const EXPECTED_AUTHORING_TOOL_IDS = ["ls", "read_file", "glob", "grep", "write_file", "edit_file"] as const
 
 async function createInitializedRegistry(): Promise<{
   dataDir: string
@@ -127,10 +133,13 @@ describe("user agent CRUD", () => {
     await expect(registry.createUserAgent(createUserAgentPayload({
       id: "tool_enabled_agent",
       allowedTools: [...EXPECTED_AUTHORING_TOOL_IDS],
-      permissionPolicy: readOnlyPolicy,
+      permissionPolicy: writePolicy,
     }))).resolves.toMatchObject({
       id: "tool_enabled_agent",
       allowedTools: [...EXPECTED_AUTHORING_TOOL_IDS],
+      permissionPolicy: {
+        filesystem: "write",
+      },
     })
 
     await expect(registry.createUserAgent(createUserAgentPayload({ id: "coder" }))).rejects.toMatchObject({
@@ -163,8 +172,9 @@ describe("user agent CRUD", () => {
 
     await expect(registry.createUserAgent(createUserAgentPayload({
       id: "bad_policy",
+      allowedTools: ["write_file"],
       permissionPolicy: {
-        filesystem: "write",
+        filesystem: "read",
         shell: "none",
         network: "none",
         deploy: "none",
@@ -238,9 +248,16 @@ describe("user agent CRUD", () => {
     expect(options.tools.map((tool: { id: string }) => tool.id)).toEqual([...EXPECTED_AUTHORING_TOOL_IDS])
     expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("run_task")
     expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("write_plan")
-    expect(options.tools.every((tool: { category: string; approvalPolicy: string; requiredPermissions: { filesystem?: string } }) =>
-      tool.category === "workspace" && tool.approvalPolicy === "contextual" && tool.requiredPermissions.filesystem === "read"
+    expect(options.tools.every((tool: { category: string; approvalPolicy: string }) =>
+      tool.category === "workspace" && tool.approvalPolicy === "contextual"
     )).toBe(true)
+    const toolsById = new Map<string, { id: string; requiredPermissions: { filesystem?: string } }>(
+      options.tools.map((tool: { id: string; requiredPermissions: { filesystem?: string } }) => [tool.id, tool])
+    )
+    expect(toolsById.get("ls")?.requiredPermissions.filesystem).toBe("read")
+    expect(toolsById.get("read_file")?.requiredPermissions.filesystem).toBe("read")
+    expect(toolsById.get("write_file")?.requiredPermissions.filesystem).toBe("write")
+    expect(toolsById.get("edit_file")?.requiredPermissions.filesystem).toBe("write")
 
     expect(options.capabilityTags.map((tag: { id: string }) => tag.id)).toEqual(expect.arrayContaining([
       "implementation",

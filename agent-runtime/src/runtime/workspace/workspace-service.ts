@@ -7,10 +7,12 @@ import type {
   ExternalAccessGrant,
   ExternalAccessRequest,
   SandboxPolicy,
+  WorkspaceAccessApprovalReason,
+  WorkspaceAccessMode,
   WorkspaceAccessResolution,
   WorkspaceBackend,
   WorkspaceHandle,
-  WorkspaceReadApprovalReason,
+  WorkspaceTargetKind,
 } from "./types"
 import { WorkspaceError } from "./types"
 import { LocalWorkspaceBackend } from "./local-workspace-backend"
@@ -28,9 +30,11 @@ type ExternalAccessRequestInput = {
   runId: string
   agentId: string
   path: string
-  accessMode: "read" | "write"
+  accessMode: WorkspaceAccessMode
   reason: string
   toolName: string
+  targetKind?: WorkspaceTargetKind
+  allowMissingTarget?: boolean
 }
 
 function normalizeComparisonPath(pathValue: string): string {
@@ -53,7 +57,7 @@ function normalizeLogicalPath(pathValue: string): string {
 }
 
 function isExplicitContentTool(toolName: string): boolean {
-  return toolName === "read_file" || toolName === "grep"
+  return toolName === "read_file" || toolName === "grep" || toolName === "write_file" || toolName === "edit_file"
 }
 
 export class WorkspaceService {
@@ -122,17 +126,10 @@ export class WorkspaceService {
         message: "Workspace session is not active for this run",
       }
     }
-    if (input.accessMode !== "read") {
-      return {
-        kind: "denied",
-        code: "WORKSPACE_UNSUPPORTED_OPERATION",
-        message: "Workspace write access is not implemented in this phase",
-      }
-    }
 
     const normalizedPath = this.normalizeInputPath(input.path)
     const requestedCandidate = this.toAbsoluteCandidate(normalizedPath)
-    const candidatePath = this.canonicalPathIfPresent(requestedCandidate)
+    const candidatePath = await this.canonicalPathForAccess(requestedCandidate, Boolean(input.allowMissingTarget))
     const outsideWorkspace = !isWithinPath(candidatePath, this.workdir)
     const logicalPath = this.toLogicalPath(candidatePath, outsideWorkspace)
     const sensitive = isSensitiveWorkspacePath(candidatePath, this.policy)
@@ -151,7 +148,11 @@ export class WorkspaceService {
       }
     }
 
-    const inspected = await this.inspectCandidate(candidatePath)
+    const inspected = await this.inspectCandidate(candidatePath, input)
+    if (inspected.denied) {
+      return inspected.denied
+    }
+
     if (!inspected.exists) {
       return {
         kind: "not_found",
@@ -161,13 +162,11 @@ export class WorkspaceService {
     }
 
     if (sensitive) {
-      return this.requireApproval(input, candidatePath, inspected.kind!, outsideWorkspace
-        ? "external_sensitive_read"
-        : "sensitive_read")
+      return this.requireApproval(input, candidatePath, inspected.kind!, this.getApprovalReason(input.accessMode, outsideWorkspace, true))
     }
 
     if (outsideWorkspace) {
-      return this.requireApproval(input, candidatePath, inspected.kind!, "external_read")
+      return this.requireApproval(input, candidatePath, inspected.kind!, this.getApprovalReason(input.accessMode, true, false))
     }
 
     try {
@@ -195,12 +194,25 @@ export class WorkspaceService {
   }
 
   approveExternalAccess(requestId: string): ExternalAccessGrant | null {
-    return this.approveReadAccess(requestId)
+    return this.approveAccess(requestId)
   }
 
   approveReadAccess(requestId: string): ExternalAccessGrant | null {
+    return this.approveAccess(requestId, "read")
+  }
+
+  approveWriteAccess(requestId: string): ExternalAccessGrant | null {
+    return this.approveAccess(requestId, "write")
+  }
+
+  approveAccess(requestId: string, expectedAccessMode?: WorkspaceAccessMode): ExternalAccessGrant | null {
     const request = this.requestsById.get(requestId)
-    if (!this.active || !request || request.status !== "pending" || request.accessMode !== "read") {
+    if (
+      !this.active ||
+      !request ||
+      request.status !== "pending" ||
+      (expectedAccessMode && request.accessMode !== expectedAccessMode)
+    ) {
       return null
     }
     if (request.expiresAt && Date.parse(request.expiresAt) <= Date.now()) {
@@ -210,8 +222,9 @@ export class WorkspaceService {
 
     const grantId = `grant_${crypto.randomUUID()}`
     const mountId = `mount_${crypto.randomUUID()}`
-    const sensitive = request.approvalReason !== "external_read"
-    const scope = request.approvalReason === "external_read"
+    const sensitive = request.approvalReason.includes("sensitive")
+    const externalOnly = request.approvalReason === "external_read" || request.approvalReason === "external_write"
+    const scope = externalOnly
       ? "external"
       : request.outsideWorkspace
         ? "external-sensitive"
@@ -224,6 +237,7 @@ export class WorkspaceService {
       displayPrefix: externalDisplayPrefix,
       sandboxPolicy: {
         ...this.policy,
+        readOnly: request.accessMode !== "write",
         blockSensitivePaths: !sensitive,
         allowExternalAccess: false,
       },
@@ -237,7 +251,7 @@ export class WorkspaceService {
       workspaceId: request.workspaceId,
       targetPath: request.targetPath,
       targetKind,
-      accessMode: "read",
+      accessMode: request.accessMode,
       backendType: backend.type,
       rootPath,
       rootLabel: request.outsideWorkspace ? `mounts/${mountId}` : this.mainHandle.rootLabel,
@@ -265,9 +279,9 @@ export class WorkspaceService {
     input: ExternalAccessRequestInput,
     targetPath: string,
     targetKind: "file" | "directory",
-    approvalReason: WorkspaceReadApprovalReason
+    approvalReason: WorkspaceAccessApprovalReason
   ): WorkspaceAccessResolution {
-    if (approvalReason !== "external_read" && targetKind !== "file") {
+    if (approvalReason.includes("sensitive") && targetKind !== "file") {
       return {
         kind: "denied",
         code: "WORKSPACE_SENSITIVE_PATH_BLOCKED",
@@ -319,7 +333,7 @@ export class WorkspaceService {
 
   private findApprovedGrant(
     candidatePath: string,
-    accessMode: "read" | "write",
+    accessMode: WorkspaceAccessMode,
     sensitive: boolean
   ): ExternalAccessGrant | null {
     const now = Date.now()
@@ -339,7 +353,7 @@ export class WorkspaceService {
     input: ExternalAccessRequestInput,
     targetPath: string,
     targetKind: "file" | "directory",
-    approvalReason: WorkspaceReadApprovalReason
+    approvalReason: WorkspaceAccessApprovalReason
   ): { request: ExternalAccessRequest; created: boolean } {
     const key = [input.runId, input.agentId, targetPath, input.accessMode, input.toolName, approvalReason].join("|")
     const existingId = this.requestKeys.get(key)
@@ -361,7 +375,7 @@ export class WorkspaceService {
       approvalReason,
       logicalPath,
       outsideWorkspace,
-      riskLevel: approvalReason === "external_read" ? "medium" : "high",
+      riskLevel: this.getApprovalRiskLevel(approvalReason),
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       status: "pending",
@@ -375,7 +389,7 @@ export class WorkspaceService {
       agentId: input.agentId,
       toolName: input.toolName,
       approvalReason,
-    }, "Workspace read approval requested")
+    }, "Workspace access approval requested")
     return { request, created: true }
   }
 
@@ -395,6 +409,21 @@ export class WorkspaceService {
     }
   }
 
+  private async canonicalPathForAccess(pathValue: string, allowMissingTarget: boolean): Promise<string> {
+    const existing = this.canonicalPathIfPresent(pathValue)
+    if (existing !== pathValue || statSync(pathValue, { throwIfNoEntry: false })) {
+      return existing
+    }
+
+    if (!allowMissingTarget) {
+      return pathValue
+    }
+
+    const parentPath = dirname(pathValue)
+    const parentRealPath = await stat(parentPath).then(() => realpathSync(parentPath)).catch(() => null)
+    return parentRealPath ? resolve(parentRealPath, basename(pathValue)) : pathValue
+  }
+
   private toRelativePath(pathValue: string, rootPath: string): string {
     const relativePath = relative(rootPath, pathValue)
     return !relativePath ? "." : normalizeLogicalPath(relativePath)
@@ -411,14 +440,87 @@ export class WorkspaceService {
     return slash > 0 ? logicalPath.slice(0, slash) : undefined
   }
 
-  private async inspectCandidate(pathValue: string): Promise<{ exists: boolean; kind?: "file" | "directory" }> {
+  private getApprovalReason(
+    accessMode: WorkspaceAccessMode,
+    outsideWorkspace: boolean,
+    sensitive: boolean
+  ): WorkspaceAccessApprovalReason {
+    if (accessMode === "read") {
+      if (outsideWorkspace && sensitive) {
+        return "external_sensitive_read"
+      }
+      return outsideWorkspace ? "external_read" : "sensitive_read"
+    }
+
+    if (outsideWorkspace && sensitive) {
+      return "external_sensitive_write"
+    }
+    return outsideWorkspace ? "external_write" : "sensitive_write"
+  }
+
+  private getApprovalRiskLevel(approvalReason: WorkspaceAccessApprovalReason): "low" | "medium" | "high" {
+    if (approvalReason === "external_read") {
+      return "medium"
+    }
+    return "high"
+  }
+
+  private async inspectCandidate(
+    pathValue: string,
+    input: ExternalAccessRequestInput
+  ): Promise<{
+    exists: boolean
+    kind?: "file" | "directory"
+    denied?: Extract<WorkspaceAccessResolution, { kind: "denied" }>
+  }> {
     const result = await stat(pathValue).catch(() => null)
     if (!result) {
+      if (input.accessMode === "write" && input.allowMissingTarget && input.targetKind === "file") {
+        const parentResult = await stat(dirname(pathValue)).catch(() => null)
+        if (!parentResult) {
+          return {
+            exists: false,
+            denied: {
+              kind: "denied",
+              code: "WORKSPACE_PARENT_NOT_FOUND",
+              message: "Parent directory does not exist",
+            },
+          }
+        }
+        if (!parentResult.isDirectory()) {
+          return {
+            exists: false,
+            denied: {
+              kind: "denied",
+              code: "WORKSPACE_NOT_A_DIRECTORY",
+              message: "Parent path is not a directory",
+            },
+          }
+        }
+        return {
+          exists: true,
+          kind: "file",
+        }
+      }
       return { exists: false }
     }
+
+    const kind = result.isDirectory() ? "directory" : "file"
+    if (input.targetKind && input.targetKind !== kind) {
+      return {
+        exists: true,
+        kind,
+        denied: {
+          kind: "denied",
+          code: input.targetKind === "file" ? "WORKSPACE_NOT_A_FILE" : "WORKSPACE_NOT_A_DIRECTORY",
+          message: `Path is a ${kind}, not a ${input.targetKind}`,
+        },
+      }
+    }
+
     return {
       exists: true,
-      kind: result.isDirectory() ? "directory" : "file",
+      kind,
     }
   }
 }

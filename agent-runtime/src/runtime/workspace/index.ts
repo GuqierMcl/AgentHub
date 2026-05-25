@@ -19,9 +19,14 @@ export type {
   WorkspaceHandle,
   WorkspaceListEntry,
   WorkspaceReadFileResult,
+  WorkspaceWriteFileResult,
+  WorkspaceEditFilePatch,
+  WorkspaceEditFileResult,
   WorkspaceTargetKind,
   WorkspaceAccessMode,
   WorkspaceReadApprovalReason,
+  WorkspaceWriteApprovalReason,
+  WorkspaceAccessApprovalReason,
 } from "./types"
 
 declare module "hono" {

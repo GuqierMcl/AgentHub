@@ -1,14 +1,17 @@
 import { existsSync, statSync } from "node:fs"
-import { readFile as readFileFromFs, readdir, stat, realpath } from "node:fs/promises"
+import { readFile as readFileFromFs, readdir, stat, realpath, writeFile as writeFileToFs } from "node:fs/promises"
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from "node:path"
 import type {
   SandboxPolicy,
   WorkspaceBackend,
   WorkspaceBackendCapabilities,
   WorkspaceContentBlock,
+  WorkspaceEditFilePatch,
+  WorkspaceEditFileResult,
   WorkspaceGrepMatch,
   WorkspaceListEntry,
   WorkspaceReadFileResult,
+  WorkspaceWriteFileResult,
 } from "./types"
 import { WorkspaceError } from "./types"
 import { DEFAULT_SANDBOX_POLICY, isSensitiveWorkspacePath } from "./sandbox-policy"
@@ -161,8 +164,8 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
   capabilities(): WorkspaceBackendCapabilities {
     return {
       read: true,
-      write: false,
-      edit: false,
+      write: true,
+      edit: true,
       list: true,
       glob: true,
       grep: true,
@@ -419,6 +422,103 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
     return results
   }
 
+  async writeFile(
+    path: string,
+    content: string,
+    options: { overwrite?: boolean } = {}
+  ): Promise<WorkspaceWriteFileResult> {
+    this.assertWritable("write_file")
+    const resolvedPath = await this.resolve(path)
+    await this.assertWritableParent(resolvedPath, path)
+
+    const existingStat = await stat(resolvedPath).catch(() => null)
+    if (existingStat?.isDirectory()) {
+      throw new WorkspaceError(
+        "WORKSPACE_NOT_A_FILE",
+        `Path ${normalizeForDisplay(path)} is a directory and cannot be overwritten by write_file`,
+        { path }
+      )
+    }
+
+    if (existingStat && !options.overwrite) {
+      throw new WorkspaceError(
+        "WORKSPACE_PATH_ALREADY_EXISTS",
+        `Path ${normalizeForDisplay(path)} already exists`,
+        { path }
+      )
+    }
+
+    await writeFileToFs(resolvedPath, content, "utf-8")
+    const writtenStat = await stat(resolvedPath)
+    return {
+      path: this.toDisplayPath(resolvedPath),
+      size: writtenStat.size,
+      bytesWritten: Buffer.byteLength(content, "utf-8"),
+      created: !existingStat,
+      overwritten: Boolean(existingStat),
+    }
+  }
+
+  async editFile(path: string, patch: WorkspaceEditFilePatch): Promise<WorkspaceEditFileResult> {
+    this.assertWritable("edit_file")
+    if (!patch.search) {
+      throw new WorkspaceError(
+        "WORKSPACE_EDIT_CONFLICT",
+        "edit_file search text cannot be empty",
+        { path }
+      )
+    }
+
+    const resolvedPath = await this.resolve(path)
+    const fileStat = await stat(resolvedPath).catch(() => null)
+
+    if (!fileStat) {
+      throw new WorkspaceError(
+        "WORKSPACE_PATH_NOT_FOUND",
+        `Path ${normalizeForDisplay(path)} was not found`,
+        { path }
+      )
+    }
+
+    if (!fileStat.isFile()) {
+      throw new WorkspaceError(
+        "WORKSPACE_NOT_A_FILE",
+        `Path ${normalizeForDisplay(path)} is not a file`,
+        { path }
+      )
+    }
+
+    const mimeType = Bun.file(resolvedPath).type || "application/octet-stream"
+    if (!isTextMimeType(mimeType, resolvedPath)) {
+      throw new WorkspaceError(
+        "WORKSPACE_BINARY_FILE_UNSUPPORTED",
+        `Binary file ${normalizeForDisplay(path)} is not supported by edit_file`,
+        { path, mimeType }
+      )
+    }
+
+    const content = await readFileFromFs(resolvedPath, "utf-8")
+    const replacements = countOccurrences(content, patch.search)
+    const expectedReplacements = patch.expectedReplacements ?? 1
+    if (replacements !== expectedReplacements) {
+      throw new WorkspaceError(
+        "WORKSPACE_EDIT_CONFLICT",
+        `Expected ${expectedReplacements} replacement${expectedReplacements === 1 ? "" : "s"} but found ${replacements}`,
+        { path, expectedReplacements, replacements }
+      )
+    }
+
+    const updatedContent = content.split(patch.search).join(patch.replace)
+    await writeFileToFs(resolvedPath, updatedContent, "utf-8")
+    const updatedStat = await stat(resolvedPath)
+    return {
+      path: this.toDisplayPath(resolvedPath),
+      size: updatedStat.size,
+      replacements,
+      changed: replacements > 0,
+    }
+  }
+
   private normalizeInputPath(pathValue: string): string {
     if (!pathValue || pathValue.trim().length === 0) {
       return "."
@@ -439,6 +539,17 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         `Path ${normalizeForDisplay(pathValue)} resolves outside the workspace root through a symlink`,
         { path: pathValue, candidatePath: realCandidate, rootPath: this.rootPath }
       )
+    }
+
+    if (!realCandidate) {
+      const realParent = await resolveRealPathIfExists(dirname(candidatePath))
+      if (realParent && !isWithinRoot(realParent, this.rootPath)) {
+        throw new WorkspaceError(
+          "WORKSPACE_SYMLINK_ESCAPE",
+          `Path ${normalizeForDisplay(pathValue)} resolves outside the workspace root through a parent symlink`,
+          { path: pathValue, candidatePath: realParent, rootPath: this.rootPath }
+        )
+      }
     }
 
     if (!isWithinRoot(candidatePath, this.rootPath)) {
@@ -507,6 +618,35 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
 
     return displayPath
   }
+
+  private assertWritable(toolName: string): void {
+    if (this.policy.readOnly) {
+      throw new WorkspaceError(
+        "WORKSPACE_ACCESS_DENIED",
+        `${toolName} is not allowed on this read-only workspace backend`
+      )
+    }
+  }
+
+  private async assertWritableParent(resolvedPath: string, inputPath: string): Promise<void> {
+    const parentPath = dirname(resolvedPath)
+    const parentStat = await stat(parentPath).catch(() => null)
+    if (!parentStat) {
+      throw new WorkspaceError(
+        "WORKSPACE_PARENT_NOT_FOUND",
+        `Parent directory for ${normalizeForDisplay(inputPath)} does not exist`,
+        { path: inputPath }
+      )
+    }
+
+    if (!parentStat.isDirectory()) {
+      throw new WorkspaceError(
+        "WORKSPACE_NOT_A_DIRECTORY",
+        `Parent path for ${normalizeForDisplay(inputPath)} is not a directory`,
+        { path: inputPath }
+      )
+    }
+  }
 }
 
 function normalizePattern(pattern: string): string {
@@ -515,4 +655,21 @@ function normalizePattern(pattern: string): string {
 
 function normalizePathSeparators(pathValue: string): string {
   return pathValue.replaceAll("\\", "/")
+}
+
+function countOccurrences(content: string, search: string): number {
+  if (!search) {
+    return 0
+  }
+
+  let count = 0
+  let index = 0
+  while (true) {
+    const foundIndex = content.indexOf(search, index)
+    if (foundIndex === -1) {
+      return count
+    }
+    count += 1
+    index = foundIndex + search.length
+  }
 }

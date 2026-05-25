@@ -23,7 +23,7 @@ Agent Runtime 智能体架构
 - `GET /runtime/agents` 和 `GET /runtime/agents/:id` 可返回可见主智能体与受控详情。
 - 内部智能体的执行输出统一为同一种 RunEvent 协议。
 - 外部智能体仅通过 Adapter 进入 Runtime 执行层。
-- Workspace Backend 与首批只读文件工具可通过统一抽象接入，并支持沙箱外访问审批。
+- Workspace Backend 与文件读写工具可通过统一抽象接入，并支持敏感路径与沙箱外访问审批。
 
 ## 依赖文档
 
@@ -45,7 +45,7 @@ Agent Runtime 智能体架构
 - 内部智能体统一执行接口。
 - Mock 执行器与执行事件协议。
 - AI SDK 执行器模板。
-- Workspace Backend 抽象、沙箱外访问审批和首批只读文件工具。
+- Workspace Backend 抽象、沙箱外访问审批、敏感路径审批和文件读写工具。
 - 外部智能体 Adapter 骨架。
 - Runtime 的 agents/runs 基础 API。
 - 用户自定义主智能体 CRUD API。
@@ -139,7 +139,7 @@ Agent Runtime 智能体架构
 - 系统预设主智能体和用户自定义主智能体可切换到 AI SDK 执行器。
 - 输出事件和内部智能体协议一致。
 
-### 阶段 6：Workspace Backend 与首批只读文件工具
+### 阶段 6：Workspace Backend、文件工具与审批续跑
 
 目标：
 
@@ -147,15 +147,19 @@ Agent Runtime 智能体架构
 - 落地 `LocalWorkspaceBackend` 作为第一版本地 workspace 后端。
 - 建立沙箱外目录/文件访问审批模型与受控授权挂载语义。
 - 实现首批只读文件工具：`ls`、`read_file`、`glob`、`grep`，其中 `read_file` 支持图片多模态返回。
+- 实现首批写入文件工具：`write_file`、`edit_file`，其中 `edit_file` V1 使用 search/replace。
 - 将文件类工具接入 Runtime Tool Registry，并输出 `permission.requested` 等审批相关事件。
 - 以 Tool Catalog 单源承载工具权限、风险、审批策略与用户 authoring metadata。
 - 实现 Runtime 内部审批决定接口与同一 Run 的 AI SDK continuation。
+- 实现 per-run workspace、敏感读取/写入审批、scoped read/write grant 和分支级续跑。
 
 验收：
 
 - Runtime 可以在 workspace-relative 路径上完成只读文件访问。
+- Runtime 可以在 workspace-relative 路径上完成受控文本写入和 search/replace 编辑。
 - 图片文件可通过 `read_file` 返回多模态内容。
 - 访问沙箱外目录/文件时会触发审批，而不是直接暴露宿主机绝对路径。
+- 访问敏感文件内容或写入敏感文件时会触发审批。
 - 文件工具的能力、风险和可见性可以通过工具注册表统一过滤。
 - Run 可以进入 `waiting_approval`，并在批准或拒绝后继续同一执行链路。
 
@@ -174,7 +178,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成 Agents 查询 API、用户自定义主智能体 CRUD API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、首批只读文件工具、工具目录与权限单源化，以及 Runtime 内部沙箱外访问审批续跑闭环；阶段 7 继续保留外部 Adapter 骨架。
+阶段 1 和阶段 2 已完成。阶段 3 已完成 Agents 查询 API、用户自定义主智能体 CRUD API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、文件读写工具、工具目录与权限单源化、per-run workspace、敏感读写审批、scoped read/write grant，以及 Runtime 内部审批续跑闭环。隐藏子智能体已迁移到 `ai-sdk` 执行器，并按直接调用方继承模型；阶段 7 继续保留外部 Adapter 骨架。
 
 ## 已完成
 
@@ -195,11 +199,15 @@ Agent Runtime 智能体架构
 - 系统预设主智能体 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 已统一从 `agent-runtime/src/agents/preset-agent-prompts.ts` 读取系统提示词。
 - `planner` 已收敛为人类可读方案顾问，`delegationPolicy = "terminal"`，不承担运行时任务委派，避免与 `orchestrator` 职责重叠。
 - 阶段 6 已落地 `WorkspaceService`、`LocalWorkspaceBackend`、沙箱外访问请求与授权挂载语义，以及首批只读文件工具 `ls`、`read_file`、`glob`、`grep`。
+- 阶段 6 已落地首批写工具 `write_file`、`edit_file`：支持 UTF-8 文本写入、overwrite 冲突保护和 search/replace 编辑冲突检测。
 - 工具权限、风险、审批策略与 Authoring Options metadata 已统一由 Runtime Tool Catalog 提供；`allowedTools` 仅负责可见性，`permissionPolicy` 负责 agent 能力上限。
 - Runtime 内部审批闭环已落地：`waiting_approval`、permission lifecycle events、权限查询/决定 API，以及同一 `runId` / `toolCallId` 的 AI SDK 续跑。
 - per-run workspace 隔离已落地：`RunInput.workspace` 可绑定一个固定本地目录；无 workspace 的 Run 可纯对话，文件工具返回 `WORKSPACE_NOT_BOUND`；Run 查询、普通事件和工具成功结果不回显真实绝对路径。
 - 敏感读取审批已落地：workspace 内 `.env`、`AGENTS.md`、`.npmrc`、密钥文件和 VCS 元数据等显式内容读取需要审批；`ls` / `glob` 隐藏敏感路径，递归 `grep` 跳过敏感文件。
 - 读取 grant 已扩展为 scoped per-run grant：支持 `external_read`、`sensitive_read`、`external_sensitive_read`，并支持 delegated task 分支 continuation 与同一 frame 多审批请求的合并续跑。
+- 写入 grant 已落地：workspace 内普通文件写入无需逐次审批；敏感写入、沙箱外写入和沙箱外敏感写入通过 scoped write grant 审批后续跑。
+- `coder`、`writer` 和 `file` 子智能体已获得 `write_file` / `edit_file` 与 `filesystem: "write"`；用户自定义主智能体可显式选择写工具，但必须配置 `filesystem: "write"`。
+- 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已迁移到 `ai-sdk` 执行器。子智能体不支持模型绑定，执行时继承直接调用方的模型，同时保留自身工具、权限、系统提示词和身份。
 - `AGENT_RUNTIME_BACKEND.md` 已建立，明确 Workspace Backend、沙箱外访问审批和本地优先实现。
 - `AGENT_TOOLS.md` 已建立，明确工具可见性、`run_task` 语义、事件流和并发约束。
 
@@ -212,9 +220,8 @@ Agent Runtime 智能体架构
 - 在 HubServer 与前端补齐 Runtime 权限审批的代理、用户交互、状态展示与持久化。
 - 补充 AI SDK 工具循环、结构化输出和更完整的 agent 运行参数映射。
 - 实现外部智能体 Adapter 骨架。
-- 将隐藏子智能体从 mock 逐步迁移到真实执行器或专用工具执行路径。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
-- 下一阶段接入 `write_file` / `edit_file`、写入 grant 与强制审批；之后再扩展 Patch 应用和更复杂的写入冲突处理。
+- 后续扩展 Patch / diff artifact、一键 apply、版本历史、回滚和更复杂的写入冲突处理。
 
 ## 风险与待确认点
 
@@ -223,7 +230,7 @@ Agent Runtime 智能体架构
 - `deploy` 子智能体的权限与审批策略在第一版中是否只做声明不执行。
 - 外部智能体是否需要先支持只读执行能力。
 - 目前阶段已明确只允许单个 @，并行 @ 作为后续版本能力。
-- 当前沙箱外只读审批可限定文件或目录范围；写入阶段仍需确认 grant 生命周期与修改冲突策略。
+- 当前写工具只支持文本写入与 search/replace 编辑；Patch artifact、三方合并和批量目录写入仍需单独设计。
 
 ## 最近更新
 
@@ -243,4 +250,5 @@ Agent Runtime 智能体架构
 - 本轮已收敛 Runtime Tool Catalog 与 per-agent permission policy：工具元数据不再分散在 router 或 CRUD 白名单中，读取工具要求显式 `filesystem: "read"`。
 - 本轮已闭环 Runtime 内部审批续跑：沙箱外只读访问支持 `waiting_approval`、permission API、受控 read grant 与 AI SDK 二次生成恢复；HubServer/UI 集成留待后续。
 - 本轮已完成 per-run workspace 隔离、敏感读取审批和分支级 continuation：Run 可绑定固定 local workspace；文件工具不再回退到全局 `config.workdir`；敏感读取和沙箱外敏感读取通过 scoped read grant 恢复原执行分支。
-- 下一阶段文件能力目标为 `write_file` / `edit_file`，并同步补齐写权限 grant 与强制审批策略。
+- 本轮已完成 `write_file` / `edit_file`、write grant 与敏感/沙箱外写入审批；写工具已接入 Tool Catalog、Authoring Options 和 per-agent permission policy。
+- 本轮已将隐藏子智能体迁移到 `ai-sdk` 执行器，并确定子智能体不绑定模型、执行时继承直接调用方模型。

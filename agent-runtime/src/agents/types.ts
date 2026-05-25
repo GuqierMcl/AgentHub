@@ -178,6 +178,7 @@ export type AgentDetailResponse = AgentSummaryResponse & {
 export type AgentResolvedModelResponse = {
   providerId: string
   modelId: string
+  modelSourceAgentId?: string
   providerProtocol: ProviderProtocol
   providerName: string
   modelName: string

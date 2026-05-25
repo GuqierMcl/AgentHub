@@ -11,7 +11,7 @@ export const DEFAULT_BLOCKED_BASENAMES = [
 export const DEFAULT_BLOCKED_EXTENSIONS = [".pem", ".key"]
 
 export const DEFAULT_SANDBOX_POLICY: SandboxPolicy = {
-  readOnly: true,
+  readOnly: false,
   blockSensitivePaths: true,
   allowExternalAccess: true,
   blockedBasenames: DEFAULT_BLOCKED_BASENAMES,

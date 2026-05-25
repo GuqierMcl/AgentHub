@@ -178,6 +178,7 @@ export type AgentExecutionContext = {
   signal: AbortSignal
   task?: OrchestratorTask
   parentAgentId?: string
+  modelSourceAgent?: AgentDefinition
   groupId?: string
   parentTaskId?: string
   emitEvent?: (event: RunEvent) => void

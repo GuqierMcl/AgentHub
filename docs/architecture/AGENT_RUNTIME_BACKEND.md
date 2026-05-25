@@ -99,7 +99,18 @@ type ToolContentBlock =
 
 ### 3.3 `edit_file`
 
-`edit_file` 建议以局部编辑或 patch 的语义实现，而不是简单整文件覆盖。
+`edit_file` 第一版采用精确 search/replace 语义：
+
+```ts
+type EditFileInput = {
+  path: string
+  search: string
+  replace: string
+  expectedReplacements?: number
+}
+```
+
+默认 `expectedReplacements = 1`。匹配数量不符时工具失败且不修改文件。第一版不支持 unified diff、二进制编辑或自动创建父目录。
 
 ### 3.4 `grep` 与 `glob`
 
@@ -108,7 +119,7 @@ type ToolContentBlock =
 
 ## 4. Workspace 模型
 
-一个 Run 可以绑定一个主 workspace。未绑定 workspace 的 Run 仍可进行纯对话和非文件工具调用，但 `ls`、`read_file`、`glob`、`grep` 等文件工具必须返回 `WORKSPACE_NOT_BOUND`，不得回退到 Runtime 全局 `config.workdir`。
+一个 Run 可以绑定一个主 workspace。未绑定 workspace 的 Run 仍可进行纯对话和非文件工具调用，但 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep` 等文件工具必须返回 `WORKSPACE_NOT_BOUND`，不得回退到 Runtime 全局 `config.workdir`。
 
 ```ts
 type WorkspaceHandle = {
@@ -148,8 +159,8 @@ type WorkspaceBackend = {
   capabilities(): WorkspaceBackendCapabilities
   resolve(path: string): Promise<string>
   readFile(path: string): Promise<{ blocks: ToolContentBlock[] }>
-  writeFile(path: string, content: string): Promise<void>
-  editFile(path: string, patch: string): Promise<void>
+  writeFile(path: string, content: string, options?: { overwrite?: boolean }): Promise<WorkspaceWriteFileResult>
+  editFile(path: string, patch: WorkspaceEditFilePatch): Promise<WorkspaceEditFileResult>
   listFiles(path: string): Promise<Array<{ path: string; kind: "file" | "dir" }>>
   glob(pattern: string): Promise<string[]>
   grep(pattern: string, path: string): Promise<Array<{ path: string; line: number; snippet: string }>>
@@ -194,6 +205,15 @@ type WorkspaceBackend = {
 - `grep` 递归搜索普通目录：跳过敏感文件；只有显式指定敏感文件路径时才申请审批。
 - 外部目录 read grant 不自动解除敏感规则；后续显式读取该目录下敏感文件仍需单独审批。
 
+写入规则：
+
+- `write_file` / `edit_file` 需要 agent 具备 `filesystem: "write"`。
+- workspace 内普通文件写入或编辑：直接执行，不逐次审批。
+- workspace 内敏感文件写入或编辑：产生审批，批准后创建精确 scoped write grant 并恢复同一 Run。
+- 沙箱外任何写入或编辑：产生审批，批准后创建 scoped write grant。
+- 沙箱外敏感文件写入或编辑：只产生一次 combined approval，批准后创建可写且允许敏感文件的精确 grant。
+- 读 grant 与写 grant 分离；读授权不能用于写入，写授权也不会跨 Run 复用。
+
 ## 7. 沙箱外目录与文件
 
 这是本设计的关键点。
@@ -207,7 +227,7 @@ type WorkspaceBackend = {
 
 ### 7.2 请求语义
 
-当用户或 agent 明确请求访问沙箱外路径，或显式读取敏感文件时，Runtime 应创建统一的读取审批请求。当前代码中的内部类型仍沿用 `ExternalAccessRequest` 名称，但语义已经覆盖 `external_read`、`sensitive_read` 与 `external_sensitive_read`。
+当用户或 agent 明确请求访问沙箱外路径、显式读取敏感文件，或写入需要审批的路径时，Runtime 应创建统一的访问审批请求。当前代码中的内部类型仍沿用 `ExternalAccessRequest` 名称，但语义已经覆盖读写访问。
 
 ```ts
 type ExternalAccessRequest = {
@@ -218,7 +238,13 @@ type ExternalAccessRequest = {
   targetKind: "file" | "directory"
   accessMode: "read" | "write"
   reason: string
-  approvalReason: "external_read" | "sensitive_read" | "external_sensitive_read"
+  approvalReason:
+    | "external_read"
+    | "sensitive_read"
+    | "external_sensitive_read"
+    | "external_write"
+    | "sensitive_write"
+    | "external_sensitive_write"
   logicalPath: string
   expiresAt?: string
 }
@@ -261,16 +287,15 @@ type ExternalAccessGrant = {
 }
 ```
 
-当前落地只生成 `accessMode = "read"` 的 grant，服务于 `ls`、`read_file`、`glob`、`grep`。写权限 grant 随 `write_file` / `edit_file` 阶段另行接入。
-
 挂载行为建议如下：
 
 - 目录授权：挂载为独立只读或读写子 workspace。
 - 文件授权：挂载为仅包含单个文件的受控虚拟目录，或等价的单文件句柄。
-- 默认只读。
-- 写入需要单独批准，且仅在 backend 支持时开放。
+- 默认按审批请求的 `accessMode` 创建 read grant 或 write grant。
+- 写入需要单独批准，且仅在 backend 支持 `write` / `edit` 时开放。
 - grant 仅在创建它的 Run session 内有效，并校验 `runId`、`workspaceId`、访问模式、目标范围与有效期。
 - 显式读取沙箱外敏感文件只产生一次 `external_sensitive_read` 审批；批准后创建 combined read grant，不连续弹两次审批。
+- 显式写入沙箱外敏感文件只产生一次 `external_sensitive_write` 审批；批准后创建 combined write grant，不连续弹两次审批。
 
 ### 7.5 用户体验建议
 
@@ -340,8 +365,8 @@ type ExternalAccessGrant = {
 截至本轮，Workspace Backend 已完成第一版落地：
 
 - `LocalWorkspaceBackend` 已实现 workspace-relative 路径解析、越界拒绝、symlink 越界防护和敏感文件屏蔽。
-- `WorkspaceService` 已改为每个 Run 独立创建 session，统一处理主 workspace、敏感读取、外部访问请求去重、审批通过后的 scoped read grant，以及路径到 backend 的分发。
-- 首批只读工具 `ls`、`read_file`、`glob`、`grep` 已接入 Runtime Tool Registry。
+- `WorkspaceService` 已改为每个 Run 独立创建 session，统一处理主 workspace、敏感读写、外部访问请求去重、审批通过后的 scoped read/write grant，以及路径到 backend 的分发。
+- 文件工具 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep` 已接入 Runtime Tool Registry。
 - `read_file` 已支持图片多模态返回。
 - 沙箱外只读路径访问、workspace 内敏感文件显式读取、沙箱外敏感文件显式读取均已由 `RuntimePermissionService` 闭环：产生 `permission.requested`，进入 `waiting_approval`，经批准创建 read grant 后在同一 Run 恢复原执行分支，拒绝或取消产生对应权限终态事件。
-- `write_file` / `edit_file`、写入 grant 与高风险写入审批仍留待下一阶段。
+- `write_file` / `edit_file` 已支持 UTF-8 文本写入和 search/replace 编辑；workspace 内普通文件修改无需审批，敏感写入和沙箱外写入通过 write grant 审批续跑闭环。

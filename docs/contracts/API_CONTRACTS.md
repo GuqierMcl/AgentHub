@@ -271,6 +271,28 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
       "requiredPermissions": {
         "filesystem": "read"
       }
+    },
+    {
+      "id": "write_file",
+      "name": "Write file",
+      "description": "Create or overwrite a UTF-8 text file in the workspace.",
+      "category": "workspace",
+      "riskLevel": "medium",
+      "approvalPolicy": "contextual",
+      "requiredPermissions": {
+        "filesystem": "write"
+      }
+    },
+    {
+      "id": "edit_file",
+      "name": "Edit file",
+      "description": "Apply a precise search/replace edit to a UTF-8 text file in the workspace.",
+      "category": "workspace",
+      "riskLevel": "medium",
+      "approvalPolicy": "contextual",
+      "requiredPermissions": {
+        "filesystem": "write"
+      }
     }
   ],
   "capabilityTags": [
@@ -305,7 +327,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 - `tools` 从注册工具的 Tool Catalog 投影，只返回 `configurableByUserAgent = true` 且非 internal 的工具；不在路由或 CRUD 中维护重复白名单。
 - `write_plan`、`run_task` 不会出现在 `tools` 中。
-- `approvalPolicy = "contextual"` 表示是否审批取决于运行上下文；当前只读 workspace 工具在访问沙箱外路径时触发审批。
+- `approvalPolicy = "contextual"` 表示是否审批取决于运行上下文；读工具在敏感/沙箱外读取时触发审批，写工具在敏感/沙箱外写入时触发审批。
 - `capabilityTags` 是推荐标签，不是强枚举；创建和更新自定义智能体时 `capabilities` 仍允许自定义字符串。
 - `subagents` 只返回可配置到 `allowedSubagents` 的启用隐藏子智能体摘要，不改变隐藏子智能体不可直接调用的规则。
 
@@ -348,10 +370,10 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `id` 可省略；省略时 Runtime 生成 `agent_<uuid>`。
 - `id` 只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
-- `allowedTools` 首版只允许 Tool Catalog 暴露为用户可配置的只读文件工具：`ls`、`read_file`、`glob`、`grep`。
+- `allowedTools` 只允许 Tool Catalog 暴露为用户可配置的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。
 - `write_plan`、`run_task` 和高风险工具不能授予用户自定义智能体。
-- `permissionPolicy` 首版限制为低风险：`filesystem` 只允许 `none` 或 `read`，`shell` / `network` / `deploy` 必须为 `none`。
-- 若选择了需要读取能力的工具，`permissionPolicy.filesystem` 必须显式为 `read`；Runtime 不自动升级智能体权限。
+- `permissionPolicy` 中 `shell` / `network` / `deploy` 必须为 `none`。
+- 若选择了读取工具，`permissionPolicy.filesystem` 至少为 `read`；若选择了写入工具，必须显式为 `write`。Runtime 不自动升级智能体权限。
 - 模型绑定不属于 CRUD 主体流程；创建后继续使用 `PUT /runtime/agents/:agentId/model` 配置模型。
 
 成功响应：`201 Created`，返回 agent detail。用户自定义智能体详情包含 `systemPrompt`。
@@ -716,6 +738,55 @@ type RunEvent = {
 }
 ```
 
+`write_file` 成功事件示例：
+
+```json
+{
+  "id": "evt_xxx",
+  "runId": "run_xxx",
+  "type": "tool.completed",
+  "timestamp": "2026-05-25T00:00:00.000Z",
+  "agentId": "coder",
+  "toolCallId": "toolu_xxx",
+  "toolName": "write_file",
+  "data": {
+    "status": "completed",
+    "summary": "Created src/generated.txt",
+    "data": {
+      "path": "src/generated.txt",
+      "size": 24,
+      "bytesWritten": 24,
+      "created": true,
+      "overwritten": false
+    }
+  }
+}
+```
+
+`edit_file` 成功事件示例：
+
+```json
+{
+  "id": "evt_xxx",
+  "runId": "run_xxx",
+  "type": "tool.completed",
+  "timestamp": "2026-05-25T00:00:00.000Z",
+  "agentId": "writer",
+  "toolCallId": "toolu_xxx",
+  "toolName": "edit_file",
+  "data": {
+    "status": "completed",
+    "summary": "Edited docs/intro.md with 1 replacement",
+    "data": {
+      "path": "docs/intro.md",
+      "size": 1204,
+      "replacements": 1,
+      "changed": true
+    }
+  }
+}
+```
+
 ### 查询 Run 权限请求
 
 **端点**：`GET /runtime/runs/:runId/permissions`
@@ -754,8 +825,11 @@ type RunEvent = {
 - `external_read`：沙箱外普通读取。
 - `sensitive_read`：主 workspace 内敏感文件显式读取。
 - `external_sensitive_read`：沙箱外敏感文件显式读取；该场景只产生一次 combined approval。
+- `external_write`：沙箱外普通写入或编辑。
+- `sensitive_write`：主 workspace 内敏感文件写入或编辑。
+- `external_sensitive_write`：沙箱外敏感文件写入或编辑；该场景只产生一次 combined approval。
 
-权限 API 响应不返回 workspace root 或授权目标的真实绝对路径。批准后的 read grant 若出现在响应中，也只返回 `grantId`、`mountId`、`scope`、`accessMode`、`allowSensitive`、`logicalPath` 等脱敏字段。
+权限 API 响应不返回 workspace root 或授权目标的真实绝对路径。批准后的 read/write grant 若出现在响应中，也只返回 `grantId`、`mountId`、`scope`、`accessMode`、`allowSensitive`、`logicalPath` 等脱敏字段。
 
 ### 决定 Run 权限请求
 
@@ -770,7 +844,7 @@ type RunEvent = {
 }
 ```
 
-成功响应返回更新后的 permission request。批准沙箱外只读访问或敏感读取时响应中可包含受控 read grant；Runtime 随后在相同 `runId` 与原始 `toolCallId` 上恢复原执行分支。
+成功响应返回更新后的 permission request。批准沙箱外访问、敏感读取或敏感/外部写入时响应中可包含受控 read/write grant；Runtime 随后在相同 `runId` 与原始 `toolCallId` 上恢复原执行分支。
 
 AI SDK 续跑采用新的生成调用：Runtime 保存原始 response messages，追加 `tool-approval-response` 后再次运行原执行分支，而不是保持原始 HTTP/模型 stream 挂起。若同一 continuation frame 包含多个审批请求，全部决定后只恢复一次。
 

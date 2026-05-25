@@ -6,7 +6,7 @@ export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
 export { RuntimeToolRegistry, createDefaultRuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "./tools"
 export { RuntimePermissionError, RuntimePermissionService } from "./permissions"
-export { createWorkspaceReadOnlyTools } from "./tools"
+export { createWorkspaceReadOnlyTools, createWorkspaceWriteTools, createWorkspaceTools } from "./tools"
 export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
 export type {
   RuntimeConversationMode,
@@ -73,9 +73,14 @@ export type {
   WorkspaceHandle,
   WorkspaceListEntry,
   WorkspaceReadFileResult,
+  WorkspaceWriteFileResult,
+  WorkspaceEditFilePatch,
+  WorkspaceEditFileResult,
   WorkspaceTargetKind,
   WorkspaceAccessMode,
   WorkspaceReadApprovalReason,
+  WorkspaceWriteApprovalReason,
+  WorkspaceAccessApprovalReason,
 } from "./workspace"
 export {
   RuntimeConversationModeSchema,

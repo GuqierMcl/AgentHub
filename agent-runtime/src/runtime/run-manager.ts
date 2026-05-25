@@ -409,6 +409,7 @@ export class RunManager {
     abortController: AbortController
     onEvent: (event: RunEvent) => void
     parentAgentId?: string
+    modelSourceAgent?: AgentDefinition
     task?: OrchestratorTask
     groupId?: string
     parentTaskId?: string
@@ -421,6 +422,7 @@ export class RunManager {
       abortController,
       onEvent,
       parentAgentId,
+      modelSourceAgent,
       task,
       groupId,
       parentTaskId,
@@ -456,6 +458,7 @@ export class RunManager {
       agent,
       signal: abortController.signal,
       parentAgentId,
+      modelSourceAgent,
       task,
       groupId,
       parentTaskId,
@@ -625,6 +628,7 @@ export class RunManager {
         agent: targetAgent,
         abortController,
         parentAgentId: sourceAgent.id,
+        modelSourceAgent: targetAgent.tier === "subagent" ? sourceAgent : undefined,
         task,
         groupId,
         parentTaskId: task.taskId,

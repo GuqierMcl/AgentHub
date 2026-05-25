@@ -187,7 +187,7 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 
 当前实现中，`executorType = "ai-sdk"` 的主智能体会先通过 `ProviderService` 解析 `modelRef`，再交给 AI SDK 的 `streamText` 执行；`orchestrator` 也通过专用 `OrchestratorExecutor` 走 AI SDK `streamText` + `write_plan` + `run_task` 工具调用路径，仍然遵守同一套 `RunEvent` 协议。当前计划主事实来源是 `tool.completed(toolName="write_plan")`，而不是自然语言或私有计划事件。
 
-主智能体的模型绑定是运行时配置覆盖层，持久化到 `config.dataDir` 下的 agent 模型绑定文件中，并在注册表加载时合并到 agent 定义。`orchestrator` 已被纳入允许绑定模型的内部主智能体集合，外部智能体和隐藏子智能体仍不在这套绑定层内。
+主智能体的模型绑定是运行时配置覆盖层，持久化到 `config.dataDir` 下的 agent 模型绑定文件中，并在注册表加载时合并到 agent 定义。`orchestrator` 已被纳入允许绑定模型的内部主智能体集合，外部智能体和隐藏子智能体仍不在这套绑定层内。隐藏子智能体执行时固定继承直接调用方智能体的模型；继承只影响模型选择，不继承调用方工具、权限、系统提示词或身份。
 
 系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`。`AiSdkExecutor` 和 `OrchestratorExecutor` 都从 `AgentDefinition.systemPrompt` 读取提示词，再追加运行态上下文、任务信息、可用工具和会话参与者等执行说明。普通主智能体不会看到 `internal` 工具；`orchestrator` 通过专用执行路径显式开启 `includeInternal=true`，因此只它能看到 `write_plan` 和 `run_task`。
 
@@ -202,7 +202,8 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - `coder`、`reviewer`、`writer`、`planner` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和非内部 Runtime Tools。
 - `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派当前 Run participants 中的其他主智能体或自身 `allowedSubagents` 中的子智能体。
 - `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*` 与完整 `permission.*` 事件。
-- Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取和沙箱外敏感读取请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
+- Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取、沙箱外敏感读取、敏感写入和沙箱外写入请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
+- `write_file` / `edit_file` 已开放给 `coder`、`writer` 和 `file` 子智能体；用户自定义智能体也可在显式配置 `filesystem: "write"` 后选择这些工具。
 
 尚未完全闭环的部分：
 
@@ -210,9 +211,9 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - 前端还未实现从最后一个成功 `tool.completed(toolName="write_plan")` 投影当前计划，也未展示 `task.*`、`tool.*`、`permission.*` 的完整 UI 状态。
 - HubServer 还未提供面向浏览器的自定义 Agent 管理 API 和配置 UI；当前 CRUD 仍是 Runtime 内部 API。
 - 权限审批已在 Runtime 内闭环；HubServer/前端仍缺少审批 API 代理、用户交互和状态持久化，因此产品链路尚未闭环。
-- 隐藏子智能体 `explore`、`general`、`file`、`deploy` 当前仍是 `mock`，尚未接入真实 AI SDK 执行、专用系统提示词或高风险工具执行。
+- 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。
 - 外部智能体 `opencode` 仍是 `external-adapter` 占位，当前运行时会退回 `MockExecutor`，还没有真实 Adapter 进程管理和事件映射。
-- 文件系统工具目前只开放 `ls`、`read_file`、`glob`、`grep` 的只读能力；写入、编辑、Patch、Diff 应用、shell、deploy 仍未开放。
+- 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Patch、Diff artifact / apply、shell、deploy 仍未开放。
 
 ### 3.4 外部智能体 Adapter
 
@@ -295,7 +296,7 @@ workspace?: {
 - 未携带 workspace 的 Run 可以继续纯对话；文件工具返回 `WORKSPACE_NOT_BOUND`，不会回退到 `config.workdir`。
 - Run 查询只回显 `workspaceId`、`backendType` 和 `rootLabel`，不回显 `rootPath`。
 
-Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。workspace 内 `.env`、`AGENTS.md`、`.npmrc`、密钥文件和 VCS 元数据等敏感路径的显式内容读取也必须审批；`ls` / `glob` 隐藏敏感路径，目录递归 `grep` 跳过敏感文件。
+Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。workspace 内 `.env`、`AGENTS.md`、`.npmrc`、密钥文件和 VCS 元数据等敏感路径的显式内容读写也必须审批；`ls` / `glob` 隐藏敏感路径，目录递归 `grep` 跳过敏感文件。workspace 内普通文件写入和 search/replace 编辑在 agent 具备 `filesystem: "write"` 时直接执行，不逐次审批。
 
 Runtime 通过每个 Run 独立的 `RuntimePermissionService` 存储内存态审批请求。AI SDK 的 `needsApproval` 会结束当次生成并返回 approval request；Runtime 将对应执行分支保存为 continuation frame。收到决定后追加 `tool-approval-response` 并再次执行同一分支，保持原始 `runId`、`toolCallId`、`agentId`、`taskId`、`parentAgentId` 和 `groupId`。同一 frame 的多个审批请求全部决定后只恢复一次；其他并行分支不会因单个审批失败而自动取消。
 
