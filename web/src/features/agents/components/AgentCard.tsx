@@ -20,9 +20,11 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
   const canDelete = agent.origin === "user" && !agent.readonly
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick() }}
       className={cn(
         "group relative flex flex-col gap-2 rounded-xl border bg-card p-4 text-left transition-colors",
         "hover:bg-accent/50 cursor-pointer"
@@ -74,6 +76,6 @@ export function AgentCard({ agent, onClick, onDelete }: AgentCardProps) {
           </Badge>
         )}
       </div>
-    </button>
+    </div>
   )
 }
