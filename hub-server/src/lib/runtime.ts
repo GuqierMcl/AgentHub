@@ -7,13 +7,13 @@ interface RuntimeResponse {
   status: number
 }
 
-interface RuntimeErrorBody {
+export interface RuntimeErrorBody {
   error?: string
   message?: string
   details?: unknown[]
 }
 
-function mapRuntimeError(status: number, body: RuntimeErrorBody | null): AppError {
+export function mapRuntimeError(status: number, body: RuntimeErrorBody | null): AppError {
   const message = body?.error ?? body?.message ?? `Agent Runtime returned status ${status}`
 
   if (status === 404) {
@@ -38,7 +38,7 @@ export class RuntimeClient {
     this.baseUrl = baseUrl.replace(/\/+$/, '')
   }
 
-  async forward(method: string, path: string, body?: unknown): Promise<RuntimeResponse> {
+  async forward(method: string, path: string, body?: unknown, options?: { raw?: boolean }): Promise<RuntimeResponse> {
     const url = `${this.baseUrl}${path}`
 
     let response: Response
@@ -75,6 +75,11 @@ export class RuntimeClient {
     }
 
     logger.error({ method, path, status: response.status }, 'Agent Runtime returned error')
+
+    if (options?.raw) {
+      return { data: errorBody, status: response.status }
+    }
+
     throw mapRuntimeError(response.status, errorBody)
   }
 }

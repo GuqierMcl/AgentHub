@@ -10,6 +10,7 @@ import {
 type SidebarActionsProps = {
   collapsed: boolean
   onToggleCollapsed: () => void
+  onOpenAgents: () => void
 }
 
 type ActionButtonProps = {
@@ -49,6 +50,7 @@ function ActionButton({ collapsed, icon, label, onClick }: ActionButtonProps) {
 export function SidebarActions({
   collapsed,
   onToggleCollapsed,
+  onOpenAgents,
 }: SidebarActionsProps) {
   return (
     <div className="flex shrink-0 flex-col gap-1 px-3 pt-3 pb-2">
@@ -74,6 +76,7 @@ export function SidebarActions({
         collapsed={collapsed}
         icon={<BotIcon data-icon="inline-start" />}
         label="智能体"
+        onClick={onOpenAgents}
       />
     </div>
   )
