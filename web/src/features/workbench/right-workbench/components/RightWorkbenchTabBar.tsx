@@ -11,7 +11,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
+
+import "./RightWorkbenchTabBar.css"
 
 import {
   type TabInstance,
@@ -41,45 +44,47 @@ export function RightWorkbenchTabBar({
 
   return (
     <div className="flex shrink-0 items-center gap-1 border-border border-b px-2 py-1.5">
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-        {tabs.map((tab) => {
-          const Icon = tab.icon
-          const isActive = tab.uid === activeTabUid
+      <ScrollArea className="right-workbench-tab-scroll h-10 min-w-0 flex-1">
+        <div className="flex h-8 w-max items-center gap-1">
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+            const isActive = tab.uid === activeTabUid
 
-          return (
-            <button
-              className={cn(
-                "group/tab relative flex h-7 flex-none items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                isActive
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              )}
-              key={tab.uid}
-              onClick={() => onActivateTab(tab.uid)}
-              type="button"
-            >
-              <Icon className="size-3.5 shrink-0" />
-              <span className="truncate">{tab.title}</span>
-              <span
+            return (
+              <button
                 className={cn(
-                  "-mr-1 flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity",
+                  "group/tab relative flex h-8 flex-none items-center gap-1.5 rounded-md px-2.5 text-xs! transition-colors",
                   isActive
-                    ? "hover:bg-muted-foreground/20 group-hover/tab:opacity-100"
-                    : "group-hover/tab:opacity-70"
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 )}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onCloseTab(tab.uid)
-                }}
-                role="button"
-                tabIndex={-1}
+                key={tab.uid}
+                onClick={() => onActivateTab(tab.uid)}
+                type="button"
               >
-                <XIcon className="size-3" />
-              </span>
-            </button>
-          )
-        })}
-      </div>
+                <Icon className="size-4 shrink-0" />
+                <span className="truncate">{tab.title}</span>
+                <span
+                  className={cn(
+                    "-mr-1 flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity",
+                    isActive
+                      ? "hover:bg-muted-foreground/20 group-hover/tab:opacity-100"
+                      : "group-hover/tab:opacity-70"
+                  )}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onCloseTab(tab.uid)
+                  }}
+                  role="button"
+                  tabIndex={-1}
+                >
+                  <XIcon className="size-3" />
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </ScrollArea>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

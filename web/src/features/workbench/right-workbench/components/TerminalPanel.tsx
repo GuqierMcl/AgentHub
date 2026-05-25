@@ -27,8 +27,8 @@ export function TerminalPanel({ uid, title }: TerminalPanelProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="shrink-0 border-border border-b px-3 py-2">
-        <div className="truncate font-medium text-xs">{title}</div>
-        <div className="truncate text-muted-foreground text-[11px]">
+        <div className="truncate font-medium text-sm">{title}</div>
+        <div className="truncate text-muted-foreground text-sm">
           {uid}
         </div>
       </div>

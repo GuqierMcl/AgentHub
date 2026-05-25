@@ -14,8 +14,8 @@ export function BrowserPanel({ uid, title }: BrowserPanelProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="shrink-0 border-border border-b px-3 py-2">
-        <div className="truncate font-medium text-xs">{title}</div>
-        <div className="truncate text-muted-foreground text-[11px]">
+        <div className="truncate font-medium text-sm">{title}</div>
+        <div className="truncate text-muted-foreground text-sm">
           {uid}
         </div>
       </div>
@@ -24,7 +24,7 @@ export function BrowserPanel({ uid, title }: BrowserPanelProps) {
           <GlobeIcon />
         </Button>
         <Input
-          className="h-7 flex-1 text-xs"
+          className="h-7 flex-1"
           defaultValue="https://localhost:4173"
           readOnly
         />
@@ -37,7 +37,7 @@ export function BrowserPanel({ uid, title }: BrowserPanelProps) {
               <GlobeIcon className="size-6" />
             </div>
             <div className="mt-3 font-medium text-sm">网页预览</div>
-            <div className="mt-1 text-muted-foreground text-xs">
+            <div className="mt-1 text-muted-foreground text-sm">
               iframe / 静态网页预览占位，后续可挂载真实 URL
             </div>
           </div>

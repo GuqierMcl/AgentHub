@@ -1,4 +1,3 @@
-
 import { useTabStore } from "@/store/tab-store"
 
 import { RightWorkbenchTabBar } from "./components/RightWorkbenchTabBar"
@@ -15,6 +14,14 @@ export function RightWorkbench() {
 
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col border-border border-l bg-background">
+      <div className="flex min-h-16 shrink-0 items-center justify-between gap-3 border-border border-b px-4">
+        <div className="min-w-0">
+          <h2 className="truncate font-semibold text-sm!">产物工作台</h2>
+          <p className="truncate text-muted-foreground text-xs!">
+            内联产物、预览、编辑与部署
+          </p>
+        </div>
+      </div>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <RightWorkbenchTabBar

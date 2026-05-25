@@ -27,7 +27,7 @@ export function WorkbenchEmptyState() {
       </EmptyHeader>
       <EmptyContent>
         <button
-          className="text-muted-foreground text-xs hover:text-foreground"
+          className="text-muted-foreground text-sm hover:text-foreground"
           onClick={() => openTab("review")}
           type="button"
         >
