@@ -401,7 +401,39 @@ type AgentDefinition = {
 
 系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`，`preset-agents.ts` 只引用这些常量。当前集中维护的对象包括 `orchestrator`、`coder`、`reviewer`、`writer`、`planner`。外部智能体如 `opencode` 不在这套系统提示词绑定内，后续由外部 Adapter 根据平台能力处理。用户自定义主智能体仍通过自身 `AgentDefinition.systemPrompt` 提供提示词。
 
-### 5.1 执行器类型
+### 5.1 用户自定义智能体 CRUD
+
+Runtime 当前支持通过内部 `/runtime/agents` API 创建、更新和删除用户自定义智能体。首版 CRUD 只覆盖 `origin = "user"`、`tier = "primary"`、`visibility = "visible"`、`executorType = "ai-sdk"` 的主智能体。
+
+创建时 Runtime 强制设置：
+
+- `entryPolicy = "callable"`
+- `delegationPolicy = "can-delegate"`
+- `readonly = false`
+
+可写字段包括：
+
+- `name`
+- `description`
+- `systemPrompt`
+- `capabilities`
+- `allowedSubagents`
+- `allowedTools`
+- `permissionPolicy`
+- `enabled`
+
+约束：
+
+- 用户不能通过 CRUD 创建隐藏子智能体或外部智能体。
+- 用户不能覆盖、更新或删除系统预设智能体。
+- `allowedSubagents` 只能引用已注册、启用、隐藏的子智能体。
+- `allowedTools` 首版只允许 `ls`、`read_file`、`glob`、`grep` 四个只读文件工具。
+- `write_plan`、`run_task` 仍是 `orchestrator` 的内部工具，不能授予用户自定义智能体。
+- `permissionPolicy` 首版限制为只读能力：文件权限只允许 `none` 或 `read`，shell、network、deploy 工具权限必须为 `none`。
+
+用户自定义智能体的 `systemPrompt` 可通过详情接口返回，供 HubServer 或后续配置 UI 回显；系统预设智能体的系统提示词不通过 Runtime API 暴露。
+
+### 5.2 执行器类型
 
 ```ts
 type AgentExecutorType =
@@ -418,7 +450,7 @@ type AgentExecutorType =
 - `mock` 用于开发和测试。
 - `external-adapter` 用于外部智能体平台接入。
 
-### 5.2 权限策略
+### 5.3 权限策略
 
 ```ts
 type AgentPermissionPolicy = {
@@ -439,7 +471,7 @@ type AgentPermissionPolicy = {
 - `deploy` 默认需要显式审批。
 - 外部智能体需要声明真实能力，不能隐式获得全部权限。
 
-### 5.3 外部智能体配置
+### 5.4 外部智能体配置
 
 外部智能体通过 `external` 字段配置。
 
@@ -697,7 +729,10 @@ agent-runtime/src/agents/preset-subagents.ts
 ```text
 dataDir/
   agents.json
+  agent-model-bindings.json
 ```
+
+`agents.json` 存储非系统预设的本地智能体定义。Runtime CRUD 本轮只会写入用户自定义主智能体；外部智能体和子智能体的自定义能力后续再单独设计。模型绑定继续由 `agent-model-bindings.json` 承载，不混入 Agent CRUD 主体流程。
 
 未来接入 HubServer 后，HubServer 可以成为产品状态源；Runtime 的 `AgentRegistry` 则负责加载 HubServer 传入的执行态配置，或缓存运行时需要的智能体定义。
 

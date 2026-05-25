@@ -22,6 +22,14 @@ export type AgentModelBindingMap = z.infer<typeof AgentModelBindingMapSchema>
 export const AgentModelBindingUpdateRequestSchema = AgentModelRefSchema
 export type AgentModelBindingUpdateRequest = z.infer<typeof AgentModelBindingUpdateRequestSchema>
 
+export const AgentIdSchema = z.string()
+  .min(3)
+  .max(64)
+  .regex(/^[a-z][a-z0-9_-]*$/, "Agent id must start with a lowercase letter and contain only lowercase letters, numbers, underscores, or hyphens")
+
+export const UserAgentAllowedToolSchema = z.enum(["ls", "read_file", "glob", "grep"])
+export type UserAgentAllowedTool = z.infer<typeof UserAgentAllowedToolSchema>
+
 export const AgentEntryPolicySchema = z.enum(["default", "callable", "not-callable"])
 export type AgentEntryPolicy = z.infer<typeof AgentEntryPolicySchema>
 
@@ -85,6 +93,33 @@ export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>
 
 export const AgentDefinitionListSchema = z.array(AgentDefinitionSchema)
 
+export const UserAgentCreateRequestSchema = z.object({
+  id: AgentIdSchema.optional(),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(1000),
+  systemPrompt: z.string().trim().min(1).max(20000),
+  capabilities: z.array(z.string().trim().min(1).max(80)).default([]),
+  allowedSubagents: z.array(z.string().trim().min(1)).default([]),
+  allowedTools: z.array(UserAgentAllowedToolSchema).default([]),
+  permissionPolicy: AgentPermissionPolicySchema.optional(),
+  enabled: z.boolean().default(true),
+}).strict()
+export type UserAgentCreateRequest = z.infer<typeof UserAgentCreateRequestSchema>
+
+export const UserAgentUpdateRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().min(1).max(1000).optional(),
+  systemPrompt: z.string().trim().min(1).max(20000).optional(),
+  capabilities: z.array(z.string().trim().min(1).max(80)).optional(),
+  allowedSubagents: z.array(z.string().trim().min(1)).optional(),
+  allowedTools: z.array(UserAgentAllowedToolSchema).optional(),
+  permissionPolicy: AgentPermissionPolicySchema.optional(),
+  enabled: z.boolean().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, {
+  message: "At least one field must be provided",
+})
+export type UserAgentUpdateRequest = z.infer<typeof UserAgentUpdateRequestSchema>
+
 export const AgentListQuerySchema = z.object({
   includeHidden: z.enum(["true", "false"]).optional(),
   enabledOnly: z.enum(["true", "false"]).optional(),
@@ -123,6 +158,7 @@ export type AgentSummaryResponse = {
 }
 
 export type AgentDetailResponse = AgentSummaryResponse & {
+  systemPrompt?: string
   allowedSubagents: string[]
   allowedTools: string[]
   permissionPolicy: AgentPermissionPolicy
@@ -156,5 +192,10 @@ export type AgentResolvedModelResponse = {
 
 export type AgentListResponse = {
   agents: AgentSummaryResponse[]
+}
+
+export type AgentDeleteResponse = {
+  agentId: string
+  deleted: true
 }
 

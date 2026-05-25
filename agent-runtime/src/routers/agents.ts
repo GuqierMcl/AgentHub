@@ -1,9 +1,11 @@
 import { Hono, type Context } from "hono"
-import { AgentRegistry } from "../agents"
+import { AgentRegistry, AgentRegistryMutationError } from "../agents"
 import {
   AgentListQuerySchema,
   AgentDetailQuerySchema,
   AgentModelBindingUpdateRequestSchema,
+  UserAgentCreateRequestSchema,
+  UserAgentUpdateRequestSchema,
   type AgentDefinition,
   type AgentDetailResponse,
   type AgentSummaryResponse,
@@ -50,6 +52,9 @@ function serializeAgentDetail(
   const resolvedModel = resolveAgentModelSnapshot(providerService, agent)
   return {
     ...serializeAgentSummary(agent, providerService),
+    systemPrompt: agent.origin === "user" && !agent.readonly
+      ? agent.systemPrompt
+      : undefined,
     allowedSubagents: agent.allowedSubagents,
     allowedTools: agent.allowedTools,
     permissionPolicy: agent.permissionPolicy,
@@ -107,6 +112,72 @@ function agentModelBindingInvalid(c: Context, details: unknown) {
   }, 400)
 }
 
+function agentInvalidInput(c: Context, details: unknown) {
+  return c.json({
+    error: {
+      code: "AGENT_INVALID_INPUT",
+      message: "Invalid agent input",
+      details,
+    },
+  }, 400)
+}
+
+function agentNotFound(c: Context, agentId: string) {
+  return c.json({
+    error: {
+      code: "AGENT_NOT_FOUND",
+      message: `Agent ${agentId} not found`,
+    },
+  }, 404)
+}
+
+function agentMutationFailed(c: Context, error: unknown) {
+  if (error instanceof AgentRegistryMutationError) {
+    return c.json({
+      error: {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      },
+    }, error.status)
+  }
+
+  return c.json({
+    error: {
+      code: "AGENT_STORE_WRITE_FAILED",
+      message: "Failed to mutate user agent",
+      details: {
+        message: error instanceof Error ? error.message : String(error),
+      },
+    },
+  }, 500)
+}
+
+async function readJsonBody(c: Context): Promise<unknown> {
+  return c.req.json().catch(() => null)
+}
+
+agents.post("/runtime/agents", async (c: Context) => {
+  const registry = c.get("agentRegistry")
+  const providerService = c.get("providerService")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  const body = await readJsonBody(c)
+  const result = UserAgentCreateRequestSchema.safeParse(body)
+  if (!result.success) {
+    return agentInvalidInput(c, result.error.issues)
+  }
+
+  try {
+    const agent = await registry.createUserAgent(result.data)
+    return c.json(serializeAgentDetail(agent, providerService), 201)
+  } catch (error) {
+    return agentMutationFailed(c, error)
+  }
+})
+
 agents.get("/runtime/agents", (c: Context) => {
   const result = AgentListQuerySchema.safeParse({
     includeHidden: c.req.query("includeHidden"),
@@ -161,15 +232,60 @@ agents.get("/runtime/agents/:agentId", (c: Context) => {
   const includeHidden = result.data.includeHidden === "true"
 
   if (!agent || (!includeHidden && agent.visibility === "hidden")) {
-    return c.json({
-      error: {
-        code: "AGENT_NOT_FOUND",
-        message: `Agent ${agentId} not found`,
-      },
-    }, 404)
+    return agentNotFound(c, agentId)
   }
 
   return c.json(serializeAgentDetail(agent, providerService))
+})
+
+agents.put("/runtime/agents/:agentId", async (c: Context) => {
+  const registry = c.get("agentRegistry")
+  const providerService = c.get("providerService")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  const body = await readJsonBody(c)
+  const result = UserAgentUpdateRequestSchema.safeParse(body)
+  if (!result.success) {
+    return agentInvalidInput(c, result.error.issues)
+  }
+
+  const agentId = c.req.param("agentId")
+
+  try {
+    const updatedAgent = await registry.updateUserAgent(agentId, result.data)
+    if (!updatedAgent) {
+      return agentNotFound(c, agentId)
+    }
+
+    return c.json(serializeAgentDetail(updatedAgent, providerService))
+  } catch (error) {
+    return agentMutationFailed(c, error)
+  }
+})
+
+agents.delete("/runtime/agents/:agentId", async (c: Context) => {
+  const registry = c.get("agentRegistry")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  const agentId = c.req.param("agentId")
+
+  try {
+    const deleted = await registry.deleteUserAgent(agentId)
+    if (!deleted) {
+      return agentNotFound(c, agentId)
+    }
+
+    return c.json({
+      agentId,
+      deleted: true,
+    })
+  } catch (error) {
+    return agentMutationFailed(c, error)
+  }
 })
 
 agents.put("/runtime/agents/:agentId/model", async (c: Context) => {
@@ -182,12 +298,7 @@ agents.put("/runtime/agents/:agentId/model", async (c: Context) => {
   const agentId = c.req.param("agentId")
   const agent = registry.getAgent(agentId)
   if (!agent || agent.visibility === "hidden") {
-    return c.json({
-      error: {
-        code: "AGENT_NOT_FOUND",
-        message: `Agent ${agentId} not found`,
-      },
-    }, 404)
+    return agentNotFound(c, agentId)
   }
 
   if (!registry.isModelBindingAllowed(agentId)) {
@@ -256,12 +367,7 @@ agents.delete("/runtime/agents/:agentId/model", async (c: Context) => {
   const agentId = c.req.param("agentId")
   const agent = registry.getAgent(agentId)
   if (!agent || agent.visibility === "hidden") {
-    return c.json({
-      error: {
-        code: "AGENT_NOT_FOUND",
-        message: `Agent ${agentId} not found`,
-      },
-    }, 404)
+    return agentNotFound(c, agentId)
   }
 
   if (!registry.isModelBindingAllowed(agentId)) {

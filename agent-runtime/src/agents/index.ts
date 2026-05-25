@@ -1,6 +1,6 @@
 export { AgentStore } from "./agent-store"
 export { AgentModelBindingStore } from "./agent-model-binding-store"
-export { AgentRegistry } from "./agent-registry"
+export { AgentRegistry, AgentRegistryMutationError } from "./agent-registry"
 export { presetAgentSystemPrompts } from "./preset-agent-prompts"
 export { presetAgents } from "./preset-agents"
 export { presetSubagents } from "./preset-subagents"
@@ -9,6 +9,7 @@ export type {
   AgentTier,
   AgentOrigin,
   AgentVisibility,
+  UserAgentAllowedTool,
   AgentModelRef,
   AgentModelBindingMap,
   AgentModelBindingUpdateRequest,
@@ -25,11 +26,16 @@ export type {
   AgentDetailResponse,
   AgentResolvedModelResponse,
   AgentListResponse,
+  AgentDeleteResponse,
+  UserAgentCreateRequest,
+  UserAgentUpdateRequest,
 } from "./types"
 export {
   AgentTierSchema,
   AgentOriginSchema,
   AgentVisibilitySchema,
+  AgentIdSchema,
+  UserAgentAllowedToolSchema,
   AgentModelRefSchema,
   AgentModelBindingMapSchema,
   AgentModelBindingUpdateRequestSchema,
@@ -40,6 +46,8 @@ export {
   ExternalAgentConfigSchema,
   AgentDefinitionSchema,
   AgentDefinitionListSchema,
+  UserAgentCreateRequestSchema,
+  UserAgentUpdateRequestSchema,
   AgentListQuerySchema,
   AgentDetailQuerySchema,
 } from "./types"

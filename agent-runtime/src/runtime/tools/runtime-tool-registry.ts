@@ -24,21 +24,26 @@ export class RuntimeToolRegistry {
   }
 
   listToolsForAgent(
-    agentId: string,
+    agentOrId: AgentExecutionContext["agent"] | string,
     options: RuntimeToolListOptions = {}
   ): ToolDefinition<any, any, any>[] {
+    const agent = typeof agentOrId === "string" ? null : agentOrId
+    const agentId = typeof agentOrId === "string" ? agentOrId : agentOrId.id
     const allowedToolNames = options.allowedToolNames
       ? new Set(options.allowedToolNames)
       : null
 
     return Array.from(this.tools.values())
-      .filter((definition) => definition.allowedAgents.includes(agentId))
+      .filter((definition) => this.isToolAllowedForAgent(definition, agentId, agent))
       .filter((definition) => !allowedToolNames || allowedToolNames.has(definition.name))
       .filter((definition) => options.includeInternal || !definition.internal)
   }
 
-  hasVisibleToolsForAgent(agentId: string, options: RuntimeToolListOptions = {}): boolean {
-    return this.listToolsForAgent(agentId, options).length > 0
+  hasVisibleToolsForAgent(
+    agentOrId: AgentExecutionContext["agent"] | string,
+    options: RuntimeToolListOptions = {}
+  ): boolean {
+    return this.listToolsForAgent(agentOrId, options).length > 0
   }
 
   async executeTool(
@@ -55,7 +60,16 @@ export class RuntimeToolRegistry {
       return this.failBeforeStart(context, name, "TOOL_NOT_FOUND", `Tool ${name} is not registered`)
     }
 
-    if (!definition.allowedAgents.includes(context.agent.id)) {
+    if (!this.isToolAllowedForAgent(definition, context.agent.id, context.agent)) {
+      return this.failBeforeStart(
+        context,
+        name,
+        "TOOL_NOT_ALLOWED",
+        `Agent ${context.agent.id} is not allowed to use tool ${name}`
+      )
+    }
+
+    if (context.agent.origin === "user" && !context.agent.allowedTools.includes(definition.name)) {
       return this.failBeforeStart(
         context,
         name,
@@ -113,7 +127,7 @@ export class RuntimeToolRegistry {
     baseContext: AgentExecutionContext,
     options: RuntimeToolListOptions = {}
   ): AiSdkToolSettings | null {
-    const visibleTools = this.listToolsForAgent(baseContext.agent.id, {
+    const visibleTools = this.listToolsForAgent(baseContext.agent, {
       allowedToolNames: baseContext.agent.allowedTools,
       includeInternal: options.includeInternal,
     })
@@ -174,6 +188,22 @@ export class RuntimeToolRegistry {
       executeTask: baseContext.executeTask,
       runTask: baseContext.runTask,
     }
+  }
+
+  private isToolAllowedForAgent(
+    definition: ToolDefinition<any, any, any>,
+    agentId: string,
+    agent: AgentExecutionContext["agent"] | null
+  ): boolean {
+    if (definition.allowedAgents.includes(agentId)) {
+      return true
+    }
+
+    if (!agent || !definition.allowedOrigins) {
+      return false
+    }
+
+    return definition.allowedOrigins.includes(agent.origin)
   }
 
   private failBeforeStart(

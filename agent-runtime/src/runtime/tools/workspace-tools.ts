@@ -301,6 +301,7 @@ function createWorkspaceTool<TInput, TData>(
     inputSchema,
     riskLevel,
     allowedAgents: WORKSPACE_TOOL_AGENTS,
+    allowedOrigins: ["user"],
     requiresApproval: async (input, context) => {
       const path = pathSelector(input)
       return maybeRequestApproval(context, name, path, approvalReason)

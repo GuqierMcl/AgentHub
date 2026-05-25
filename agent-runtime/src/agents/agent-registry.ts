@@ -7,7 +7,36 @@ import type {
   AgentModelBindingMap,
   AgentModelRef,
   AgentListOptions,
+  AgentPermissionPolicy,
+  UserAgentCreateRequest,
+  UserAgentUpdateRequest,
 } from "./types"
+
+const SAFE_USER_AGENT_TOOLS = new Set(["ls", "read_file", "glob", "grep"])
+
+const DEFAULT_USER_AGENT_PERMISSION_POLICY: AgentPermissionPolicy = {
+  filesystem: "none",
+  shell: "none",
+  network: "none",
+  deploy: "none",
+  requiresApproval: false,
+}
+
+export class AgentRegistryMutationError extends Error {
+  constructor(
+    public code:
+      | "AGENT_INVALID_INPUT"
+      | "AGENT_ALREADY_EXISTS"
+      | "AGENT_NOT_EDITABLE"
+      | "AGENT_STORE_WRITE_FAILED",
+    message: string,
+    public status: 400 | 403 | 409 | 500,
+    public details?: unknown
+  ) {
+    super(message)
+    this.name = "AgentRegistryMutationError"
+  }
+}
 
 export class AgentRegistry {
   private store: AgentStore
@@ -16,6 +45,7 @@ export class AgentRegistry {
   private agents: Map<string, AgentDefinition> = new Map()
   private systemAgentIds: Set<string> = new Set()
   private modelBindings: AgentModelBindingMap = {}
+  private writeQueue: Promise<unknown> = Promise.resolve()
   private initialized = false
 
   constructor(dataDir: string) {
@@ -61,6 +91,111 @@ export class AgentRegistry {
     return this.agents.get(agentId) ?? null
   }
 
+  async createUserAgent(input: UserAgentCreateRequest): Promise<AgentDefinition> {
+    return this.serializeMutation(async () => {
+      const now = new Date().toISOString()
+      const agentId = input.id ?? `agent_${crypto.randomUUID()}`
+
+      if (this.agents.has(agentId) || this.systemAgentIds.has(agentId)) {
+        throw new AgentRegistryMutationError(
+          "AGENT_ALREADY_EXISTS",
+          `Agent ${agentId} already exists`,
+          409,
+          { agentId }
+        )
+      }
+
+      const allowedTools = this.normalizeAllowedTools(input.allowedTools)
+      const agent: AgentDefinition = {
+        id: agentId,
+        name: input.name,
+        description: input.description,
+        tier: "primary",
+        origin: "user",
+        visibility: "visible",
+        entryPolicy: "callable",
+        delegationPolicy: "can-delegate",
+        executorType: "ai-sdk",
+        systemPrompt: input.systemPrompt,
+        capabilities: this.normalizeStringList(input.capabilities),
+        allowedSubagents: this.normalizeAllowedSubagents(input.allowedSubagents),
+        allowedTools,
+        permissionPolicy: this.normalizeUserPermissionPolicy(input.permissionPolicy, allowedTools),
+        enabled: input.enabled,
+        readonly: false,
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      const snapshot = this.createStateSnapshot()
+      this.baseAgents.set(agent.id, this.cloneAgent(agent))
+      this.agents.set(agent.id, this.applyModelBinding(agent))
+
+      await this.persistAgentsOrRollback(snapshot)
+      return this.cloneAgent(this.agents.get(agent.id) ?? agent)
+    })
+  }
+
+  async updateUserAgent(agentId: string, input: UserAgentUpdateRequest): Promise<AgentDefinition | null> {
+    return this.serializeMutation(async () => {
+      const current = this.agents.get(agentId)
+      if (!current) {
+        return null
+      }
+
+      this.assertEditableUserAgent(current)
+
+      const baseAgent = this.cloneAgent(this.baseAgents.get(agentId) ?? current)
+      const allowedTools = input.allowedTools
+        ? this.normalizeAllowedTools(input.allowedTools)
+        : baseAgent.allowedTools
+      const updated: AgentDefinition = {
+        ...baseAgent,
+        name: input.name ?? baseAgent.name,
+        description: input.description ?? baseAgent.description,
+        systemPrompt: input.systemPrompt ?? baseAgent.systemPrompt,
+        capabilities: input.capabilities
+          ? this.normalizeStringList(input.capabilities)
+          : baseAgent.capabilities,
+        allowedSubagents: input.allowedSubagents
+          ? this.normalizeAllowedSubagents(input.allowedSubagents)
+          : baseAgent.allowedSubagents,
+        allowedTools,
+        permissionPolicy: input.permissionPolicy || input.allowedTools
+          ? this.normalizeUserPermissionPolicy(input.permissionPolicy, allowedTools)
+          : baseAgent.permissionPolicy,
+        enabled: input.enabled ?? baseAgent.enabled,
+        updatedAt: new Date().toISOString(),
+      }
+
+      const snapshot = this.createStateSnapshot()
+      this.baseAgents.set(agentId, this.cloneAgent(updated))
+      this.agents.set(agentId, this.applyModelBinding(updated))
+
+      await this.persistAgentsOrRollback(snapshot)
+      return this.cloneAgent(this.agents.get(agentId) ?? updated)
+    })
+  }
+
+  async deleteUserAgent(agentId: string): Promise<boolean> {
+    return this.serializeMutation(async () => {
+      const current = this.agents.get(agentId)
+      if (!current) {
+        return false
+      }
+
+      this.assertEditableUserAgent(current)
+
+      const snapshot = this.createStateSnapshot()
+      this.baseAgents.delete(agentId)
+      this.agents.delete(agentId)
+      delete this.modelBindings[agentId]
+
+      await this.persistAgentsOrRollback(snapshot, true)
+      return true
+    })
+  }
+
   isModelBindingAllowed(agentId: string): boolean {
     const agent = this.agents.get(agentId)
     if (!agent) {
@@ -71,48 +206,52 @@ export class AgentRegistry {
   }
 
   async setAgentModelBinding(agentId: string, modelRef: AgentModelRef): Promise<AgentDefinition | null> {
-    const agent = this.agents.get(agentId)
-    if (!agent) {
-      return null
-    }
+    return this.serializeMutation(async () => {
+      const agent = this.agents.get(agentId)
+      if (!agent) {
+        return null
+      }
 
-    if (!this.canBindModel(agent)) {
-      return null
-    }
+      if (!this.canBindModel(agent)) {
+        return null
+      }
 
-    const baseAgent = this.baseAgents.get(agentId) ?? agent
-    const normalizedModelRef = this.cloneModelRef(modelRef)
+      const baseAgent = this.baseAgents.get(agentId) ?? agent
+      const normalizedModelRef = this.cloneModelRef(modelRef)
 
-    if (this.isSameModelRef(baseAgent.modelRef, normalizedModelRef)) {
-      delete this.modelBindings[agentId]
-    } else {
-      this.modelBindings[agentId] = normalizedModelRef
-    }
+      if (this.isSameModelRef(baseAgent.modelRef, normalizedModelRef)) {
+        delete this.modelBindings[agentId]
+      } else {
+        this.modelBindings[agentId] = normalizedModelRef
+      }
 
-    const updated = this.applyModelBinding(baseAgent, normalizedModelRef)
-    updated.updatedAt = new Date().toISOString()
-    this.agents.set(agentId, updated)
-    await this.bindingStore.saveBindings(this.modelBindings)
-    return updated
+      const updated = this.applyModelBinding(baseAgent, normalizedModelRef)
+      updated.updatedAt = new Date().toISOString()
+      this.agents.set(agentId, updated)
+      await this.bindingStore.saveBindings(this.modelBindings)
+      return updated
+    })
   }
 
   async clearAgentModelBinding(agentId: string): Promise<AgentDefinition | null> {
-    const agent = this.agents.get(agentId)
-    if (!agent) {
-      return null
-    }
+    return this.serializeMutation(async () => {
+      const agent = this.agents.get(agentId)
+      if (!agent) {
+        return null
+      }
 
-    if (!this.canBindModel(agent)) {
-      return null
-    }
+      if (!this.canBindModel(agent)) {
+        return null
+      }
 
-    delete this.modelBindings[agentId]
-    const baseAgent = this.baseAgents.get(agentId) ?? agent
-    const updated = this.applyModelBinding(baseAgent)
-    updated.updatedAt = new Date().toISOString()
-    this.agents.set(agentId, updated)
-    await this.bindingStore.saveBindings(this.modelBindings)
-    return updated
+      delete this.modelBindings[agentId]
+      const baseAgent = this.baseAgents.get(agentId) ?? agent
+      const updated = this.applyModelBinding(baseAgent)
+      updated.updatedAt = new Date().toISOString()
+      this.agents.set(agentId, updated)
+      await this.bindingStore.saveBindings(this.modelBindings)
+      return updated
+    })
   }
 
   listCallablePrimaryAgents(): AgentDefinition[] {
@@ -144,6 +283,204 @@ export class AgentRegistry {
 
   private validateDefaultEntryAgent(): void {
     this.getDefaultEntryAgent()
+  }
+
+  private assertEditableUserAgent(agent: AgentDefinition): void {
+    if (
+      agent.origin !== "user" ||
+      agent.readonly ||
+      agent.tier !== "primary" ||
+      agent.visibility !== "visible" ||
+      agent.executorType !== "ai-sdk"
+    ) {
+      throw new AgentRegistryMutationError(
+        "AGENT_NOT_EDITABLE",
+        `Agent ${agent.id} is not editable`,
+        403,
+        {
+          agentId: agent.id,
+          origin: agent.origin,
+          tier: agent.tier,
+          readonly: agent.readonly,
+          executorType: agent.executorType,
+        }
+      )
+    }
+  }
+
+  private normalizeAllowedSubagents(subagentIds: string[]): string[] {
+    const normalized = this.normalizeStringList(subagentIds)
+
+    for (const subagentId of normalized) {
+      const subagent = this.agents.get(subagentId)
+      if (
+        !subagent ||
+        !subagent.enabled ||
+        subagent.tier !== "subagent" ||
+        subagent.visibility !== "hidden" ||
+        subagent.entryPolicy !== "not-callable" ||
+        subagent.delegationPolicy !== "delegated-only"
+      ) {
+        throw new AgentRegistryMutationError(
+          "AGENT_INVALID_INPUT",
+          `Invalid allowed subagent ${subagentId}`,
+          400,
+          {
+            field: "allowedSubagents",
+            subagentId,
+          }
+        )
+      }
+    }
+
+    return normalized
+  }
+
+  private normalizeAllowedTools(toolNames: string[]): string[] {
+    const normalized = this.normalizeStringList(toolNames)
+
+    for (const toolName of normalized) {
+      if (!SAFE_USER_AGENT_TOOLS.has(toolName)) {
+        throw new AgentRegistryMutationError(
+          "AGENT_INVALID_INPUT",
+          `Tool ${toolName} is not available for user agents`,
+          400,
+          {
+            field: "allowedTools",
+            toolName,
+            allowedTools: Array.from(SAFE_USER_AGENT_TOOLS),
+          }
+        )
+      }
+    }
+
+    return normalized
+  }
+
+  private normalizeUserPermissionPolicy(
+    policy: AgentPermissionPolicy | undefined,
+    allowedTools: string[]
+  ): AgentPermissionPolicy {
+    const normalized = this.clonePermissionPolicy(policy ?? {
+      ...DEFAULT_USER_AGENT_PERMISSION_POLICY,
+      filesystem: allowedTools.length > 0 ? "read" : "none",
+    })
+    const violations: Array<{ path: string[]; message: string }> = []
+
+    if (normalized.filesystem === "write") {
+      violations.push({
+        path: ["permissionPolicy", "filesystem"],
+        message: "User agents cannot request filesystem write permission in this CRUD version",
+      })
+    }
+
+    if (allowedTools.length > 0 && normalized.filesystem !== "read") {
+      violations.push({
+        path: ["permissionPolicy", "filesystem"],
+        message: "Read-only file tools require filesystem read permission",
+      })
+    }
+
+    if (normalized.shell !== "none") {
+      violations.push({
+        path: ["permissionPolicy", "shell"],
+        message: "User agents cannot request shell permission in this CRUD version",
+      })
+    }
+
+    if (normalized.network !== "none") {
+      violations.push({
+        path: ["permissionPolicy", "network"],
+        message: "User agents cannot request network tool permission in this CRUD version",
+      })
+    }
+
+    if (normalized.deploy !== "none") {
+      violations.push({
+        path: ["permissionPolicy", "deploy"],
+        message: "User agents cannot request deploy permission in this CRUD version",
+      })
+    }
+
+    if (violations.length > 0) {
+      throw new AgentRegistryMutationError(
+        "AGENT_INVALID_INPUT",
+        "Invalid user agent permission policy",
+        400,
+        violations
+      )
+    }
+
+    return normalized
+  }
+
+  private normalizeStringList(values: string[]): string[] {
+    const seen = new Set<string>()
+    const normalized: string[] = []
+
+    for (const value of values) {
+      const trimmed = value.trim()
+      if (!trimmed || seen.has(trimmed)) {
+        continue
+      }
+
+      seen.add(trimmed)
+      normalized.push(trimmed)
+    }
+
+    return normalized
+  }
+
+  private async persistAgentsOrRollback(
+    snapshot: AgentRegistryStateSnapshot,
+    persistBindings = false
+  ): Promise<void> {
+    try {
+      await this.store.saveAgents(this.listPersistableAgents())
+      if (persistBindings) {
+        await this.bindingStore.saveBindings(this.modelBindings)
+      }
+    } catch (error) {
+      this.restoreStateSnapshot(snapshot)
+      throw new AgentRegistryMutationError(
+        "AGENT_STORE_WRITE_FAILED",
+        "Failed to persist user agents",
+        500,
+        {
+          message: error instanceof Error ? error.message : String(error),
+        }
+      )
+    }
+  }
+
+  private listPersistableAgents(): AgentDefinition[] {
+    return Array.from(this.baseAgents.values())
+      .filter((agent) => !this.systemAgentIds.has(agent.id))
+      .map((agent) => this.cloneAgent(agent))
+      .sort((left, right) => left.id.localeCompare(right.id))
+  }
+
+  private serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.writeQueue.then(operation, operation)
+    this.writeQueue = next.then(
+      () => undefined,
+      () => undefined
+    )
+    return next
+  }
+
+  private createStateSnapshot(): AgentRegistryStateSnapshot {
+    return {
+      baseAgents: new Map(this.baseAgents),
+      agents: new Map(this.agents),
+      modelBindings: structuredClone(this.modelBindings),
+    }
+  }
+
+  private restoreStateSnapshot(snapshot: AgentRegistryStateSnapshot): void {
+    this.baseAgents = snapshot.baseAgents
+    this.agents = snapshot.agents
+    this.modelBindings = snapshot.modelBindings
   }
 
   private applyBindingsToRegisteredAgents(): void {
@@ -206,5 +543,21 @@ export class AgentRegistry {
       modelId: modelRef.modelId,
     }
   }
+
+  private clonePermissionPolicy(policy: AgentPermissionPolicy): AgentPermissionPolicy {
+    return {
+      filesystem: policy.filesystem,
+      shell: policy.shell,
+      network: policy.network,
+      deploy: policy.deploy,
+      requiresApproval: policy.requiresApproval,
+    }
+  }
+}
+
+type AgentRegistryStateSnapshot = {
+  baseAgents: Map<string, AgentDefinition>
+  agents: Map<string, AgentDefinition>
+  modelBindings: AgentModelBindingMap
 }
 

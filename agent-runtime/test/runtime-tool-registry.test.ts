@@ -103,6 +103,25 @@ const visibleTool: ToolDefinition<{}, { ok: boolean }> = {
   },
 }
 
+const userOriginTool: ToolDefinition<{}, { ok: boolean }> = {
+  name: "grep",
+  description: "Search visible files",
+  inputSchema: z.object({}),
+  riskLevel: "low",
+  requiresApproval: false,
+  allowedAgents: [],
+  allowedOrigins: ["user"],
+  async execute() {
+    return {
+      status: "completed",
+      summary: "ok",
+      data: {
+        ok: true,
+      },
+    }
+  },
+}
+
 describe("RuntimeToolRegistry", () => {
   test("write_plan emits a UI-renderable plan through tool events only", async () => {
     const registry = new RuntimeToolRegistry()
@@ -554,5 +573,41 @@ describe("RuntimeToolRegistry", () => {
     expect(coderSettings?.activeTools).toEqual(["ls"])
     expect(coderSettings?.activeTools).not.toContain("write_plan")
     expect(coderSettings?.activeTools).not.toContain("run_task")
+  })
+
+  test("user-origin agents can receive explicitly allowed non-internal tools", async () => {
+    const registry = new RuntimeToolRegistry()
+    registry.register(userOriginTool)
+
+    const userAgent: AgentDefinition = {
+      ...orchestratorAgent,
+      id: "custom_writer",
+      name: "Custom Writer",
+      origin: "user",
+      entryPolicy: "callable",
+      executorType: "ai-sdk",
+      allowedTools: ["grep"],
+      readonly: false,
+    }
+    const { context, events } = createBaseContext({
+      agent: userAgent,
+    })
+
+    const settings = registry.buildAiSdkToolSettings(context)
+    expect(settings?.activeTools).toEqual(["grep"])
+
+    const result = await registry.executeTool("grep", {}, context)
+    expect(result.status).toBe("completed")
+    expect(events.some((event) => event.type === "tool.completed" && event.toolName === "grep")).toBe(true)
+
+    const blockedContext = createBaseContext({
+      agent: {
+        ...userAgent,
+        allowedTools: [],
+      },
+    }).context
+    const blocked = await registry.executeTool("grep", {}, blockedContext)
+    expect(blocked.status).toBe("failed")
+    expect(blocked.error?.code).toBe("TOOL_NOT_ALLOWED")
   })
 })

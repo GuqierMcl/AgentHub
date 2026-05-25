@@ -48,6 +48,7 @@ Agent Runtime 智能体架构
 - Workspace Backend 抽象、沙箱外访问审批和首批只读文件工具。
 - 外部智能体 Adapter 骨架。
 - Runtime 的 agents/runs 基础 API。
+- 用户自定义主智能体 CRUD API。
 
 ### 不包含
 
@@ -169,7 +170,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 继续保留外部 Adapter 骨架。
+阶段 1 和阶段 2 已完成。阶段 3 已完成 Agents 查询 API、用户自定义主智能体 CRUD API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 继续保留外部 Adapter 骨架。
 
 ## 已完成
 
@@ -179,6 +180,7 @@ Agent Runtime 智能体架构
 - 内部智能体统一协议、外部智能体 Adapter 边界已确认。
 - 阶段 1 已落地 `AgentDefinition`、系统预设主智能体、隐藏子智能体、本地 JSON 只读加载和 `AgentRegistry`。
 - 阶段 3 已附带落地 `GET /runtime/agents` 与 `GET /runtime/agents/:agentId`。
+- 阶段 3 已补齐用户自定义主智能体 CRUD：`POST /runtime/agents`、`PUT /runtime/agents/:agentId`、`DELETE /runtime/agents/:agentId`，并继续复用独立模型绑定 API。
 - 阶段 2 已落地 `AgentExecutor`、最小 RunEvent 协议和 `MockExecutor`。
 - 阶段 3 已落地 `POST /runtime/runs`、`GET /runtime/runs/:runId`、`GET /runtime/runs/:runId/events`、`POST /runtime/runs/:runId/cancel`。
 - 阶段 3 已落地 IM 会话入口解析：单聊绑定主智能体、群聊默认 `orchestrator`、群聊单 @ 指定主智能体。
@@ -196,6 +198,7 @@ Agent Runtime 智能体架构
 - 扩展 `orchestrator` 的更完整计划策略、汇总策略和错误恢复。
 - 后续补充计划持久化、计划任务与 `run_task` 的强校验，以及前端 UI 投影。
 - 补齐 HubServer 对 Runtime RunEvent 的消费、持久化和 SSE 转发，使产品链路从直接 Runtime smoke 测试闭合到 `web -> hub-server -> agent-runtime`。
+- 补齐 HubServer 面向浏览器的自定义 Agent 管理 API 与前端配置 UI。
 - 补齐工具权限审批闭环，包括审批 API、审批结果回传、恢复执行、拒绝处理和 UI 状态。
 - 补充 AI SDK 工具循环、结构化输出和更完整的 agent 运行参数映射。
 - 实现外部智能体 Adapter 骨架。
@@ -205,7 +208,7 @@ Agent Runtime 智能体架构
 
 ## 风险与待确认点
 
-- 用户自定义智能体是否允许在第一版直接编辑，还是只允许本地 JSON 加载。
+- 自定义子智能体、外部智能体 CRUD 仍未开放；如后续需要，需要单独设计权限和 Adapter 配置模型。
 - `GET /runtime/agents` 是否默认只返回可见主智能体。
 - `deploy` 子智能体的权限与审批策略在第一版中是否只做声明不执行。
 - 外部智能体是否需要先支持只读执行能力。

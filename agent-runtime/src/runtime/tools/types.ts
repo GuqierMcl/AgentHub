@@ -56,6 +56,7 @@ export type ToolDefinition<TInput = unknown, TData = unknown, TRuntime = unknown
   riskLevel: OrchestratorRiskLevel
   requiresApproval: boolean | ((input: TInput, context: ToolExecutionContext) => boolean | Promise<boolean>)
   allowedAgents: string[]
+  allowedOrigins?: AgentDefinition["origin"][]
   internal?: boolean
   execute(input: TInput, context: ToolExecutionContext): Promise<ToolExecutionResult<TData, TRuntime>>
 }

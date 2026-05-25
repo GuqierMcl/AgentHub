@@ -69,7 +69,11 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `ADAPTER_ERROR` | 502 | Agent Adapter 调用失败 |
 | `AGENT_NOT_FOUND` | 404 | 指定的 Agent 不存在，或隐藏 Agent 未授权查看 |
 | `AGENT_INVALID_FILTER` | 400 | Agent 查询参数无效 |
+| `AGENT_INVALID_INPUT` | 400 | Agent 创建或更新请求参数无效 |
+| `AGENT_ALREADY_EXISTS` | 409 | Agent ID 已存在，或与系统预设冲突 |
+| `AGENT_NOT_EDITABLE` | 403 | 指定 Agent 不允许被当前 API 修改 |
 | `AGENT_REGISTRY_UNAVAILABLE` | 503 | Agent 注册表不可用 |
+| `AGENT_STORE_WRITE_FAILED` | 500 | Agent 本地配置写入失败 |
 | `RUN_INVALID_PARTICIPANTS` | 400 | RunInput 中的会话智能体成员不合法 |
 | `RUN_INVALID_ENTRY_AGENT` | 400 | RunInput 无法解析合法入口智能体 |
 | `AGENT_MODEL_BINDING_INVALID` | 400 | 智能体模型绑定参数或 provider/model 不可用 |
@@ -88,7 +92,7 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 
 ## Runtime Agents API
 
-Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的智能体注册表。本 API 只面向 `hub-server`，不直接面向浏览器。
+Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的智能体注册表，并管理用户自定义主智能体。本 API 只面向 `hub-server`，不直接面向浏览器。
 
 ### 查询智能体列表
 
@@ -223,6 +227,106 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 ```
 
 如果智能体配置了 `modelRef`，列表和详情都可以透出该绑定；`resolvedModel` 仅在 provider 与 model 都可解析时返回，否则为空。
+
+用户自定义智能体详情会额外返回 `systemPrompt`，用于编辑表单回显；系统预设智能体和外部智能体不会通过详情接口返回内部提示词。
+
+### 创建用户自定义智能体
+
+**端点**：`POST /runtime/agents`
+
+本端点只创建用户自定义、可见、主智能体、AI SDK 执行器。Runtime 会强制设置：
+
+- `origin = "user"`
+- `tier = "primary"`
+- `visibility = "visible"`
+- `entryPolicy = "callable"`
+- `executorType = "ai-sdk"`
+- `readonly = false`
+
+请求体：
+
+```json
+{
+  "id": "custom_writer",
+  "name": "Custom Writer",
+  "description": "Writes with a custom voice.",
+  "systemPrompt": "You are a careful custom writing agent.",
+  "capabilities": ["writing"],
+  "allowedSubagents": ["general"],
+  "allowedTools": ["ls", "read_file"],
+  "permissionPolicy": {
+    "filesystem": "read",
+    "shell": "none",
+    "network": "none",
+    "deploy": "none",
+    "requiresApproval": false
+  },
+  "enabled": true
+}
+```
+
+字段规则：
+
+- `id` 可省略；省略时 Runtime 生成 `agent_<uuid>`。
+- `id` 只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
+- `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
+- `allowedTools` 首版只允许只读文件工具：`ls`、`read_file`、`glob`、`grep`。
+- `write_plan`、`run_task` 和高风险工具不能授予用户自定义智能体。
+- `permissionPolicy` 首版限制为低风险：`filesystem` 只允许 `none` 或 `read`，`shell` / `network` / `deploy` 必须为 `none`。
+- 模型绑定不属于 CRUD 主体流程；创建后继续使用 `PUT /runtime/agents/:agentId/model` 配置模型。
+
+成功响应：`201 Created`，返回 agent detail。用户自定义智能体详情包含 `systemPrompt`。
+
+### 更新用户自定义智能体
+
+**端点**：`PUT /runtime/agents/:agentId`
+
+请求体可以包含以下一个或多个字段：
+
+```json
+{
+  "name": "Custom Editor",
+  "description": "Edits concise technical copy.",
+  "systemPrompt": "You are a precise technical editor.",
+  "capabilities": ["editing"],
+  "allowedSubagents": ["general"],
+  "allowedTools": [],
+  "permissionPolicy": {
+    "filesystem": "none",
+    "shell": "none",
+    "network": "none",
+    "deploy": "none",
+    "requiresApproval": false
+  },
+  "enabled": true
+}
+```
+
+规则：
+
+- 只能更新 `origin = "user"`、`readonly = false`、`tier = "primary"`、`executorType = "ai-sdk"` 的自定义智能体。
+- 不能通过本端点修改 `id`、`origin`、`tier`、`visibility`、`entryPolicy`、`executorType` 或 `readonly`。
+- 系统预设智能体、外部智能体和隐藏子智能体返回 `AGENT_NOT_EDITABLE`。
+- 成功响应返回更新后的 agent detail。
+
+### 删除用户自定义智能体
+
+**端点**：`DELETE /runtime/agents/:agentId`
+
+规则：
+
+- 只能删除用户自定义主智能体。
+- 删除时同步清理该智能体的模型绑定覆盖。
+- 不清理历史 Run 或消息；这些业务数据后续由 HubServer 负责。
+
+成功响应：
+
+```json
+{
+  "agentId": "custom_writer",
+  "deleted": true
+}
+```
 
 ### 绑定智能体模型
 
