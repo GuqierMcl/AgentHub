@@ -2,24 +2,47 @@ import { Activity } from "react"
 
 import { cn } from "@/lib/utils"
 
-import type { RightWorkbenchTabId, WorkbenchTabPanel } from "../types"
+import type { TabInstance } from "@/store/tab-store"
+
+import { BrowserPanel } from "./BrowserPanel"
+import { CodeReviewPanel } from "./CodeReviewPanel"
+import { DeployPreviewPanel } from "./DeployPreviewPanel"
+import { FileBrowserPanel } from "./FileBrowserPanel"
+import { TerminalPanel } from "./TerminalPanel"
 
 type RightWorkbenchTabViewProps = {
-  activeTab: RightWorkbenchTabId
-  mountedTabs: ReadonlySet<RightWorkbenchTabId>
-  panels: WorkbenchTabPanel[]
+  tabs: readonly TabInstance[]
+  activeTabUid: string | null
+  mountedTabUids: ReadonlySet<string>
+}
+
+function renderPanel(tab: TabInstance) {
+  switch (tab.type) {
+    case "review":
+      return <CodeReviewPanel />
+    case "files":
+      return <FileBrowserPanel />
+    case "deploy":
+      return <DeployPreviewPanel />
+    case "terminal":
+      return <TerminalPanel title={tab.title} uid={tab.uid} />
+    case "preview":
+      return <BrowserPanel title={tab.title} uid={tab.uid} />
+    default:
+      return null
+  }
 }
 
 export function RightWorkbenchTabView({
-  activeTab,
-  mountedTabs,
-  panels,
+  tabs,
+  activeTabUid,
+  mountedTabUids,
 }: RightWorkbenchTabViewProps) {
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden">
-      {panels.map((panel) => {
-        const isActive = panel.id === activeTab
-        const shouldMount = mountedTabs.has(panel.id) || isActive
+      {tabs.map((tab) => {
+        const isActive = tab.uid === activeTabUid
+        const shouldMount = mountedTabUids.has(tab.uid) || isActive
 
         if (!shouldMount) {
           return null
@@ -27,9 +50,9 @@ export function RightWorkbenchTabView({
 
         return (
           <Activity
-            key={panel.id}
+            key={tab.uid}
             mode={isActive ? "visible" : "hidden"}
-            name={`right-workbench-${panel.id}`}
+            name={`right-workbench-${tab.uid}`}
           >
             <div
               aria-hidden={!isActive}
@@ -37,9 +60,9 @@ export function RightWorkbenchTabView({
                 "absolute inset-0 min-h-0",
                 isActive ? "flex" : "hidden"
               )}
-              data-tab-id={panel.id}
+              data-tab-uid={tab.uid}
             >
-              {panel.content}
+              {renderPanel(tab)}
             </div>
           </Activity>
         )

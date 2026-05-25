@@ -4,15 +4,9 @@ import { CheckCircle2Icon, DiffIcon, ShieldCheckIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 
-import type { Artifact } from "../../types"
 import { diffPreviewLines, reviewFiles, reviewIssues } from "../mock-data"
-
-type CodeReviewPanelProps = {
-  selectedArtifact: Artifact | null
-}
 
 function riskLabel(risk: (typeof reviewFiles)[number]["risk"]) {
   if (risk === "high") {
@@ -24,7 +18,7 @@ function riskLabel(risk: (typeof reviewFiles)[number]["risk"]) {
   return "低风险"
 }
 
-export function CodeReviewPanel({ selectedArtifact }: CodeReviewPanelProps) {
+export function CodeReviewPanel() {
   const [reviewNote, setReviewNote] = useState(
     "重点检查三栏布局是否保持视口内滚动，以及 Activity 缓存是否保留面板状态。"
   )
@@ -46,18 +40,6 @@ export function CodeReviewPanel({ selectedArtifact }: CodeReviewPanelProps) {
               </div>
               <Badge variant="secondary">3 files</Badge>
             </div>
-
-            {selectedArtifact ? (
-              <>
-                <Separator className="my-3" />
-                <div className="rounded-md bg-background px-3 py-2 text-xs">
-                  <div className="text-muted-foreground">来自聊天产物</div>
-                  <div className="mt-1 truncate font-medium">
-                    {selectedArtifact.title}
-                  </div>
-                </div>
-              </>
-            ) : null}
           </section>
 
           <section className="space-y-2">

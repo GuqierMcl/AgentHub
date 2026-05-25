@@ -1,21 +1,3 @@
-import type { ReactNode } from "react"
-import type { LucideIcon } from "lucide-react"
-
-export type RightWorkbenchTabId = "review" | "files" | "deploy"
-
-export type WorkbenchTabDefinition = {
-  id: RightWorkbenchTabId
-  label: string
-  description: string
-  icon: LucideIcon
-  badge?: string
-}
-
-export type WorkbenchTabPanel = {
-  id: RightWorkbenchTabId
-  content: ReactNode
-}
-
 export type ReviewFile = {
   path: string
   status: "modified" | "added" | "review"

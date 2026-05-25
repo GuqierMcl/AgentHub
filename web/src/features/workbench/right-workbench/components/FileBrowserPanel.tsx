@@ -11,17 +11,12 @@ import { cn } from "@/lib/utils"
 
 import { defaultSelectedFilePath, workspaceFiles } from "../mock-data"
 
-type FileBrowserPanelProps = {
-  selectedFilePath: string
-  onSelectFilePath: (path: string) => void
-}
-
-export function FileBrowserPanel({
-  selectedFilePath,
-  onSelectFilePath,
-}: FileBrowserPanelProps) {
+export function FileBrowserPanel() {
   const [query, setQuery] = useState("")
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [selectedFilePath, setSelectedFilePath] = useState(
+    defaultSelectedFilePath
+  )
 
   const filteredFiles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -86,7 +81,7 @@ export function FileBrowserPanel({
                           selected && "bg-muted"
                         )}
                         key={file.path}
-                        onClick={() => onSelectFilePath(file.path)}
+                        onClick={() => setSelectedFilePath(file.path)}
                         type="button"
                         variant="ghost"
                       >

@@ -8,13 +8,11 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
-import type { Artifact } from "../../types"
-import { deployLogs, deploymentEvents } from "../mock-data"
-
-type DeployPreviewPanelProps = {
-  previewTarget: string
-  selectedArtifact: Artifact | null
-}
+import {
+  defaultPreviewTarget,
+  deployLogs,
+  deploymentEvents,
+} from "../mock-data"
 
 const eventStateClass = {
   done: "bg-emerald-500",
@@ -22,10 +20,7 @@ const eventStateClass = {
   waiting: "bg-muted-foreground/40",
 }
 
-export function DeployPreviewPanel({
-  previewTarget,
-  selectedArtifact,
-}: DeployPreviewPanelProps) {
+export function DeployPreviewPanel() {
   const [releaseNote, setReleaseNote] = useState(
     "本轮仅展示静态预览和部署入口，不调用后端发布接口。"
   )
@@ -33,7 +28,7 @@ export function DeployPreviewPanel({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 p-4">
+        <div className="flex flex-col gap-4 p-4">
           <section className="overflow-hidden rounded-lg border bg-muted/20">
             <div className="flex items-center justify-between gap-2 border-border border-b px-3 py-2">
               <div className="flex min-w-0 items-center gap-2">
@@ -41,7 +36,7 @@ export function DeployPreviewPanel({
                 <div className="min-w-0">
                   <h3 className="truncate font-medium text-sm">部署预览</h3>
                   <p className="truncate text-muted-foreground text-xs">
-                    {previewTarget}
+                    {defaultPreviewTarget}
                   </p>
                 </div>
               </div>
@@ -64,25 +59,13 @@ export function DeployPreviewPanel({
             </div>
           </section>
 
-          {selectedArtifact ? (
-            <section className="rounded-lg border bg-background p-3">
-              <div className="text-muted-foreground text-xs">当前产物</div>
-              <div className="mt-1 truncate font-medium text-sm">
-                {selectedArtifact.title}
-              </div>
-              <p className="mt-1 text-muted-foreground text-xs">
-                {selectedArtifact.description}
-              </p>
-            </section>
-          ) : null}
-
-          <section className="space-y-2 rounded-lg border bg-background p-3">
+          <section className="flex flex-col gap-2 rounded-lg border bg-background p-3">
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-sm">发布进度</h3>
               <Badge variant="outline">67%</Badge>
             </div>
             <Progress value={67} />
-            <div className="space-y-3 pt-2">
+            <div className="flex flex-col gap-3 pt-2">
               {deploymentEvents.map((event) => (
                 <div className="flex gap-3" key={event.id}>
                   <span
@@ -102,14 +85,14 @@ export function DeployPreviewPanel({
             </div>
           </section>
 
-          <section className="space-y-2">
+          <section className="flex flex-col gap-2">
             <h3 className="font-medium text-sm">部署日志</h3>
             <pre className="overflow-auto rounded-lg border bg-muted/40 p-3 text-xs leading-6">
               {deployLogs.join("\n")}
             </pre>
           </section>
 
-          <section className="space-y-2">
+          <section className="flex flex-col gap-2">
             <h3 className="font-medium text-sm">发布说明</h3>
             <Textarea
               className="min-h-20 resize-none text-xs"
