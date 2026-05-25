@@ -22,6 +22,7 @@
 Runtime Tools 是由 Agent Runtime 统一实现和托管的内部工具，例如：
 
 - `run_task`
+- `write_plan`
 - 只读上下文检索类工具
 - 文件操作类工具
 - 部署类工具
@@ -46,10 +47,12 @@ Adapter Tools 属于外部智能体平台内部的工具模型，例如 OpenCode
 - 工具名必须稳定、短、可读。
 - 不建议引入复杂命名空间，除非后续出现明确冲突。
 - `run_task` 是保留名，表示内部任务委派原语。
+- `write_plan` 是保留名，表示 Orchestrator 的 UI 可渲染计划写入原语。
 
 建议风格：
 
 - `run_task`
+- `write_plan`
 - `read_context`
 - `read_file`
 - `apply_patch`
@@ -71,6 +74,7 @@ Adapter Tools 属于外部智能体平台内部的工具模型，例如 OpenCode
 结论：
 
 - `run_task` 只允许 `orchestrator` 使用。
+- `write_plan` 只允许 `orchestrator` 使用。
 - 文件、部署、网络类工具必须额外受权限约束。
 - 外部智能体默认不进入 Runtime Tool Registry。
 
@@ -150,18 +154,61 @@ Runtime trace 可以和 parent run 的事件流关联，但不应作为模型输
 - `task.completed`
 - `task.failed`
 
-## 7. `run_task` 设计
+## 7. `write_plan` 设计
+
+`write_plan` 是 Orchestrator 用来记录当前计划的原语。它和 DeepAgents 的 todo 写入类工具类似，目标是把计划变成工具结果，供 UI 和 HubServer 从事件流中渲染，而不是依赖私有事件或自然语言解析。
+
+### 7.1 语义
+
+- 一个 `write_plan` 调用只写入当前 Run 的一份计划结果。
+- 不新增 `planId`；追踪使用现有 `runId + toolCallId + event.id`。
+- 同一 Run 内可以多次调用 `write_plan`；最后一个成功的 `tool.completed(toolName="write_plan")` 是当前计划。
+- `write_plan` 不执行任务，不产生 `task.*` 事件。
+- `write_plan` 与 `run_task` 是软约束关系：Prompt 要求先写计划，但 Runtime 不强制拦截未计划任务。
+
+### 7.2 输入与输出
+
+第一版计划输入包含：
+
+- `intent`
+- `summaryInstruction`
+- `tasks`
+
+每个任务包含：
+
+- `taskId`
+- `title`
+- `targetAgentId`
+- `instruction`
+- `expectedOutput`
+- `riskLevel`
+- `dependsOn`
+- `status`
+
+工具输出为统一工具结果，其中 `data.plan` 是前端可直接渲染的结构化计划。
+
+### 7.3 事件流
+
+`write_plan` 只产生工具事件：
+
+- `tool.started`
+- `tool.completed`
+- `tool.failed`
+
+UI 或 HubServer 应从事件流中选择最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。`orchestrator.plan.created` 保留为兼容和后续扩展事件，但不是当前计划主事实来源。
+
+## 8. `run_task` 设计
 
 `run_task` 是 Orchestrator 用来创建内部任务的原语。
 
-### 7.1 语义
+### 8.1 语义
 
 - 一个 `run_task` 调用只拉起一个智能体执行一个任务。
 - `run_task` 不负责多任务 DAG 本身，DAG 编排属于 orchestrator 的计划层。
 - 模型可以在同一轮中同时发起多个 `run_task` 调用。
 - Runtime 可以并行执行这些工具调用，但要受内部并发上限控制。
 
-### 7.2 输入
+### 8.2 输入
 
 `run_task` 的输入应只表达单任务语义，建议包含：
 
@@ -174,7 +221,7 @@ Runtime trace 可以和 parent run 的事件流关联，但不应作为模型输
 
 不建议把 DAG 依赖塞进单个 `run_task` 工具输入里。
 
-### 7.3 输出
+### 8.3 输出
 
 模型只拿到最终结构化结果，例如：
 
@@ -193,7 +240,7 @@ type RunTaskResult = {
 
 Runtime 内部还会保留 trace，用于 UI 展示和事件重放。
 
-### 7.4 事件流
+### 8.4 事件流
 
 `run_task` 生成的内部任务事件流属于运行态事实，不回灌给父智能体作为上下文输入。
 
@@ -205,33 +252,33 @@ Runtime 内部还会保留 trace，用于 UI 展示和事件重放。
 
 Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.executeTask` 负责裸任务生命周期，`RuntimeToolRegistry.executeTool("run_task", ...)` 只负责在外层补上 `tool.started` / `tool.completed` / `tool.failed`。这样一个 `run_task` 调用只会对应一组工具事件和一组任务事件，不会出现双层工具包装。
 
-## 8. 并发、取消与失败
+## 9. 并发、取消与失败
 
-### 8.1 并发
+### 9.1 并发
 
 - 模型可以同时发起多个工具调用。
 - 单个 `run_task` 只能对应一个任务。
 - 工具并发的实际执行顺序不保证稳定。
 - Runtime 可设置并发上限和排队策略。
 
-### 8.2 失败传播
+### 9.2 失败传播
 
 - 单个工具失败，不自动取消其他并发工具。
 - 只有父 `run` 显式取消时，所有相关工具和子任务才停止。
 - 工具失败必须返回结构化错误，并在事件流中记录。
 
-### 8.3 取消
+### 9.3 取消
 
 - 工具执行必须监听父级 `AbortSignal`。
 - 取消后应尽快停止，并发出终态事件。
 - 已完成的工具结果不应被回滚。
 
-### 8.4 超时
+### 9.4 超时
 
 - 工具可有独立超时。
 - 超时必须被视为失败态或取消态之一，且事件码明确。
 
-## 9. 审批与权限
+## 10. 审批与权限
 
 工具权限由两层共同决定：
 
@@ -246,9 +293,10 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 网络外联
 
 `run_task` 默认不需要审批，但它委派的目标任务仍必须满足被委派智能体的权限与可见性约束。
+`write_plan` 默认不需要审批，因为它只记录计划，不执行外部副作用。
 文件系统类工具应通过 `docs/architecture/AGENT_RUNTIME_BACKEND.md` 定义的 Workspace Backend 访问真实存储；本地文件系统只是第一版后端实现。
 
-## 10. 允许的后续扩展
+## 11. 允许的后续扩展
 
 第一阶段只要求把工具体系架构定稳，后续可以逐步扩展：
 
@@ -270,7 +318,7 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 事件语义
 - 返回结构
 
-## 11. 不纳入范围
+## 12. 不纳入范围
 
 本设计不负责：
 
@@ -280,9 +328,13 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 复杂多轮自动修复策略
 - 全量的工具市场或插件机制
 
-## 12. 已锁定决策
+## 13. 已锁定决策
 
 - 工具是 Runtime 能力，不是纯 Prompt 技巧。
+- `write_plan` 是 Orchestrator 计划的主事实来源。
+- `write_plan` 不新增 `planId`。
+- 多次 `write_plan` 调用时，最新成功工具结果为当前计划。
+- `write_plan` 和 `run_task` 保持软约束，不做强制任务匹配。
 - `run_task` 是内部任务原语，不是通用 RPC。
 - 一个 `run_task` 只对应一个智能体和一个任务。
 - 模型可以同时发起多个工具调用。
@@ -290,11 +342,14 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 工具事件主要面向 UI 和追踪，父智能体只看最终结果。
 - `run_task` 产生的事件流可被 UI 订阅，但不会回灌给父智能体作为输入。
 
-## 13. 当前实现状态
+## 14. 当前实现状态
 
 截至本轮，Runtime 工具体系已经进入可执行状态：
 
 - 已实现 `RuntimeToolRegistry`，负责工具注册、可见性过滤、输入校验与工具事件派发。
+- 已实现通用 `internal` 工具标记；普通 AI SDK 主智能体默认看不到 internal tools，Orchestrator 专用路径通过 `includeInternal=true` 获取。
+- 已将 `write_plan` 正式封装为 Runtime Tool，且仅 `orchestrator` 可见、可调用。
+- `write_plan` 通过 `tool.completed.data.plan` 输出 UI 可渲染计划，只产生 `tool.*` 事件，不产生 `task.*` 事件。
 - 已将 `run_task` 正式封装为 Runtime Tool，且仅 `orchestrator` 可见、可调用。
 - `run_task` 单次只拉起一个目标智能体执行一个任务，返回统一结构化结果。
 - `tool.started`、`tool.completed`、`tool.failed`、`permission.requested` 已纳入 RunEvent 协议。

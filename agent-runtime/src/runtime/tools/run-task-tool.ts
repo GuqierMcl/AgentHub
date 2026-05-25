@@ -37,6 +37,7 @@ export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelDa
     riskLevel: "low",
     requiresApproval: false,
     allowedAgents: ["orchestrator"],
+    internal: true,
     async execute(input, context): Promise<ToolExecutionResult<RunTaskModelData, RunTaskRuntimeData>> {
       const executeTask = context.executeTask ?? context.runTask
       if (!executeTask) {

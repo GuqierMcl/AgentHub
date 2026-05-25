@@ -1,4 +1,5 @@
 import type { AgentDefinition, AgentRelation } from "./types"
+import { presetAgentSystemPrompts } from "./preset-agent-prompts"
 
 const llmReadOnlyPolicy = {
   filesystem: "none",
@@ -21,9 +22,10 @@ export const presetAgents: AgentDefinition[] = [
     entryPolicy: "default",
     delegationPolicy: "can-delegate",
     executorType: "orchestrator",
+    systemPrompt: presetAgentSystemPrompts.orchestrator,
     capabilities: ["routing", "planning", "delegation", "aggregation"],
     allowedSubagents: orchestrationSubagents,
-    allowedTools: ["run_task"],
+    allowedTools: ["write_plan", "run_task"],
     permissionPolicy: llmReadOnlyPolicy,
     enabled: true,
     readonly: true,
@@ -38,6 +40,7 @@ export const presetAgents: AgentDefinition[] = [
     entryPolicy: "callable",
     delegationPolicy: "can-delegate",
     executorType: "ai-sdk",
+    systemPrompt: presetAgentSystemPrompts.coder,
     modelRef: {
       providerId: "openai",
       modelId: "gpt-5.1-codex",
@@ -59,6 +62,7 @@ export const presetAgents: AgentDefinition[] = [
     entryPolicy: "callable",
     delegationPolicy: "can-delegate",
     executorType: "ai-sdk",
+    systemPrompt: presetAgentSystemPrompts.reviewer,
     modelRef: {
       providerId: "anthropic",
       modelId: "claude-sonnet-4-6",
@@ -80,6 +84,7 @@ export const presetAgents: AgentDefinition[] = [
     entryPolicy: "callable",
     delegationPolicy: "can-delegate",
     executorType: "ai-sdk",
+    systemPrompt: presetAgentSystemPrompts.writer,
     modelRef: {
       providerId: "openai",
       modelId: "gpt-5.1",
@@ -101,6 +106,7 @@ export const presetAgents: AgentDefinition[] = [
     entryPolicy: "callable",
     delegationPolicy: "can-delegate",
     executorType: "ai-sdk",
+    systemPrompt: presetAgentSystemPrompts.planner,
     modelRef: {
       providerId: "anthropic",
       modelId: "claude-sonnet-4-6",

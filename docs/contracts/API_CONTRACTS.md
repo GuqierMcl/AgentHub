@@ -198,7 +198,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "enabled": true
   },
   "allowedSubagents": ["explore", "general", "file", "deploy"],
-  "allowedTools": ["run_task"],
+  "allowedTools": ["write_plan", "run_task"],
   "permissionPolicy": {
     "filesystem": "none",
     "shell": "none",
@@ -305,7 +305,7 @@ type RunInput = {
 
 Runtime Runs API 用于启动一次智能体执行。本阶段只实现 in-memory Run、MockExecutor 和最小 SSE 事件流，不持久化数据库，不调用真实模型，不执行工具。
 
-当前阶段已经包含 `orchestrator` 的最小编排路径：`orchestrator` 可以通过内部 `run_task` 调度允许的主智能体或子智能体，并通过 `dependsOn` 表达 DAG 依赖；无依赖任务可批次并行执行。
+当前阶段已经包含 `orchestrator` 的最小编排路径：`orchestrator` 可以通过内部 `write_plan` 写入 UI 可渲染计划，再通过内部 `run_task` 调度允许的主智能体或子智能体，并通过 `dependsOn` 表达依赖；无依赖任务可批次并行执行。
 
 ### 创建 Run
 
@@ -458,7 +458,45 @@ type RunEvent = {
 - `tool.started`、`tool.completed`、`tool.failed` 必须携带 `toolCallId` 与 `toolName`。
 - `tool.failed` 的 `data` 应尽量包含结构化错误码、错误消息和可调试细节。
 - `permission.requested` 用于预留审批流程事件，后续可在高风险工具接入时扩展 `permissionId`、`riskLevel` 和审批结果。
+- `write_plan` 的成功结果通过 `tool.completed.data.data.plan` 承载；HubServer/UI 应选择最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。
 - `run_task` 的工具事件只用于 UI 与追踪，不作为父智能体的模型上下文输入。
+
+`write_plan` 成功事件示例：
+
+```json
+{
+  "id": "evt_xxx",
+  "runId": "run_xxx",
+  "type": "tool.completed",
+  "timestamp": "2026-05-24T00:00:00.000Z",
+  "agentId": "orchestrator",
+  "toolCallId": "toolu_xxx",
+  "toolName": "write_plan",
+  "data": {
+    "status": "completed",
+    "summary": "Plan updated with 1 task(s).",
+    "data": {
+      "taskCount": 1,
+      "plan": {
+        "intent": "Inspect the workspace and summarize findings.",
+        "summaryInstruction": "Summarize the delegated result for the user.",
+        "tasks": [
+          {
+            "taskId": "task_coder_scan",
+            "title": "Inspect workspace",
+            "targetAgentId": "coder",
+            "instruction": "Inspect the workspace and report one concrete observation.",
+            "expectedOutput": "One concise workspace observation.",
+            "riskLevel": "low",
+            "dependsOn": [],
+            "status": "pending"
+          }
+        ]
+      }
+    }
+  }
+}
+```
 
 ### 取消 Run
 

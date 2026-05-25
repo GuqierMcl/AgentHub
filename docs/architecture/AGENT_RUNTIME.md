@@ -151,9 +151,9 @@ Orchestrator 的职责包括：
 
 课题要求 Orchestrator 在群聊模式下自动理解用户意图，将复杂任务拆解并分派给合适的子 Agent；子 Agent 完成后，再由 Orchestrator 聚合产出并汇报结果。
 
-MVP 阶段，Orchestrator 不需要做复杂 DAG 调度器外置化，可以直接在 Runtime 内采用“计划生成 + `run_task` DAG 调度 + 批次并行执行 + 汇总结果”的模式。`run_task` 是 Runtime 内部任务工具，只对 Orchestrator 可见，用于调度允许的主智能体或子智能体。任务之间可通过 `dependsOn` 表达依赖关系。后续再扩展更复杂的并行恢复和冲突处理。
+MVP 阶段，Orchestrator 不需要做复杂 DAG 调度器外置化，可以直接在 Runtime 内采用“`write_plan` 计划工具 + `run_task` 任务工具 + 批次并行执行 + 汇总结果”的模式。`write_plan` 是 Runtime 内部计划工具，只对 Orchestrator 可见，用于输出 UI 可渲染计划；`run_task` 是 Runtime 内部任务工具，只对 Orchestrator 可见，用于调度允许的主智能体或子智能体。任务之间可通过 `dependsOn` 表达依赖关系。后续再扩展更复杂的并行恢复和冲突处理。
 
-工具体系、`run_task` 语义、工具事件和审批边界的正式设计见 `docs/architecture/AGENT_TOOLS.md`。
+工具体系、`write_plan`、`run_task` 语义、工具事件和审批边界的正式设计见 `docs/architecture/AGENT_TOOLS.md`。
 
 ### 3.3 Agent Executor 统一执行
 
@@ -181,9 +181,31 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - 接收错误信息。
 - 返回统一事件。
 
-当前实现中，`executorType = "ai-sdk"` 的主智能体会先通过 `ProviderService` 解析 `modelRef`，再交给 AI SDK 的 `streamText` 执行；`orchestrator` 也通过专用 `OrchestratorExecutor` 走 AI SDK `streamText` + `run_task` 工具调用路径，仍然遵守同一套 `RunEvent` 协议。
+当前实现中，`executorType = "ai-sdk"` 的主智能体会先通过 `ProviderService` 解析 `modelRef`，再交给 AI SDK 的 `streamText` 执行；`orchestrator` 也通过专用 `OrchestratorExecutor` 走 AI SDK `streamText` + `write_plan` + `run_task` 工具调用路径，仍然遵守同一套 `RunEvent` 协议。当前计划主事实来源是 `tool.completed(toolName="write_plan")`，而不是自然语言或私有计划事件。
 
 主智能体的模型绑定是运行时配置覆盖层，持久化到 `config.dataDir` 下的 agent 模型绑定文件中，并在注册表加载时合并到 agent 定义。`orchestrator` 已被纳入允许绑定模型的内部主智能体集合，外部智能体和隐藏子智能体仍不在这套绑定层内。
+
+系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`。`AiSdkExecutor` 和 `OrchestratorExecutor` 都从 `AgentDefinition.systemPrompt` 读取提示词，再追加运行态上下文、任务信息、可用工具和会话参与者等执行说明。普通主智能体不会看到 `internal` 工具；`orchestrator` 通过专用执行路径显式开启 `includeInternal=true`，因此只它能看到 `write_plan` 和 `run_task`。
+
+### 3.3.1 当前对话链路闭环状态
+
+当前 Runtime 内部对话链路已经闭环到以下程度：
+
+- `GET /runtime/agents`、`GET /runtime/agents/:id` 可以查询注册表中的可见主智能体、模型绑定与工具能力。
+- `PUT /runtime/agents/:agentId/model` 可以为可见、启用的内部主智能体绑定 provider/model，外部智能体和隐藏子智能体不可绑定。
+- `POST /runtime/runs` 可以接收单聊或群聊 RunInput，并通过 `EntryResolver` 实现单聊入口、群聊默认 `orchestrator`、群聊显式 @ 单个主智能体。
+- `coder`、`reviewer`、`writer`、`planner` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和非内部 Runtime Tools。
+- `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派允许的目标智能体。
+- `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*`、`permission.requested` 事件。
+
+尚未完全闭环的部分：
+
+- HubServer 还未作为产品状态中心消费 Runtime RunEvent，并持久化消息、计划、工具事件、任务事件和 Artifact；当前 smoke 仍可直接访问 Runtime，但产品链路仍应是 `web -> hub-server -> agent-runtime`。
+- 前端还未实现从最后一个成功 `tool.completed(toolName="write_plan")` 投影当前计划，也未展示 `task.*`、`tool.*`、`permission.requested` 的完整 UI 状态。
+- 权限审批只有 `permission.requested` 和 Workspace grant/mount 的底座，缺少 HubServer/前端审批 API、审批结果回传、恢复执行和拒绝处理的完整闭环。
+- 隐藏子智能体 `explore`、`general`、`file`、`deploy` 当前仍是 `mock`，尚未接入真实 AI SDK 执行、专用系统提示词或高风险工具执行。
+- 外部智能体 `opencode` 仍是 `external-adapter` 占位，当前运行时会退回 `MockExecutor`，还没有真实 Adapter 进程管理和事件映射。
+- 文件系统工具目前只开放 `ls`、`read_file`、`glob`、`grep` 的只读能力；写入、编辑、Patch、Diff 应用、shell、deploy 仍未开放。
 
 ### 3.4 外部智能体 Adapter
 

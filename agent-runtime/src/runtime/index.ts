@@ -4,7 +4,7 @@ export { MockExecutor } from "./mock-executor"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
-export { RuntimeToolRegistry, createRunTaskTool } from "./tools"
+export { RuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "./tools"
 export { createWorkspaceReadOnlyTools } from "./tools"
 export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
 export type {
@@ -35,6 +35,12 @@ export type {
   ToolExecutionContext,
   ToolExecutionResult,
   ToolExecutionStatus,
+  WritePlanInput,
+} from "./tools"
+export {
+  PlanTaskStatusSchema,
+  WritePlanInputSchema,
+  WritePlanTaskSchema,
 } from "./tools"
 export type {
   ExternalAccessGrant,

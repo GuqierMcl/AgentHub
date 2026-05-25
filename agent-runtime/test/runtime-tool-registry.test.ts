@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createRunEvent, type AgentExecutionContext, type RunEvent, type RunInput, type TaskExecutionResult } from "../src/runtime"
 import type { AgentDefinition } from "../src/agents"
-import { RuntimeToolRegistry, createRunTaskTool } from "../src/runtime/tools"
+import { RuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "../src/runtime/tools"
 import type { ToolDefinition } from "../src/runtime/tools"
 import { z } from "zod"
 
@@ -104,6 +104,94 @@ const visibleTool: ToolDefinition<{}, { ok: boolean }> = {
 }
 
 describe("RuntimeToolRegistry", () => {
+  test("write_plan emits a UI-renderable plan through tool events only", async () => {
+    const registry = new RuntimeToolRegistry()
+    registry.register(createWritePlanTool())
+
+    const { context, events } = createBaseContext()
+    const result = await registry.executeTool(
+      "write_plan",
+      {
+        intent: "Inspect the project and summarize findings.",
+        summaryInstruction: "Summarize the delegated result for the user.",
+        tasks: [
+          {
+            taskId: "task_coder_scan",
+            title: "Inspect workspace",
+            targetAgentId: "coder",
+            instruction: "Inspect the workspace and report one concrete observation.",
+            expectedOutput: "One concise workspace observation.",
+            riskLevel: "low",
+            dependsOn: [],
+            status: "pending",
+          },
+        ],
+      },
+      context,
+      { toolCallId: "tool_plan" }
+    )
+
+    expect(result.status).toBe("completed")
+    expect((result.data as { plan: { tasks: Array<{ taskId: string }> } }).plan.tasks[0]?.taskId).toBe("task_coder_scan")
+
+    const eventTypes = events.map((event) => event.type)
+    expect(eventTypes).toEqual(["tool.started", "tool.completed"])
+    expect(events.every((event) => event.toolName === "write_plan")).toBe(true)
+    expect(events.some((event) => event.type.startsWith("task."))).toBe(false)
+
+    const completed = events.find((event) => event.type === "tool.completed")
+    const completedData = completed?.data as { data?: { plan?: { tasks: unknown[] } } } | undefined
+    expect(completedData?.data?.plan?.tasks).toHaveLength(1)
+  })
+
+  test("latest successful write_plan tool completion represents the current plan", async () => {
+    const registry = new RuntimeToolRegistry()
+    registry.register(createWritePlanTool())
+
+    const { context, events } = createBaseContext()
+
+    await registry.executeTool(
+      "write_plan",
+      {
+        intent: "Initial plan",
+        summaryInstruction: "Summarize initial plan.",
+        tasks: [],
+      },
+      context,
+      { toolCallId: "tool_plan_1" }
+    )
+
+    await registry.executeTool(
+      "write_plan",
+      {
+        intent: "Updated plan",
+        summaryInstruction: "Summarize updated plan.",
+        tasks: [
+          {
+            taskId: "task_updated",
+            title: "Updated task",
+            targetAgentId: "coder",
+            instruction: "Do the updated task.",
+            expectedOutput: "Updated result.",
+            riskLevel: "low",
+            dependsOn: [],
+            status: "pending",
+          },
+        ],
+      },
+      context,
+      { toolCallId: "tool_plan_2" }
+    )
+
+    const planCompletedEvents = events.filter((event) =>
+      event.type === "tool.completed" && event.toolName === "write_plan"
+    )
+    const latest = planCompletedEvents.at(-1)?.data as { data?: { plan?: { intent: string } } } | undefined
+
+    expect(planCompletedEvents).toHaveLength(2)
+    expect(latest?.data?.plan?.intent).toBe("Updated plan")
+  })
+
   test("run_task emits tool and task lifecycle events for a successful delegation", async () => {
     const registry = new RuntimeToolRegistry()
     registry.register(createRunTaskTool())
@@ -387,6 +475,7 @@ describe("RuntimeToolRegistry", () => {
 
   test("registry returns structured failures before tool execution begins", async () => {
     const registry = new RuntimeToolRegistry()
+    registry.register(createWritePlanTool())
     registry.register(createRunTaskTool())
 
     const { context, events } = createBaseContext()
@@ -410,24 +499,42 @@ describe("RuntimeToolRegistry", () => {
     expect(invalidInput.error?.code).toBe("TOOL_INVALID_INPUT")
     expect(events.filter((event) => event.type === "tool.failed")).toHaveLength(1)
     expect(events.some((event) => event.type === "task.started")).toBe(false)
+
+    events.length = 0
+
+    const invalidPlan = await registry.executeTool(
+      "write_plan",
+      {
+        intent: "",
+        summaryInstruction: "Summarize.",
+        tasks: [],
+      },
+      context
+    )
+
+    expect(invalidPlan.status).toBe("failed")
+    expect(invalidPlan.error?.code).toBe("TOOL_INVALID_INPUT")
+    expect(events.filter((event) => event.type === "tool.failed")).toHaveLength(1)
+    expect(events.some((event) => event.type.startsWith("task."))).toBe(false)
   })
 
-  test("buildAiSdkToolSettings keeps run_task visible only for orchestrator", () => {
+  test("buildAiSdkToolSettings keeps internal tools visible only for orchestrator internal mode", () => {
     const registry = new RuntimeToolRegistry()
+    registry.register(createWritePlanTool())
     registry.register(createRunTaskTool())
     registry.register(visibleTool)
 
     const orchestratorContext = createBaseContext({
       agent: {
         ...orchestratorAgent,
-        allowedTools: ["run_task", "ls"],
+        allowedTools: ["write_plan", "run_task", "ls"],
       },
     }).context
 
     const orchestratorSettings = registry.buildAiSdkToolSettings(orchestratorContext, {
       includeInternal: true,
     })
-    expect(orchestratorSettings?.activeTools).toEqual(["run_task", "ls"])
+    expect(orchestratorSettings?.activeTools).toEqual(["write_plan", "run_task", "ls"])
 
     const coderContext = createBaseContext({
       agent: {
@@ -439,12 +546,13 @@ describe("RuntimeToolRegistry", () => {
           providerId: "deepseek",
           modelId: "deepseek-v4-pro",
         },
-        allowedTools: ["run_task", "ls"],
+        allowedTools: ["write_plan", "run_task", "ls"],
       },
     }).context
 
     const coderSettings = registry.buildAiSdkToolSettings(coderContext)
     expect(coderSettings?.activeTools).toEqual(["ls"])
+    expect(coderSettings?.activeTools).not.toContain("write_plan")
     expect(coderSettings?.activeTools).not.toContain("run_task")
   })
 })

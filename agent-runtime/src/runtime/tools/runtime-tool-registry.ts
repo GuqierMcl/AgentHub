@@ -34,7 +34,7 @@ export class RuntimeToolRegistry {
     return Array.from(this.tools.values())
       .filter((definition) => definition.allowedAgents.includes(agentId))
       .filter((definition) => !allowedToolNames || allowedToolNames.has(definition.name))
-      .filter((definition) => options.includeInternal || definition.name !== "run_task")
+      .filter((definition) => options.includeInternal || !definition.internal)
   }
 
   hasVisibleToolsForAgent(agentId: string, options: RuntimeToolListOptions = {}): boolean {

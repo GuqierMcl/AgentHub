@@ -236,9 +236,9 @@ type RunInput = {
 - 汇总子任务输出。
 - 输出面向用户的最终答复。
 
-MVP 已落地为“AI SDK `streamText` + `run_task` 内部任务工具 + 批次并行执行 + 汇总”的模型。`orchestrator` 仍然是普通主智能体，只是它拥有默认入口语义和更强的委派能力；Runtime 负责把工具调用包装成任务事件，并在必要时做二次校验与汇总。
+MVP 已落地为“AI SDK `streamText` + `write_plan` 计划工具 + `run_task` 内部任务工具 + 批次并行执行 + 汇总”的模型。`orchestrator` 仍然是普通主智能体，只是它拥有默认入口语义和更强的委派能力；Runtime 负责把工具调用包装成计划事件、任务事件，并在必要时做二次校验与汇总。
 
-`run_task` 是 Runtime 内部任务工具，只对 `orchestrator` 可见，用于调度允许的主智能体或子智能体。任务之间可通过 `dependsOn` 表达依赖关系；没有依赖的任务可并行启动。并行 DAG 委派由 Runtime 内部调度，不引入独立控制层。
+`write_plan` 是 Runtime 内部计划工具，只对 `orchestrator` 可见，用于写入 UI 可渲染计划；`run_task` 是 Runtime 内部任务工具，只对 `orchestrator` 可见，用于调度允许的主智能体或子智能体。任务之间可通过 `dependsOn` 表达依赖关系；没有依赖的任务可并行启动。并行委派由 Runtime 内部调度，不引入独立控制层。
 
 工具体系的正式契约、事件流、审批与并发语义见 `docs/architecture/AGENT_TOOLS.md`。
 
@@ -249,9 +249,9 @@ EntryResolver 选择 orchestrator
   ↓
 ContextBuilder 组装上下文
   ↓
-Planner 生成 OrchestratorPlan
+write_plan 写入 UI 可渲染计划
   ↓
-DAG 调度器按依赖关系并行或顺序调用主智能体或子智能体
+run_task 按计划或模型判断调用主智能体或子智能体
   ↓
 Aggregator 汇总结果
   ↓
@@ -398,6 +398,8 @@ type AgentDefinition = {
   updatedAt?: string
 }
 ```
+
+系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`，`preset-agents.ts` 只引用这些常量。当前集中维护的对象包括 `orchestrator`、`coder`、`reviewer`、`writer`、`planner`。外部智能体如 `opencode` 不在这套系统提示词绑定内，后续由外部 Adapter 根据平台能力处理。用户自定义主智能体仍通过自身 `AgentDefinition.systemPrompt` 提供提示词。
 
 ### 5.1 执行器类型
 
@@ -566,7 +568,7 @@ type SubagentResult = {
 
 ## 8. Orchestrator Plan
 
-Orchestrator 的计划必须结构化，不能只依赖自然语言。
+Orchestrator 的计划必须结构化，不能只依赖自然语言。当前实现中，计划由 `write_plan` 工具调用结果承载，前端和 HubServer 从 RunEvent 流中读取最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。
 
 ```ts
 type OrchestratorPlan = {
@@ -579,17 +581,16 @@ type OrchestratorPlan = {
 type OrchestratorTask = {
   taskId: string
   targetAgentId: string
-  targetTier: "primary" | "subagent"
   title: string
   instruction: string
   expectedOutput: string
-  requiredCapabilities: string[]
   riskLevel: "low" | "medium" | "high"
   dependsOn: string[]
+  status: "pending" | "in_progress" | "completed" | "failed" | "cancelled"
 }
 ```
 
-在当前 V1 实现里，这个 plan 更像是 orchestrator 内部的任务图语义；模型可以通过 `run_task` 逐步表达委派，不一定单独产出 plan 事件。
+本阶段不新增 `planId`；计划追踪使用现有 `runId + toolCallId + event.id`。同一 Run 内可以多次调用 `write_plan`，最新成功工具结果代表当前计划。`write_plan` 与 `run_task` 保持软约束：Prompt 要求复杂任务或委派任务先写计划，但 Runtime 不强制拦截未在计划中的 `run_task`。
 
 计划生成后，Runtime 需要做二次校验：
 
@@ -627,7 +628,7 @@ agent.completed
  run.failed
 ```
 
-其中 `orchestrator.plan.created` 目前保留为后续可视化和调试事件的扩展点，当前 AI SDK orchestrator V1 主路径不强制发送该事件。
+其中 `orchestrator.plan.created` 目前保留为后续可视化和调试事件的扩展点，当前计划的主事实来源是 `tool.completed(toolName="write_plan")`。
 
 事件载荷要包含足够的追踪信息：
 

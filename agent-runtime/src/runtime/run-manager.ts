@@ -9,7 +9,7 @@ import { AgentModelResolutionError } from "./model-resolver"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
-import { RuntimeToolRegistry, createRunTaskTool, createWorkspaceReadOnlyTools } from "./tools"
+import { RuntimeToolRegistry, createRunTaskTool, createWorkspaceReadOnlyTools, createWritePlanTool } from "./tools"
 import { WorkspaceService } from "./workspace"
 import type {
   AgentExecutionContext,
@@ -76,6 +76,7 @@ export class RunManager {
     workspaceService?: WorkspaceService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
+    this.toolRegistry.register(createWritePlanTool())
     this.toolRegistry.register(createRunTaskTool())
     for (const tool of createWorkspaceReadOnlyTools()) {
       this.toolRegistry.register(tool)

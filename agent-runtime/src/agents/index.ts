@@ -1,8 +1,10 @@
 export { AgentStore } from "./agent-store"
 export { AgentModelBindingStore } from "./agent-model-binding-store"
 export { AgentRegistry } from "./agent-registry"
+export { presetAgentSystemPrompts } from "./preset-agent-prompts"
 export { presetAgents, presetAgentRelations } from "./preset-agents"
 export { presetSubagents } from "./preset-subagents"
+export type { PresetAgentSystemPromptName } from "./preset-agent-prompts"
 export type {
   AgentTier,
   AgentOrigin,
