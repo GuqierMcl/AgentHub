@@ -7,19 +7,27 @@ import { ChatHeader } from "./ChatHeader"
 import { MessageList } from "./MessageList"
 import type { Conversation } from "../types"
 import { getAgentById } from "../mock-data"
-import type { Artifact } from "../types"
 
 type ChatPanelProps = {
   conversation: Conversation
-  onOpenArtifact: (artifact: Artifact) => void
+  isWorkspaceOpen: boolean
+  onToggleWorkspace: () => void
 }
 
-export function ChatPanel({ conversation, onOpenArtifact }: ChatPanelProps) {
+export function ChatPanel({
+  conversation,
+  isWorkspaceOpen,
+  onToggleWorkspace,
+}: ChatPanelProps) {
   const primaryAgent = getAgentById(conversation.agentIds[0])
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-background">
-      <ChatHeader conversation={conversation} />
+      <ChatHeader
+        conversation={conversation}
+        isWorkspaceOpen={isWorkspaceOpen}
+        onToggleWorkspace={onToggleWorkspace}
+      />
       <div className="flex shrink-0 items-center gap-2 border-border border-b bg-muted/40 px-5 py-2 text-muted-foreground text-xs">
         <PinIcon className="size-3.5" />
         <span className="truncate">
@@ -33,10 +41,7 @@ export function ChatPanel({ conversation, onOpenArtifact }: ChatPanelProps) {
           </>
         ) : null}
       </div>
-      <MessageList
-        messages={conversation.messages}
-        onOpenArtifact={onOpenArtifact}
-      />
+      <MessageList messages={conversation.messages} />
       <ChatComposer />
     </section>
   )

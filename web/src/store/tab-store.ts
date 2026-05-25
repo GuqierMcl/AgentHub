@@ -1,0 +1,150 @@
+import { create } from "zustand"
+import type { LucideIcon } from "lucide-react"
+import {
+  FileSearchIcon,
+  FolderOpenIcon,
+  GlobeIcon,
+  RocketIcon,
+  SquareTerminalIcon,
+} from "lucide-react"
+
+export type SingletonTabId = "review" | "files" | "deploy"
+export type MultiTabId = "terminal" | "preview"
+export type TabType = SingletonTabId | MultiTabId
+
+export type TabInstance = {
+  uid: string
+  type: TabType
+  title: string
+  icon: LucideIcon
+}
+
+export const tabMeta: Record<TabType, { icon: LucideIcon; label: string }> = {
+  review: { icon: FileSearchIcon, label: "代码审查" },
+  files: { icon: FolderOpenIcon, label: "文件浏览" },
+  deploy: { icon: RocketIcon, label: "部署预览" },
+  terminal: { icon: SquareTerminalIcon, label: "终端" },
+  preview: { icon: GlobeIcon, label: "浏览器" },
+}
+
+export const singletonTabIds: SingletonTabId[] = ["review", "files", "deploy"]
+export const multiTabIds: MultiTabId[] = ["terminal", "preview"]
+
+type TabStore = {
+  tabs: TabInstance[]
+  activeTabUid: string | null
+  mountedTabUids: Set<string>
+  tabCounters: Record<MultiTabId, number>
+
+  openTab: (type: TabType, title?: string) => string
+  closeTab: (uid: string) => void
+  activateTab: (uid: string) => void
+  closeAllTabs: () => void
+  isSingletonOpen: (type: SingletonTabId) => boolean
+}
+
+export const useTabStore = create<TabStore>((set, get) => ({
+  tabs: [],
+  activeTabUid: null,
+  mountedTabUids: new Set(),
+  tabCounters: { terminal: 0, preview: 0 },
+
+  openTab: (type, title) => {
+    const state = get()
+    const meta = tabMeta[type]
+
+    // Singleton: already open → just activate
+    if (
+      type === "review" ||
+      type === "files" ||
+      type === "deploy"
+    ) {
+      const existing = state.tabs.find((t) => t.type === type)
+      if (existing) {
+        set({ activeTabUid: existing.uid })
+        return existing.uid
+      }
+
+      const uid = type
+      const tab: TabInstance = {
+        uid,
+        type,
+        title: title ?? meta.label,
+        icon: meta.icon,
+      }
+      set((s) => ({
+        tabs: [...s.tabs, tab],
+        activeTabUid: uid,
+        mountedTabUids: new Set([...s.mountedTabUids, uid]),
+      }))
+      return uid
+    }
+
+    // Multi-instance
+    const counter = state.tabCounters[type]
+    const uid = `${type}-${counter + 1}`
+    const tab: TabInstance = {
+      uid,
+      type,
+      title: title ?? `${meta.label}${counter + 1}`,
+      icon: meta.icon,
+    }
+    set((s) => ({
+      tabs: [...s.tabs, tab],
+      activeTabUid: uid,
+      mountedTabUids: new Set([...s.mountedTabUids, uid]),
+      tabCounters: { ...s.tabCounters, [type]: counter + 1 },
+    }))
+    return uid
+  },
+
+  closeTab: (uid) => {
+    const state = get()
+    const idx = state.tabs.findIndex((t) => t.uid === uid)
+    if (idx === -1) return
+
+    const newTabs = state.tabs.filter((t) => t.uid !== uid)
+    const newMounted = new Set(state.mountedTabUids)
+    newMounted.delete(uid)
+
+    let newActive = state.activeTabUid
+    if (state.activeTabUid === uid) {
+      if (newTabs.length === 0) {
+        newActive = null
+      } else {
+        const nextIdx = Math.min(idx, newTabs.length - 1)
+        newActive = newTabs[nextIdx].uid
+      }
+    }
+
+    // Ensure active is in mounted
+    if (newActive) {
+      newMounted.add(newActive)
+    }
+
+    set({
+      tabs: newTabs,
+      activeTabUid: newActive,
+      mountedTabUids: newMounted,
+    })
+  },
+
+  activateTab: (uid) => {
+    set((s) => ({
+      activeTabUid: uid,
+      mountedTabUids: new Set([...s.mountedTabUids, uid]),
+    }))
+  },
+
+  closeAllTabs: () => {
+    set({
+      tabs: [],
+      activeTabUid: null,
+      mountedTabUids: new Set(),
+    })
+  },
+
+  isSingletonOpen: (type) => {
+    return get().tabs.some((t) => t.type === type)
+  },
+}))

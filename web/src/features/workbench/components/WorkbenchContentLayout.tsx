@@ -1,5 +1,4 @@
-import { useCallback, useState } from "react"
-import type { PanelSize } from "react-resizable-panels"
+import { useEffect, useCallback, useRef, useState } from "react"
 import { usePanelRef } from "react-resizable-panels"
 
 import {
@@ -8,37 +7,23 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 
+import { useTabStore } from "@/store/tab-store"
+
 import { RightWorkbench } from "../right-workbench/RightWorkbench"
-import type { RightWorkbenchTabId } from "../right-workbench/RightWorkbench"
-import type { Artifact } from "../types"
 import { ChatPanel } from "./ChatPanel"
 import type { Conversation } from "../types"
 
 type WorkbenchContentLayoutProps = {
   activeConversation: Conversation
-  activeRightTab: RightWorkbenchTabId
-  mountedRightTabs: ReadonlySet<RightWorkbenchTabId>
-  onActiveRightTabChange: (tabId: RightWorkbenchTabId) => void
-  onOpenArtifact: (artifact: Artifact) => void
-  onSelectedFilePathChange: (path: string) => void
-  previewTarget: string
-  selectedArtifact: Artifact | null
-  selectedFilePath: string
 }
 
 export function WorkbenchContentLayout({
   activeConversation,
-  activeRightTab,
-  mountedRightTabs,
-  onActiveRightTabChange,
-  onOpenArtifact,
-  onSelectedFilePathChange,
-  previewTarget,
-  selectedArtifact,
-  selectedFilePath,
 }: WorkbenchContentLayoutProps) {
   const workspacePanelRef = usePanelRef()
-  const [isWorkspaceCollapsed, setIsWorkspaceCollapsed] = useState(false)
+  const [isWorkspaceCollapsed, setIsWorkspaceCollapsed] = useState(true)
+  const tabs = useTabStore((s) => s.tabs)
+  const hasTabsRef = useRef(false)
 
   const handleToggleWorkspaceCollapsed = useCallback(() => {
     const workspacePanel = workspacePanelRef.current
@@ -57,9 +42,23 @@ export function WorkbenchContentLayout({
     setIsWorkspaceCollapsed(true)
   }, [workspacePanelRef])
 
-  const handleWorkspaceResize = useCallback((size: PanelSize) => {
-    setIsWorkspaceCollapsed(size.inPixels <= 72 || size.asPercentage <= 1)
-  }, [])
+  useEffect(() => {
+    const workspacePanel = workspacePanelRef.current
+    if (!workspacePanel) return
+
+    const hadTabs = hasTabsRef.current
+    const hasTabs = tabs.length > 0
+
+    if (hasTabs && !hadTabs) {
+      workspacePanel.expand()
+      setIsWorkspaceCollapsed(false)
+    } else if (!hasTabs && hadTabs) {
+      workspacePanel.collapse()
+      setIsWorkspaceCollapsed(true)
+    }
+
+    hasTabsRef.current = hasTabs
+  }, [tabs.length, workspacePanelRef])
 
   return (
     <div className="h-full min-h-0 min-w-0 bg-background">
@@ -71,36 +70,27 @@ export function WorkbenchContentLayout({
         <ResizablePanel
           className="h-full min-h-0 min-w-0"
           id="chat"
-          defaultSize={64}
           minSize={28}
         >
-          <ChatPanel
-            conversation={activeConversation}
-            onOpenArtifact={onOpenArtifact}
-          />
+          <div className="h-full">
+            <ChatPanel
+              conversation={activeConversation}
+              isWorkspaceOpen={!isWorkspaceCollapsed}
+              onToggleWorkspace={handleToggleWorkspaceCollapsed}
+            />
+          </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel
           className="h-full min-h-0 min-w-0"
           id="workspace"
-          collapsedSize="3.5rem"
           collapsible
-          defaultSize={36}
-          minSize="23rem"
-          onResize={handleWorkspaceResize}
+          defaultSize={"320px"}
+          minSize="17rem"
           panelRef={workspacePanelRef}
+          groupResizeBehavior="preserve-pixel-size"
         >
-          <RightWorkbench
-            activeTab={activeRightTab}
-            collapsed={isWorkspaceCollapsed}
-            mountedTabs={mountedRightTabs}
-            onActiveTabChange={onActiveRightTabChange}
-            onSelectedFilePathChange={onSelectedFilePathChange}
-            onToggleCollapsed={handleToggleWorkspaceCollapsed}
-            previewTarget={previewTarget}
-            selectedArtifact={selectedArtifact}
-            selectedFilePath={selectedFilePath}
-          />
+          <RightWorkbench />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

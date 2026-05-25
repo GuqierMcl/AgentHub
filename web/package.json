@@ -31,7 +31,8 @@
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.0",
-    "use-stick-to-bottom": "^1.1.4"
+    "use-stick-to-bottom": "^1.1.4",
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

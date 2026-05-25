@@ -1,9 +1,4 @@
-import type {
-  DeploymentEvent,
-  ReviewFile,
-  ReviewIssue,
-  WorkspaceFile,
-} from "./types"
+import type { DeploymentEvent, ReviewFile, ReviewIssue, WorkspaceFile } from "./types"
 
 export const defaultSelectedFilePath =
   "src/features/workbench/WorkbenchPage.tsx"
@@ -155,4 +150,32 @@ export const deployLogs = [
   "[09:41:20] hydrate preview shell: ok",
   "[09:41:22] run smoke checks: pending manual review",
   "[09:41:25] publish action: disabled in static prototype",
+]
+
+export const terminalSessions = [
+  {
+    id: "term-1",
+    title: "终端1",
+    lines: [
+      "$ bun dev",
+      "[0.002] Listening on http://localhost:5173/",
+      "[0.015] HMR connected",
+      "$ echo AgentHub",
+      "AgentHub",
+    ],
+  },
+  {
+    id: "term-2",
+    title: "终端2",
+    lines: [
+      "$ cd hub-server && bun dev",
+      "[0.001] Listening on http://localhost:3000/",
+      "[0.010] HubServer started",
+    ],
+  },
+]
+
+export const browserTargets = [
+  { id: "preview-1", title: "浏览器1", url: "https://localhost:4173" },
+  { id: "preview-2", title: "浏览器2", url: "https://localhost:3000/api" },
 ]
