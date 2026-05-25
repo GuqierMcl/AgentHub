@@ -1,6 +1,10 @@
 import type { OrchestratorRiskLevel } from "../types"
 import type { ExternalAccessGrant } from "../workspace"
 
+export type RuntimePermissionGrant = Omit<ExternalAccessGrant, "rootPath" | "targetPath"> & {
+  logicalPath?: string
+}
+
 export type RuntimePermissionStatus = "pending" | "approved" | "denied" | "cancelled" | "expired"
 
 export type RuntimePermissionRequest = {
@@ -12,10 +16,15 @@ export type RuntimePermissionRequest = {
   riskLevel: OrchestratorRiskLevel
   status: RuntimePermissionStatus
   reason: string
+  executionId?: string
+  parentAgentId?: string
+  taskId?: string
+  groupId?: string
+  parentTaskId?: string
   approvalId?: string
   workspaceRequestId?: string
   data?: Record<string, unknown>
-  grant?: ExternalAccessGrant
+  grant?: RuntimePermissionGrant
   decisionReason?: string
   createdAt: string
   resolvedAt?: string
@@ -25,4 +34,3 @@ export type RuntimePermissionDecision = {
   approved: boolean
   reason?: string
 }
-

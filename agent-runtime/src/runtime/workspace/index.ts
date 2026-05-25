@@ -1,5 +1,7 @@
 export { LocalWorkspaceBackend } from "./local-workspace-backend"
 export { WorkspaceService } from "./workspace-service"
+export { DEFAULT_SANDBOX_POLICY, isSensitiveWorkspacePath } from "./sandbox-policy"
+export { WorkspaceError } from "./types"
 export type {
   ExternalAccessGrant,
   ExternalAccessRequest,
@@ -12,7 +14,6 @@ export type {
   WorkspaceBackend,
   WorkspaceBackendCapabilities,
   WorkspaceContentBlock,
-  WorkspaceError,
   WorkspaceErrorCode,
   WorkspaceGrepMatch,
   WorkspaceHandle,
@@ -20,6 +21,7 @@ export type {
   WorkspaceReadFileResult,
   WorkspaceTargetKind,
   WorkspaceAccessMode,
+  WorkspaceReadApprovalReason,
 } from "./types"
 
 declare module "hono" {

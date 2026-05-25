@@ -33,6 +33,11 @@ export type SandboxPolicy = {
   blockedExtensions: string[]
 }
 
+export type WorkspaceReadApprovalReason =
+  | "external_read"
+  | "sensitive_read"
+  | "external_sensitive_read"
+
 export type WorkspaceContentBlock =
   | { type: "text"; text: string }
   | { type: "image"; mimeType: string; data: string; encoding: "base64" }
@@ -66,6 +71,7 @@ export type WorkspaceErrorCode =
   | "WORKSPACE_PATH_NOT_FOUND"
   | "WORKSPACE_PATH_OUTSIDE_ROOT"
   | "WORKSPACE_SERVICE_UNAVAILABLE"
+  | "WORKSPACE_NOT_BOUND"
   | "WORKSPACE_SENSITIVE_PATH_BLOCKED"
   | "WORKSPACE_SYMLINK_ESCAPE"
   | "WORKSPACE_UNSUPPORTED_OPERATION"
@@ -89,6 +95,9 @@ export type ExternalAccessRequest = {
   targetKind: WorkspaceTargetKind
   accessMode: WorkspaceAccessMode
   reason: string
+  approvalReason: WorkspaceReadApprovalReason
+  logicalPath: string
+  outsideWorkspace: boolean
   riskLevel: "low" | "medium" | "high"
   createdAt: string
   expiresAt?: string
@@ -99,6 +108,7 @@ export type ExternalAccessGrant = {
   grantId: string
   requestId: string
   mountId: string
+  runId: string
   workspaceId: string
   targetPath: string
   targetKind: WorkspaceTargetKind
@@ -106,6 +116,8 @@ export type ExternalAccessGrant = {
   backendType: string
   rootPath: string
   rootLabel: string
+  scope: "external" | "sensitive" | "external-sensitive"
+  allowSensitive: boolean
   createdAt: string
   expiresAt?: string
 }
@@ -116,6 +128,7 @@ export type WorkspaceAccessAllowed = {
   handle: WorkspaceHandle
   relativePath: string
   absolutePath: string
+  logicalPath: string
   scope: "workspace" | "grant"
   targetKind: WorkspaceTargetKind
   grant?: ExternalAccessGrant

@@ -57,7 +57,7 @@ HubServer 在启动时通过 `Bun.spawn` 或等价方式启动 Agent Runtime 子
 | `--port` | number | 否 | Agent Runtime 监听端口，默认 `3001` |
 | `--host` | string | 否 | 监听地址，默认 `127.0.0.1` |
 | `--hub-callback` | string | 否 | HubServer 回调地址，用于 Runtime 反向通知 |
-| `--workdir` | string | 否 | 工作目录根路径，默认使用系统临时目录 |
+| `--workdir` | string | 否 | Runtime 进程级工作目录；不再作为普通 Run 文件工具的隐式 workspace |
 | `--log-level` | string | 否 | 日志级别：`debug` / `info` / `warn` / `error`，默认 `info` |
 
 配置优先级：命令行参数 > 环境变量 > 默认值。
@@ -202,7 +202,7 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - `coder`、`reviewer`、`writer`、`planner` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和非内部 Runtime Tools。
 - `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派当前 Run participants 中的其他主智能体或自身 `allowedSubagents` 中的子智能体。
 - `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*` 与完整 `permission.*` 事件。
-- Runtime 已支持 `waiting_approval`：沙箱外只读工具请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复 AI SDK 执行。
+- Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取和沙箱外敏感读取请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
 
 尚未完全闭环的部分：
 
@@ -277,9 +277,27 @@ Agent Runtime 需要负责将 Agent 的执行结果转化为平台可识别的�
 
 MVP 阶段，Workspace 可以是轻量本地目录；后续可以演进为沙箱、容器或远程执行环境。
 
-Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。
+当前 Runtime 只消费每次 `POST /runtime/runs` 传入的可选 workspace snapshot：
 
-Runtime 通过 `RuntimePermissionService` 存储内存态审批请求。AI SDK 的 `needsApproval` 会结束当次生成并返回 approval request；Runtime 将 Run 标记为 `waiting_approval`，收到决定后追加 `tool-approval-response` 并再次执行同一 entry agent，保持原始 `runId` 与 `toolCallId`。
+```ts
+workspace?: {
+  workspaceId: string
+  backendType: "local"
+  rootPath: string
+}
+```
+
+首版规则：
+
+- 一个 Run 最多绑定一个主 workspace，创建时固定，运行中不可切换。
+- `backendType` 当前只支持 `local`。
+- `rootPath` 必须是已存在目录；Runtime 使用 canonical real path 建立 session，不自动创建目录。
+- 未携带 workspace 的 Run 可以继续纯对话；文件工具返回 `WORKSPACE_NOT_BOUND`，不会回退到 `config.workdir`。
+- Run 查询只回显 `workspaceId`、`backendType` 和 `rootLabel`，不回显 `rootPath`。
+
+Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。workspace 内 `.env`、`AGENTS.md`、`.npmrc`、密钥文件和 VCS 元数据等敏感路径的显式内容读取也必须审批；`ls` / `glob` 隐藏敏感路径，目录递归 `grep` 跳过敏感文件。
+
+Runtime 通过每个 Run 独立的 `RuntimePermissionService` 存储内存态审批请求。AI SDK 的 `needsApproval` 会结束当次生成并返回 approval request；Runtime 将对应执行分支保存为 continuation frame。收到决定后追加 `tool-approval-response` 并再次执行同一分支，保持原始 `runId`、`toolCallId`、`agentId`、`taskId`、`parentAgentId` 和 `groupId`。同一 frame 的多个审批请求全部决定后只恢复一次；其他并行分支不会因单个审批失败而自动取消。
 
 ### 3.7 事件流输出
 

@@ -51,10 +51,10 @@ function joinPattern(basePath: string, pattern: string): string {
 function createUnsupportedResult<TData = unknown>(toolName: string): ToolExecutionResult<TData> {
   return {
     status: "failed",
-    summary: `${toolName} is unavailable because workspace service is not configured`,
+    summary: `${toolName} is unavailable because this run has no bound workspace`,
     error: {
-      code: "WORKSPACE_SERVICE_UNAVAILABLE",
-      message: `Workspace service is required for ${toolName}`,
+      code: "WORKSPACE_NOT_BOUND",
+      message: `A bound workspace is required for ${toolName}`,
     },
   }
 }
@@ -90,7 +90,7 @@ function createApprovalFailureResult<TData = unknown>(
   toolName: string,
   request: {
     requestId: string
-    targetPath: string
+    logicalPath: string
     targetKind: string
     accessMode: string
     reason: string
@@ -100,10 +100,10 @@ function createApprovalFailureResult<TData = unknown>(
 ): ToolExecutionResult<TData> {
   return {
     status: "failed",
-    summary: `${toolName} requires approval for ${request.targetPath}`,
+    summary: `${toolName} requires approval for ${request.logicalPath}`,
     data: {
       requestId: request.requestId,
-      targetPath: request.targetPath,
+      logicalPath: request.logicalPath,
       targetKind: request.targetKind,
       accessMode: request.accessMode,
       reason: request.reason,
@@ -112,8 +112,15 @@ function createApprovalFailureResult<TData = unknown>(
     } as TData,
     error: {
       code: "WORKSPACE_EXTERNAL_ACCESS_PENDING_APPROVAL",
-      message: `Access to ${request.targetPath} requires approval`,
-      details: request,
+      message: `Access to ${request.logicalPath} requires approval`,
+      details: {
+        requestId: request.requestId,
+        logicalPath: request.logicalPath,
+        targetKind: request.targetKind,
+        accessMode: request.accessMode,
+        riskLevel: request.riskLevel,
+        workspaceId: request.workspaceId,
+      },
     },
     runtime: {
       request,
@@ -159,9 +166,10 @@ async function prepareApproval(
     workspaceRequestId: decision.request.requestId,
     data: {
       workspaceId: decision.request.workspaceId,
-      targetPath: decision.request.targetPath,
+      logicalPath: decision.request.logicalPath,
       targetKind: decision.request.targetKind,
       accessMode: decision.request.accessMode,
+      approvalReason: decision.request.approvalReason,
     },
   }
 }
@@ -291,7 +299,7 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
       "List workspace contents",
       async (_input, context, decision) => {
         const entries = await decision.backend.listFiles(decision.relativePath)
-        return formatListResult(entries, decision.absolutePath)
+        return formatListResult(entries, decision.logicalPath)
       }
     ),
     createWorkspaceTool(

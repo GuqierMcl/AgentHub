@@ -41,6 +41,7 @@ export type ToolExecutionContext = {
   emitEvent: (event: RunEvent) => void
   workspaceService?: WorkspaceService
   permissionService?: RuntimePermissionService
+  executionId?: string
   executeTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string

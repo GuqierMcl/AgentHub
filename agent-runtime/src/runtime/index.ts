@@ -2,7 +2,7 @@ export { EntryResolver, RunInputValidationError } from "./entry-resolver"
 export { AiSdkExecutor } from "./ai-sdk-executor"
 export { MockExecutor } from "./mock-executor"
 export { OrchestratorExecutor } from "./orchestrator-executor"
-export { RunManager } from "./run-manager"
+export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
 export { RuntimeToolRegistry, createDefaultRuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "./tools"
 export { RuntimePermissionError, RuntimePermissionService } from "./permissions"
@@ -12,6 +12,8 @@ export type {
   RuntimeConversationMode,
   RuntimeMessage,
   RunInput,
+  RunWorkspaceSnapshot,
+  RunWorkspaceSummary,
   RunStatus,
   EntryReason,
   RunEventType,
@@ -44,6 +46,7 @@ export type {
 } from "./tools"
 export type {
   RuntimePermissionDecision,
+  RuntimePermissionGrant,
   RuntimePermissionRequest,
   RuntimePermissionStatus,
 } from "./permissions"
@@ -72,10 +75,13 @@ export type {
   WorkspaceReadFileResult,
   WorkspaceTargetKind,
   WorkspaceAccessMode,
+  WorkspaceReadApprovalReason,
 } from "./workspace"
 export {
   RuntimeConversationModeSchema,
   RuntimeMessageSchema,
+  RunWorkspaceSnapshotSchema,
+  RunWorkspaceSummarySchema,
   RunInputSchema,
   RunStatusSchema,
   EntryReasonSchema,

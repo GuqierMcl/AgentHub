@@ -197,6 +197,9 @@ Agent Runtime 智能体架构
 - 阶段 6 已落地 `WorkspaceService`、`LocalWorkspaceBackend`、沙箱外访问请求与授权挂载语义，以及首批只读文件工具 `ls`、`read_file`、`glob`、`grep`。
 - 工具权限、风险、审批策略与 Authoring Options metadata 已统一由 Runtime Tool Catalog 提供；`allowedTools` 仅负责可见性，`permissionPolicy` 负责 agent 能力上限。
 - Runtime 内部审批闭环已落地：`waiting_approval`、permission lifecycle events、权限查询/决定 API，以及同一 `runId` / `toolCallId` 的 AI SDK 续跑。
+- per-run workspace 隔离已落地：`RunInput.workspace` 可绑定一个固定本地目录；无 workspace 的 Run 可纯对话，文件工具返回 `WORKSPACE_NOT_BOUND`；Run 查询、普通事件和工具成功结果不回显真实绝对路径。
+- 敏感读取审批已落地：workspace 内 `.env`、`AGENTS.md`、`.npmrc`、密钥文件和 VCS 元数据等显式内容读取需要审批；`ls` / `glob` 隐藏敏感路径，递归 `grep` 跳过敏感文件。
+- 读取 grant 已扩展为 scoped per-run grant：支持 `external_read`、`sensitive_read`、`external_sensitive_read`，并支持 delegated task 分支 continuation 与同一 frame 多审批请求的合并续跑。
 - `AGENT_RUNTIME_BACKEND.md` 已建立，明确 Workspace Backend、沙箱外访问审批和本地优先实现。
 - `AGENT_TOOLS.md` 已建立，明确工具可见性、`run_task` 语义、事件流和并发约束。
 
@@ -220,7 +223,6 @@ Agent Runtime 智能体架构
 - `deploy` 子智能体的权限与审批策略在第一版中是否只做声明不执行。
 - 外部智能体是否需要先支持只读执行能力。
 - 目前阶段已明确只允许单个 @，并行 @ 作为后续版本能力。
-- Workspace 根目录来源是 `--workdir`、配置项还是 HubServer 传入参数，需要在实现前最终敲定。
 - 当前沙箱外只读审批可限定文件或目录范围；写入阶段仍需确认 grant 生命周期与修改冲突策略。
 
 ## 最近更新
@@ -240,4 +242,5 @@ Agent Runtime 智能体架构
 - 本轮已将 Orchestrator 计划工具化：`write_plan` 成为计划主事实来源，计划通过 `tool.completed` 事件供 UI 渲染；不新增 `planId`，多次调用时最新成功工具结果为准。
 - 本轮已收敛 Runtime Tool Catalog 与 per-agent permission policy：工具元数据不再分散在 router 或 CRUD 白名单中，读取工具要求显式 `filesystem: "read"`。
 - 本轮已闭环 Runtime 内部审批续跑：沙箱外只读访问支持 `waiting_approval`、permission API、受控 read grant 与 AI SDK 二次生成恢复；HubServer/UI 集成留待后续。
+- 本轮已完成 per-run workspace 隔离、敏感读取审批和分支级 continuation：Run 可绑定固定 local workspace；文件工具不再回退到全局 `config.workdir`；敏感读取和沙箱外敏感读取通过 scoped read grant 恢复原执行分支。
 - 下一阶段文件能力目标为 `write_file` / `edit_file`，并同步补齐写权限 grant 与强制审批策略。

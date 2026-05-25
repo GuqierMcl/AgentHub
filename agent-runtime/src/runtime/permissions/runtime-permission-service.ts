@@ -23,7 +23,7 @@ export class RuntimePermissionService {
   private requests = new Map<string, RuntimePermissionRequest>()
   private requestsByToolCall = new Map<string, string>()
 
-  constructor(private workspaceService: WorkspaceService) {}
+  constructor(private workspaceService?: WorkspaceService) {}
 
   stageToolApproval(
     context: ToolExecutionContext,
@@ -48,6 +48,11 @@ export class RuntimePermissionService {
       riskLevel: draft.riskLevel,
       status: "pending",
       reason: draft.reason,
+      executionId: context.executionId,
+      parentAgentId: context.parentAgentId,
+      taskId: context.task?.taskId,
+      groupId: context.groupId,
+      parentTaskId: context.parentTaskId,
       workspaceRequestId: draft.workspaceRequestId,
       data: draft.data,
       createdAt: new Date().toISOString(),
@@ -95,7 +100,7 @@ export class RuntimePermissionService {
     }
 
     if (decision.approved && request.workspaceRequestId) {
-      const grant = this.workspaceService.approveExternalAccess(request.workspaceRequestId)
+      const grant = this.workspaceService?.approveReadAccess(request.workspaceRequestId)
       if (!grant) {
         throw new RuntimePermissionError(
           "PERMISSION_GRANT_FAILED",
@@ -103,7 +108,11 @@ export class RuntimePermissionService {
           409
         )
       }
-      request.grant = grant
+      const { rootPath: _rootPath, targetPath: _targetPath, ...publicGrant } = grant
+      request.grant = {
+        ...publicGrant,
+        logicalPath: typeof request.data?.logicalPath === "string" ? request.data.logicalPath : undefined,
+      }
     }
 
     request.status = decision.approved ? "approved" : "denied"
@@ -128,7 +137,10 @@ export class RuntimePermissionService {
     const event = createRunEvent(request.runId, type, request.agentId, request)
     event.toolCallId = request.toolCallId
     event.toolName = request.toolName
-    event.parentAgentId = request.agentId
+    event.parentAgentId = request.parentAgentId ?? request.agentId
+    event.taskId = request.taskId
+    event.parentTaskId = request.parentTaskId
+    event.groupId = request.groupId
     return event
   }
 }

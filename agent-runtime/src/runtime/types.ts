@@ -15,6 +15,20 @@ export const RuntimeMessageSchema = z.object({
 })
 export type RuntimeMessage = z.infer<typeof RuntimeMessageSchema>
 
+export const RunWorkspaceSnapshotSchema = z.object({
+  workspaceId: z.string().min(1),
+  backendType: z.literal("local"),
+  rootPath: z.string().min(1),
+})
+export type RunWorkspaceSnapshot = z.infer<typeof RunWorkspaceSnapshotSchema>
+
+export const RunWorkspaceSummarySchema = z.object({
+  workspaceId: z.string().min(1),
+  backendType: z.literal("local"),
+  rootLabel: z.string().min(1),
+})
+export type RunWorkspaceSummary = z.infer<typeof RunWorkspaceSummarySchema>
+
 export const RunInputSchema = z.object({
   conversationId: z.string().min(1),
   mode: RuntimeConversationModeSchema,
@@ -24,6 +38,7 @@ export const RunInputSchema = z.object({
     role: z.literal("user"),
   }),
   history: z.array(RuntimeMessageSchema).default([]),
+  workspace: RunWorkspaceSnapshotSchema.optional(),
 })
 export type RunInput = z.infer<typeof RunInputSchema>
 
@@ -144,6 +159,12 @@ export type RunRecord = {
   }
 }
 
+export type RunRecordResponse = Omit<RunRecord, "input"> & {
+  input: Omit<RunInput, "workspace"> & {
+    workspace?: RunWorkspaceSummary
+  }
+}
+
 export type EntryResolution = {
   entryAgentIds: string[]
   entryReason: EntryReason
@@ -162,6 +183,7 @@ export type AgentExecutionContext = {
   emitEvent?: (event: RunEvent) => void
   workspaceService?: WorkspaceService
   permissionService?: RuntimePermissionService
+  executionId?: string
   resumeMessages?: ModelMessage[]
   onApprovalPending?: (messages: ModelMessage[]) => void
   executeTask?: (task: OrchestratorTask, options?: {
@@ -191,7 +213,9 @@ export type RunCreateResponse = z.infer<typeof RunCreateResponseSchema>
 export const RunRecordResponseSchema = z.object({
   id: z.string(),
   status: RunStatusSchema,
-  input: RunInputSchema,
+  input: RunInputSchema.omit({ workspace: true }).extend({
+    workspace: RunWorkspaceSummarySchema.optional(),
+  }),
   entryAgentIds: z.array(z.string()),
   entryReason: EntryReasonSchema,
   createdAt: z.string(),
@@ -202,7 +226,6 @@ export const RunRecordResponseSchema = z.object({
     details: z.unknown().optional(),
   }).optional(),
 })
-export type RunRecordResponse = z.infer<typeof RunRecordResponseSchema>
 
 export { AgentDefinitionSchema }
 

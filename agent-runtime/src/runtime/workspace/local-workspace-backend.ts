@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs"
+import { existsSync, statSync } from "node:fs"
 import { readFile as readFileFromFs, readdir, stat, realpath } from "node:fs/promises"
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from "node:path"
 import type {
@@ -11,18 +11,7 @@ import type {
   WorkspaceReadFileResult,
 } from "./types"
 import { WorkspaceError } from "./types"
-
-const DEFAULT_BLOCKED_BASENAMES = [
-  ".env",
-  ".env.local",
-  ".env.development",
-  ".env.production",
-  ".npmrc",
-  ".gitignore",
-  "id_rsa",
-]
-
-const DEFAULT_BLOCKED_EXTENSIONS = [".pem", ".key"]
+import { DEFAULT_SANDBOX_POLICY, isSensitiveWorkspacePath } from "./sandbox-policy"
 
 const TEXT_EXTENSIONS = new Set([
   ".txt",
@@ -59,6 +48,7 @@ const TEXT_EXTENSIONS = new Set([
 
 export type LocalWorkspaceBackendOptions = {
   fileOnlyPath?: string
+  displayPrefix?: string
   sandboxPolicy?: Partial<SandboxPolicy>
 }
 
@@ -83,23 +73,6 @@ function isWithinRoot(candidatePath: string, rootPath: string): boolean {
   return relativePath !== "" && !relativePath.startsWith("..") && !isAbsolute(relativePath)
 }
 
-function hasSensitiveSegments(pathValue: string, policy: SandboxPolicy): boolean {
-  const normalized = normalizeForDisplay(pathValue)
-  const segments = normalized.split("/").filter(Boolean)
-  const fileName = segments[segments.length - 1] ?? ""
-  const extension = extname(fileName).toLowerCase()
-
-  if (policy.blockedBasenames.includes(fileName)) {
-    return true
-  }
-
-  if (policy.blockedExtensions.includes(extension)) {
-    return true
-  }
-
-  return segments.some((segment) => segment === ".git" || segment === ".svn" || segment === ".hg")
-}
-
 function isImageMimeType(mimeType: string): boolean {
   return mimeType.startsWith("image/")
 }
@@ -110,7 +83,11 @@ function isTextMimeType(mimeType: string, pathValue: string): boolean {
   }
 
   const extension = extname(pathValue).toLowerCase()
-  return TEXT_EXTENSIONS.has(extension)
+  const fileName = basename(pathValue).toLowerCase()
+  return TEXT_EXTENSIONS.has(extension) ||
+    fileName === ".env" ||
+    fileName.startsWith(".env.") ||
+    fileName === ".npmrc"
 }
 
 function buildTextBlock(text: string): WorkspaceContentBlock[] {
@@ -158,21 +135,26 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
   type = "local"
   private rootPath: string
   private fileOnlyPath?: string
+  private displayPrefix?: string
   private policy: SandboxPolicy
 
   constructor(rootPath: string, options: LocalWorkspaceBackendOptions = {}) {
     this.rootPath = resolve(rootPath)
     this.fileOnlyPath = options.fileOnlyPath ? resolve(options.fileOnlyPath) : undefined
+    this.displayPrefix = options.displayPrefix
     this.policy = {
-      readOnly: options.sandboxPolicy?.readOnly ?? true,
-      blockSensitivePaths: options.sandboxPolicy?.blockSensitivePaths ?? true,
+      readOnly: options.sandboxPolicy?.readOnly ?? DEFAULT_SANDBOX_POLICY.readOnly,
+      blockSensitivePaths: options.sandboxPolicy?.blockSensitivePaths ?? DEFAULT_SANDBOX_POLICY.blockSensitivePaths,
       allowExternalAccess: options.sandboxPolicy?.allowExternalAccess ?? false,
-      blockedBasenames: options.sandboxPolicy?.blockedBasenames ?? DEFAULT_BLOCKED_BASENAMES,
-      blockedExtensions: options.sandboxPolicy?.blockedExtensions ?? DEFAULT_BLOCKED_EXTENSIONS,
+      blockedBasenames: options.sandboxPolicy?.blockedBasenames ?? DEFAULT_SANDBOX_POLICY.blockedBasenames,
+      blockedExtensions: options.sandboxPolicy?.blockedExtensions ?? DEFAULT_SANDBOX_POLICY.blockedExtensions,
     }
 
     if (!existsSync(this.rootPath)) {
-      mkdirSync(this.rootPath, { recursive: true })
+      throw new WorkspaceError("WORKSPACE_PATH_NOT_FOUND", `Workspace root ${this.rootPath} does not exist`)
+    }
+    if (!statSync(this.rootPath).isDirectory()) {
+      throw new WorkspaceError("WORKSPACE_NOT_A_DIRECTORY", `Workspace root ${this.rootPath} is not a directory`)
     }
   }
 
@@ -280,7 +262,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       const entryPath = join(resolvedPath, entry.name)
       const displayPath = this.toDisplayPath(entryPath)
 
-      if (this.policy.blockSensitivePaths && hasSensitiveSegments(displayPath, this.policy)) {
+      if (this.policy.blockSensitivePaths && isSensitiveWorkspacePath(displayPath, this.policy)) {
         continue
       }
 
@@ -341,18 +323,18 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
 
     await walkDirectory(searchRoot, async (entryPath, kind) => {
       const relativePath = normalizeForDisplay(relative(this.rootPath, entryPath))
-      if (this.policy.blockSensitivePaths && hasSensitiveSegments(relativePath, this.policy)) {
+      if (this.policy.blockSensitivePaths && isSensitiveWorkspacePath(relativePath, this.policy)) {
         return
       }
 
       if (glob.match(relativePath)) {
-        matches.push(relativePath)
+        matches.push(this.toDisplayPath(entryPath))
       }
 
       if (kind === "dir") {
         const directoryRelativePath = `${relativePath}/`
         if (glob.match(directoryRelativePath)) {
-          matches.push(relativePath)
+          matches.push(this.toDisplayPath(entryPath))
         }
       }
     })
@@ -427,7 +409,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
 
       const displayPath = this.toDisplayPath(entryPath)
-      if (this.policy.blockSensitivePaths && hasSensitiveSegments(displayPath, this.policy)) {
+      if (this.policy.blockSensitivePaths && isSensitiveWorkspacePath(displayPath, this.policy)) {
         return
       }
 
@@ -469,7 +451,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
 
     const effectiveCandidate = realCandidate ?? candidatePath
 
-    if (this.policy.blockSensitivePaths && hasSensitiveSegments(effectiveCandidate, this.policy)) {
+    if (this.policy.blockSensitivePaths && isSensitiveWorkspacePath(effectiveCandidate, this.policy)) {
       throw new WorkspaceError(
         "WORKSPACE_SENSITIVE_PATH_BLOCKED",
         `Path ${normalizeForDisplay(pathValue)} is blocked by sandbox policy`,
@@ -512,11 +494,18 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
 
   private toDisplayPath(pathValue: string): string {
     const relativePath = relative(this.rootPath, pathValue)
-    if (!relativePath || relativePath === "") {
-      return basename(pathValue)
+    const displayPath = !relativePath || relativePath === ""
+      ? this.fileOnlyPath ? basename(pathValue) : "."
+      : normalizeForDisplay(relativePath)
+
+    if (this.displayPrefix) {
+      if (displayPath === ".") {
+        return this.displayPrefix
+      }
+      return `${this.displayPrefix}/${displayPath}`
     }
 
-    return normalizeForDisplay(relativePath)
+    return displayPath
   }
 }
 

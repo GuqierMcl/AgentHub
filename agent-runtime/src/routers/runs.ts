@@ -5,6 +5,7 @@ import {
   RunInputSchema,
   RunInputValidationError,
   RunManager,
+  RunWorkspaceValidationError,
   isTerminalRunEvent,
   isTerminalStatus,
   type RunEvent,
@@ -87,7 +88,12 @@ runs.post("/runtime/runs", async (c: Context) => {
   }
 
   try {
-    log.info({ input: result.data }, "Creating run with input")
+    log.info({
+      conversationId: result.data.conversationId,
+      mode: result.data.mode,
+      participantAgentIds: result.data.participantAgentIds,
+      workspaceId: result.data.workspace?.workspaceId,
+    }, "Creating run with input")
     const run = c.get("runManager").createRun(result.data)
     log.info({ runId: run.id, entryAgentIds: run.entryAgentIds, entryReason: run.entryReason }, "Run created successfully")
     return c.json({
@@ -101,6 +107,15 @@ runs.post("/runtime/runs", async (c: Context) => {
     if (error instanceof RunInputValidationError) {
       log.warn({ code: error.code, message: error.message }, "Run input validation failed")
       return runValidationError(c, error)
+    }
+    if (error instanceof RunWorkspaceValidationError) {
+      return c.json({
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+        },
+      }, 400)
     }
     log.error({ error }, "Failed to create run")
     throw error
@@ -179,7 +194,7 @@ runs.get("/runtime/runs/:runId", (c: Context) => {
   const runId = c.req.param("runId")
   log.info({ runId }, "GET /runtime/runs/:runId - getting run status")
 
-  const run = c.get("runManager").getRun(runId)
+  const run = c.get("runManager").getRunResponse(runId)
   if (!run) {
     log.warn({ runId }, "Run not found")
     return runNotFound(c, runId)
@@ -246,7 +261,7 @@ runs.post("/runtime/runs/:runId/cancel", (c: Context) => {
   }
 
   log.info({ runId, status: run.status }, "Run cancelled successfully")
-  return c.json(run)
+  return c.json(c.get("runManager").getRunResponse(runId) ?? run)
 })
 
 export default runs

@@ -146,7 +146,6 @@ export class RuntimeToolRegistry {
 
     this.emitToolEvent(context, "tool.started", definition.name, {
       riskLevel: definition.riskLevel,
-      input: parsed.data,
     })
 
     try {
@@ -259,6 +258,7 @@ export class RuntimeToolRegistry {
       emitEvent: baseContext.emitEvent ?? (() => {}),
       workspaceService: baseContext.workspaceService,
       permissionService: baseContext.permissionService,
+      executionId: baseContext.executionId,
       executeTask: baseContext.executeTask,
       runTask: baseContext.runTask,
     }

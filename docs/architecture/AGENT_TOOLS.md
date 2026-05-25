@@ -305,7 +305,7 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 
 `run_task` 默认不需要审批，但它委派的目标任务仍必须满足被委派智能体的权限与可见性约束。
 `write_plan` 默认不需要审批，因为它只记录计划，不执行外部副作用。
-`ls`、`read_file`、`glob`、`grep` 需要 `filesystem: "read"`，其 `approvalPolicy = "contextual"`：workspace 内访问直接执行，沙箱外访问创建权限请求。
+`ls`、`read_file`、`glob`、`grep` 需要 `filesystem: "read"`，其 `approvalPolicy = "contextual"`：workspace 内普通读取直接执行；显式读取敏感文件、沙箱外读取或沙箱外敏感文件读取会创建权限请求。
 文件系统类工具应通过 `docs/architecture/AGENT_RUNTIME_BACKEND.md` 定义的 Workspace Backend 访问真实存储；本地文件系统只是第一版后端实现。
 
 ### 10.1 审批续跑
@@ -316,6 +316,8 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 拒绝后发出 `permission.denied` 与 `tool.failed(TOOL_EXECUTION_DENIED)`，并把拒绝结果交回模型以继续完成答复。
 - 取消等待中的 Run 会发出 `permission.cancelled` 和 `run.cancelled`。
 - AI SDK 的工具审批采用二次生成续跑：Runtime 保存 continuation messages，追加 `tool-approval-response` 后重新调用 executor，不把底层 stream 视为暂停状态。
+- continuation 按执行分支保存；`orchestrator -> run_task -> delegated agent` 中的审批会恢复原 delegated task，并在完成后继续把结果返回给 `orchestrator`。
+- 同一个模型 step 产生的多个审批请求会进入同一个 continuation frame；全部请求决定后只恢复一次。并行分支互不自动取消，一个分支等待审批时，其他仍在运行的分支可以继续输出事件。
 
 ## 11. 允许的后续扩展
 
@@ -378,6 +380,7 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 已将 `run_task` 正式封装为 Runtime Tool，且仅 `orchestrator` 可见、可调用。
 - `run_task` 单次只拉起一个目标智能体执行一个任务，返回统一结构化结果。
 - `tool.*` 以及 `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 已纳入 RunEvent 协议。
-- 沙箱外只读工具审批已支持 `waiting_approval` 与同一 Run 的 AI SDK continuation；HubServer/UI 展示与转发仍待后续落地。
+- 只读文件工具已支持 per-run workspace：未绑定 workspace 的 Run 可继续纯对话，但文件工具返回 `WORKSPACE_NOT_BOUND`。
+- 沙箱外读取、workspace 内敏感文件显式读取、沙箱外敏感文件显式读取均已支持 `waiting_approval` 与同一 Run 的 AI SDK continuation；`ls` / `glob` 隐藏敏感文件，目录递归 `grep` 跳过敏感文件。
 - `AiSdkExecutor` 已可接收工具注册表；只有模型支持 tools 且当前 agent 存在可见工具时，才会向 AI SDK 注入工具定义。
 - 当前仍未开放文件写入、部署、shell、网络等高风险工具，后续新工具必须先补齐命名、风险等级、审批与事件语义。

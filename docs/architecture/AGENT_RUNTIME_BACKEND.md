@@ -81,7 +81,7 @@ docs/AGENT_RUNTIME.md
 assets/logo.png
 ```
 
-不接受宿主机绝对路径作为常规输入。
+宿主机绝对路径不是常规输入；当用户或上层明确传入绝对路径时，Runtime 必须把它视为沙箱外显式访问请求，先走审批，再以 scoped grant 暴露逻辑路径，不把绝对路径交给模型或普通工具事件。
 
 ### 3.2 `read_file`
 
@@ -108,19 +108,21 @@ type ToolContentBlock =
 
 ## 4. Workspace 模型
 
-一个 Run 至少绑定一个主 workspace。
+一个 Run 可以绑定一个主 workspace。未绑定 workspace 的 Run 仍可进行纯对话和非文件工具调用，但 `ls`、`read_file`、`glob`、`grep` 等文件工具必须返回 `WORKSPACE_NOT_BOUND`，不得回退到 Runtime 全局 `config.workdir`。
 
 ```ts
 type WorkspaceHandle = {
   workspaceId: string
   backendType: string
   rootLabel: string
+  rootPath: string
 }
 ```
 
 第一版建议：
 
-- 一个 Run 默认只有一个主 workspace。
+- 一个 Run 最多只有一个主 workspace，创建 Run 时由 `RunInput.workspace` 固定，执行过程中不可切换。
+- `rootPath` 只存在于 Runtime 内部 session 与 backend 中；`GET /runtime/runs/:runId` 只返回 `workspaceId`、`backendType` 与 `rootLabel`。
 - 允许附加若干外部访问授权挂载点。
 - 外部目录或文件不是“直接越界访问”，而是以受控 mount / grant 的形式加入当前 workspace。
 
@@ -173,14 +175,24 @@ type WorkspaceBackend = {
 5. 检查是否命中受限文件规则。
 6. 再交给 backend 执行。
 
-默认拒绝的敏感目标建议包括：
+当前敏感路径策略集中在 SandboxPolicy，至少包括：
 
-- `.env`
+- `.env`、`.env.*`
+- `AGENTS.md`
+- `.npmrc`
 - `*.pem`
 - `*.key`
 - `id_rsa`
-- `node_modules/.cache` 之外的系统敏感目录
-- 系统用户主目录中的凭据文件
+- `.git`、`.svn`、`.hg` 内部路径
+
+读取规则：
+
+- `read_file` 显式读取 workspace 内普通文件：直接执行。
+- `read_file` 显式读取 workspace 内敏感文件：产生审批，批准后恢复原工具调用。
+- `grep` 显式以敏感文件为搜索路径：产生审批，批准后执行。
+- `ls` / `glob`：隐藏敏感文件和敏感目录，不因目录扫描批量申请审批。
+- `grep` 递归搜索普通目录：跳过敏感文件；只有显式指定敏感文件路径时才申请审批。
+- 外部目录 read grant 不自动解除敏感规则；后续显式读取该目录下敏感文件仍需单独审批。
 
 ## 7. 沙箱外目录与文件
 
@@ -195,7 +207,7 @@ type WorkspaceBackend = {
 
 ### 7.2 请求语义
 
-当用户或 agent 明确请求访问沙箱外路径时，Runtime 应创建一个 `ExternalAccessRequest`。
+当用户或 agent 明确请求访问沙箱外路径，或显式读取敏感文件时，Runtime 应创建统一的读取审批请求。当前代码中的内部类型仍沿用 `ExternalAccessRequest` 名称，但语义已经覆盖 `external_read`、`sensitive_read` 与 `external_sensitive_read`。
 
 ```ts
 type ExternalAccessRequest = {
@@ -206,6 +218,8 @@ type ExternalAccessRequest = {
   targetKind: "file" | "directory"
   accessMode: "read" | "write"
   reason: string
+  approvalReason: "external_read" | "sensitive_read" | "external_sensitive_read"
+  logicalPath: string
   expiresAt?: string
 }
 ```
@@ -217,11 +231,13 @@ type ExternalAccessRequest = {
 建议携带：
 
 - `requestId`
-- `targetPath`
+- `logicalPath`
 - `targetKind`
 - `accessMode`
 - `reason`
 - `riskLevel`
+
+普通 RunEvent、工具成功结果和常规日志不得暴露 workspace root 或授权目录的真实绝对路径。审批记录内部可以保存真实路径用于 Runtime 审计和 grant 创建，但对 API 响应和事件只返回逻辑路径、访问模式与授权范围。
 
 审批通过时发送 `permission.approved`，审批拒绝时发送 `permission.denied`；等待过程中取消 Run 时发送 `permission.cancelled`。审批尚未通过时对应工具不得发送 `tool.started`。
 
@@ -234,9 +250,13 @@ type ExternalAccessGrant = {
   grantId: string
   requestId: string
   mountId: string
+  runId: string
+  workspaceId: string
   targetPath: string
   targetKind: "file" | "directory"
   accessMode: "read" | "write"
+  scope: "external" | "sensitive" | "external-sensitive"
+  allowSensitive: boolean
   expiresAt?: string
 }
 ```
@@ -249,6 +269,8 @@ type ExternalAccessGrant = {
 - 文件授权：挂载为仅包含单个文件的受控虚拟目录，或等价的单文件句柄。
 - 默认只读。
 - 写入需要单独批准，且仅在 backend 支持时开放。
+- grant 仅在创建它的 Run session 内有效，并校验 `runId`、`workspaceId`、访问模式、目标范围与有效期。
+- 显式读取沙箱外敏感文件只产生一次 `external_sensitive_read` 审批；批准后创建 combined read grant，不连续弹两次审批。
 
 ### 7.5 用户体验建议
 
@@ -264,7 +286,7 @@ type ExternalAccessGrant = {
 
 第一版优先落地 `LocalWorkspaceBackend`：
 
-- 工作区根目录来自 Runtime 配置或上层服务传入。
+- 工作区根目录来自每次 Run 的 `workspace.rootPath` snapshot；Runtime 校验其为已存在目录并使用 canonical real path，不自动创建目录。
 - 所有文件工具都围绕本地 workspace root 工作。
 - 外部目录或文件通过外部授权挂载加入本地 workspace 视图。
 - 工具层不直接调用 `node:fs`，而是统一走 WorkspaceService。
@@ -318,8 +340,8 @@ type ExternalAccessGrant = {
 截至本轮，Workspace Backend 已完成第一版落地：
 
 - `LocalWorkspaceBackend` 已实现 workspace-relative 路径解析、越界拒绝、symlink 越界防护和敏感文件屏蔽。
-- `WorkspaceService` 已统一处理主 workspace、外部访问请求去重、审批通过后的受控 grant，以及路径到 backend 的分发。
+- `WorkspaceService` 已改为每个 Run 独立创建 session，统一处理主 workspace、敏感读取、外部访问请求去重、审批通过后的 scoped read grant，以及路径到 backend 的分发。
 - 首批只读工具 `ls`、`read_file`、`glob`、`grep` 已接入 Runtime Tool Registry。
 - `read_file` 已支持图片多模态返回。
-- 沙箱外只读路径访问已由 `RuntimePermissionService` 闭环：产生 `permission.requested`，进入 `waiting_approval`，经批准创建 read grant 后在同一 Run 恢复执行，拒绝或取消产生对应权限终态事件。
+- 沙箱外只读路径访问、workspace 内敏感文件显式读取、沙箱外敏感文件显式读取均已由 `RuntimePermissionService` 闭环：产生 `permission.requested`，进入 `waiting_approval`，经批准创建 read grant 后在同一 Run 恢复原执行分支，拒绝或取消产生对应权限终态事件。
 - `write_file` / `edit_file`、写入 grant 与高风险写入审批仍留待下一阶段。

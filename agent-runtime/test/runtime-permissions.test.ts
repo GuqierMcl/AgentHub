@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import type { ModelMessage } from "ai"
 import { AgentRegistry } from "../src/agents"
 import { createDefaultRuntimeToolRegistry, createRunEvent, RunManager, type AgentExecutionContext, type RunEvent } from "../src/runtime"
+import type { OrchestratorTask } from "../src/runtime"
 import runsRouter from "../src/routers/runs"
 import type { ProviderService } from "../src/provider"
 
@@ -143,5 +144,216 @@ describe("Runtime permissions", () => {
     cancelledHarness.manager.cancelRun(cancelledRunId)
     expect(cancelledHarness.manager.getRun(cancelledRunId)?.status).toBe("cancelled")
     expect(cancelledHarness.manager.getEvents(cancelledRunId)?.some((event) => event.type === "permission.cancelled")).toBe(true)
+  })
+
+  test("resumes an approval requested by a delegated task branch", async () => {
+    const { app, manager } = await createHarness()
+    ;(manager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
+        const result = await context.runTask?.({
+          taskId: "task_child_permission",
+          targetAgentId: "coder",
+          title: "Read selected file",
+          instruction: "Read an approved file.",
+          expectedOutput: "Content",
+          requiredCapabilities: [],
+          riskLevel: "medium",
+          dependsOn: [],
+        } satisfies OrchestratorTask)
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: result?.summary ?? "",
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, { status: "completed" })
+      },
+    }
+
+    const response = await app.request("/runtime/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        conversationId: "conv_delegated_permission",
+        mode: "group",
+        participantAgentIds: ["orchestrator", "coder"],
+        addressedAgentIds: [],
+        userMessage: { role: "user", content: "Delegate a read." },
+        history: [],
+      }),
+    })
+    const { runId } = await response.json() as { runId: string }
+    for (let attempt = 0; attempt < 50 && manager.getRun(runId)?.status !== "waiting_approval"; attempt += 1) {
+      await sleep(5)
+    }
+    const request = manager.listPermissions(runId)[0]!
+    expect(request.taskId).toBe("task_child_permission")
+
+    await app.request(`/runtime/runs/${runId}/permissions/${request.requestId}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approved: true }),
+    })
+    await sleep(30)
+
+    const events = manager.getEvents(runId) ?? []
+    expect(manager.getRun(runId)?.status).toBe("completed")
+    expect(events.some((event) => event.type === "task.completed" && event.taskId === "task_child_permission")).toBe(true)
+    expect(events.some((event) => event.type === "permission.approved" && event.taskId === "task_child_permission")).toBe(true)
+  })
+
+  test("waits for all approvals from one execution frame before resuming", async () => {
+    const { app, manager } = await createHarness()
+    let executions = 0
+    ;(manager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
+        executions += 1
+        if (!context.resumeMessages) {
+          for (const suffix of ["first", "second"]) {
+            const toolCallId = `tool_${suffix}`
+            const toolContext = {
+              ...context,
+              toolCallId,
+              emitEvent: context.emitEvent ?? (() => {}),
+            }
+            context.permissionService?.stageToolApproval(toolContext, "read_file", {
+              reason: `Approve ${suffix}`,
+              riskLevel: "medium",
+            })
+            context.permissionService?.bindAiSdkApproval(context.runId, toolCallId, `approval_${suffix}`)
+          }
+          context.onApprovalPending?.([{
+            role: "assistant",
+            content: [],
+          } as unknown as ModelMessage])
+          return
+        }
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, { content: "resumed" })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, { status: "completed" })
+      },
+    }
+
+    const runId = await createWaitingRun(app, manager)
+    const requests = manager.listPermissions(runId)
+    expect(requests).toHaveLength(2)
+    await app.request(`/runtime/runs/${runId}/permissions/${requests[0]!.requestId}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approved: true }),
+    })
+    await sleep(10)
+    expect(manager.getRun(runId)?.status).toBe("waiting_approval")
+    expect(executions).toBe(1)
+
+    await app.request(`/runtime/runs/${runId}/permissions/${requests[1]!.requestId}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approved: false }),
+    })
+    await sleep(20)
+    expect(manager.getRun(runId)?.status).toBe("completed")
+    expect(executions).toBe(2)
+  })
+
+  test("keeps a run running while one delegated branch waits and another branch is still active", async () => {
+    const { app, manager } = await createHarness()
+    ;(manager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
+        const waitTask: OrchestratorTask = {
+          taskId: "task_waiting_branch",
+          targetAgentId: "coder",
+          title: "Read selected file",
+          instruction: "Wait for approval.",
+          expectedOutput: "Approved read result",
+          requiredCapabilities: [],
+          riskLevel: "medium",
+          dependsOn: [],
+        }
+        const activeTask: OrchestratorTask = {
+          taskId: "task_active_branch",
+          targetAgentId: "coder",
+          title: "Continue independent work",
+          instruction: "Keep working while the other branch waits.",
+          expectedOutput: "Independent result",
+          requiredCapabilities: [],
+          riskLevel: "low",
+          dependsOn: [],
+        }
+        const results = await Promise.all([
+          context.runTask?.(waitTask),
+          context.runTask?.(activeTask),
+        ])
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: results.map((result) => result?.summary ?? "").join("\n"),
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, { status: "completed" })
+      },
+    }
+    ;(manager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
+        if (context.task?.taskId === "task_waiting_branch" && !context.resumeMessages) {
+          const toolCallId = "tool_waiting_branch"
+          const toolContext = {
+            ...context,
+            toolCallId,
+            emitEvent: context.emitEvent ?? (() => {}),
+          }
+          context.permissionService?.stageToolApproval(toolContext, "read_file", {
+            reason: "Approve waiting branch",
+            riskLevel: "medium",
+          })
+          context.permissionService?.bindAiSdkApproval(context.runId, toolCallId, "approval_waiting_branch")
+          context.onApprovalPending?.([{
+            role: "assistant",
+            content: [],
+          } as unknown as ModelMessage])
+          return
+        }
+
+        if (context.task?.taskId === "task_active_branch") {
+          await sleep(500)
+        }
+
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: `${context.task?.taskId ?? "entry"} completed`,
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, { status: "completed" })
+      },
+    }
+
+    const response = await app.request("/runtime/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        conversationId: "conv_parallel_permission",
+        mode: "group",
+        participantAgentIds: ["orchestrator", "coder"],
+        addressedAgentIds: [],
+        userMessage: { role: "user", content: "Run two branches." },
+        history: [],
+      }),
+    })
+    const { runId } = await response.json() as { runId: string }
+    for (let attempt = 0; attempt < 50 && manager.listPermissions(runId).length === 0; attempt += 1) {
+      await sleep(5)
+    }
+
+    expect(manager.listPermissions(runId)).toHaveLength(1)
+    expect(manager.getRun(runId)?.status).toBe("running")
+
+    await sleep(550)
+    expect(manager.getRun(runId)?.status).toBe("waiting_approval")
+
+    const request = manager.listPermissions(runId)[0]!
+    await app.request(`/runtime/runs/${runId}/permissions/${request.requestId}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approved: true }),
+    })
+    for (let attempt = 0; attempt < 50 && manager.getRun(runId)?.status !== "completed"; attempt += 1) {
+      await sleep(5)
+    }
+    expect(manager.getRun(runId)?.status).toBe("completed")
   })
 })

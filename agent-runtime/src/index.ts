@@ -3,8 +3,7 @@ import { cors } from 'hono/cors'
 import { config } from './config'
 import { AgentRegistry } from './agents'
 import { ProviderService } from './provider'
-import { WorkspaceService } from './runtime/workspace'
-import { RunManager, RuntimePermissionService, createDefaultRuntimeToolRegistry } from './runtime'
+import { RunManager, createDefaultRuntimeToolRegistry } from './runtime'
 import router from './routers'
 
 const app = new Hono()
@@ -28,17 +27,12 @@ if (config.cors.length > 0) {
 const providerService = new ProviderService(config.dataDir)
 const toolRegistry = createDefaultRuntimeToolRegistry()
 const agentRegistry = new AgentRegistry(config.dataDir, toolRegistry)
-const workspaceService = new WorkspaceService({
-  workdir: config.workdir,
-})
-const permissionService = new RuntimePermissionService(workspaceService)
-const runManager = new RunManager(agentRegistry, providerService, workspaceService, toolRegistry, permissionService)
+const runManager = new RunManager(agentRegistry, providerService, undefined, toolRegistry)
 
 // 注入 ProviderService 到 Context
 app.use('*', async (c: Context, next: Next) => {
   c.set('providerService', providerService)
   c.set('agentRegistry', agentRegistry)
-  c.set('workspaceService', workspaceService)
   c.set('runManager', runManager)
   c.set('toolRegistry', toolRegistry)
   await next()
@@ -73,11 +67,9 @@ Promise.all([
   console.log(banner)
   console.log(`Agent Runtime listening on ${server.url}`)
   console.log(`Data directory: ${config.dataDir}`)
-  console.log(`Workspace root: ${config.workdir}`)
 }).catch((error) => {
   console.error('Failed to initialize Agent Runtime services:', error)
   console.log(banner)
   console.log(`Agent Runtime listening on ${server.url}`)
   console.log(`Data directory: ${config.dataDir}`)
-  console.log(`Workspace root: ${config.workdir}`)
 })
