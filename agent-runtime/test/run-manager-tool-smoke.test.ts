@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { AgentRegistry } from "../src/agents"
-import { RunManager, createRunEvent, type OrchestratorTask, type RunEvent } from "../src/runtime"
+import { RunManager, createDefaultRuntimeToolRegistry, createRunEvent, type OrchestratorTask, type RunEvent } from "../src/runtime"
 import type { ProviderService } from "../src/provider"
 
 function sleep(ms: number): Promise<void> {
@@ -12,7 +12,7 @@ function sleep(ms: number): Promise<void> {
 
 async function createInitializedRegistry(): Promise<AgentRegistry> {
   const dataDir = await mkdtemp(join(tmpdir(), "agent-runtime-run-smoke-"))
-  const registry = new AgentRegistry(dataDir)
+  const registry = new AgentRegistry(dataDir, createDefaultRuntimeToolRegistry())
   await registry.initialize()
   return registry
 }

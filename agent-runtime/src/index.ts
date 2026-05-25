@@ -4,7 +4,7 @@ import { config } from './config'
 import { AgentRegistry } from './agents'
 import { ProviderService } from './provider'
 import { WorkspaceService } from './runtime/workspace'
-import { RunManager } from './runtime'
+import { RunManager, RuntimePermissionService, createDefaultRuntimeToolRegistry } from './runtime'
 import router from './routers'
 
 const app = new Hono()
@@ -26,11 +26,13 @@ if (config.cors.length > 0) {
 
 // 初始化 ProviderService
 const providerService = new ProviderService(config.dataDir)
-const agentRegistry = new AgentRegistry(config.dataDir)
+const toolRegistry = createDefaultRuntimeToolRegistry()
+const agentRegistry = new AgentRegistry(config.dataDir, toolRegistry)
 const workspaceService = new WorkspaceService({
   workdir: config.workdir,
 })
-const runManager = new RunManager(agentRegistry, providerService, workspaceService)
+const permissionService = new RuntimePermissionService(workspaceService)
+const runManager = new RunManager(agentRegistry, providerService, workspaceService, toolRegistry, permissionService)
 
 // 注入 ProviderService 到 Context
 app.use('*', async (c: Context, next: Next) => {
@@ -38,6 +40,7 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('agentRegistry', agentRegistry)
   c.set('workspaceService', workspaceService)
   c.set('runManager', runManager)
+  c.set('toolRegistry', toolRegistry)
   await next()
 })
 

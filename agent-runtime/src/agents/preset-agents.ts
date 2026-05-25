@@ -1,14 +1,6 @@
 import type { AgentDefinition } from "./types"
 import { presetAgentSystemPrompts } from "./preset-agent-prompts"
 
-const llmReadOnlyPolicy = {
-  filesystem: "none",
-  shell: "none",
-  network: "none",
-  deploy: "none",
-  requiresApproval: false,
-} as const
-
 const orchestrationSubagents = ["explore", "general", "file", "deploy"]
 
 export const presetAgents: AgentDefinition[] = [
@@ -26,7 +18,12 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["routing", "planning", "delegation", "aggregation"],
     allowedSubagents: orchestrationSubagents,
     allowedTools: ["write_plan", "run_task"],
-    permissionPolicy: llmReadOnlyPolicy,
+    permissionPolicy: {
+      filesystem: "none",
+      shell: "none",
+      network: "none",
+      deploy: "none",
+    },
     enabled: true,
     readonly: true,
   },
@@ -48,7 +45,12 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["implementation", "refactor", "tests"],
     allowedSubagents: ["explore", "general", "file"],
     allowedTools: ["ls", "read_file", "glob", "grep"],
-    permissionPolicy: llmReadOnlyPolicy,
+    permissionPolicy: {
+      filesystem: "read",
+      shell: "none",
+      network: "none",
+      deploy: "none",
+    },
     enabled: true,
     readonly: true,
   },
@@ -70,7 +72,12 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["code-review", "risk-analysis", "test-gaps"],
     allowedSubagents: ["explore", "general"],
     allowedTools: ["ls", "read_file", "glob", "grep"],
-    permissionPolicy: llmReadOnlyPolicy,
+    permissionPolicy: {
+      filesystem: "read",
+      shell: "none",
+      network: "none",
+      deploy: "none",
+    },
     enabled: true,
     readonly: true,
   },
@@ -92,7 +99,12 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["documentation", "copywriting", "summarization"],
     allowedSubagents: ["general"],
     allowedTools: ["ls", "read_file", "glob", "grep"],
-    permissionPolicy: llmReadOnlyPolicy,
+    permissionPolicy: {
+      filesystem: "read",
+      shell: "none",
+      network: "none",
+      deploy: "none",
+    },
     enabled: true,
     readonly: true,
   },
@@ -114,7 +126,12 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["planning-advice", "architecture-analysis", "risk-assessment", "acceptance-criteria"],
     allowedSubagents: [],
     allowedTools: ["ls", "read_file", "glob", "grep"],
-    permissionPolicy: llmReadOnlyPolicy,
+    permissionPolicy: {
+      filesystem: "read",
+      shell: "none",
+      network: "none",
+      deploy: "none",
+    },
     enabled: true,
     readonly: true,
   },
@@ -136,7 +153,6 @@ export const presetAgents: AgentDefinition[] = [
       shell: "limited",
       network: "limited",
       deploy: "none",
-      requiresApproval: true,
     },
     external: {
       provider: "opencode",

@@ -1,4 +1,5 @@
 import type { AgentDefinition, AgentRegistry } from "../agents"
+import type { ModelMessage } from "ai"
 import type { ProviderService } from "../provider"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -9,7 +10,8 @@ import { AgentModelResolutionError } from "./model-resolver"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
-import { RuntimeToolRegistry, createRunTaskTool, createWorkspaceReadOnlyTools, createWritePlanTool } from "./tools"
+import { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./tools"
+import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 import { WorkspaceService } from "./workspace"
 import type {
   AgentExecutionContext,
@@ -32,6 +34,8 @@ type RunSubscription = (event: RunEvent) => void
 
 type RunExecutionState = {
   abortController: AbortController
+  entryAgent: AgentDefinition
+  continuationMessages?: ModelMessage[]
 }
 
 class TaskExecutionError extends Error {
@@ -63,8 +67,9 @@ export class RunManager {
   private aiSdkExecutor: AiSdkExecutor
   private mockExecutor = new MockExecutor()
   private orchestratorExecutor: OrchestratorExecutor
-  private toolRegistry = new RuntimeToolRegistry()
+  private toolRegistry: RuntimeToolRegistry
   private workspaceService: WorkspaceService
+  private permissionService: RuntimePermissionService
   private runs: Map<string, RunRecord> = new Map()
   private events: Map<string, RunEvent[]> = new Map()
   private subscriptions: Map<string, Set<RunSubscription>> = new Map()
@@ -73,19 +78,18 @@ export class RunManager {
   constructor(
     private agentRegistry: AgentRegistry,
     providerService: ProviderService,
-    workspaceService?: WorkspaceService
+    workspaceService?: WorkspaceService,
+    toolRegistry: RuntimeToolRegistry = createDefaultRuntimeToolRegistry(),
+    permissionService?: RuntimePermissionService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
-    this.toolRegistry.register(createWritePlanTool())
-    this.toolRegistry.register(createRunTaskTool())
-    for (const tool of createWorkspaceReadOnlyTools()) {
-      this.toolRegistry.register(tool)
-    }
+    this.toolRegistry = toolRegistry
     this.aiSdkExecutor = new AiSdkExecutor(providerService, this.toolRegistry)
     this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry, providerService, this.toolRegistry)
     this.workspaceService = workspaceService ?? new WorkspaceService({
       workdir: resolveDefaultWorkspaceRoot(),
     })
+    this.permissionService = permissionService ?? new RuntimePermissionService(this.workspaceService)
   }
 
   createRun(input: RunInput): RunRecord {
@@ -123,7 +127,7 @@ export class RunManager {
     this.events.set(run.id, [])
 
     const abortController = new AbortController()
-    this.executionState.set(run.id, { abortController })
+    this.executionState.set(run.id, { abortController, entryAgent: resolution.entryAgents[0] })
 
     log.info({ runId: run.id, entryAgentId: resolution.entryAgents[0].id }, "Run created, scheduling execution")
     queueMicrotask(() => {
@@ -140,6 +144,71 @@ export class RunManager {
   getEvents(runId: string): RunEvent[] | null {
     const events = this.events.get(runId)
     return events ? [...events] : null
+  }
+
+  listPermissions(runId: string) {
+    return this.permissionService.listRequests(runId)
+  }
+
+  decidePermission(runId: string, requestId: string, approved: boolean, reason?: string) {
+    const run = this.runs.get(runId)
+    const state = this.executionState.get(runId)
+    if (!run) {
+      throw new RuntimePermissionError("PERMISSION_NOT_FOUND", `Run ${runId} not found`, 404)
+    }
+    if (!state || run.status !== "waiting_approval") {
+      throw new RuntimePermissionError(
+        "PERMISSION_RUN_NOT_ACTIVE",
+        `Run ${runId} is not waiting for approval`,
+        409
+      )
+    }
+
+    const currentRequest = this.permissionService.getRequest(requestId)
+    if (!currentRequest || currentRequest.runId !== runId) {
+      throw new RuntimePermissionError("PERMISSION_NOT_FOUND", `Permission request ${requestId} not found`, 404)
+    }
+    if (!currentRequest.approvalId || !state.continuationMessages) {
+      throw new RuntimePermissionError(
+        "PERMISSION_RUN_NOT_ACTIVE",
+        `Run ${runId} has no resumable approval continuation`,
+        409
+      )
+    }
+    const request = this.permissionService.decide(requestId, { approved, reason }, (event) => this.emit(event))
+
+    if (!approved) {
+      const failed = createRunEvent(runId, "tool.failed", request.agentId, {
+        status: "failed",
+        summary: reason ?? `Tool ${request.toolName} execution was denied`,
+        error: {
+          code: "TOOL_EXECUTION_DENIED",
+          message: reason ?? `Tool ${request.toolName} execution was denied`,
+        },
+      })
+      failed.toolCallId = request.toolCallId
+      failed.toolName = request.toolName
+      failed.parentAgentId = request.agentId
+      this.emit(failed)
+    }
+
+    const messages: ModelMessage[] = [
+      ...state.continuationMessages,
+      {
+        role: "tool",
+        content: [{
+          type: "tool-approval-response",
+          approvalId: request.approvalId,
+          approved,
+          reason,
+        }],
+      } as ModelMessage,
+    ]
+    state.continuationMessages = undefined
+    queueMicrotask(() => {
+      void this.executeRun(runId, state.entryAgent, state.abortController, true, messages)
+    })
+    return request
   }
 
   subscribe(runId: string, handler: RunSubscription): () => void {
@@ -170,6 +239,7 @@ export class RunManager {
     log.info({ runId, previousStatus: run.status }, "Cancelling run")
     const state = this.executionState.get(runId)
     state?.abortController.abort()
+    this.permissionService.cancelPendingForRun(runId, (event) => this.emit(event))
     this.updateRunStatus(run, "cancelled")
     this.emit(createRunEvent(runId, "run.cancelled", undefined, {
       reason: "cancelled_by_request",
@@ -197,7 +267,9 @@ export class RunManager {
   private async executeRun(
     runId: string,
     agent: AgentDefinition,
-    abortController: AbortController
+    abortController: AbortController,
+    resumed = false,
+    resumeMessages?: ModelMessage[]
   ): Promise<void> {
     const run = this.runs.get(runId)
     if (!run) {
@@ -208,24 +280,27 @@ export class RunManager {
     try {
       log.info({ runId, agentId: agent.id }, "Starting run execution")
       this.updateRunStatus(run, "running")
-      this.emit(createRunEvent(runId, "run.started", undefined, {
-        entryAgentIds: run.entryAgentIds,
-        entryReason: run.entryReason,
-      }))
-      this.emit(createRunEvent(runId, "agent.entry.resolved", agent.id, {
-        entryAgentIds: run.entryAgentIds,
-        entryReason: run.entryReason,
-      }))
+      if (!resumed) {
+        this.emit(createRunEvent(runId, "run.started", undefined, {
+          entryAgentIds: run.entryAgentIds,
+          entryReason: run.entryReason,
+        }))
+        this.emit(createRunEvent(runId, "agent.entry.resolved", agent.id, {
+          entryAgentIds: run.entryAgentIds,
+          entryReason: run.entryReason,
+        }))
+      }
 
       log.info({ runId, agentId: agent.id, executorType: agent.executorType }, "Executing entry agent")
       await this.executeAgentExecution({
         run,
         agent,
         abortController,
+        resumeMessages,
         onEvent: (event) => this.emit(event),
       })
 
-      if (abortController.signal.aborted || run.status === "cancelled") {
+      if (abortController.signal.aborted || run.status === "cancelled" || run.status === "waiting_approval") {
         log.info({ runId }, "Run aborted after execution loop")
         return
       }
@@ -259,7 +334,9 @@ export class RunManager {
       this.emit(createRunEvent(runId, "run.failed", undefined, run.error))
       log.error({ runId, error: message }, "Run failed")
     } finally {
-      this.executionState.delete(runId)
+      if (run.status !== "waiting_approval") {
+        this.executionState.delete(runId)
+      }
     }
   }
 
@@ -272,6 +349,7 @@ export class RunManager {
     task?: OrchestratorTask
     groupId?: string
     parentTaskId?: string
+    resumeMessages?: ModelMessage[]
   }): Promise<RunEvent[]> {
     const {
       run,
@@ -282,6 +360,7 @@ export class RunManager {
       task,
       groupId,
       parentTaskId,
+      resumeMessages,
     } = options
     const executor = this.resolveExecutor(agent)
     const events: RunEvent[] = []
@@ -308,6 +387,15 @@ export class RunManager {
       parentTaskId,
       emitEvent: emitExecutionEvent,
       workspaceService: this.workspaceService,
+      permissionService: this.permissionService,
+      resumeMessages,
+      onApprovalPending: (messages) => {
+        const state = this.executionState.get(run.id)
+        if (state) {
+          state.continuationMessages = messages
+        }
+        this.updateRunStatus(run, "waiting_approval")
+      },
     }
 
     if (agent.id === "orchestrator") {

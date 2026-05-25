@@ -23,7 +23,6 @@ const orchestratorAgent: AgentDefinition = {
     shell: "none",
     network: "none",
     deploy: "none",
-    requiresApproval: false,
   },
   enabled: true,
   readonly: true,
@@ -87,10 +86,14 @@ function asTaskResult(value: unknown): TaskExecutionResult | undefined {
 
 const visibleTool: ToolDefinition<{}, { ok: boolean }> = {
   name: "ls",
+  displayName: "List files",
   description: "List visible files",
+  category: "workspace",
   inputSchema: z.object({}),
   riskLevel: "low",
-  requiresApproval: false,
+  requiredPermissions: { filesystem: "read" },
+  approvalPolicy: "never",
+  configurableByUserAgent: true,
   async execute() {
     return {
       status: "completed",
@@ -104,10 +107,14 @@ const visibleTool: ToolDefinition<{}, { ok: boolean }> = {
 
 const userOriginTool: ToolDefinition<{}, { ok: boolean }> = {
   name: "grep",
+  displayName: "Grep",
   description: "Search visible files",
+  category: "workspace",
   inputSchema: z.object({}),
   riskLevel: "low",
-  requiresApproval: false,
+  requiredPermissions: { filesystem: "read" },
+  approvalPolicy: "never",
+  configurableByUserAgent: true,
   async execute() {
     return {
       status: "completed",
@@ -546,6 +553,12 @@ describe("RuntimeToolRegistry", () => {
       entryPolicy: "callable",
       executorType: "ai-sdk",
       allowedTools: ["ls"],
+      permissionPolicy: {
+        filesystem: "read",
+        shell: "none",
+        network: "none",
+        deploy: "none",
+      },
     }
     const allowedContext = createBaseContext({
       agent: agentWithLs,
@@ -570,6 +583,25 @@ describe("RuntimeToolRegistry", () => {
     }
 
     expect(registry.listToolsForAgent(agentWithGrep).map((definition) => definition.name)).toEqual(["grep"])
+  })
+
+  test("visible tools still require the agent capability policy at execution time", async () => {
+    const registry = new RuntimeToolRegistry()
+    registry.register(visibleTool)
+    const { context, events } = createBaseContext({
+      agent: {
+        ...orchestratorAgent,
+        id: "restricted_reader",
+        allowedTools: ["ls"],
+      },
+    })
+
+    expect(registry.listToolsForAgent(context.agent).map((definition) => definition.name)).toEqual(["ls"])
+    const result = await registry.executeTool("ls", {}, context)
+    expect(result.status).toBe("failed")
+    expect(result.error?.code).toBe("TOOL_PERMISSION_DENIED")
+    expect(events.some((event) => event.type === "tool.failed")).toBe(true)
+    expect(events.some((event) => event.type === "tool.started")).toBe(false)
   })
 
   test("buildAiSdkToolSettings keeps internal tools visible only for orchestrator internal mode", () => {
@@ -622,6 +654,12 @@ describe("RuntimeToolRegistry", () => {
       entryPolicy: "callable",
       executorType: "ai-sdk",
       allowedTools: ["grep"],
+      permissionPolicy: {
+        filesystem: "read",
+        shell: "none",
+        network: "none",
+        deploy: "none",
+      },
       readonly: false,
     }
     const { context, events } = createBaseContext({

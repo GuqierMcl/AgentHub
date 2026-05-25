@@ -201,14 +201,15 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - `POST /runtime/runs` 可以接收单聊或群聊 RunInput，并通过 `EntryResolver` 实现单聊入口、群聊默认 `orchestrator`、群聊显式 @ 单个主智能体。
 - `coder`、`reviewer`、`writer`、`planner` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和非内部 Runtime Tools。
 - `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派当前 Run participants 中的其他主智能体或自身 `allowedSubagents` 中的子智能体。
-- `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*`、`permission.requested` 事件。
+- `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*` 与完整 `permission.*` 事件。
+- Runtime 已支持 `waiting_approval`：沙箱外只读工具请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复 AI SDK 执行。
 
 尚未完全闭环的部分：
 
 - HubServer 还未作为产品状态中心消费 Runtime RunEvent，并持久化消息、计划、工具事件、任务事件和 Artifact；当前 smoke 仍可直接访问 Runtime，但产品链路仍应是 `web -> hub-server -> agent-runtime`。
-- 前端还未实现从最后一个成功 `tool.completed(toolName="write_plan")` 投影当前计划，也未展示 `task.*`、`tool.*`、`permission.requested` 的完整 UI 状态。
+- 前端还未实现从最后一个成功 `tool.completed(toolName="write_plan")` 投影当前计划，也未展示 `task.*`、`tool.*`、`permission.*` 的完整 UI 状态。
 - HubServer 还未提供面向浏览器的自定义 Agent 管理 API 和配置 UI；当前 CRUD 仍是 Runtime 内部 API。
-- 权限审批只有 `permission.requested` 和 Workspace grant/mount 的底座，缺少 HubServer/前端审批 API、审批结果回传、恢复执行和拒绝处理的完整闭环。
+- 权限审批已在 Runtime 内闭环；HubServer/前端仍缺少审批 API 代理、用户交互和状态持久化，因此产品链路尚未闭环。
 - 隐藏子智能体 `explore`、`general`、`file`、`deploy` 当前仍是 `mock`，尚未接入真实 AI SDK 执行、专用系统提示词或高风险工具执行。
 - 外部智能体 `opencode` 仍是 `external-adapter` 占位，当前运行时会退回 `MockExecutor`，还没有真实 Adapter 进程管理和事件映射。
 - 文件系统工具目前只开放 `ls`、`read_file`、`glob`、`grep` 的只读能力；写入、编辑、Patch、Diff 应用、shell、deploy 仍未开放。
@@ -277,6 +278,8 @@ Agent Runtime 需要负责将 Agent 的执行结果转化为平台可识别的�
 MVP 阶段，Workspace 可以是轻量本地目录；后续可以演进为沙箱、容器或远程执行环境。
 
 Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。
+
+Runtime 通过 `RuntimePermissionService` 存储内存态审批请求。AI SDK 的 `needsApproval` 会结束当次生成并返回 approval request；Runtime 将 Run 标记为 `waiting_approval`，收到决定后追加 `tool-approval-response` 并再次执行同一 entry agent，保持原始 `runId` 与 `toolCallId`。
 
 ### 3.7 事件流输出
 

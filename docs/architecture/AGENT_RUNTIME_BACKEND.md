@@ -212,7 +212,7 @@ type ExternalAccessRequest = {
 
 ### 7.3 审批事件
 
-请求触发时，Runtime 应输出 `permission.requested` 事件，供 HubServer/UI 展示并收集审批结果。
+请求触发时，`RuntimePermissionService` 输出 `permission.requested` 事件，Run 进入 `waiting_approval`。Runtime 内部 API 已可收集决定并恢复同一 Run；HubServer/UI 后续只需代理请求、呈现状态并提交用户决定。
 
 建议携带：
 
@@ -222,6 +222,8 @@ type ExternalAccessRequest = {
 - `accessMode`
 - `reason`
 - `riskLevel`
+
+审批通过时发送 `permission.approved`，审批拒绝时发送 `permission.denied`；等待过程中取消 Run 时发送 `permission.cancelled`。审批尚未通过时对应工具不得发送 `tool.started`。
 
 ### 7.4 审批后的访问方式
 
@@ -238,6 +240,8 @@ type ExternalAccessGrant = {
   expiresAt?: string
 }
 ```
+
+当前落地只生成 `accessMode = "read"` 的 grant，服务于 `ls`、`read_file`、`glob`、`grep`。写权限 grant 随 `write_file` / `edit_file` 阶段另行接入。
 
 挂载行为建议如下：
 
@@ -317,4 +321,5 @@ type ExternalAccessGrant = {
 - `WorkspaceService` 已统一处理主 workspace、外部访问请求去重、审批通过后的受控 grant，以及路径到 backend 的分发。
 - 首批只读工具 `ls`、`read_file`、`glob`、`grep` 已接入 Runtime Tool Registry。
 - `read_file` 已支持图片多模态返回。
-- 沙箱外路径访问会先产生 `permission.requested` 相关事件，再进入审批与受控授权流程。
+- 沙箱外只读路径访问已由 `RuntimePermissionService` 闭环：产生 `permission.requested`，进入 `waiting_approval`，经批准创建 read grant 后在同一 Run 恢复执行，拒绝或取消产生对应权限终态事件。
+- `write_file` / `edit_file`、写入 grant 与高风险写入审批仍留待下一阶段。

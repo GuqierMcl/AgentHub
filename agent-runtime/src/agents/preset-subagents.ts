@@ -1,13 +1,5 @@
 import type { AgentDefinition } from "./types"
 
-const noAccess = {
-  filesystem: "none",
-  shell: "none",
-  network: "none",
-  deploy: "none",
-  requiresApproval: false,
-} as const
-
 export const presetSubagents: AgentDefinition[] = [
   {
     id: "explore",
@@ -27,7 +19,6 @@ export const presetSubagents: AgentDefinition[] = [
       shell: "none",
       network: "none",
       deploy: "none",
-      requiresApproval: false,
     },
     enabled: true,
     readonly: true,
@@ -45,7 +36,12 @@ export const presetSubagents: AgentDefinition[] = [
     capabilities: ["reasoning", "summary", "rewrite"],
     allowedSubagents: [],
     allowedTools: [],
-    permissionPolicy: noAccess,
+    permissionPolicy: {
+      filesystem: "none",
+      shell: "none",
+      network: "none",
+      deploy: "none",
+    },
     enabled: true,
     readonly: true,
   },
@@ -67,7 +63,6 @@ export const presetSubagents: AgentDefinition[] = [
       shell: "none",
       network: "none",
       deploy: "none",
-      requiresApproval: true,
     },
     enabled: true,
     readonly: true,
@@ -90,7 +85,6 @@ export const presetSubagents: AgentDefinition[] = [
       shell: "limited",
       network: "limited",
       deploy: "publish",
-      requiresApproval: true,
     },
     enabled: true,
     readonly: true,

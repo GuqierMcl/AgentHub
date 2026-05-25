@@ -16,6 +16,9 @@ const DEFAULT_TEMPERATURE = 0.2
 const ORCHESTRATOR_MAX_STEPS = 6
 
 function normalizeHistoryMessages(context: AgentExecutionContext): ModelMessage[] {
+  if (context.resumeMessages) {
+    return context.resumeMessages
+  }
   return context.input.history
     .filter((message) => message.role !== "system")
     .map((message) => ({
@@ -140,21 +143,27 @@ export class OrchestratorExecutor implements AgentExecutor {
     })
 
     let content = ""
+    let approvalPending = false
 
     try {
-      for await (const chunk of result.textStream) {
+      for await (const chunk of result.fullStream) {
         if (signal.aborted) {
           log.info({ runId, agentId: agent.id }, "Orchestrator execution aborted during stream")
           return
         }
 
-        if (!chunk) {
+        if (chunk.type === "tool-approval-request") {
+          approvalPending = true
+          context.permissionService?.bindAiSdkApproval(runId, chunk.toolCall.toolCallId, chunk.approvalId)
+          continue
+        }
+        if (chunk.type !== "text-delta" || !chunk.text) {
           continue
         }
 
-        content += chunk
+        content += chunk.text
         const delta = createRunEvent(runId, "message.delta", agent.id, {
-          delta: chunk,
+          delta: chunk.text,
         })
         delta.taskId = task?.taskId
         delta.parentAgentId = parentAgentId
@@ -165,6 +174,15 @@ export class OrchestratorExecutor implements AgentExecutor {
 
       if (signal.aborted) {
         log.info({ runId, agentId: agent.id }, "Orchestrator execution aborted after stream consumption")
+        return
+      }
+
+      if (approvalPending) {
+        const response = await result.response
+        context.onApprovalPending?.([
+          ...normalizeHistoryMessages(context),
+          ...(response.messages as ModelMessage[]),
+        ])
         return
       }
 

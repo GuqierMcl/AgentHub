@@ -1,7 +1,8 @@
 import type { z } from "zod"
 import type { ToolSet } from "ai"
-import type { AgentDefinition } from "../../agents"
+import type { AgentDefinition, AgentPermissionPolicy, AgentAuthoringToolOption } from "../../agents"
 import type { WorkspaceService } from "../workspace"
+import type { RuntimePermissionService } from "../permissions"
 import type {
   OrchestratorRiskLevel,
   OrchestratorTask,
@@ -39,6 +40,7 @@ export type ToolExecutionContext = {
   task?: OrchestratorTask
   emitEvent: (event: RunEvent) => void
   workspaceService?: WorkspaceService
+  permissionService?: RuntimePermissionService
   executeTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string
@@ -49,12 +51,27 @@ export type ToolExecutionContext = {
   }) => Promise<TaskExecutionResult>
 }
 
+export type ToolApprovalPolicy = "never" | "contextual" | "always"
+export type ToolRequiredPermissions = Partial<Pick<AgentPermissionPolicy, "filesystem" | "shell" | "network" | "deploy">>
+
+export type ToolApprovalDraft = {
+  reason: string
+  riskLevel: OrchestratorRiskLevel
+  workspaceRequestId?: string
+  data?: Record<string, unknown>
+}
+
 export type ToolDefinition<TInput = unknown, TData = unknown, TRuntime = unknown> = {
   name: string
+  displayName: string
   description: string
+  category: string
   inputSchema: z.ZodType<TInput>
   riskLevel: OrchestratorRiskLevel
-  requiresApproval: boolean | ((input: TInput, context: ToolExecutionContext) => boolean | Promise<boolean>)
+  requiredPermissions: ToolRequiredPermissions
+  approvalPolicy: ToolApprovalPolicy
+  configurableByUserAgent: boolean
+  prepareApproval?: (input: TInput, context: ToolExecutionContext) => Promise<ToolApprovalDraft | null>
   internal?: boolean
   execute(input: TInput, context: ToolExecutionContext): Promise<ToolExecutionResult<TData, TRuntime>>
 }
@@ -75,4 +92,8 @@ export type RuntimeToolListOptions = {
 export type AiSdkToolSettings = {
   tools: ToolSet
   activeTools: string[]
+}
+
+export type RuntimeToolCatalog = {
+  listUserConfigurableTools(): AgentAuthoringToolOption[]
 }

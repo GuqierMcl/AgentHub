@@ -8,7 +8,9 @@ import {
   isTerminalRunEvent,
   isTerminalStatus,
   type RunEvent,
+  RuntimePermissionError,
 } from "../runtime"
+import { z } from "zod"
 
 const log = createChildLogger("runs")
 
@@ -20,6 +22,10 @@ declare module "hono" {
 }
 
 const runs = new Hono()
+const PermissionDecisionSchema = z.object({
+  approved: z.boolean(),
+  reason: z.string().trim().min(1).optional(),
+}).strict()
 
 function invalidRunInput(c: Context, details: unknown) {
   return c.json({
@@ -181,6 +187,52 @@ runs.get("/runtime/runs/:runId", (c: Context) => {
 
   log.info({ runId, status: run.status }, "Run status retrieved")
   return c.json(run)
+})
+
+runs.get("/runtime/runs/:runId/permissions", (c: Context) => {
+  const runId = c.req.param("runId")
+  const manager = c.get("runManager")
+  if (!manager.getRun(runId)) {
+    return runNotFound(c, runId)
+  }
+  return c.json({
+    permissions: manager.listPermissions(runId),
+  })
+})
+
+runs.post("/runtime/runs/:runId/permissions/:requestId/decision", async (c: Context) => {
+  const runId = c.req.param("runId")
+  const requestId = c.req.param("requestId")
+  const body = await c.req.json().catch(() => null)
+  const parsed = PermissionDecisionSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({
+      error: {
+        code: "PERMISSION_INVALID_INPUT",
+        message: "Invalid permission decision input",
+        details: parsed.error.issues,
+      },
+    }, 400)
+  }
+
+  try {
+    return c.json(c.get("runManager").decidePermission(
+      runId,
+      requestId,
+      parsed.data.approved,
+      parsed.data.reason
+    ))
+  } catch (error) {
+    if (error instanceof RuntimePermissionError) {
+      return c.json({
+        error: {
+          code: error.code,
+          message: error.message,
+        },
+      }, error.status)
+    }
+    throw error
+  }
 })
 
 runs.post("/runtime/runs/:runId/cancel", (c: Context) => {

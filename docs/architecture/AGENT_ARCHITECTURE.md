@@ -475,17 +475,18 @@ type AgentPermissionPolicy = {
   shell: "none" | "limited" | "full"
   network: "none" | "limited" | "full"
   deploy: "none" | "preview" | "publish"
-  requiresApproval: boolean
 }
 ```
 
 权限原则：
 
+- `allowedTools` 决定工具可见性，`permissionPolicy` 仅表达该智能体自身可执行能力上限。
+- 是否审批由 Tool Catalog 中的 `approvalPolicy` 与运行上下文决定，不属于 agent 配置字段。
 - 子智能体权限默认最小化。
 - `general` 不应获得文件和 shell 权限。
 - `explore` 默认只读。
-- `file` 默认需要文件写权限审批。
-- `deploy` 默认需要显式审批。
+- `file` 可以声明文件写能力，但写工具开放时仍必须按工具审批策略审批。
+- `deploy` 可以声明部署能力，但部署工具开放时仍必须按工具审批策略审批。
 - 外部智能体需要声明真实能力，不能隐式获得全部权限。
 
 ### 5.4 外部智能体配置
@@ -782,11 +783,12 @@ dataDir/
 
 ```text
 permission.requested
-permission.granted
+permission.approved
 permission.denied
+permission.cancelled
 ```
 
-MVP 可以先只生成 `permission.requested`，由 HubServer 和前端后续补审批闭环。在审批能力完成前，高风险能力默认不可自动执行，或者只能在开发模式下显式开启。
+Runtime 内部现已支持审批请求、批准、拒绝、取消与同一 Run 续跑。HubServer 和前端仍需补齐审批呈现、决定转发与持久化；未接入相应工具的高风险能力仍不可自动执行。
 
 ## 14. MVP 落地顺序
 

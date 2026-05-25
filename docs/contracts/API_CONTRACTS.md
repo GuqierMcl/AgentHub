@@ -78,6 +78,11 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `RUN_INVALID_ENTRY_AGENT` | 400 | RunInput 无法解析合法入口智能体 |
 | `AGENT_MODEL_BINDING_INVALID` | 400 | 智能体模型绑定参数或 provider/model 不可用 |
 | `AGENT_MODEL_BINDING_NOT_ALLOWED` | 403 | 当前智能体不允许绑定模型 |
+| `PERMISSION_INVALID_INPUT` | 400 | 权限决定请求体无效 |
+| `PERMISSION_NOT_FOUND` | 404 | 指定的权限请求不存在 |
+| `PERMISSION_ALREADY_RESOLVED` | 409 | 权限请求已经决定或取消 |
+| `PERMISSION_RUN_NOT_ACTIVE` | 409 | Run 已非等待审批状态，不能恢复 |
+| `PERMISSION_GRANT_FAILED` | 409 | 无法为已批准请求创建受控访问授权 |
 | `MODEL_BINDING_MISSING` | 400 | 智能体未配置模型绑定 |
 | `MODEL_PROVIDER_NOT_FOUND` | 404 | 绑定的 provider 不存在 |
 | `MODEL_NOT_FOUND` | 404 | 绑定的 model 不存在 |
@@ -207,8 +212,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "filesystem": "none",
     "shell": "none",
     "network": "none",
-    "deploy": "none",
-    "requiresApproval": false
+    "deploy": "none"
   }
 }
 ```
@@ -247,8 +251,8 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
       "description": "List files and directories in the workspace.",
       "category": "workspace",
       "riskLevel": "low",
-      "requiresApproval": false,
-      "permissionEffect": {
+      "approvalPolicy": "contextual",
+      "requiredPermissions": {
         "filesystem": "read"
       }
     },
@@ -258,8 +262,8 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
       "description": "Read a text file or image file from the workspace.",
       "category": "workspace",
       "riskLevel": "low",
-      "requiresApproval": false,
-      "permissionEffect": {
+      "approvalPolicy": "contextual",
+      "requiredPermissions": {
         "filesystem": "read"
       }
     }
@@ -286,8 +290,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
       "filesystem": "none",
       "shell": "none",
       "network": "none",
-      "deploy": "none",
-      "requiresApproval": false
+      "deploy": "none"
     }
   }
 }
@@ -295,8 +298,9 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 规则：
 
-- `tools` 只返回用户自定义智能体可配置的非 internal 安全工具集合，代码事实来源是 `USER_AGENT_ALLOWED_TOOLS`。
+- `tools` 从注册工具的 Tool Catalog 投影，只返回 `configurableByUserAgent = true` 且非 internal 的工具；不在路由或 CRUD 中维护重复白名单。
 - `write_plan`、`run_task` 不会出现在 `tools` 中。
+- `approvalPolicy = "contextual"` 表示是否审批取决于运行上下文；当前只读 workspace 工具在访问沙箱外路径时触发审批。
 - `capabilityTags` 是推荐标签，不是强枚举；创建和更新自定义智能体时 `capabilities` 仍允许自定义字符串。
 - `subagents` 只返回可配置到 `allowedSubagents` 的启用隐藏子智能体摘要，不改变隐藏子智能体不可直接调用的规则。
 
@@ -328,8 +332,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "filesystem": "read",
     "shell": "none",
     "network": "none",
-    "deploy": "none",
-    "requiresApproval": false
+    "deploy": "none"
   },
   "enabled": true
 }
@@ -340,9 +343,10 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `id` 可省略；省略时 Runtime 生成 `agent_<uuid>`。
 - `id` 只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
-- `allowedTools` 首版只允许 `USER_AGENT_ALLOWED_TOOLS` 中的只读文件工具：`ls`、`read_file`、`glob`、`grep`。
+- `allowedTools` 首版只允许 Tool Catalog 暴露为用户可配置的只读文件工具：`ls`、`read_file`、`glob`、`grep`。
 - `write_plan`、`run_task` 和高风险工具不能授予用户自定义智能体。
 - `permissionPolicy` 首版限制为低风险：`filesystem` 只允许 `none` 或 `read`，`shell` / `network` / `deploy` 必须为 `none`。
+- 若选择了需要读取能力的工具，`permissionPolicy.filesystem` 必须显式为 `read`；Runtime 不自动升级智能体权限。
 - 模型绑定不属于 CRUD 主体流程；创建后继续使用 `PUT /runtime/agents/:agentId/model` 配置模型。
 
 成功响应：`201 Created`，返回 agent detail。用户自定义智能体详情包含 `systemPrompt`。
@@ -365,8 +369,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "filesystem": "none",
     "shell": "none",
     "network": "none",
-    "deploy": "none",
-    "requiresApproval": false
+    "deploy": "none"
   },
   "enabled": true
 }
@@ -430,7 +433,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 ## Runtime RunInput 会话入口规则
 
-Runtime Run API 尚未实现；本节先记录后续 `POST /runtime/runs` 必须遵守的 IM 会话入口契约。
+Runtime Run API 已实现；本节记录 `POST /runtime/runs` 及相关事件、审批续跑接口遵守的 IM 会话入口契约。
 
 RunInput 必须携带会话模式和当前会话智能体成员：
 
@@ -568,6 +571,8 @@ Runtime Runs API 用于启动一次智能体执行。本阶段只实现 in-memor
 
 不存在时返回 `RUN_NOT_FOUND`。
 
+`status` 可为 `queued`、`running`、`waiting_approval`、`completed`、`failed` 或 `cancelled`。`waiting_approval` 表示 Runtime 已收到 AI SDK tool approval request，正在等待权限决定并保留同一 Run 的 continuation state。
+
 ### 订阅 Run 事件
 
 **端点**：`GET /runtime/runs/:runId/events`
@@ -604,6 +609,9 @@ tool.started
 tool.completed
 tool.failed
 permission.requested
+permission.approved
+permission.denied
+permission.cancelled
 message.delta
 message.completed
 agent.completed
@@ -637,7 +645,8 @@ type RunEvent = {
 
 - `tool.started`、`tool.completed`、`tool.failed` 必须携带 `toolCallId` 与 `toolName`。
 - `tool.failed` 的 `data` 应尽量包含结构化错误码、错误消息和可调试细节。
-- `permission.requested` 用于预留审批流程事件，后续可在高风险工具接入时扩展 `permissionId`、`riskLevel` 和审批结果。
+- `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 携带 `toolCallId`、`toolName`，其 `data` 为权限请求记录，包含 `requestId`、`riskLevel`、`status` 与可选 grant 信息。
+- 工具进入审批时先产生 `permission.requested` 而不产生 `tool.started`；批准后恢复工具并发送正常工具事件，拒绝后发送 `tool.failed`，错误码为 `TOOL_EXECUTION_DENIED`。
 - `write_plan` 的成功结果通过 `tool.completed.data.data.plan` 承载；HubServer/UI 应选择最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。
 - `run_task` 的工具事件只用于 UI 与追踪，不作为父智能体的模型上下文输入。
 
@@ -678,13 +687,57 @@ type RunEvent = {
 }
 ```
 
+### 查询 Run 权限请求
+
+**端点**：`GET /runtime/runs/:runId/permissions`
+
+成功响应：
+
+```json
+{
+  "permissions": [
+    {
+      "requestId": "permission_xxx",
+      "runId": "run_xxx",
+      "agentId": "coder",
+      "toolCallId": "toolu_xxx",
+      "toolName": "read_file",
+      "riskLevel": "medium",
+      "status": "pending",
+      "reason": "Read an explicitly selected path outside the workspace.",
+      "createdAt": "2026-05-25T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+不存在的 Run 返回 `RUN_NOT_FOUND`。
+
+### 决定 Run 权限请求
+
+**端点**：`POST /runtime/runs/:runId/permissions/:requestId/decision`
+
+请求体：
+
+```json
+{
+  "approved": true,
+  "reason": "User allowed read access to the selected external file."
+}
+```
+
+成功响应返回更新后的 permission request。批准沙箱外只读访问时响应中可包含受控 read grant；Runtime 随后在相同 `runId` 与原始 `toolCallId` 上恢复执行。
+
+AI SDK 续跑采用新的生成调用：Runtime 保存原始 response messages，追加 `tool-approval-response` 后再次运行 entry agent，而不是保持原始 HTTP/模型 stream 挂起。
+
 ### 取消 Run
 
 **端点**：`POST /runtime/runs/:runId/cancel`
 
 行为：
 
-- `queued` / `running` Run 会转为 `cancelled` 并输出 `run.cancelled`。
+- `queued` / `running` / `waiting_approval` Run 会转为 `cancelled` 并输出 `run.cancelled`。
+- 等待审批的 Run 被取消时，pending 请求先输出 `permission.cancelled`，之后不再接受决定。
 - 已经是 `completed`、`failed`、`cancelled` 的 Run 保持原状态。
 - 不存在时返回 `RUN_NOT_FOUND`。
 

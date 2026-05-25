@@ -49,13 +49,14 @@ Agent Runtime 智能体架构
 - 外部智能体 Adapter 骨架。
 - Runtime 的 agents/runs 基础 API。
 - 用户自定义主智能体 CRUD API。
+- Runtime Tool Catalog、执行权限校验与内部审批续跑 API。
 
 ### 不包含
 
 - HubServer 持久化和 SSE 代理。
 - 前端 Agent 管理 UI。
 - 真实外部 Agent 的完整接入。
-- 权限审批闭环的完整产品化。
+- HubServer / 前端的权限审批代理、交互和持久化。
 - 更复杂的并行恢复、冲突处理和可视化编排平台。
 
 ## 阶段拆分
@@ -147,6 +148,8 @@ Agent Runtime 智能体架构
 - 建立沙箱外目录/文件访问审批模型与受控授权挂载语义。
 - 实现首批只读文件工具：`ls`、`read_file`、`glob`、`grep`，其中 `read_file` 支持图片多模态返回。
 - 将文件类工具接入 Runtime Tool Registry，并输出 `permission.requested` 等审批相关事件。
+- 以 Tool Catalog 单源承载工具权限、风险、审批策略与用户 authoring metadata。
+- 实现 Runtime 内部审批决定接口与同一 Run 的 AI SDK continuation。
 
 验收：
 
@@ -154,6 +157,7 @@ Agent Runtime 智能体架构
 - 图片文件可通过 `read_file` 返回多模态内容。
 - 访问沙箱外目录/文件时会触发审批，而不是直接暴露宿主机绝对路径。
 - 文件工具的能力、风险和可见性可以通过工具注册表统一过滤。
+- Run 可以进入 `waiting_approval`，并在批准或拒绝后继续同一执行链路。
 
 ### 阶段 7：外部智能体 Adapter 骨架
 
@@ -170,7 +174,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成 Agents 查询 API、用户自定义主智能体 CRUD API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 继续保留外部 Adapter 骨架。
+阶段 1 和阶段 2 已完成。阶段 3 已完成 Agents 查询 API、用户自定义主智能体 CRUD API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、首批只读文件工具、工具目录与权限单源化，以及 Runtime 内部沙箱外访问审批续跑闭环；阶段 7 继续保留外部 Adapter 骨架。
 
 ## 已完成
 
@@ -191,6 +195,8 @@ Agent Runtime 智能体架构
 - 系统预设主智能体 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 已统一从 `agent-runtime/src/agents/preset-agent-prompts.ts` 读取系统提示词。
 - `planner` 已收敛为人类可读方案顾问，`delegationPolicy = "terminal"`，不承担运行时任务委派，避免与 `orchestrator` 职责重叠。
 - 阶段 6 已落地 `WorkspaceService`、`LocalWorkspaceBackend`、沙箱外访问请求与授权挂载语义，以及首批只读文件工具 `ls`、`read_file`、`glob`、`grep`。
+- 工具权限、风险、审批策略与 Authoring Options metadata 已统一由 Runtime Tool Catalog 提供；`allowedTools` 仅负责可见性，`permissionPolicy` 负责 agent 能力上限。
+- Runtime 内部审批闭环已落地：`waiting_approval`、permission lifecycle events、权限查询/决定 API，以及同一 `runId` / `toolCallId` 的 AI SDK 续跑。
 - `AGENT_RUNTIME_BACKEND.md` 已建立，明确 Workspace Backend、沙箱外访问审批和本地优先实现。
 - `AGENT_TOOLS.md` 已建立，明确工具可见性、`run_task` 语义、事件流和并发约束。
 
@@ -200,12 +206,12 @@ Agent Runtime 智能体架构
 - 后续补充计划持久化、计划任务与 `run_task` 的强校验，以及前端 UI 投影。
 - 补齐 HubServer 对 Runtime RunEvent 的消费、持久化和 SSE 转发，使产品链路从直接 Runtime smoke 测试闭合到 `web -> hub-server -> agent-runtime`。
 - 补齐 HubServer 面向浏览器的自定义 Agent 管理 API 与前端配置 UI。
-- 补齐工具权限审批闭环，包括审批 API、审批结果回传、恢复执行、拒绝处理和 UI 状态。
+- 在 HubServer 与前端补齐 Runtime 权限审批的代理、用户交互、状态展示与持久化。
 - 补充 AI SDK 工具循环、结构化输出和更完整的 agent 运行参数映射。
 - 实现外部智能体 Adapter 骨架。
 - 将隐藏子智能体从 mock 逐步迁移到真实执行器或专用工具执行路径。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
-- 继续扩展文件写入、Patch 应用和更复杂的沙箱审批闭环。
+- 下一阶段接入 `write_file` / `edit_file`、写入 grant 与强制审批；之后再扩展 Patch 应用和更复杂的写入冲突处理。
 
 ## 风险与待确认点
 
@@ -215,11 +221,11 @@ Agent Runtime 智能体架构
 - 外部智能体是否需要先支持只读执行能力。
 - 目前阶段已明确只允许单个 @，并行 @ 作为后续版本能力。
 - Workspace 根目录来源是 `--workdir`、配置项还是 HubServer 传入参数，需要在实现前最终敲定。
-- 沙箱外审批是按“文件”还是按“目录”粒度优先实现，需要在首版实现时保持一致。
+- 当前沙箱外只读审批可限定文件或目录范围；写入阶段仍需确认 grant 生命周期与修改冲突策略。
 
 ## 最近更新
 
-2026-05-24
+2026-05-25
 
 - 根据对话补充了 `orchestrator` 的特殊系统预设主智能体定位。
 - 明确内部智能体共享统一执行协议，不引入兼容层。
@@ -232,3 +238,6 @@ Agent Runtime 智能体架构
 - 第五轮完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 保留外部智能体 Adapter 骨架。
 - 最新一轮已把 `orchestrator` 迁移到真实 AI SDK tool calling，并通过 `deepseek/deepseek-v4-pro` 在 4096 端口完成群聊与单聊 smoke 验证。
 - 本轮已将 Orchestrator 计划工具化：`write_plan` 成为计划主事实来源，计划通过 `tool.completed` 事件供 UI 渲染；不新增 `planId`，多次调用时最新成功工具结果为准。
+- 本轮已收敛 Runtime Tool Catalog 与 per-agent permission policy：工具元数据不再分散在 router 或 CRUD 白名单中，读取工具要求显式 `filesystem: "read"`。
+- 本轮已闭环 Runtime 内部审批续跑：沙箱外只读访问支持 `waiting_approval`、permission API、受控 read grant 与 AI SDK 二次生成恢复；HubServer/UI 集成留待后续。
+- 下一阶段文件能力目标为 `write_file` / `edit_file`，并同步补齐写权限 grant 与强制审批策略。

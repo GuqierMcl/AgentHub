@@ -7,72 +7,25 @@ import {
   UserAgentCreateRequestSchema,
   UserAgentUpdateRequestSchema,
   DEFAULT_USER_AGENT_PERMISSION_POLICY,
-  USER_AGENT_ALLOWED_TOOLS,
   type AgentDefinition,
   type AgentAuthoringCapabilityTagOption,
   type AgentAuthoringOptionsResponse,
-  type AgentAuthoringToolOption,
   type AgentDetailResponse,
   type AgentSummaryResponse,
 } from "../agents"
 import { resolveAgentModelSnapshot } from "../runtime/model-resolver"
+import type { RuntimeToolRegistry } from "../runtime"
 import type { ProviderService } from "../provider"
 
 declare module "hono" {
   interface ContextVariableMap {
     agentRegistry: AgentRegistry
     providerService: ProviderService
+    toolRegistry: RuntimeToolRegistry
   }
 }
 
 const agents = new Hono()
-
-const userAgentToolOptions = [
-  {
-    id: "ls",
-    name: "List files",
-    description: "List files and directories in the workspace.",
-    category: "workspace",
-    riskLevel: "low",
-    requiresApproval: false,
-    permissionEffect: {
-      filesystem: "read",
-    },
-  },
-  {
-    id: "read_file",
-    name: "Read file",
-    description: "Read a text file or image file from the workspace.",
-    category: "workspace",
-    riskLevel: "low",
-    requiresApproval: false,
-    permissionEffect: {
-      filesystem: "read",
-    },
-  },
-  {
-    id: "glob",
-    name: "Glob",
-    description: "Find files and directories by glob pattern.",
-    category: "workspace",
-    riskLevel: "low",
-    requiresApproval: false,
-    permissionEffect: {
-      filesystem: "read",
-    },
-  },
-  {
-    id: "grep",
-    name: "Grep",
-    description: "Search for text across workspace files and directories.",
-    category: "workspace",
-    riskLevel: "low",
-    requiresApproval: false,
-    permissionEffect: {
-      filesystem: "read",
-    },
-  },
-] satisfies AgentAuthoringToolOption[]
 
 const userAgentCapabilityTagOptions = [
   { id: "implementation", name: "Implementation", category: "engineering" },
@@ -134,9 +87,8 @@ function serializeAgentDetail(
   }
 }
 
-function serializeAuthoringOptions(registry: AgentRegistry): AgentAuthoringOptionsResponse {
-  const allowedToolIds = new Set<string>(USER_AGENT_ALLOWED_TOOLS)
-  const tools = userAgentToolOptions.filter((toolOption) => allowedToolIds.has(toolOption.id))
+function serializeAuthoringOptions(registry: AgentRegistry, toolRegistry: RuntimeToolRegistry): AgentAuthoringOptionsResponse {
+  const tools = toolRegistry.listUserConfigurableTools()
   const subagents = registry.listAgents({
     includeHidden: true,
     enabledOnly: true,
@@ -309,7 +261,7 @@ agents.get("/runtime/agents/authoring-options", (c: Context) => {
     return registryUnavailable(c)
   }
 
-  return c.json(serializeAuthoringOptions(registry))
+  return c.json(serializeAuthoringOptions(registry, c.get("toolRegistry")))
 })
 
 agents.get("/runtime/agents/:agentId", (c: Context) => {

@@ -3,7 +3,8 @@ import { Hono, type Context, type Next } from "hono"
 import { mkdtemp, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { AgentRegistry, AgentRegistryMutationError, USER_AGENT_ALLOWED_TOOLS } from "../src/agents"
+import { AgentRegistry, AgentRegistryMutationError } from "../src/agents"
+import { createDefaultRuntimeToolRegistry } from "../src/runtime"
 import agentsRouter from "../src/routers/agents"
 import type { ProviderService } from "../src/provider"
 
@@ -12,15 +13,15 @@ const readOnlyPolicy = {
   shell: "none",
   network: "none",
   deploy: "none",
-  requiresApproval: false,
 } as const
+const EXPECTED_AUTHORING_TOOL_IDS = ["ls", "read_file", "glob", "grep"] as const
 
 async function createInitializedRegistry(): Promise<{
   dataDir: string
   registry: AgentRegistry
 }> {
   const dataDir = await mkdtemp(join(tmpdir(), "agent-runtime-agent-crud-"))
-  const registry = new AgentRegistry(dataDir)
+  const registry = new AgentRegistry(dataDir, createDefaultRuntimeToolRegistry())
   await registry.initialize()
   return {
     dataDir,
@@ -40,6 +41,7 @@ function createAgentsApp(registry: AgentRegistry): Hono {
   app.use("*", async (c: Context, next: Next) => {
     c.set("agentRegistry", registry)
     c.set("providerService", createProviderService())
+    c.set("toolRegistry", createDefaultRuntimeToolRegistry())
     await next()
   })
   app.route("/", agentsRouter)
@@ -94,6 +96,12 @@ describe("user agent CRUD", () => {
       name: "Custom Editor",
       allowedTools: [],
       enabled: false,
+      permissionPolicy: {
+        filesystem: "none",
+        shell: "none",
+        network: "none",
+        deploy: "none",
+      },
     })
 
     expect(updated).toMatchObject({
@@ -118,11 +126,11 @@ describe("user agent CRUD", () => {
 
     await expect(registry.createUserAgent(createUserAgentPayload({
       id: "tool_enabled_agent",
-      allowedTools: [...USER_AGENT_ALLOWED_TOOLS],
+      allowedTools: [...EXPECTED_AUTHORING_TOOL_IDS],
       permissionPolicy: readOnlyPolicy,
     }))).resolves.toMatchObject({
       id: "tool_enabled_agent",
-      allowedTools: [...USER_AGENT_ALLOWED_TOOLS],
+      allowedTools: [...EXPECTED_AUTHORING_TOOL_IDS],
     })
 
     await expect(registry.createUserAgent(createUserAgentPayload({ id: "coder" }))).rejects.toMatchObject({
@@ -160,7 +168,6 @@ describe("user agent CRUD", () => {
         shell: "none",
         network: "none",
         deploy: "none",
-        requiresApproval: false,
       },
     }))).rejects.toMatchObject({
       code: "AGENT_INVALID_INPUT",
@@ -228,11 +235,11 @@ describe("user agent CRUD", () => {
     const options = await response.json()
 
     expect(response.status).toBe(200)
-    expect(options.tools.map((tool: { id: string }) => tool.id)).toEqual([...USER_AGENT_ALLOWED_TOOLS])
+    expect(options.tools.map((tool: { id: string }) => tool.id)).toEqual([...EXPECTED_AUTHORING_TOOL_IDS])
     expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("run_task")
     expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("write_plan")
-    expect(options.tools.every((tool: { category: string; permissionEffect: { filesystem?: string } }) =>
-      tool.category === "workspace" && tool.permissionEffect.filesystem === "read"
+    expect(options.tools.every((tool: { category: string; approvalPolicy: string; requiredPermissions: { filesystem?: string } }) =>
+      tool.category === "workspace" && tool.approvalPolicy === "contextual" && tool.requiredPermissions.filesystem === "read"
     )).toBe(true)
 
     expect(options.capabilityTags.map((tag: { id: string }) => tag.id)).toEqual(expect.arrayContaining([
@@ -262,7 +269,6 @@ describe("user agent CRUD", () => {
         shell: "none",
         network: "none",
         deploy: "none",
-        requiresApproval: false,
       },
     })
   })

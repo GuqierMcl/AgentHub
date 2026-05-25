@@ -3,10 +3,11 @@ import { mkdtemp } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { AgentRegistry } from "../src/agents"
+import { createDefaultRuntimeToolRegistry } from "../src/runtime"
 
 async function createRegistry(): Promise<AgentRegistry> {
   const dataDir = await mkdtemp(join(tmpdir(), "agent-runtime-agent-registry-"))
-  return new AgentRegistry(dataDir)
+  return new AgentRegistry(dataDir, createDefaultRuntimeToolRegistry())
 }
 
 describe("AgentRegistry model binding rules", () => {

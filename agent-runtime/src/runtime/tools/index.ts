@@ -1,4 +1,4 @@
-export { RuntimeToolRegistry } from "./runtime-tool-registry"
+export { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./runtime-tool-registry"
 export { createRunTaskTool } from "./run-task-tool"
 export { createWritePlanTool } from "./write-plan-tool"
 export { createWorkspaceReadOnlyTools } from "./workspace-tools"
@@ -16,4 +16,8 @@ export type {
   ToolExecutionContext,
   ToolExecutionResult,
   ToolExecutionStatus,
+  RuntimeToolCatalog,
+  ToolApprovalPolicy,
+  ToolRequiredPermissions,
+  ToolApprovalDraft,
 } from "./types"

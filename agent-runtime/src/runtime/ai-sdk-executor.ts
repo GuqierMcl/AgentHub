@@ -69,7 +69,7 @@ function buildExecutionSettings(
   supportsTemperature: boolean
 ): AiSdkExecutionSettings {
   const system = buildSystemPrompt(context)
-  const messages = normalizeHistoryMessages(context)
+  const messages = context.resumeMessages ?? normalizeHistoryMessages(context)
   const temperature = supportsTemperature && maxOutputTokens > 0
     ? DEFAULT_TEMPERATURE
     : undefined
@@ -158,21 +158,27 @@ export class AiSdkExecutor implements AgentExecutor {
     })
 
     let content = ""
+    let approvalPending = false
 
     try {
-      for await (const chunk of result.textStream) {
+      for await (const chunk of result.fullStream) {
         if (signal.aborted) {
           log.info({ runId, agentId: agent.id }, "AI SDK execution aborted during stream")
           return
         }
 
-        if (!chunk) {
+        if (chunk.type === "tool-approval-request") {
+          approvalPending = true
+          context.permissionService?.bindAiSdkApproval(runId, chunk.toolCall.toolCallId, chunk.approvalId)
+          continue
+        }
+        if (chunk.type !== "text-delta" || !chunk.text) {
           continue
         }
 
-        content += chunk
+        content += chunk.text
         const delta = createRunEvent(runId, "message.delta", agent.id, {
-          delta: chunk,
+          delta: chunk.text,
         })
         delta.taskId = task?.taskId
         delta.parentAgentId = parentAgentId
@@ -183,6 +189,15 @@ export class AiSdkExecutor implements AgentExecutor {
 
       if (signal.aborted) {
         log.info({ runId, agentId: agent.id }, "AI SDK execution aborted after stream consumption")
+        return
+      }
+
+      if (approvalPending) {
+        const response = await result.response
+        context.onApprovalPending?.([
+          ...(context.resumeMessages ?? normalizeHistoryMessages(context)),
+          ...(response.messages as ModelMessage[]),
+        ])
         return
       }
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { RuntimeToolRegistry, createWorkspaceReadOnlyTools, WorkspaceService } from "../src/runtime"
+import { RuntimePermissionService, RuntimeToolRegistry, createWorkspaceReadOnlyTools, WorkspaceService } from "../src/runtime"
 import type { AgentDefinition, RunEvent, RunInput } from "../src/runtime"
 
 const PNG_BASE64 =
@@ -30,7 +30,6 @@ const coderAgent: AgentDefinition = {
     shell: "none",
     network: "none",
     deploy: "none",
-    requiresApproval: false,
   },
   enabled: true,
   readonly: true,
@@ -106,6 +105,7 @@ describe("Workspace read-only tools", () => {
         events.push(event)
       },
       workspaceService,
+      permissionService: new RuntimePermissionService(workspaceService),
     }
 
     const lsResult = await registry.executeTool("ls", { path: "." }, context, { toolCallId: "tool_ls" })
@@ -168,6 +168,7 @@ describe("Workspace read-only tools", () => {
         events.push(event)
       },
       workspaceService,
+      permissionService: new RuntimePermissionService(workspaceService),
     }
 
     const externalPath = join(externalRoot, "secret.txt")
@@ -176,10 +177,11 @@ describe("Workspace read-only tools", () => {
     })
 
     expect(firstAttempt.status).toBe("failed")
-    expect(firstAttempt.error?.code).toBe("WORKSPACE_EXTERNAL_ACCESS_PENDING_APPROVAL")
+    expect(firstAttempt.error?.code).toBe("TOOL_APPROVAL_REQUIRED")
     expect(events.some((event) => event.type === "permission.requested")).toBe(true)
+    expect(events.some((event) => event.type === "tool.started")).toBe(false)
 
-    const requestId = (firstAttempt.runtime as { request?: { requestId: string } } | undefined)?.request?.requestId
+    const requestId = workspaceService.listExternalAccessRequests()[0]?.requestId
     expect(requestId).toBeTruthy()
 
     const grant = workspaceService.approveExternalAccess(requestId as string)

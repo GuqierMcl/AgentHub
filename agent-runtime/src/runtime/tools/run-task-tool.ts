@@ -32,10 +32,14 @@ type RunTaskRuntimeData = {
 export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelData, RunTaskRuntimeData> {
   return {
     name: "run_task",
+    displayName: "Run task",
     description: "Create and execute one internal agent task. Only orchestrator can use this tool.",
+    category: "orchestration",
     inputSchema: RunTaskInputSchema,
     riskLevel: "low",
-    requiresApproval: false,
+    requiredPermissions: {},
+    approvalPolicy: "never",
+    configurableByUserAgent: false,
     internal: true,
     async execute(input, context): Promise<ToolExecutionResult<RunTaskModelData, RunTaskRuntimeData>> {
       const executeTask = context.executeTask ?? context.runTask

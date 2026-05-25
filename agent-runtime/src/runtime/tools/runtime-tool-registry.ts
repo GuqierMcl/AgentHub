@@ -9,6 +9,29 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from "./types"
+import type { AgentAuthoringToolOption, AgentPermissionPolicy } from "../../agents"
+import { createRunTaskTool } from "./run-task-tool"
+import { createWorkspaceReadOnlyTools } from "./workspace-tools"
+import { createWritePlanTool } from "./write-plan-tool"
+
+const PERMISSION_RANKS = {
+  filesystem: { none: 0, read: 1, write: 2 },
+  shell: { none: 0, limited: 1, full: 2 },
+  network: { none: 0, limited: 1, full: 2 },
+  deploy: { none: 0, preview: 1, publish: 2 },
+} as const
+
+function hasRequiredPermissions(
+  policy: AgentPermissionPolicy,
+  required: Partial<Pick<AgentPermissionPolicy, "filesystem" | "shell" | "network" | "deploy">>
+): boolean {
+  return (
+    (!required.filesystem || PERMISSION_RANKS.filesystem[policy.filesystem] >= PERMISSION_RANKS.filesystem[required.filesystem]) &&
+    (!required.shell || PERMISSION_RANKS.shell[policy.shell] >= PERMISSION_RANKS.shell[required.shell]) &&
+    (!required.network || PERMISSION_RANKS.network[policy.network] >= PERMISSION_RANKS.network[required.network]) &&
+    (!required.deploy || PERMISSION_RANKS.deploy[policy.deploy] >= PERMISSION_RANKS.deploy[required.deploy])
+  )
+}
 
 export class RuntimeToolRegistry {
   private tools = new Map<string, ToolDefinition<any, any, any>>()
@@ -32,6 +55,20 @@ export class RuntimeToolRegistry {
     return Array.from(this.tools.values())
       .filter((definition) => declaredTools.has(definition.name))
       .filter((definition) => options.includeInternal || !definition.internal)
+  }
+
+  listUserConfigurableTools(): AgentAuthoringToolOption[] {
+    return Array.from(this.tools.values())
+      .filter((definition) => definition.configurableByUserAgent && !definition.internal)
+      .map((definition) => ({
+        id: definition.name,
+        name: definition.displayName,
+        description: definition.description,
+        category: definition.category,
+        riskLevel: definition.riskLevel,
+        approvalPolicy: definition.approvalPolicy,
+        requiredPermissions: definition.requiredPermissions,
+      }))
   }
 
   hasVisibleToolsForAgent(
@@ -64,6 +101,19 @@ export class RuntimeToolRegistry {
       )
     }
 
+    if (!hasRequiredPermissions(context.agent.permissionPolicy, definition.requiredPermissions)) {
+      return this.failBeforeStart(
+        context,
+        name,
+        "TOOL_PERMISSION_DENIED",
+        `Agent ${context.agent.id} does not have the permissions required by tool ${name}`,
+        {
+          requiredPermissions: definition.requiredPermissions,
+          permissionPolicy: context.agent.permissionPolicy,
+        }
+      )
+    }
+
     const parsed = definition.inputSchema.safeParse(input)
     if (!parsed.success) {
       return this.failBeforeStart(
@@ -73,6 +123,25 @@ export class RuntimeToolRegistry {
         `Invalid input for tool ${name}`,
         parsed.error.issues
       )
+    }
+
+    if (
+      definition.approvalPolicy === "contextual" &&
+      definition.prepareApproval &&
+      context.permissionService
+    ) {
+      const draft = await definition.prepareApproval(parsed.data, context)
+      if (draft) {
+        context.permissionService.stageToolApproval(context, definition.name, draft)
+        return {
+          status: "failed",
+          summary: `${definition.name} is waiting for approval`,
+          error: {
+            code: "TOOL_APPROVAL_REQUIRED",
+            message: `Tool ${definition.name} requires approval before execution`,
+          },
+        }
+      }
     }
 
     this.emitToolEvent(context, "tool.started", definition.name, {
@@ -122,15 +191,34 @@ export class RuntimeToolRegistry {
 
     const tools: ToolSet = {}
     for (const definition of visibleTools) {
-      const needsApproval = definition.requiresApproval
       tools[definition.name] = tool({
         description: definition.description,
         inputSchema: definition.inputSchema,
-        needsApproval: typeof needsApproval === "boolean"
-          ? needsApproval
-          : async (input, options) => needsApproval(input, this.buildContext(baseContext, options.toolCallId, {
-              signal: baseContext.signal,
-            })),
+        needsApproval: async (input, options) => {
+          if (definition.approvalPolicy === "never") {
+            return false
+          }
+
+          const context = this.buildContext(baseContext, options.toolCallId, {
+            signal: baseContext.signal,
+          })
+          if (definition.approvalPolicy === "always") {
+            context.permissionService?.stageToolApproval(context, definition.name, {
+              reason: `Tool ${definition.name} requires approval`,
+              riskLevel: definition.riskLevel,
+            })
+            return true
+          }
+
+          const draft = definition.prepareApproval
+            ? await definition.prepareApproval(input, context)
+            : null
+          if (!draft) {
+            return false
+          }
+          context.permissionService?.stageToolApproval(context, definition.name, draft)
+          return true
+        },
         execute: async (input, options) => {
           const result = await this.executeTool(definition.name, input, baseContext, {
             toolCallId: options.toolCallId,
@@ -170,6 +258,7 @@ export class RuntimeToolRegistry {
       task: options.task ?? baseContext.task,
       emitEvent: baseContext.emitEvent ?? (() => {}),
       workspaceService: baseContext.workspaceService,
+      permissionService: baseContext.permissionService,
       executeTask: baseContext.executeTask,
       runTask: baseContext.runTask,
     }
@@ -215,4 +304,14 @@ export class RuntimeToolRegistry {
     event.groupId = context.groupId
     context.emitEvent(event)
   }
+}
+
+export function createDefaultRuntimeToolRegistry(): RuntimeToolRegistry {
+  const registry = new RuntimeToolRegistry()
+  registry.register(createWritePlanTool())
+  registry.register(createRunTaskTool())
+  for (const definition of createWorkspaceReadOnlyTools()) {
+    registry.register(definition)
+  }
+  return registry
 }

@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { AgentRegistry } from "../src/agents"
-import { RunManager, type RunEvent } from "../src/runtime"
+import { RunManager, createDefaultRuntimeToolRegistry, type RunEvent } from "../src/runtime"
 import type { ProviderService } from "../src/provider"
 
 function sleep(ms: number): Promise<void> {
@@ -25,7 +25,7 @@ async function waitForTerminalRun(runManager: RunManager, runId: string): Promis
 
 async function createRegistry(): Promise<AgentRegistry> {
   const dataDir = await mkdtemp(join(tmpdir(), "agent-runtime-model-binding-"))
-  return new AgentRegistry(dataDir)
+  return new AgentRegistry(dataDir, createDefaultRuntimeToolRegistry())
 }
 
 describe("RunManager orchestrator model binding", () => {

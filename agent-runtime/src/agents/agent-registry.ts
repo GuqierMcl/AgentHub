@@ -4,7 +4,6 @@ import { presetAgents } from "./preset-agents"
 import { presetSubagents } from "./preset-subagents"
 import {
   DEFAULT_USER_AGENT_PERMISSION_POLICY,
-  USER_AGENT_ALLOWED_TOOLS,
 } from "./types"
 import type {
   AgentDefinition,
@@ -12,11 +11,10 @@ import type {
   AgentModelRef,
   AgentListOptions,
   AgentPermissionPolicy,
+  AgentToolAuthoringCatalog,
   UserAgentCreateRequest,
   UserAgentUpdateRequest,
 } from "./types"
-
-const USER_AGENT_ALLOWED_TOOL_SET = new Set<string>(USER_AGENT_ALLOWED_TOOLS)
 
 export class AgentRegistryMutationError extends Error {
   constructor(
@@ -44,7 +42,7 @@ export class AgentRegistry {
   private writeQueue: Promise<unknown> = Promise.resolve()
   private initialized = false
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, private toolCatalog: AgentToolAuthoringCatalog) {
     this.store = new AgentStore(dataDir)
     this.bindingStore = new AgentModelBindingStore(dataDir)
     this.loadPresets()
@@ -124,8 +122,14 @@ export class AgentRegistry {
       }
 
       const snapshot = this.createStateSnapshot()
-      this.baseAgents.set(agent.id, this.cloneAgent(agent))
-      this.agents.set(agent.id, this.applyModelBinding(agent))
+      try {
+        this.normalizeAllowedTools(agent.allowedTools)
+        this.normalizeUserPermissionPolicy(agent.permissionPolicy, agent.allowedTools)
+        this.baseAgents.set(agent.id, this.cloneAgent(agent))
+        this.agents.set(agent.id, this.applyModelBinding(agent))
+      } catch (error) {
+        console.warn(`Ignoring invalid user agent "${agent.id}"`, error)
+      }
 
       await this.persistAgentsOrRollback(snapshot)
       return this.cloneAgent(this.agents.get(agent.id) ?? agent)
@@ -334,9 +338,11 @@ export class AgentRegistry {
 
   private normalizeAllowedTools(toolNames: string[]): string[] {
     const normalized = this.normalizeStringList(toolNames)
+    const configurableTools = this.toolCatalog.listUserConfigurableTools()
+    const allowedToolSet = new Set(configurableTools.map((tool) => tool.id))
 
     for (const toolName of normalized) {
-      if (!USER_AGENT_ALLOWED_TOOL_SET.has(toolName)) {
+      if (!allowedToolSet.has(toolName)) {
         throw new AgentRegistryMutationError(
           "AGENT_INVALID_INPUT",
           `Tool ${toolName} is not available for user agents`,
@@ -344,7 +350,7 @@ export class AgentRegistry {
           {
             field: "allowedTools",
             toolName,
-            allowedTools: Array.from(USER_AGENT_ALLOWED_TOOLS),
+            allowedTools: Array.from(allowedToolSet),
           }
         )
       }
@@ -357,11 +363,10 @@ export class AgentRegistry {
     policy: AgentPermissionPolicy | undefined,
     allowedTools: string[]
   ): AgentPermissionPolicy {
-    const normalized = this.clonePermissionPolicy(policy ?? {
-      ...DEFAULT_USER_AGENT_PERMISSION_POLICY,
-      filesystem: allowedTools.length > 0 ? "read" : "none",
-    })
+    const normalized = this.clonePermissionPolicy(policy ?? DEFAULT_USER_AGENT_PERMISSION_POLICY)
     const violations: Array<{ path: string[]; message: string }> = []
+    const configurableTools = this.toolCatalog.listUserConfigurableTools()
+    const selectedTools = configurableTools.filter((tool) => allowedTools.includes(tool.id))
 
     if (normalized.filesystem === "write") {
       violations.push({
@@ -370,7 +375,7 @@ export class AgentRegistry {
       })
     }
 
-    if (allowedTools.length > 0 && normalized.filesystem !== "read") {
+    if (selectedTools.some((tool) => tool.requiredPermissions.filesystem === "read") && normalized.filesystem !== "read") {
       violations.push({
         path: ["permissionPolicy", "filesystem"],
         message: "Read-only file tools require filesystem read permission",
@@ -546,7 +551,6 @@ export class AgentRegistry {
       shell: policy.shell,
       network: policy.network,
       deploy: policy.deploy,
-      requiresApproval: policy.requiresApproval,
     }
   }
 }

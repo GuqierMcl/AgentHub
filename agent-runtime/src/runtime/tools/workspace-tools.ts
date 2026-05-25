@@ -121,39 +121,6 @@ function createApprovalFailureResult<TData = unknown>(
   }
 }
 
-function emitPermissionRequested(
-  context: ToolExecutionContext,
-  toolName: string,
-  request: {
-    requestId: string
-    targetPath: string
-    targetKind: string
-    accessMode: string
-    reason: string
-    riskLevel: string
-    workspaceId: string
-  }
-): void {
-  const event = createRunEvent(context.runId, "permission.requested", context.agent.id, {
-    requestId: request.requestId,
-    workspaceId: request.workspaceId,
-    toolName,
-    toolCallId: context.toolCallId,
-    targetPath: request.targetPath,
-    targetKind: request.targetKind,
-    accessMode: request.accessMode,
-    reason: request.reason,
-    riskLevel: request.riskLevel,
-  })
-  event.toolCallId = context.toolCallId
-  event.toolName = toolName
-  event.taskId = context.task?.taskId
-  event.parentAgentId = context.parentAgentId ?? context.agent.id
-  event.parentTaskId = context.parentTaskId
-  event.groupId = context.groupId
-  context.emitEvent(event)
-}
-
 async function resolveAccess(
   context: ToolExecutionContext,
   toolName: string,
@@ -175,22 +142,28 @@ async function resolveAccess(
   })
 }
 
-async function maybeRequestApproval(
+async function prepareApproval(
   context: ToolExecutionContext,
   toolName: string,
   path: string,
   reason: string
-): Promise<boolean> {
+): Promise<import("./types").ToolApprovalDraft | null> {
   const decision = await resolveAccess(context, toolName, path, reason)
   if (decision.kind !== "approval_required") {
-    return false
+    return null
   }
 
-  if (decision.requestCreated) {
-    emitPermissionRequested(context, toolName, decision.request)
+  return {
+    reason: decision.request.reason,
+    riskLevel: decision.request.riskLevel,
+    workspaceRequestId: decision.request.requestId,
+    data: {
+      workspaceId: decision.request.workspaceId,
+      targetPath: decision.request.targetPath,
+      targetKind: decision.request.targetKind,
+      accessMode: decision.request.accessMode,
+    },
   }
-
-  return true
 }
 
 async function runWithAccess<TData>(
@@ -207,10 +180,6 @@ async function runWithAccess<TData>(
   }
 
   if (decision.kind === "approval_required") {
-    if (decision.requestCreated) {
-      emitPermissionRequested(context, toolName, decision.request)
-    }
-
     return createApprovalFailureResult(toolName, decision.request)
   }
 
@@ -275,6 +244,7 @@ function formatGrepResult(matches: WorkspaceGrepMatch[], pattern: string): ToolE
 
 function createWorkspaceTool<TInput, TData>(
   name: string,
+  displayName: string,
   description: string,
   inputSchema: z.ZodType<TInput>,
   riskLevel: "low" | "medium" | "high",
@@ -288,12 +258,19 @@ function createWorkspaceTool<TInput, TData>(
 ): ToolDefinition<TInput, TData> {
   return {
     name,
+    displayName,
     description,
+    category: "workspace",
     inputSchema,
     riskLevel,
-    requiresApproval: async (input, context) => {
+    requiredPermissions: {
+      filesystem: "read",
+    },
+    approvalPolicy: "contextual",
+    configurableByUserAgent: true,
+    prepareApproval: async (input, context) => {
       const path = pathSelector(input)
-      return maybeRequestApproval(context, name, path, approvalReason)
+      return prepareApproval(context, name, path, approvalReason)
     },
     async execute(input, context) {
       const path = pathSelector(input)
@@ -306,6 +283,7 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
   return [
     createWorkspaceTool(
       "ls",
+      "List files",
       "List files and directories in a workspace path.",
       lsInputSchema,
       "low",
@@ -318,6 +296,7 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
     ),
     createWorkspaceTool(
       "read_file",
+      "Read file",
       "Read a text file or image file from a workspace path.",
       readFileInputSchema,
       "low",
@@ -330,6 +309,7 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
     ),
     createWorkspaceTool(
       "glob",
+      "Glob",
       "Find files and directories by glob pattern.",
       globInputSchema,
       "low",
@@ -343,6 +323,7 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
     ),
     createWorkspaceTool(
       "grep",
+      "Grep",
       "Search for text across files and directories in a workspace path.",
       grepInputSchema,
       "low",

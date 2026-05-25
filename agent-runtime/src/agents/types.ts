@@ -27,10 +27,6 @@ export const AgentIdSchema = z.string()
   .max(64)
   .regex(/^[a-z][a-z0-9_-]*$/, "Agent id must start with a lowercase letter and contain only lowercase letters, numbers, underscores, or hyphens")
 
-export const USER_AGENT_ALLOWED_TOOLS = ["ls", "read_file", "glob", "grep"] as const
-export const UserAgentAllowedToolSchema = z.enum(USER_AGENT_ALLOWED_TOOLS)
-export type UserAgentAllowedTool = z.infer<typeof UserAgentAllowedToolSchema>
-
 export const AgentEntryPolicySchema = z.enum(["default", "callable", "not-callable"])
 export type AgentEntryPolicy = z.infer<typeof AgentEntryPolicySchema>
 
@@ -54,8 +50,7 @@ export const AgentPermissionPolicySchema = z.object({
   shell: z.enum(["none", "limited", "full"]),
   network: z.enum(["none", "limited", "full"]),
   deploy: z.enum(["none", "preview", "publish"]),
-  requiresApproval: z.boolean(),
-})
+}).strip()
 export type AgentPermissionPolicy = z.infer<typeof AgentPermissionPolicySchema>
 
 export const DEFAULT_USER_AGENT_PERMISSION_POLICY: AgentPermissionPolicy = {
@@ -63,7 +58,6 @@ export const DEFAULT_USER_AGENT_PERMISSION_POLICY: AgentPermissionPolicy = {
   shell: "none",
   network: "none",
   deploy: "none",
-  requiresApproval: false,
 }
 
 export const ExternalAgentConfigSchema = z.object({
@@ -109,7 +103,7 @@ export const UserAgentCreateRequestSchema = z.object({
   systemPrompt: z.string().trim().min(1).max(20000),
   capabilities: z.array(z.string().trim().min(1).max(80)).default([]),
   allowedSubagents: z.array(z.string().trim().min(1)).default([]),
-  allowedTools: z.array(UserAgentAllowedToolSchema).default([]),
+  allowedTools: z.array(z.string().trim().min(1)).default([]),
   permissionPolicy: AgentPermissionPolicySchema.optional(),
   enabled: z.boolean().default(true),
 }).strict()
@@ -121,7 +115,7 @@ export const UserAgentUpdateRequestSchema = z.object({
   systemPrompt: z.string().trim().min(1).max(20000).optional(),
   capabilities: z.array(z.string().trim().min(1).max(80)).optional(),
   allowedSubagents: z.array(z.string().trim().min(1)).optional(),
-  allowedTools: z.array(UserAgentAllowedToolSchema).optional(),
+  allowedTools: z.array(z.string().trim().min(1)).optional(),
   permissionPolicy: AgentPermissionPolicySchema.optional(),
   enabled: z.boolean().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, {
@@ -209,13 +203,13 @@ export type AgentDeleteResponse = {
 }
 
 export type AgentAuthoringToolOption = {
-  id: UserAgentAllowedTool
+  id: string
   name: string
   description: string
-  category: "workspace"
+  category: string
   riskLevel: "low" | "medium" | "high"
-  requiresApproval: boolean
-  permissionEffect: Partial<Pick<AgentPermissionPolicy, "filesystem" | "shell" | "network" | "deploy">>
+  approvalPolicy: "never" | "contextual" | "always"
+  requiredPermissions: Partial<Pick<AgentPermissionPolicy, "filesystem" | "shell" | "network" | "deploy">>
 }
 
 export type AgentAuthoringCapabilityTagOption = {
@@ -236,9 +230,13 @@ export type AgentAuthoringOptionsResponse = {
   capabilityTags: AgentAuthoringCapabilityTagOption[]
   subagents: AgentAuthoringSubagentOption[]
   defaults: {
-    allowedTools: UserAgentAllowedTool[]
+    allowedTools: string[]
     allowedSubagents: string[]
     permissionPolicy: AgentPermissionPolicy
   }
+}
+
+export type AgentToolAuthoringCatalog = {
+  listUserConfigurableTools(): AgentAuthoringToolOption[]
 }
 

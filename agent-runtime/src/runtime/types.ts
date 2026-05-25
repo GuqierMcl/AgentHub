@@ -1,6 +1,8 @@
 import { z } from "zod"
+import type { ModelMessage } from "ai"
 import { AgentDefinitionSchema, type AgentDefinition } from "../agents"
 import type { WorkspaceService } from "./workspace"
+import type { RuntimePermissionService } from "./permissions"
 
 export const RuntimeConversationModeSchema = z.enum(["single", "group"])
 export type RuntimeConversationMode = z.infer<typeof RuntimeConversationModeSchema>
@@ -28,6 +30,7 @@ export type RunInput = z.infer<typeof RunInputSchema>
 export const RunStatusSchema = z.enum([
   "queued",
   "running",
+  "waiting_approval",
   "completed",
   "failed",
   "cancelled",
@@ -55,6 +58,9 @@ export const RunEventTypeSchema = z.enum([
   "tool.completed",
   "tool.failed",
   "permission.requested",
+  "permission.approved",
+  "permission.denied",
+  "permission.cancelled",
   "message.delta",
   "message.completed",
   "agent.completed",
@@ -155,6 +161,9 @@ export type AgentExecutionContext = {
   parentTaskId?: string
   emitEvent?: (event: RunEvent) => void
   workspaceService?: WorkspaceService
+  permissionService?: RuntimePermissionService
+  resumeMessages?: ModelMessage[]
+  onApprovalPending?: (messages: ModelMessage[]) => void
   executeTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string

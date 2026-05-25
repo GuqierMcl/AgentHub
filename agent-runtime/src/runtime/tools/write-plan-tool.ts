@@ -36,13 +36,17 @@ type WritePlanModelData = {
 export function createWritePlanTool(): ToolDefinition<WritePlanInput, WritePlanModelData> {
   return {
     name: "write_plan",
+    displayName: "Write plan",
     description: [
       "Write or update the current orchestrator plan for UI rendering.",
       "This records intent and executable task candidates, but does not execute tasks.",
     ].join(" "),
+    category: "orchestration",
     inputSchema: WritePlanInputSchema,
     riskLevel: "low",
-    requiresApproval: false,
+    requiredPermissions: {},
+    approvalPolicy: "never",
+    configurableByUserAgent: false,
     internal: true,
     async execute(input): Promise<ToolExecutionResult<WritePlanModelData>> {
       return {
