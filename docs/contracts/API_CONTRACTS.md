@@ -230,6 +230,76 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 用户自定义智能体详情会额外返回 `systemPrompt`，用于编辑表单回显；系统预设智能体和外部智能体不会通过详情接口返回内部提示词。
 
+### 查询用户智能体创建选项
+
+**端点**：`GET /runtime/agents/authoring-options`
+
+本端点用于支持 HubServer 构建用户自定义智能体创建/编辑表单。浏览器仍应通过 HubServer 代理访问，不直接调用 Runtime。
+
+成功响应：
+
+```json
+{
+  "tools": [
+    {
+      "id": "ls",
+      "name": "List files",
+      "description": "List files and directories in the workspace.",
+      "category": "workspace",
+      "riskLevel": "low",
+      "requiresApproval": false,
+      "permissionEffect": {
+        "filesystem": "read"
+      }
+    },
+    {
+      "id": "read_file",
+      "name": "Read file",
+      "description": "Read a text file or image file from the workspace.",
+      "category": "workspace",
+      "riskLevel": "low",
+      "requiresApproval": false,
+      "permissionEffect": {
+        "filesystem": "read"
+      }
+    }
+  ],
+  "capabilityTags": [
+    {
+      "id": "implementation",
+      "name": "Implementation",
+      "category": "engineering"
+    }
+  ],
+  "subagents": [
+    {
+      "id": "general",
+      "name": "General",
+      "description": "Handles lightweight reasoning, explanation, summarization, and rewriting tasks.",
+      "capabilities": ["reasoning", "summary", "rewrite"]
+    }
+  ],
+  "defaults": {
+    "allowedTools": [],
+    "allowedSubagents": [],
+    "permissionPolicy": {
+      "filesystem": "none",
+      "shell": "none",
+      "network": "none",
+      "deploy": "none",
+      "requiresApproval": false
+    }
+  }
+}
+```
+
+规则：
+
+- `tools` 只返回用户自定义智能体可配置的非 internal 安全工具集合，代码事实来源是 `USER_AGENT_ALLOWED_TOOLS`。
+- `write_plan`、`run_task` 不会出现在 `tools` 中。
+- `capabilityTags` 是推荐标签，不是强枚举；创建和更新自定义智能体时 `capabilities` 仍允许自定义字符串。
+- `subagents` 只返回可配置到 `allowedSubagents` 的启用隐藏子智能体摘要，不改变隐藏子智能体不可直接调用的规则。
+
 ### 创建用户自定义智能体
 
 **端点**：`POST /runtime/agents`
@@ -270,7 +340,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `id` 可省略；省略时 Runtime 生成 `agent_<uuid>`。
 - `id` 只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
-- `allowedTools` 首版只允许只读文件工具：`ls`、`read_file`、`glob`、`grep`。
+- `allowedTools` 首版只允许 `USER_AGENT_ALLOWED_TOOLS` 中的只读文件工具：`ls`、`read_file`、`glob`、`grep`。
 - `write_plan`、`run_task` 和高风险工具不能授予用户自定义智能体。
 - `permissionPolicy` 首版限制为低风险：`filesystem` 只允许 `none` 或 `read`，`shell` / `network` / `deploy` 必须为 `none`。
 - 模型绑定不属于 CRUD 主体流程；创建后继续使用 `PUT /runtime/agents/:agentId/model` 配置模型。

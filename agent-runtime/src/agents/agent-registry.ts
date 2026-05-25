@@ -2,6 +2,10 @@ import { AgentStore } from "./agent-store"
 import { AgentModelBindingStore } from "./agent-model-binding-store"
 import { presetAgents } from "./preset-agents"
 import { presetSubagents } from "./preset-subagents"
+import {
+  DEFAULT_USER_AGENT_PERMISSION_POLICY,
+  USER_AGENT_ALLOWED_TOOLS,
+} from "./types"
 import type {
   AgentDefinition,
   AgentModelBindingMap,
@@ -12,15 +16,7 @@ import type {
   UserAgentUpdateRequest,
 } from "./types"
 
-const SAFE_USER_AGENT_TOOLS = new Set(["ls", "read_file", "glob", "grep"])
-
-const DEFAULT_USER_AGENT_PERMISSION_POLICY: AgentPermissionPolicy = {
-  filesystem: "none",
-  shell: "none",
-  network: "none",
-  deploy: "none",
-  requiresApproval: false,
-}
+const USER_AGENT_ALLOWED_TOOL_SET = new Set<string>(USER_AGENT_ALLOWED_TOOLS)
 
 export class AgentRegistryMutationError extends Error {
   constructor(
@@ -340,7 +336,7 @@ export class AgentRegistry {
     const normalized = this.normalizeStringList(toolNames)
 
     for (const toolName of normalized) {
-      if (!SAFE_USER_AGENT_TOOLS.has(toolName)) {
+      if (!USER_AGENT_ALLOWED_TOOL_SET.has(toolName)) {
         throw new AgentRegistryMutationError(
           "AGENT_INVALID_INPUT",
           `Tool ${toolName} is not available for user agents`,
@@ -348,7 +344,7 @@ export class AgentRegistry {
           {
             field: "allowedTools",
             toolName,
-            allowedTools: Array.from(SAFE_USER_AGENT_TOOLS),
+            allowedTools: Array.from(USER_AGENT_ALLOWED_TOOLS),
           }
         )
       }

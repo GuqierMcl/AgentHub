@@ -27,7 +27,8 @@ export const AgentIdSchema = z.string()
   .max(64)
   .regex(/^[a-z][a-z0-9_-]*$/, "Agent id must start with a lowercase letter and contain only lowercase letters, numbers, underscores, or hyphens")
 
-export const UserAgentAllowedToolSchema = z.enum(["ls", "read_file", "glob", "grep"])
+export const USER_AGENT_ALLOWED_TOOLS = ["ls", "read_file", "glob", "grep"] as const
+export const UserAgentAllowedToolSchema = z.enum(USER_AGENT_ALLOWED_TOOLS)
 export type UserAgentAllowedTool = z.infer<typeof UserAgentAllowedToolSchema>
 
 export const AgentEntryPolicySchema = z.enum(["default", "callable", "not-callable"])
@@ -56,6 +57,14 @@ export const AgentPermissionPolicySchema = z.object({
   requiresApproval: z.boolean(),
 })
 export type AgentPermissionPolicy = z.infer<typeof AgentPermissionPolicySchema>
+
+export const DEFAULT_USER_AGENT_PERMISSION_POLICY: AgentPermissionPolicy = {
+  filesystem: "none",
+  shell: "none",
+  network: "none",
+  deploy: "none",
+  requiresApproval: false,
+}
 
 export const ExternalAgentConfigSchema = z.object({
   provider: z.enum(["opencode", "claude-code", "codex"]),
@@ -197,5 +206,39 @@ export type AgentListResponse = {
 export type AgentDeleteResponse = {
   agentId: string
   deleted: true
+}
+
+export type AgentAuthoringToolOption = {
+  id: UserAgentAllowedTool
+  name: string
+  description: string
+  category: "workspace"
+  riskLevel: "low" | "medium" | "high"
+  requiresApproval: boolean
+  permissionEffect: Partial<Pick<AgentPermissionPolicy, "filesystem" | "shell" | "network" | "deploy">>
+}
+
+export type AgentAuthoringCapabilityTagOption = {
+  id: string
+  name: string
+  category: string
+}
+
+export type AgentAuthoringSubagentOption = {
+  id: string
+  name: string
+  description: string
+  capabilities: string[]
+}
+
+export type AgentAuthoringOptionsResponse = {
+  tools: AgentAuthoringToolOption[]
+  capabilityTags: AgentAuthoringCapabilityTagOption[]
+  subagents: AgentAuthoringSubagentOption[]
+  defaults: {
+    allowedTools: UserAgentAllowedTool[]
+    allowedSubagents: string[]
+    permissionPolicy: AgentPermissionPolicy
+  }
 }
 

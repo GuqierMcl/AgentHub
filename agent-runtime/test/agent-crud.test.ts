@@ -3,7 +3,7 @@ import { Hono, type Context, type Next } from "hono"
 import { mkdtemp, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { AgentRegistry, AgentRegistryMutationError } from "../src/agents"
+import { AgentRegistry, AgentRegistryMutationError, USER_AGENT_ALLOWED_TOOLS } from "../src/agents"
 import agentsRouter from "../src/routers/agents"
 import type { ProviderService } from "../src/provider"
 
@@ -116,6 +116,15 @@ describe("user agent CRUD", () => {
   test("rejects non-editable agents and unsafe custom agent settings", async () => {
     const { registry } = await createInitializedRegistry()
 
+    await expect(registry.createUserAgent(createUserAgentPayload({
+      id: "tool_enabled_agent",
+      allowedTools: [...USER_AGENT_ALLOWED_TOOLS],
+      permissionPolicy: readOnlyPolicy,
+    }))).resolves.toMatchObject({
+      id: "tool_enabled_agent",
+      allowedTools: [...USER_AGENT_ALLOWED_TOOLS],
+    })
+
     await expect(registry.createUserAgent(createUserAgentPayload({ id: "coder" }))).rejects.toMatchObject({
       code: "AGENT_ALREADY_EXISTS",
       status: 409,
@@ -209,5 +218,52 @@ describe("user agent CRUD", () => {
 
     const missingResponse = await app.request("/runtime/agents/custom_writer")
     expect(missingResponse.status).toBe(404)
+  })
+
+  test("exposes user agent authoring options for tools, capability tags, subagents, and defaults", async () => {
+    const { registry } = await createInitializedRegistry()
+    const app = createAgentsApp(registry)
+
+    const response = await app.request("/runtime/agents/authoring-options")
+    const options = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(options.tools.map((tool: { id: string }) => tool.id)).toEqual([...USER_AGENT_ALLOWED_TOOLS])
+    expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("run_task")
+    expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("write_plan")
+    expect(options.tools.every((tool: { category: string; permissionEffect: { filesystem?: string } }) =>
+      tool.category === "workspace" && tool.permissionEffect.filesystem === "read"
+    )).toBe(true)
+
+    expect(options.capabilityTags.map((tag: { id: string }) => tag.id)).toEqual(expect.arrayContaining([
+      "implementation",
+      "review",
+      "documentation",
+      "planning-advice",
+      "research",
+      "summarization",
+      "rewrite",
+      "codebase-scan",
+    ]))
+
+    expect(options.subagents.map((agent: { id: string }) => agent.id)).toEqual(expect.arrayContaining([
+      "explore",
+      "general",
+      "file",
+      "deploy",
+    ]))
+    expect(options.subagents.map((agent: { id: string }) => agent.id)).not.toContain("coder")
+
+    expect(options.defaults).toEqual({
+      allowedTools: [],
+      allowedSubagents: [],
+      permissionPolicy: {
+        filesystem: "none",
+        shell: "none",
+        network: "none",
+        deploy: "none",
+        requiresApproval: false,
+      },
+    })
   })
 })

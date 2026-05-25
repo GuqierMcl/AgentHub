@@ -6,7 +6,12 @@ import {
   AgentModelBindingUpdateRequestSchema,
   UserAgentCreateRequestSchema,
   UserAgentUpdateRequestSchema,
+  DEFAULT_USER_AGENT_PERMISSION_POLICY,
+  USER_AGENT_ALLOWED_TOOLS,
   type AgentDefinition,
+  type AgentAuthoringCapabilityTagOption,
+  type AgentAuthoringOptionsResponse,
+  type AgentAuthoringToolOption,
   type AgentDetailResponse,
   type AgentSummaryResponse,
 } from "../agents"
@@ -21,6 +26,64 @@ declare module "hono" {
 }
 
 const agents = new Hono()
+
+const userAgentToolOptions = [
+  {
+    id: "ls",
+    name: "List files",
+    description: "List files and directories in the workspace.",
+    category: "workspace",
+    riskLevel: "low",
+    requiresApproval: false,
+    permissionEffect: {
+      filesystem: "read",
+    },
+  },
+  {
+    id: "read_file",
+    name: "Read file",
+    description: "Read a text file or image file from the workspace.",
+    category: "workspace",
+    riskLevel: "low",
+    requiresApproval: false,
+    permissionEffect: {
+      filesystem: "read",
+    },
+  },
+  {
+    id: "glob",
+    name: "Glob",
+    description: "Find files and directories by glob pattern.",
+    category: "workspace",
+    riskLevel: "low",
+    requiresApproval: false,
+    permissionEffect: {
+      filesystem: "read",
+    },
+  },
+  {
+    id: "grep",
+    name: "Grep",
+    description: "Search for text across workspace files and directories.",
+    category: "workspace",
+    riskLevel: "low",
+    requiresApproval: false,
+    permissionEffect: {
+      filesystem: "read",
+    },
+  },
+] satisfies AgentAuthoringToolOption[]
+
+const userAgentCapabilityTagOptions = [
+  { id: "implementation", name: "Implementation", category: "engineering" },
+  { id: "review", name: "Review", category: "engineering" },
+  { id: "documentation", name: "Documentation", category: "writing" },
+  { id: "planning-advice", name: "Planning advice", category: "planning" },
+  { id: "research", name: "Research", category: "analysis" },
+  { id: "summarization", name: "Summarization", category: "writing" },
+  { id: "rewrite", name: "Rewrite", category: "writing" },
+  { id: "codebase-scan", name: "Codebase scan", category: "engineering" },
+] satisfies AgentAuthoringCapabilityTagOption[]
 
 function serializeAgentSummary(
   agent: AgentDefinition,
@@ -68,6 +131,34 @@ function serializeAgentDetail(
           configDirectoryPolicy: agent.external.configDirectoryPolicy,
         }
       : undefined,
+  }
+}
+
+function serializeAuthoringOptions(registry: AgentRegistry): AgentAuthoringOptionsResponse {
+  const allowedToolIds = new Set<string>(USER_AGENT_ALLOWED_TOOLS)
+  const tools = userAgentToolOptions.filter((toolOption) => allowedToolIds.has(toolOption.id))
+  const subagents = registry.listAgents({
+    includeHidden: true,
+    enabledOnly: true,
+    tier: "subagent",
+  }).map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    description: agent.description,
+    capabilities: agent.capabilities,
+  }))
+
+  return {
+    tools,
+    capabilityTags: [...userAgentCapabilityTagOptions],
+    subagents,
+    defaults: {
+      allowedTools: [],
+      allowedSubagents: [],
+      permissionPolicy: {
+        ...DEFAULT_USER_AGENT_PERMISSION_POLICY,
+      },
+    },
   }
 }
 
@@ -210,6 +301,15 @@ agents.get("/runtime/agents", (c: Context) => {
   return c.json({
     agents: visibleAgents.map((agent: AgentDefinition) => serializeAgentSummary(agent, providerService)),
   })
+})
+
+agents.get("/runtime/agents/authoring-options", (c: Context) => {
+  const registry = c.get("agentRegistry")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  return c.json(serializeAuthoringOptions(registry))
 })
 
 agents.get("/runtime/agents/:agentId", (c: Context) => {

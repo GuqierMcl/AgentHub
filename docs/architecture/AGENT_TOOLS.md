@@ -73,6 +73,7 @@ Adapter Tools 属于外部智能体平台内部的工具模型，例如 OpenCode
 - `run_task`、`write_plan` 只应出现在 `orchestrator.allowedTools` 中。
 - `internal` 只表示默认不注入普通 AI SDK tool set；Orchestrator 专用路径可通过 `includeInternal=true` 取到 internal tools，但仍必须满足 `allowedTools`。
 - 文件、部署、网络类工具的具体执行仍必须通过权限策略、沙箱和审批流程约束。
+- 用户自定义智能体可配置工具的代码事实来源是 `USER_AGENT_ALLOWED_TOOLS`；该常量不是 Runtime 全量工具列表。
 - 外部智能体默认不进入 Runtime Tool Registry。
 
 ## 5. 工具契约
@@ -314,6 +315,8 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 审批规则
 - 事件语义
 - 返回结构
+
+具体实现步骤见 `docs/guides/ADDING_RUNTIME_TOOLS.md`。新增用户可配置工具时，必须同步更新 `USER_AGENT_ALLOWED_TOOLS`、Authoring Options API metadata、API 契约和测试。
 
 ## 12. 不纳入范围
 

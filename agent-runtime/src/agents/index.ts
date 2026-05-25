@@ -27,10 +27,16 @@ export type {
   AgentResolvedModelResponse,
   AgentListResponse,
   AgentDeleteResponse,
+  AgentAuthoringToolOption,
+  AgentAuthoringCapabilityTagOption,
+  AgentAuthoringSubagentOption,
+  AgentAuthoringOptionsResponse,
   UserAgentCreateRequest,
   UserAgentUpdateRequest,
 } from "./types"
 export {
+  USER_AGENT_ALLOWED_TOOLS,
+  DEFAULT_USER_AGENT_PERMISSION_POLICY,
   AgentTierSchema,
   AgentOriginSchema,
   AgentVisibilitySchema,
