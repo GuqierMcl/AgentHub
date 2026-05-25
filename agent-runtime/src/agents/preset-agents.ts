@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentRelation } from "./types"
+import type { AgentDefinition } from "./types"
 import { presetAgentSystemPrompts } from "./preset-agent-prompts"
 
 const llmReadOnlyPolicy = {
@@ -146,61 +146,6 @@ export const presetAgents: AgentDefinition[] = [
     },
     enabled: true,
     readonly: true,
-  },
-]
-
-export const presetAgentRelations: AgentRelation[] = [
-  ...orchestrationSubagents.map((subagentId, index) => ({
-    id: `orchestrator-to-${subagentId}`,
-    fromAgentId: "orchestrator",
-    toAgentId: subagentId,
-    relationType: "can_delegate_to" as const,
-    priority: 100 - index,
-    enabled: true,
-  })),
-  ...["coder", "reviewer", "writer", "planner", "opencode"].map((agentId, index) => ({
-    id: `orchestrator-to-${agentId}`,
-    fromAgentId: "orchestrator",
-    toAgentId: agentId,
-    relationType: "can_delegate_to" as const,
-    priority: 80 - index,
-    enabled: true,
-  })),
-  {
-    id: "coder-to-explore",
-    fromAgentId: "coder",
-    toAgentId: "explore",
-    relationType: "can_delegate_to",
-    taskTypes: ["codebase_scan", "context_lookup"],
-    priority: 70,
-    enabled: true,
-  },
-  {
-    id: "coder-to-file",
-    fromAgentId: "coder",
-    toAgentId: "file",
-    relationType: "can_delegate_to",
-    taskTypes: ["edit", "patch", "diff"],
-    priority: 69,
-    enabled: true,
-  },
-  {
-    id: "reviewer-to-explore",
-    fromAgentId: "reviewer",
-    toAgentId: "explore",
-    relationType: "can_delegate_to",
-    taskTypes: ["codebase_scan", "evidence_lookup"],
-    priority: 60,
-    enabled: true,
-  },
-  {
-    id: "planner-to-general",
-    fromAgentId: "planner",
-    toAgentId: "general",
-    relationType: "can_delegate_to",
-    taskTypes: ["planning", "summarization"],
-    priority: 50,
-    enabled: true,
   },
 ]
 

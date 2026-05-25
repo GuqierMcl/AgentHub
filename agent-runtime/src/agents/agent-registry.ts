@@ -1,14 +1,12 @@
 import { AgentStore } from "./agent-store"
 import { AgentModelBindingStore } from "./agent-model-binding-store"
-import { presetAgents, presetAgentRelations } from "./preset-agents"
+import { presetAgents } from "./preset-agents"
 import { presetSubagents } from "./preset-subagents"
 import type {
   AgentDefinition,
   AgentModelBindingMap,
   AgentModelRef,
   AgentListOptions,
-  AgentRelation,
-  AgentRelationListOptions,
 } from "./types"
 
 export class AgentRegistry {
@@ -16,7 +14,6 @@ export class AgentRegistry {
   private bindingStore: AgentModelBindingStore
   private baseAgents: Map<string, AgentDefinition> = new Map()
   private agents: Map<string, AgentDefinition> = new Map()
-  private relations: Map<string, AgentRelation> = new Map()
   private systemAgentIds: Set<string> = new Set()
   private modelBindings: AgentModelBindingMap = {}
   private initialized = false
@@ -29,7 +26,6 @@ export class AgentRegistry {
 
   async initialize(): Promise<void> {
     const userAgents = await this.store.loadAgents()
-    const userRelations = await this.store.loadRelations()
     this.modelBindings = await this.bindingStore.loadBindings()
 
     for (const agent of userAgents) {
@@ -39,10 +35,6 @@ export class AgentRegistry {
       }
       this.baseAgents.set(agent.id, this.cloneAgent(agent))
       this.agents.set(agent.id, this.applyModelBinding(agent))
-    }
-
-    for (const relation of userRelations) {
-      this.relations.set(relation.id, relation)
     }
 
     this.applyBindingsToRegisteredAgents()
@@ -128,15 +120,6 @@ export class AgentRegistry {
       .filter((agent) => agent.entryPolicy === "callable" || agent.entryPolicy === "default")
   }
 
-  listRelations(options: AgentRelationListOptions = {}): AgentRelation[] {
-    const enabledOnly = options.enabledOnly ?? true
-
-    return Array.from(this.relations.values())
-      .filter((relation) => !enabledOnly || relation.enabled)
-      .filter((relation) => !options.fromAgentId || relation.fromAgentId === options.fromAgentId)
-      .filter((relation) => !options.toAgentId || relation.toAgentId === options.toAgentId)
-  }
-
   getDefaultEntryAgent(): AgentDefinition | null {
     const defaults = this.listAgents({ includeHidden: false, enabledOnly: true, tier: "primary" })
       .filter((agent) => agent.entryPolicy === "default")
@@ -157,9 +140,6 @@ export class AgentRegistry {
       this.systemAgentIds.add(agent.id)
     }
 
-    for (const relation of presetAgentRelations) {
-      this.relations.set(relation.id, relation)
-    }
   }
 
   private validateDefaultEntryAgent(): void {

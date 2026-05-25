@@ -83,19 +83,7 @@ export const AgentDefinitionSchema = z.object({
 })
 export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>
 
-export const AgentRelationSchema = z.object({
-  id: z.string().min(1),
-  fromAgentId: z.string().min(1),
-  toAgentId: z.string().min(1),
-  relationType: z.literal("can_delegate_to"),
-  taskTypes: z.array(z.string()).optional(),
-  priority: z.number().int().default(0),
-  enabled: z.boolean().default(true),
-})
-export type AgentRelation = z.infer<typeof AgentRelationSchema>
-
 export const AgentDefinitionListSchema = z.array(AgentDefinitionSchema)
-export const AgentRelationListSchema = z.array(AgentRelationSchema)
 
 export const AgentListQuerySchema = z.object({
   includeHidden: z.enum(["true", "false"]).optional(),
@@ -115,12 +103,6 @@ export type AgentListOptions = {
   enabledOnly?: boolean
   tier?: AgentTier
   origin?: AgentOrigin
-}
-
-export type AgentRelationListOptions = {
-  enabledOnly?: boolean
-  fromAgentId?: string
-  toAgentId?: string
 }
 
 export type AgentSummaryResponse = {

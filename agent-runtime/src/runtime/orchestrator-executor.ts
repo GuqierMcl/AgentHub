@@ -264,15 +264,8 @@ export class OrchestratorExecutor implements AgentExecutor {
 
   private listAvailableTargets(context: AgentExecutionContext): string[] {
     const participantIds = new Set(context.input.participantAgentIds)
-    const relationTargets = this.registry
-      .listRelations({
-        enabledOnly: true,
-        fromAgentId: context.agent.id,
-      })
-      .map((relation) => relation.toAgentId)
-
     const targetIds = new Set([
-      ...relationTargets,
+      ...context.input.participantAgentIds,
       ...context.agent.allowedSubagents,
     ])
 
@@ -281,7 +274,18 @@ export class OrchestratorExecutor implements AgentExecutor {
       .filter((target): target is AgentDefinition => Boolean(target))
       .filter((target) => target.enabled)
       .filter((target) => target.id !== context.agent.id)
-      .filter((target) => target.tier === "subagent" || participantIds.has(target.id))
+      .filter((target) => {
+        if (target.tier === "primary") {
+          return target.visibility === "visible" && target.entryPolicy !== "not-callable" && participantIds.has(target.id)
+        }
+
+        return (
+          target.tier === "subagent" &&
+          context.agent.allowedSubagents.includes(target.id) &&
+          target.entryPolicy === "not-callable" &&
+          target.delegationPolicy === "delegated-only"
+        )
+      })
       .map((target) => [
         `- ${target.id}`,
         `name: ${target.name}`,

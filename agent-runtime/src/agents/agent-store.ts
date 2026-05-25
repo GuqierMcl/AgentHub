@@ -3,26 +3,18 @@ import { join } from "node:path"
 import { readFile } from "node:fs/promises"
 import {
   AgentDefinitionListSchema,
-  AgentRelationListSchema,
   type AgentDefinition,
-  type AgentRelation,
 } from "./types"
 
 export class AgentStore {
   private agentsPath: string
-  private relationsPath: string
 
   constructor(dataDir: string) {
     this.agentsPath = join(dataDir, "agents.json")
-    this.relationsPath = join(dataDir, "agent-relations.json")
   }
 
   async loadAgents(): Promise<AgentDefinition[]> {
     return this.loadJsonArray(this.agentsPath, AgentDefinitionListSchema, "agents")
-  }
-
-  async loadRelations(): Promise<AgentRelation[]> {
-    return this.loadJsonArray(this.relationsPath, AgentRelationListSchema, "agent relations")
   }
 
   private async loadJsonArray<T>(

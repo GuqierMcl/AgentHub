@@ -31,6 +31,141 @@ async function waitForTerminalRun(runManager: RunManager, runId: string): Promis
 }
 
 describe("RunManager tool smoke", () => {
+  test("orchestrator can delegate to a primary agent in the current group participants", async () => {
+    const registry = await createInitializedRegistry()
+    const providerService = {} as ProviderService
+    const runManager = new RunManager(registry, providerService)
+
+    ;(runManager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+      }): AsyncIterable<RunEvent> {
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: `${context.agent.id} handled the delegated task.`,
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    ;(runManager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+        runTask?: (task: OrchestratorTask, options?: { groupId?: string; parentTaskId?: string }) => Promise<{
+          status: "completed" | "failed" | "cancelled"
+          summary: string
+        }>
+      }): AsyncIterable<RunEvent> {
+        const result = await context.runTask?.({
+          taskId: "task_coder_participant",
+          targetAgentId: "coder",
+          title: "Ask coder",
+          instruction: "Handle a participant-scoped task.",
+          expectedOutput: "A coder response",
+          requiredCapabilities: ["implementation"],
+          riskLevel: "low",
+          dependsOn: [],
+        }, {
+          groupId: "group_primary_participant",
+        })
+
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: result?.summary ?? "",
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_primary_participant",
+      mode: "group",
+      participantAgentIds: ["orchestrator", "coder"],
+      addressedAgentIds: [],
+      userMessage: {
+        role: "user",
+        content: "Please delegate to coder.",
+      },
+      history: [],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const completedRun = runManager.getRun(run.id)
+    const events = runManager.getEvents(run.id) ?? []
+
+    expect(completedRun?.status).toBe("completed")
+    expect(events.some((event) => event.type === "task.completed" && event.taskId === "task_coder_participant")).toBe(true)
+    expect(events.some((event) => event.type === "message.completed" && event.agentId === "coder")).toBe(true)
+    expect(events.some((event) => event.type === "tool.completed" && event.toolName === "run_task")).toBe(true)
+  })
+
+  test("orchestrator cannot delegate to a primary agent outside the current group participants", async () => {
+    const registry = await createInitializedRegistry()
+    const providerService = {} as ProviderService
+    const runManager = new RunManager(registry, providerService)
+
+    ;(runManager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+        runTask?: (task: OrchestratorTask, options?: { groupId?: string; parentTaskId?: string }) => Promise<{
+          status: "completed" | "failed" | "cancelled"
+          summary: string
+        }>
+      }): AsyncIterable<RunEvent> {
+        const result = await context.runTask?.({
+          taskId: "task_coder_not_participant",
+          targetAgentId: "coder",
+          title: "Ask absent coder",
+          instruction: "This should be rejected because coder is not a participant.",
+          expectedOutput: "Nothing",
+          requiredCapabilities: ["implementation"],
+          riskLevel: "low",
+          dependsOn: [],
+        }, {
+          groupId: "group_primary_rejected",
+        })
+
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: result?.summary ?? "",
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_primary_not_participant",
+      mode: "group",
+      participantAgentIds: ["orchestrator"],
+      addressedAgentIds: [],
+      userMessage: {
+        role: "user",
+        content: "Please delegate to coder.",
+      },
+      history: [],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const completedRun = runManager.getRun(run.id)
+    const events = runManager.getEvents(run.id) ?? []
+
+    expect(completedRun?.status).toBe("completed")
+    expect(events.some((event) => event.type === "task.failed" && event.taskId === "task_coder_not_participant")).toBe(true)
+    expect(events.some((event) => event.type === "tool.failed" && event.toolName === "run_task")).toBe(true)
+    expect(events.some((event) => event.agentId === "coder")).toBe(false)
+  })
+
   test("orchestrator run surfaces run_task tool events through the real run pipeline", async () => {
     const registry = await createInitializedRegistry()
     const providerService = {} as ProviderService

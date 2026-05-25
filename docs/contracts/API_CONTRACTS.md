@@ -307,6 +307,12 @@ Runtime Runs API 用于启动一次智能体执行。本阶段只实现 in-memor
 
 当前阶段已经包含 `orchestrator` 的最小编排路径：`orchestrator` 可以通过内部 `write_plan` 写入 UI 可渲染计划，再通过内部 `run_task` 调度允许的主智能体或子智能体，并通过 `dependsOn` 表达依赖；无依赖任务可批次并行执行。
 
+`run_task` 的目标边界：
+
+- 如果目标是主智能体，目标必须属于当前 Run 的 `participantAgentIds`，且当前阶段仅 `orchestrator` 可以发起这种委派。
+- 如果目标是子智能体，目标必须在发起智能体的 `allowedSubagents` 中。
+- Runtime 不再读取 `agent-relations.json`，也不再使用 `AgentRelation` 作为委派依据。
+
 ### 创建 Run
 
 **端点**：`POST /runtime/runs`

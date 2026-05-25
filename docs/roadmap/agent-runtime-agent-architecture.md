@@ -39,7 +39,7 @@ Agent Runtime 智能体架构
 
 ### 包含
 
-- AgentDefinition、AgentRelation、AgentRegistry。
+- AgentDefinition、AgentRegistry。
 - 系统预设主智能体与子智能体定义。
 - `orchestrator` 默认入口规则。
 - 内部智能体统一执行接口。
@@ -63,9 +63,9 @@ Agent Runtime 智能体架构
 
 目标：
 
-- 建立 `AgentDefinition`、`AgentRelation`、`AgentRegistry`。
+- 建立 `AgentDefinition`、`AgentRegistry`。
 - 内置 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 和子智能体。
-- 实现本地 `agents.json` / `agent-relations.json` 合并。
+- 实现本地 `agents.json` 加载与合并。
 
 验收：
 
@@ -169,7 +169,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；本轮进一步把工具体系抽成正式的 Runtime Tool 底座，并将 `write_plan` / `run_task` 统一纳入工具事件与 AI SDK 工具注册流程。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 继续保留外部 Adapter 骨架。
+阶段 1 和阶段 2 已完成。阶段 3 已完成只读 Agents API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、沙箱外访问审批和首批只读文件工具；阶段 7 继续保留外部 Adapter 骨架。
 
 ## 已完成
 
@@ -177,12 +177,13 @@ Agent Runtime 智能体架构
 - 主智能体 / 子智能体两级架构已确认。
 - `orchestrator` 定位为特殊系统预设主智能体已确认。
 - 内部智能体统一协议、外部智能体 Adapter 边界已确认。
-- 阶段 1 已落地 `AgentDefinition`、`AgentRelation`、系统预设主智能体、隐藏子智能体、本地 JSON 只读加载和 `AgentRegistry`。
+- 阶段 1 已落地 `AgentDefinition`、系统预设主智能体、隐藏子智能体、本地 JSON 只读加载和 `AgentRegistry`。
 - 阶段 3 已附带落地 `GET /runtime/agents` 与 `GET /runtime/agents/:agentId`。
 - 阶段 2 已落地 `AgentExecutor`、最小 RunEvent 协议和 `MockExecutor`。
 - 阶段 3 已落地 `POST /runtime/runs`、`GET /runtime/runs/:runId`、`GET /runtime/runs/:runId/events`、`POST /runtime/runs/:runId/cancel`。
 - 阶段 3 已落地 IM 会话入口解析：单聊绑定主智能体、群聊默认 `orchestrator`、群聊单 @ 指定主智能体。
 - 阶段 4 已落地 `orchestrator` AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具、任务组事件、任务生命周期事件和并行委派。
+- 委派关系已弃用 `AgentRelation` / `agent-relations.json`，改为主智能体间由当前 Run participants 决定，主智能体到子智能体由 `allowedSubagents` 决定。
 - 阶段 4-5 之间已补齐 Runtime Tool 基础设施、`write_plan` / `run_task` 正式工具化、工具事件协议和 AI SDK 工具注册骨架。
 - 阶段 5 已落地最小 `AiSdkExecutor`、provider/model 解析、`orchestrator` / 主智能体模型绑定返回，以及 agent 模型绑定 API。
 - 系统预设主智能体 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 已统一从 `agent-runtime/src/agents/preset-agent-prompts.ts` 读取系统提示词。

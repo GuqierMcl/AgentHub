@@ -399,7 +399,7 @@ export class RunManager {
     this.emit(startedEvent)
 
     try {
-      const targetAgent = this.resolveTaskTarget(sourceAgent, task.targetAgentId)
+      const targetAgent = this.resolveTaskTarget(run, sourceAgent, task.targetAgentId)
 
       if (abortController.signal.aborted || run.status === "cancelled") {
         throw new TaskExecutionError(
@@ -536,7 +536,11 @@ export class RunManager {
     }
   }
 
-  private resolveTaskTarget(sourceAgent: AgentDefinition, targetAgentId: string): AgentDefinition {
+  private resolveTaskTarget(
+    run: RunRecord,
+    sourceAgent: AgentDefinition,
+    targetAgentId: string
+  ): AgentDefinition {
     if (sourceAgent.delegationPolicy !== "can-delegate") {
       throw new TaskExecutionError(
         "TASK_SOURCE_CANNOT_DELEGATE",
@@ -570,20 +574,18 @@ export class RunManager {
       )
     }
 
-    const relationExists = this.agentRegistry
-      .listRelations({
-        enabledOnly: true,
-        fromAgentId: sourceAgent.id,
-        toAgentId: targetAgent.id,
-      })
-      .length > 0
+    if (targetAgent.tier === "subagent") {
+      if (
+        sourceAgent.allowedSubagents.includes(targetAgent.id) &&
+        targetAgent.entryPolicy === "not-callable" &&
+        targetAgent.delegationPolicy === "delegated-only"
+      ) {
+        return targetAgent
+      }
 
-    const allowedByPreset = sourceAgent.allowedSubagents.includes(targetAgent.id)
-
-    if (!relationExists && !allowedByPreset) {
       throw new TaskExecutionError(
         "TASK_TARGET_NOT_ALLOWED",
-        `Agent ${sourceAgent.id} is not allowed to delegate to ${targetAgent.id}`,
+        `Agent ${sourceAgent.id} is not allowed to delegate to subagent ${targetAgent.id}`,
         {
           sourceAgentId: sourceAgent.id,
           targetAgentId: targetAgent.id,
@@ -591,7 +593,37 @@ export class RunManager {
       )
     }
 
-    return targetAgent
+    if (targetAgent.tier === "primary") {
+      const participantIds = new Set(run.input.participantAgentIds)
+      if (
+        sourceAgent.id === "orchestrator" &&
+        participantIds.has(targetAgent.id) &&
+        targetAgent.visibility === "visible" &&
+        targetAgent.entryPolicy !== "not-callable"
+      ) {
+        return targetAgent
+      }
+
+      throw new TaskExecutionError(
+        "TASK_TARGET_NOT_ALLOWED",
+        `Agent ${sourceAgent.id} is not allowed to delegate to primary agent ${targetAgent.id}`,
+        {
+          sourceAgentId: sourceAgent.id,
+          targetAgentId: targetAgent.id,
+          participantAgentIds: run.input.participantAgentIds,
+        }
+      )
+    }
+
+    throw new TaskExecutionError(
+      "TASK_TARGET_NOT_ALLOWED",
+      `Target agent ${targetAgent.id} has unsupported tier ${targetAgent.tier}`,
+      {
+        sourceAgentId: sourceAgent.id,
+        targetAgentId: targetAgent.id,
+        tier: targetAgent.tier,
+      }
+    )
   }
 
   private extractTaskSummary(

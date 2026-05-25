@@ -271,7 +271,7 @@ RunEvent 流输出
 
 - 被其声明允许的子智能体。
 
-其他主智能体默认不调用其他主智能体。后续如需支持，需要通过显式关系配置开启，避免隐式无限委派。
+当前阶段只有 `orchestrator` 可以通过 `run_task` 调用其他主智能体，且目标主智能体必须属于当前 Run 的 `participantAgentIds`。其他主智能体默认不调用其他主智能体；后续如需开放，也必须继续受当前会话成员边界约束，避免跨会话隐式委派。
 
 ### 3.4 内部智能体统一执行协议
 
@@ -456,56 +456,23 @@ type ExternalAgentConfig = {
 
 Runtime 应使用隔离工作目录和 Runtime 管理的配置目录，避免污染用户全局配置。
 
-## 6. 智能体关系模型
+## 6. 委派边界模型
 
-主智能体与子智能体的关系不要只写成 `parentId`，而应使用关系表或关系配置。这样同一个子智能体可以服务多个主智能体，后续也能表达优先级和任务类型。
+Runtime 不再使用全局静态 `AgentRelation` 表表达智能体调用关系。委派边界由两类上下文共同决定：
 
-```ts
-type AgentRelation = {
-  id: string
-  fromAgentId: string
-  toAgentId: string
-  relationType: "can_delegate_to"
-  taskTypes?: string[]
-  priority: number
-  enabled: boolean
-}
-```
+| 边界 | 来源 | 说明 |
+| --- | --- | --- |
+| 主智能体之间 | `RunInput.participantAgentIds` | 当前群聊成员就是主智能体协作边界 |
+| 主智能体到子智能体 | `AgentDefinition.allowedSubagents` | 每个主智能体声明自己可使用的隐藏子智能体 |
 
 规则：
 
-- `fromAgentId` 通常是主智能体。
-- `toAgentId` 通常是子智能体。
-- `orchestrator` 可以额外委派到其他主智能体。
-- 普通主智能体默认只能委派到子智能体。
-- 子智能体不能再委派到主智能体。
-- 子智能体之间默认不能互相委派。
-- 必须检测循环委派。
-
-示例关系：
-
-```json
-[
-  {
-    "id": "orchestrator-to-explore",
-    "fromAgentId": "orchestrator",
-    "toAgentId": "explore",
-    "relationType": "can_delegate_to",
-    "taskTypes": ["research", "codebase_scan", "context_lookup"],
-    "priority": 100,
-    "enabled": true
-  },
-  {
-    "id": "coder-to-file",
-    "fromAgentId": "coder",
-    "toAgentId": "file",
-    "relationType": "can_delegate_to",
-    "taskTypes": ["edit", "patch", "diff"],
-    "priority": 80,
-    "enabled": true
-  }
-]
-```
+- `orchestrator` 可以委派当前 Run participants 中的其他可见、启用主智能体。
+- `orchestrator` 可以委派自身 `allowedSubagents` 中的隐藏子智能体。
+- 普通主智能体当前阶段不调用其他主智能体。
+- 普通主智能体后续如获得内部任务工具，也只能调用自身 `allowedSubagents` 中的子智能体。
+- 子智能体不能再委派主智能体，默认也不能互相委派。
+- `AgentRelation` 和 `agent-relations.json` 视为废弃的早期开发期配置，不再作为 Runtime 主路径。
 
 ## 7. 调用与委派规则
 
@@ -535,11 +502,11 @@ mode = group 且 addressedAgentIds 为空：
 主智能体委派另一个智能体前必须校验：
 
 1. 被委派智能体存在并启用。
-2. 存在有效 `AgentRelation` 或在 `allowedSubagents` 中声明。
-3. 被委派智能体的 `entryPolicy` 不需要允许用户调用，但必须允许委派调用。
-4. 当前 Run 的权限上下文覆盖被委派智能体所需权限。
-5. 委派深度未超过限制。
-6. 委派路径不存在循环。
+2. 委派源智能体的 `delegationPolicy` 必须是 `can-delegate`。
+3. 如果目标是子智能体，目标必须在源智能体的 `allowedSubagents` 中，并且是 `entryPolicy = "not-callable"`、`delegationPolicy = "delegated-only"`。
+4. 如果目标是主智能体，当前阶段仅允许 `orchestrator` 委派，并且目标必须属于当前 Run 的 `participantAgentIds`。
+5. 当前 Run 的权限上下文覆盖被委派智能体所需权限。
+6. 委派深度未超过限制。
 
 MVP 建议限制：
 
@@ -662,7 +629,6 @@ agent-runtime/src/
     preset-subagents.ts
     agent-registry.ts
     agent-store.ts
-    agent-relations.ts
     invocation-policy.ts
 
   executors/
@@ -731,7 +697,6 @@ agent-runtime/src/agents/preset-subagents.ts
 ```text
 dataDir/
   agents.json
-  agent-relations.json
 ```
 
 未来接入 HubServer 后，HubServer 可以成为产品状态源；Runtime 的 `AgentRegistry` 则负责加载 HubServer 传入的执行态配置，或缓存运行时需要的智能体定义。
@@ -881,6 +846,6 @@ MVP 可以先只生成 `permission.requested`，由 HubServer 和前端后续补
 - `orchestrator` 是特殊系统预设主智能体，也是默认入口和核心调度器。
 - 系统预设、用户自定义和外部智能体统一使用 `AgentDefinition`。
 - 内部智能体共享统一执行协议，不需要兼容层。
-- 委派关系使用显式 `AgentRelation` 或 `allowedSubagents`，不得靠 prompt 隐式执行。
+- 委派边界由当前 Run 的 `participantAgentIds` 和主智能体自身 `allowedSubagents` 共同决定，不得靠 prompt 隐式执行。
 - 外部智能体通过 Adapter 接入，默认作为 terminal 主智能体。
 - 权限必须结构化声明并在调用前校验。
