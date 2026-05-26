@@ -4,7 +4,7 @@ export const presetSubagents: AgentDefinition[] = [
   {
     id: "explore",
     name: "Explore",
-    description: "Reads context, scans project structure, and gathers relevant files without changing the workspace.",
+    description: "读取上下文、扫描项目结构、收集相关文件，不修改工作区。",
     tier: "subagent",
     origin: "system",
     visibility: "hidden",
@@ -26,7 +26,7 @@ export const presetSubagents: AgentDefinition[] = [
   {
     id: "general",
     name: "General",
-    description: "Handles lightweight reasoning, explanation, summarization, and rewriting tasks.",
+    description: "处理轻量级推理、解释、摘要和重写任务。",
     tier: "subagent",
     origin: "system",
     visibility: "hidden",
@@ -48,7 +48,7 @@ export const presetSubagents: AgentDefinition[] = [
   {
     id: "file",
     name: "File",
-    description: "Prepares file edits, patches, and diffs behind an approval boundary.",
+    description: "在审批边界内准备文件编辑、补丁和差异。",
     tier: "subagent",
     origin: "system",
     visibility: "hidden",
@@ -70,7 +70,7 @@ export const presetSubagents: AgentDefinition[] = [
   {
     id: "deploy",
     name: "Deploy",
-    description: "Plans preview and publish actions while keeping deployment behind explicit approval.",
+    description: "规划预览和发布操作，同时将部署保持在明确审批之后。",
     tier: "subagent",
     origin: "system",
     visibility: "hidden",

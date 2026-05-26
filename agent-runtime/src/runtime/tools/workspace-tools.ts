@@ -358,13 +358,13 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
     createWorkspaceTool(
       "ls",
       "List files",
-      "List files and directories in a workspace path.",
+      "列出工作区路径中的文件和目录。",
       lsInputSchema,
       "low",
       "read",
       {},
       (input: WorkspaceToolInput) => input.path,
-      "List workspace contents",
+      "列出工作区内容",
       async (_input, _context, decision) => {
         const entries = await decision.backend.listFiles(decision.relativePath)
         return formatListResult(entries, decision.logicalPath)
@@ -373,7 +373,7 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
     createWorkspaceTool(
       "read_file",
       "Read file",
-      "Read a text file or image file from a workspace path.",
+      "从工作区路径读取文本文件或图片文件。",
       readFileInputSchema,
       "low",
       "read",
@@ -381,7 +381,7 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
         targetKind: "file",
       },
       (input: { path: string }) => input.path,
-      "Read file content",
+      "读取文件内容",
       async (_input, _context, decision) => {
         const fileResult = await decision.backend.readFile(decision.relativePath)
         return formatReadResult(fileResult)
@@ -390,13 +390,13 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
     createWorkspaceTool(
       "glob",
       "Glob",
-      "Find files and directories by glob pattern.",
+      "通过 glob 模式查找工作区中的文件和目录。",
       globInputSchema,
       "low",
       "read",
       {},
       (input: { path: string; pattern: string }) => input.path,
-      "Search workspace paths with glob",
+      "通过 glob 搜索工作区路径",
       async (input, _context, decision) => {
         const scopedPattern = joinPattern(decision.relativePath, input.pattern)
         const matches = await decision.backend.glob(scopedPattern)
@@ -406,13 +406,13 @@ export function createWorkspaceReadOnlyTools(): Array<ToolDefinition<any, any>> 
     createWorkspaceTool(
       "grep",
       "Grep",
-      "Search for text across files and directories in a workspace path.",
+      "在工作区路径的文件和目录中搜索文本。",
       grepInputSchema,
       "low",
       "read",
       {},
       (input: { path: string; pattern: string; maxResults?: number }) => input.path,
-      "Search text with grep",
+      "通过 grep 搜索文本",
       async (input, _context, decision) => {
         const matches = await decision.backend.grep(input.pattern, decision.relativePath)
         return formatGrepResult(matches.slice(0, input.maxResults ?? 50), input.pattern)
@@ -426,7 +426,7 @@ export function createWorkspaceWriteTools(): Array<ToolDefinition<any, any>> {
     createWorkspaceTool(
       "write_file",
       "Write file",
-      "Create or overwrite a UTF-8 text file in the workspace.",
+      "在工作区中创建或覆盖 UTF-8 文本文件。",
       writeFileInputSchema,
       "medium",
       "write",
@@ -435,7 +435,7 @@ export function createWorkspaceWriteTools(): Array<ToolDefinition<any, any>> {
         allowMissingTarget: true,
       },
       (input: { path: string }) => input.path,
-      "Write file content",
+      "写入文件内容",
       async (input, _context, decision) => {
         if (!decision.backend.writeFile) {
           return createDeniedResult(
@@ -452,7 +452,7 @@ export function createWorkspaceWriteTools(): Array<ToolDefinition<any, any>> {
     createWorkspaceTool(
       "edit_file",
       "Edit file",
-      "Apply a precise search/replace edit to a UTF-8 text file in the workspace.",
+      "对工作区中的 UTF-8 文本文件应用精确的查找/替换编辑。",
       editFileInputSchema,
       "medium",
       "write",
@@ -460,7 +460,7 @@ export function createWorkspaceWriteTools(): Array<ToolDefinition<any, any>> {
         targetKind: "file",
       },
       (input: { path: string }) => input.path,
-      "Edit file content",
+      "编辑文件内容",
       async (input, _context, decision) => {
         if (!decision.backend.editFile) {
           return createDeniedResult(
