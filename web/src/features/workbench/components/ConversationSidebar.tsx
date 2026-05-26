@@ -1,6 +1,8 @@
-import { PlusIcon, SearchIcon, Loader2Icon } from "lucide-react"
+import { useState, useMemo } from "react"
+import { PlusIcon, SearchIcon, Loader2Icon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 import type { ConversationListItem as ConversationItem } from "../types"
@@ -21,6 +23,18 @@ export function ConversationSidebar({
   onSelectConversation,
   onAdd,
 }: ConversationSidebarProps) {
+  const [search, setSearch] = useState("")
+
+  const filteredConversations = useMemo(() => {
+    if (!search) return conversations
+    const q = search.toLowerCase()
+    return conversations.filter(
+      (c) => c.title.toLowerCase().includes(q)
+    )
+  }, [conversations, search])
+
+  const displayConversations = search ? filteredConversations : conversations
+
   return (
     <aside className="flex min-h-0 min-w-0 flex-col border-border border-r bg-sidebar/45">
       <div className="flex shrink-0 flex-col gap-3 border-border border-b px-4 pt-4 pb-3">
@@ -33,16 +47,23 @@ export function ConversationSidebar({
             <PlusIcon />
           </Button>
         </div>
-        <div className="flex gap-2">
-          <Button
-            className="flex-1 justify-start"
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            <SearchIcon data-icon="inline-start" />
-            搜索聊天
-          </Button>
+        <div className="relative">
+          <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="搜索聊天"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 pr-8"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <XIcon className="size-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -52,10 +73,12 @@ export function ConversationSidebar({
             <div className="flex items-center justify-center py-8">
               <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
             </div>
-          ) : conversations.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-8">暂无会话</p>
+          ) : displayConversations.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-8">
+              {search ? "无匹配会话" : "暂无会话"}
+            </p>
           ) : (
-            conversations.map((conversation) => (
+            displayConversations.map((conversation) => (
               <ConversationListItemView
                 conversation={conversation}
                 key={conversation.id}
