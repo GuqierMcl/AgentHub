@@ -2,7 +2,6 @@ import type {
   ConversationListItem,
   ConversationDetail,
   CreateConversationBody,
-  ListConversationsResponse,
 } from "../types"
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -28,17 +27,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const conversationsApi = {
-  list(params?: {
-    status?: "active" | "archived"
-    limit?: number
-    offset?: number
-  }): Promise<ListConversationsResponse> {
-    const query = new URLSearchParams()
-    if (params?.status) query.set("status", params.status)
-    if (params?.limit !== undefined) query.set("limit", String(params.limit))
-    if (params?.offset !== undefined) query.set("offset", String(params.offset))
-    const qs = query.toString()
-    return request(`/api/conversations${qs ? `?${qs}` : ""}`)
+  list(status?: "active" | "archived"): Promise<ConversationListItem[]> {
+    const query = status ? `?status=${encodeURIComponent(status)}` : ""
+    return request(`/api/conversations${query}`)
   },
 
   get(id: string): Promise<ConversationDetail> {

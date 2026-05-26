@@ -5,7 +5,6 @@ import {
   updateConversation,
   deleteConversationById,
   listConversationsWithAgents,
-  countConversations,
   type ConversationOutput,
   type ConversationDetailOutput,
   type ConversationListOutput,
@@ -17,7 +16,6 @@ import type {
   ConversationListItem,
   ConversationAgentItem,
   CreateConversationBody,
-  ListConversationsQuery,
   UpdateConversationBody,
 } from '../domains/conversation/types'
 import type { ConversationMode, ConversationStatus, MetadataJson } from '../lib/types'
@@ -91,7 +89,7 @@ export class ConversationService {
       }
 
       if (input.mode === 'group' && !input.orchestratorAgentId) {
-        const orchestrator = input.agents.find((a) => a.role === 'orchestrator')
+        const orchestrator = input.agents.find((a: { agentId: string; role: 'primary' | 'member' | 'orchestrator' }) => a.role === 'orchestrator')
         if (orchestrator) {
           await updateConversation(conv.id, {
             orchestratorAgentId: orchestrator.agentId,
@@ -113,20 +111,14 @@ export class ConversationService {
     return this.toDetail(detail)
   }
 
-  async listConversationsPaginated(
-    query: ListConversationsQuery,
-  ): Promise<{ items: ConversationListItem[]; total: number }> {
-    const { status, limit, offset } = query
+  async listConversations(
+    status?: 'active' | 'archived',
+  ): Promise<ConversationListItem[]> {
+    const items = await listConversationsWithAgents(
+      status ? { status } : {},
+    )
 
-    const [items, total] = await Promise.all([
-      listConversationsWithAgents({ status, limit, offset }),
-      countConversations({ status }),
-    ])
-
-    return {
-      items: items.map((o) => this.toListItem(o)),
-      total,
-    }
+    return items.map((o) => this.toListItem(o))
   }
 
   async archiveConversation(

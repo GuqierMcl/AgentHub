@@ -5,9 +5,9 @@ import type { AgentRole } from '../../lib/types'
 
 export const ListConversationsQuerySchema = z.object({
   status: z.enum(['active', 'archived']).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
-  offset: z.coerce.number().int().min(0).default(0),
 })
+
+export type ListConversationsQuery = z.infer<typeof ListConversationsQuerySchema>
 
 export const CreateConversationBodySchema = z.object({
   title: z.string().min(1).max(200),
@@ -30,10 +30,6 @@ export const UpdateConversationBodySchema = z.object({
   orchestratorAgentId: z.string().nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
 })
-
-// ── 推断类型 ──
-
-export type ListConversationsQuery = z.infer<typeof ListConversationsQuerySchema>
 export type CreateConversationBody = z.infer<typeof CreateConversationBodySchema>
 export type UpdateConversationBody = z.infer<typeof UpdateConversationBodySchema>
 

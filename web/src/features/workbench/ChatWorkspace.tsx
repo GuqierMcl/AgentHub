@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 
 import { ConversationSidebar } from "./components/ConversationSidebar"
 import { NewConversationDialog } from "./components/NewConversationDialog"
@@ -11,12 +11,15 @@ export function ChatWorkspace() {
   const [loading, setLoading] = useState(true)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [newDialogOpen, setNewDialogOpen] = useState(false)
+  const loadedRef = useRef(false)
 
   useEffect(() => {
-    conversationsApi.list({ status: "active", limit: 50 }).then((data) => {
-      setConversations(data.items)
-      if (data.items.length > 0) {
-        setActiveConversationId(data.items[0].id)
+    if (loadedRef.current) return
+    loadedRef.current = true
+    conversationsApi.list("active").then((data) => {
+      setConversations(data)
+      if (data.length > 0) {
+        setActiveConversationId(data[0].id)
       }
     }).catch(() => {
       // ignore
@@ -30,8 +33,8 @@ export function ChatWorkspace() {
   }, [])
 
   const refreshConversations = useCallback(() => {
-    conversationsApi.list({ status: "active", limit: 50 }).then((data) => {
-      setConversations(data.items)
+    conversationsApi.list("active").then((data) => {
+      setConversations(data)
     }).catch(() => {
       // ignore
     })

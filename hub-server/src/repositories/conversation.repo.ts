@@ -109,7 +109,7 @@ function toListOutput(record: Record<string, unknown>): ConversationListOutput {
 
 export async function listConversationsWithAgents(filter: ListConversationsFilter = {}): Promise<ConversationListOutput[]> {
   const db = getPrismaClient()
-  const { status, pinnedOnly, limit = 50, offset = 0, order = 'desc' } = filter
+  const { status, pinnedOnly, limit, offset = 0, order = 'desc' } = filter
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: Record<string, any> = {}
   if (status) where.status = status
@@ -118,8 +118,7 @@ export async function listConversationsWithAgents(filter: ListConversationsFilte
   const records = await db.conversation.findMany({
     where,
     orderBy: [{ pinnedAt: 'desc' }, { lastMessageAt: order }],
-    take: limit,
-    skip: offset,
+    ...(limit !== undefined ? { take: limit, skip: offset } : {}),
     include: { agents: { orderBy: { sortOrder: 'asc' } } },
   })
   return records.map(r => toListOutput(r as Record<string, unknown>))

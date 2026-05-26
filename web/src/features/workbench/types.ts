@@ -123,7 +123,3 @@ export type CreateConversationBody = {
   metadata?: Record<string, unknown>
 }
 
-export type ListConversationsResponse = {
-  items: ConversationListItem[]
-  total: number
-}
