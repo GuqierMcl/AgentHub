@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
+import { toast } from "sonner"
 
 import { ConversationSidebar } from "./components/ConversationSidebar"
 import { NewConversationDialog } from "./components/NewConversationDialog"
@@ -45,6 +46,28 @@ export function ChatWorkspace() {
     refreshConversations()
   }, [refreshConversations])
 
+  const handlePin = useCallback(async (id: string, pinned: boolean) => {
+    try {
+      if (pinned) {
+        await conversationsApi.pin(id)
+      } else {
+        await conversationsApi.unpin(id)
+      }
+      refreshConversations()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }, [refreshConversations])
+
+  const handleArchive = useCallback(async (id: string, archived: boolean) => {
+    try {
+      await conversationsApi.update(id, { status: archived ? "archived" : "active" })
+      refreshConversations()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    }
+  }, [refreshConversations])
+
   return (
     <section className="grid h-full min-h-0 min-w-0 grid-cols-[18rem_minmax(0,1fr)] bg-background">
       <ConversationSidebar
@@ -53,6 +76,8 @@ export function ChatWorkspace() {
         activeConversationId={activeConversationId}
         onSelectConversation={handleSelectConversation}
         onAdd={() => setNewDialogOpen(true)}
+        onPin={handlePin}
+        onArchive={handleArchive}
       />
       <WorkbenchContentLayout activeConversationId={activeConversationId} />
       <NewConversationDialog

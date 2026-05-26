@@ -10,6 +10,8 @@ type ConversationListItemProps = {
   selected: boolean
   collapsed?: boolean
   onSelect: (conversationId: string) => void
+  onPin: (conversationId: string, pinned: boolean) => void
+  onArchive: (conversationId: string, archived: boolean) => void
 }
 
 function formatTime(dateStr: string): string {
@@ -31,6 +33,8 @@ export function ConversationListItemView({
   conversation,
   selected,
   onSelect,
+  onPin,
+  onArchive,
 }: ConversationListItemProps) {
   if (collapsed) {
     return null
@@ -43,45 +47,63 @@ export function ConversationListItemView({
   return (
     <button
       className={cn(
-        "relative grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent",
+        "group relative w-full rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent",
         selected && "border-primary/50 bg-accent"
       )}
       onClick={() => onSelect(conversation.id)}
       type="button"
     >
-      <div className="flex size-9 items-center justify-center rounded-lg bg-muted shrink-0">
-        {isGroup ? (
-          <UsersIcon className="size-4 text-muted-foreground" />
-        ) : (
-          <MessageSquareTextIcon className="size-4 text-muted-foreground" />
-        )}
+      <div className="flex gap-3">
+        <div className="flex size-9 items-center justify-center rounded-lg bg-muted shrink-0">
+          {isGroup ? (
+            <UsersIcon className="size-4 text-muted-foreground" />
+          ) : (
+            <MessageSquareTextIcon className="size-4 text-muted-foreground" />
+          )}
+        </div>
+        <span className="flex min-w-0 flex-col gap-1 flex-1">
+          <span className="flex min-w-0 items-center justify-between gap-2">
+            <span className="truncate text-sm font-semibold">
+              {conversation.title}
+            </span>
+            <span className="shrink-0 text-muted-foreground text-xs">
+              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : ""}
+            </span>
+          </span>
+          <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
+            <span className="line-clamp-1">
+              {conversation.lastMessageId ? "有消息记录" : "无消息"}
+            </span>
+          </span>
+          <span className="flex min-w-0 items-center gap-1">
+            <Badge variant={isGroup ? "default" : "secondary"}>
+              {isGroup ? "群聊" : "单聊"}
+            </Badge>
+          </span>
+        </span>
       </div>
-      <span className="flex min-w-0 flex-col gap-1">
-        <span className="flex min-w-0 items-center justify-between gap-2">
-          <span className="truncate text-sm font-semibold">
-            {conversation.title}
-          </span>
-          <span className="shrink-0 text-muted-foreground text-xs">
-            {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : ""}
-          </span>
-        </span>
-        <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
-          <span className="line-clamp-1">
-            {conversation.lastMessageId ? "有消息记录" : "无消息"}
-          </span>
-        </span>
-        <span className="flex min-w-0 items-center gap-1">
-          <Badge variant={isGroup ? "default" : "secondary"}>
-            {isGroup ? "群聊" : "单聊"}
-          </Badge>
-          {isPinned ? (
-            <PinIcon className="size-3 text-muted-foreground" />
-          ) : null}
-          {isArchived ? (
-            <ArchiveIcon className="size-3 text-muted-foreground" />
-          ) : null}
-        </span>
-      </span>
+
+      <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onPin(conversation.id, !isPinned) }}
+          className={cn(
+            "flex size-6 items-center justify-center rounded-md hover:bg-accent transition-colors",
+            isPinned ? "text-foreground" : "text-muted-foreground"
+          )}
+          title={isPinned ? "取消置顶" : "置顶"}
+        >
+          <PinIcon className={cn("size-3.5", isPinned && "fill-current")} />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onArchive(conversation.id, !isArchived) }}
+          className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          title={isArchived ? "取消归档" : "归档"}
+        >
+          <ArchiveIcon className="size-3.5" />
+        </button>
+      </div>
     </button>
   )
 }
