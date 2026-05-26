@@ -138,7 +138,6 @@ export function ProviderContent() {
   if (error) {
     return (
       <div className="space-y-4">
-      <h3 className="text-base font-semibold">供应商</h3>
         <div className="rounded-xl bg-muted/30 px-4 py-3">
           <p className="text-sm text-destructive">{error}</p>
         </div>
@@ -148,8 +147,6 @@ export function ProviderContent() {
 
   return (
     <div className="space-y-6">
-        <h3 className="text-base font-semibold">供应商</h3>
-
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">已连接的提供商</span>

@@ -133,7 +133,6 @@ export function ModelContent() {
   if (error) {
     return (
       <div className="space-y-4">
-      <h3 className="text-base font-semibold">模型</h3>
         <div className="rounded-xl bg-muted/30 px-4 py-3">
           <p className="text-sm text-destructive">{error}</p>
         </div>
@@ -145,8 +144,6 @@ export function ModelContent() {
 
   return (
     <div className="space-y-6">
-        <h3 className="text-base font-semibold">模型</h3>
-
       <div className="space-y-3">
         <div className="relative">
           <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
