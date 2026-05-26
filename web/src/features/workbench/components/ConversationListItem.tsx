@@ -1,4 +1,4 @@
-import { PinIcon, ArchiveIcon, MessageSquareTextIcon, UsersIcon } from "lucide-react"
+import { PenIcon, PinIcon, ArchiveIcon, MessageSquareTextIcon, UsersIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -12,6 +12,7 @@ type ConversationListItemProps = {
   onSelect: (conversationId: string) => void
   onPin: (conversationId: string, pinned: boolean) => void
   onArchive: (conversationId: string, archived: boolean) => void
+  onRename: (conversationId: string) => void
 }
 
 function formatTime(dateStr: string): string {
@@ -35,6 +36,7 @@ export function ConversationListItemView({
   onSelect,
   onPin,
   onArchive,
+  onRename,
 }: ConversationListItemProps) {
   if (collapsed) {
     return null
@@ -84,6 +86,14 @@ export function ConversationListItemView({
       </div>
 
       <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRename(conversation.id) }}
+          className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          title="重命名"
+        >
+          <PenIcon className="size-3.5" />
+        </button>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onPin(conversation.id, !isPinned) }}

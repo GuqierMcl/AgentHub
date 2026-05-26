@@ -16,6 +16,7 @@ type ConversationSidebarProps = {
   onAdd: () => void
   onPin: (conversationId: string, pinned: boolean) => void
   onArchive: (conversationId: string, archived: boolean) => void
+  onRename: (conversationId: string) => void
 }
 
 export function ConversationSidebar({
@@ -26,6 +27,7 @@ export function ConversationSidebar({
   onAdd,
   onPin,
   onArchive,
+  onRename,
 }: ConversationSidebarProps) {
   const [search, setSearch] = useState("")
 
@@ -90,6 +92,7 @@ export function ConversationSidebar({
                 selected={conversation.id === activeConversationId}
                 onPin={onPin}
                 onArchive={onArchive}
+                onRename={onRename}
               />
             ))
           )}
