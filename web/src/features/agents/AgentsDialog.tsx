@@ -33,7 +33,7 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
   const [error, setError] = useState<string | null>(null)
 
   // Filter state
-  const [filterEnabledOnly, setFilterEnabledOnly] = useState(true)
+  const [filterEnabledOnly, setFilterEnabledOnly] = useState(false)
   const [filterOrigin, setFilterOrigin] = useState<"all" | "system" | "user" | "external">("all")
 
   // Form dialog state

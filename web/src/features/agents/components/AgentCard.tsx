@@ -20,6 +20,7 @@ const originLabels: Record<string, string> = {
 
 export function AgentCard({ agent, onClick, onDelete, onToggleEnabled }: AgentCardProps) {
   const canDelete = agent.origin === "user" && !agent.readonly
+  const canToggleEnabled = agent.origin === "user"
 
   return (
     <div
@@ -70,12 +71,14 @@ export function AgentCard({ agent, onClick, onDelete, onToggleEnabled }: AgentCa
             </Badge>
           )}
         </div>
-        <div onClick={(e) => e.stopPropagation()}>
-          <Switch
-            checked={agent.enabled}
-            onCheckedChange={(checked) => onToggleEnabled(agent.id, checked)}
-          />
-        </div>
+        {canToggleEnabled && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Switch
+              checked={agent.enabled}
+              onCheckedChange={(checked) => onToggleEnabled(agent.id, checked)}
+            />
+          </div>
+        )}
       </div>
     </div>
   )
