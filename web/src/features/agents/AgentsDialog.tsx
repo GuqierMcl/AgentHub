@@ -20,7 +20,16 @@ import { agentsApi } from "./api/agents"
 import type { AgentSummary, AgentDetail } from "./types"
 import { AgentCard } from "./components/AgentCard"
 import { AgentFormDialog } from "./components/AgentFormDialog"
-import { AgentDeleteDialog } from "./components/AgentDeleteDialog"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog"
 
 type AgentsDialogProps = {
   open: boolean
@@ -44,6 +53,7 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
   // Delete dialog state
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AgentSummary | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const fetchAgents = useCallback(async () => {
     setLoading(true)
@@ -107,6 +117,18 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
     toast.success("智能体已删除")
     fetchAgents()
   }, [fetchAgents])
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await agentsApi.delete(deleteTarget.id)
+      handleDeleted()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败")
+      setDeleting(false)
+    }
+  }, [deleteTarget, handleDeleted])
 
   const handleToggleEnabled = useCallback(async (agentId: string, enabled: boolean) => {
     try {
@@ -211,12 +233,22 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
         onSaved={handleFormSaved}
       />
 
-      <AgentDeleteDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        agent={deleteTarget}
-        onDeleted={handleDeleted}
-      />
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除智能体 <span className="font-medium text-foreground">"{deleteTarget?.name}"</span> 吗？此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm} disabled={deleting}>
+              {deleting ? "删除中..." : "删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

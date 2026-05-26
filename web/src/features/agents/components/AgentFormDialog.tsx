@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { XIcon, PlusIcon } from "lucide-react"
+import { toast } from "sonner"
 import {
   Dialog,
   DialogContent,
@@ -12,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox"
-import { Switch } from "@/components/animate-ui/components/radix/switch"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -132,11 +132,9 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
     shell: "none",
     network: "none",
     deploy: "none",
-    requiresApproval: false,
   })
   const [allowedSubagents, setAllowedSubagents] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const [capIdInput, setCapIdInput] = useState("")
   const [capNameInput, setCapNameInput] = useState("")
@@ -145,9 +143,15 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
 
   const [connectedProviders, setConnectedProviders] = useState<ProviderDetail[]>([])
   const [providersLoading, setProvidersLoading] = useState(false)
-  const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [binding, setBinding] = useState(false)
   const [localAgent, setLocalAgent] = useState<AgentDetail | null>(null)
+
+  const selectedModel = useMemo(() => {
+    if (localAgent?.resolvedModel) {
+      return `${localAgent.resolvedModel.providerId}/${localAgent.resolvedModel.modelId}`
+    }
+    return null
+  }, [localAgent])
 
   useEffect(() => {
     if (!open) return
@@ -216,10 +220,9 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
         setAgentId(agent.id)
         setSelectedCapabilities(resolveCapabilities(agent.capabilities, authoring.capabilityTags))
         setAllowedTools([...agent.allowedTools as UserAgentAllowedTool[]])
-        setPermissionPolicy({
-          ...agent.permissionPolicy,
-          requiresApproval: agent.permissionPolicy.requiresApproval ?? false,
-        })
+      setPermissionPolicy({
+        ...agent.permissionPolicy,
+      })
         setAllowedSubagents([...agent.allowedSubagents])
         setLocalAgent(agent)
       } else {
@@ -237,9 +240,7 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
       setCapIdInput("")
       setCapNameInput("")
       setCapCategoryInput("")
-      setSelectedModel(null)
       setShowCustomCapForm(false)
-      setError(null)
     }, 0)
 
     return () => window.clearTimeout(timer)
@@ -247,7 +248,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
 
   const handleSubmit = useCallback(async () => {
     setSaving(true)
-    setError(null)
     const capabilityIds = selectedCapabilities.map((c) => c.id)
     try {
       if (isEdit && agent) {
@@ -287,7 +287,7 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
       }
       onSaved()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败")
+      toast.error(err instanceof Error ? err.message : "保存失败")
     } finally {
       setSaving(false)
     }
@@ -331,42 +331,32 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
     )
   }, [])
 
-  const handleBindModel = useCallback(async () => {
-    if (!agent || !selectedModel) return
-    const [providerId, modelId] = selectedModel.split("/")
+  const isReadonly = isEdit && agent?.readonly
+  const loadingContent = authoringLoading || isLoading
+
+  const handleBindModel = useCallback(async (value: string) => {
+    if (!agent || !value || isReadonly) return
+    const [providerId, modelId] = value.split("/")
     if (!providerId || !modelId) return
     setBinding(true)
     try {
+      const provider = connectedProviders.find((p) => p.id === providerId)
+      const model = provider?.models[modelId]
+      const modelName = model?.name ?? modelId
       const updated = await agentsApi.bindModel(agent.id, { providerId, modelId })
       setLocalAgent(updated)
-      setSelectedModel(null)
+      toast.success(`已绑定 ${modelName}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "绑定失败")
+      toast.error(err instanceof Error ? err.message : "绑定失败")
     } finally {
       setBinding(false)
     }
-  }, [agent, selectedModel])
-
-  const handleUnbindModel = useCallback(async () => {
-    if (!agent) return
-    setBinding(true)
-    try {
-      const updated = await agentsApi.unbindModel(agent.id)
-      setLocalAgent(updated)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "解绑失败")
-    } finally {
-      setBinding(false)
-    }
-  }, [agent])
+  }, [agent, connectedProviders, isReadonly])
 
   const hasWriteTools = allowedTools.some((t) => t === "write_file" || t === "edit_file")
   const hasReadTools = allowedTools.some((t) => t === "ls" || t === "read_file" || t === "glob" || "grep" === t)
   const needsWriteFs = hasWriteTools && permissionPolicy.filesystem !== "write"
   const needsReadFs = hasReadTools && permissionPolicy.filesystem === "none"
-
-  const isReadonly = isEdit && agent?.readonly
-  const loadingContent = authoringLoading || isLoading
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -775,95 +765,50 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
                       </Select>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span>需要审批</span>
-                    <Switch
-                      checked={permissionPolicy.requiresApproval}
-                      onCheckedChange={(checked) =>
-                        setPermissionPolicy((prev) => ({
-                          ...prev,
-                          requiresApproval: checked,
-                        }))
-                      }
-                      disabled={isReadonly}
-                    />
-                  </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">模型绑定</label>
-                {isEdit ? (
-                  <div className="rounded-md border p-3 space-y-3">
-                    {localAgent?.resolvedModel ? (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">
-                          {localAgent.resolvedModel.modelName}
-                          <span className="text-muted-foreground ml-1">
-                            ({localAgent.resolvedModel.providerName})
-                          </span>
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs text-destructive hover:text-destructive"
-                          onClick={handleUnbindModel}
-                          disabled={binding || isReadonly}
-                        >
-                          解绑
-                        </Button>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">未绑定模型</p>
-                    )}
-                    {!isReadonly && (
-                      <div className="flex items-center gap-2">
-                        <Select
-                          value={selectedModel ?? ""}
-                          onValueChange={setSelectedModel}
-                          disabled={providersLoading}
-                        >
-                          <SelectTrigger className="h-8 text-xs flex-1">
-                            <SelectValue placeholder={providersLoading ? "加载中..." : "选择模型"} />
-                          </SelectTrigger>
-                          <SelectContent position="popper">
-                            {connectedProviders.map((provider) => {
-                              const enabledModels = Object.values(provider.models).filter((m) => m.enabled)
-                              if (enabledModels.length === 0) return null
-                              return (
-                                <SelectGroup key={provider.id}>
-                                  <SelectLabel>{provider.name}</SelectLabel>
-                                  {enabledModels.map((model) => (
-                                    <SelectItem key={`${provider.id}/${model.id}`} value={`${provider.id}/${model.id}`}>
-                                      {model.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectGroup>
-                              )
-                            })}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          size="sm"
-                          className="h-8 text-xs"
-                          onClick={handleBindModel}
-                          disabled={!selectedModel || binding}
-                        >
-                          绑定
-                        </Button>
-                      </div>
-                    )}
+              {isEdit && agent?.origin !== "external" && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">模型绑定</label>
+                  <div className="rounded-md border p-3">
+                    <Select
+                      value={selectedModel ?? ""}
+                      onValueChange={handleBindModel}
+                      disabled={isReadonly || providersLoading || binding}
+                    >
+                      <SelectTrigger className="h-8 text-xs w-full">
+                        <SelectValue placeholder={providersLoading ? "加载中..." : "选择模型"} />
+                      </SelectTrigger>
+                      <SelectContent position="popper">
+                        {connectedProviders.map((provider) => {
+                          const enabledModels = Object.values(provider.models).filter((m) => m.enabled)
+                          if (enabledModels.length === 0) return null
+                          return (
+                            <SelectGroup key={provider.id}>
+                              <SelectLabel>{provider.name}</SelectLabel>
+                              {enabledModels.map((model) => (
+                                <SelectItem key={`${provider.id}/${model.id}`} value={`${provider.id}/${model.id}`}>
+                                  {model.name}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
                   </div>
-                ) : (
+                </div>
+              )}
+              {!isEdit && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">模型绑定</label>
                   <p className="text-xs text-muted-foreground">
                     创建智能体后，可在编辑时绑定模型。
                   </p>
-                )}
-              </div>
-
-              {error && (
-                <p className="text-sm text-destructive">{error}</p>
+                </div>
               )}
+
             </>
           )}
           </div>
