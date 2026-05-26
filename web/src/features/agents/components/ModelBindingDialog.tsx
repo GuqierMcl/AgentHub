@@ -36,9 +36,9 @@ export function ModelBindingDialog({ open, onOpenChange, agent, onBound }: Model
 
   useEffect(() => {
     if (!open) return
-    setSelectedModel(agent?.resolvedModel ? `${agent.resolvedModel.providerId}/${agent.resolvedModel.modelId}` : "")
     let cancelled = false
     const timer = window.setTimeout(() => {
+      setSelectedModel(agent?.resolvedModel ? `${agent.resolvedModel.providerId}/${agent.resolvedModel.modelId}` : "")
       setLoading(true)
       runtimeApi.getProviders()
         .then((data) => {
@@ -58,7 +58,7 @@ export function ModelBindingDialog({ open, onOpenChange, agent, onBound }: Model
         })
     }, 0)
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [open])
+  }, [open, agent])
 
   const handleBindModel = useCallback(async (value: string) => {
     if (!agent || !value) return
