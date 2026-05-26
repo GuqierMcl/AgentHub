@@ -38,10 +38,6 @@ export const presetAgents: AgentDefinition[] = [
     delegationPolicy: "can-delegate",
     executorType: "ai-sdk",
     systemPrompt: presetAgentSystemPrompts.coder,
-    modelRef: {
-      providerId: "openai",
-      modelId: "gpt-5.1-codex",
-    },
     capabilities: ["implementation", "refactor", "tests"],
     allowedSubagents: ["explore", "general", "file"],
     allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file"],
@@ -65,10 +61,6 @@ export const presetAgents: AgentDefinition[] = [
     delegationPolicy: "can-delegate",
     executorType: "ai-sdk",
     systemPrompt: presetAgentSystemPrompts.reviewer,
-    modelRef: {
-      providerId: "anthropic",
-      modelId: "claude-sonnet-4-6",
-    },
     capabilities: ["code-review", "risk-analysis", "test-gaps"],
     allowedSubagents: ["explore", "general"],
     allowedTools: ["ls", "read_file", "glob", "grep"],
@@ -92,10 +84,6 @@ export const presetAgents: AgentDefinition[] = [
     delegationPolicy: "can-delegate",
     executorType: "ai-sdk",
     systemPrompt: presetAgentSystemPrompts.writer,
-    modelRef: {
-      providerId: "openai",
-      modelId: "gpt-5.1",
-    },
     capabilities: ["documentation", "copywriting", "summarization"],
     allowedSubagents: ["general"],
     allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file"],
@@ -119,10 +107,6 @@ export const presetAgents: AgentDefinition[] = [
     delegationPolicy: "terminal",
     executorType: "ai-sdk",
     systemPrompt: presetAgentSystemPrompts.planner,
-    modelRef: {
-      providerId: "anthropic",
-      modelId: "claude-sonnet-4-6",
-    },
     capabilities: ["planning-advice", "architecture-analysis", "risk-assessment", "acceptance-criteria"],
     allowedSubagents: [],
     allowedTools: ["ls", "read_file", "glob", "grep"],

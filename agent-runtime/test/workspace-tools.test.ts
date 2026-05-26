@@ -24,10 +24,6 @@ const coderAgent: AgentDefinition = {
   entryPolicy: "callable",
   delegationPolicy: "can-delegate",
   executorType: "ai-sdk",
-  modelRef: {
-    providerId: "openai",
-    modelId: "gpt-5.1",
-  },
   capabilities: ["implementation"],
   allowedSubagents: [],
   allowedTools: ["ls", "read_file", "glob", "grep"],
