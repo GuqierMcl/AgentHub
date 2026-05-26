@@ -10,6 +10,7 @@ type AgentCardProps = {
   onClick: () => void
   onDelete: () => void
   onToggleEnabled: (agentId: string, enabled: boolean) => void
+  onManageModel: (agent: AgentSummary) => void
 }
 
 const originLabels: Record<string, string> = {
@@ -18,7 +19,7 @@ const originLabels: Record<string, string> = {
   external: "外部",
 }
 
-export function AgentCard({ agent, onClick, onDelete, onToggleEnabled }: AgentCardProps) {
+export function AgentCard({ agent, onClick, onDelete, onToggleEnabled, onManageModel }: AgentCardProps) {
   const canDelete = agent.origin === "user" && !agent.readonly
   const canToggleEnabled = agent.origin === "user"
 
@@ -66,9 +67,26 @@ export function AgentCard({ agent, onClick, onDelete, onToggleEnabled }: AgentCa
             {originLabels[agent.origin] ?? agent.origin}
           </Badge>
           {agent.resolvedModel && (
-            <Badge variant="outline" className="text-[10px]">
-              {agent.resolvedModel.modelName}
-            </Badge>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onManageModel(agent) }}
+              className="cursor-pointer"
+            >
+              <Badge variant="outline" className="text-[10px] hover:bg-accent">
+                {agent.resolvedModel.modelName}
+              </Badge>
+            </button>
+          )}
+          {!agent.resolvedModel && agent.origin !== "external" && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onManageModel(agent) }}
+              className="cursor-pointer"
+            >
+              <Badge variant="ghost" className="text-[10px] text-muted-foreground hover:bg-accent">
+                未绑定
+              </Badge>
+            </button>
           )}
         </div>
         {canToggleEnabled && (

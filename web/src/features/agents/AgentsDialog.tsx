@@ -20,6 +20,7 @@ import { agentsApi } from "./api/agents"
 import type { AgentSummary, AgentDetail } from "./types"
 import { AgentCard } from "./components/AgentCard"
 import { AgentFormDialog } from "./components/AgentFormDialog"
+import { ModelBindingDialog } from "./components/ModelBindingDialog"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -54,6 +55,10 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AgentSummary | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Model binding dialog state
+  const [modelBindingOpen, setModelBindingOpen] = useState(false)
+  const [modelBindingAgent, setModelBindingAgent] = useState<AgentSummary | null>(null)
 
   const fetchAgents = useCallback(async () => {
     setLoading(true)
@@ -137,6 +142,11 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
     }
   }, [fetchAgents])
 
+  const handleManageModel = useCallback((agent: AgentSummary) => {
+    setModelBindingAgent(agent)
+    setModelBindingOpen(true)
+  }, [])
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -213,6 +223,7 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
                       onClick={() => handleCardClick(agent)}
                       onDelete={() => handleDeleteClick(agent)}
                       onToggleEnabled={handleToggleEnabled}
+                      onManageModel={handleManageModel}
                     />
                   ))}
                 </div>
@@ -246,6 +257,13 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ModelBindingDialog
+        open={modelBindingOpen}
+        onOpenChange={setModelBindingOpen}
+        agent={modelBindingAgent}
+        onBound={() => { setModelBindingOpen(false); fetchAgents() }}
+      />
     </>
   )
 }

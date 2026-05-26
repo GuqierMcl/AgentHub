@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { XIcon, PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -19,15 +19,11 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
 import { agentsApi } from "../api/agents"
-import { runtimeApi } from "../../settings/api/runtime"
-import type { ProviderDetail } from "../../settings/types"
 import type {
   AgentDetail,
   UserAgentCreateRequest,
@@ -141,18 +137,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
   const [capCategoryInput, setCapCategoryInput] = useState("")
   const [showCustomCapForm, setShowCustomCapForm] = useState(false)
 
-  const [connectedProviders, setConnectedProviders] = useState<ProviderDetail[]>([])
-  const [providersLoading, setProvidersLoading] = useState(false)
-  const [binding, setBinding] = useState(false)
-  const [localAgent, setLocalAgent] = useState<AgentDetail | null>(null)
-
-  const selectedModel = useMemo(() => {
-    if (localAgent?.resolvedModel) {
-      return `${localAgent.resolvedModel.providerId}/${localAgent.resolvedModel.modelId}`
-    }
-    return null
-  }, [localAgent])
-
   useEffect(() => {
     if (!open) return
 
@@ -178,38 +162,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
   }, [open])
 
   useEffect(() => {
-    if (!open || !isEdit) return
-
-    let cancelled = false
-    const timer = window.setTimeout(() => {
-      setProvidersLoading(true)
-      void runtimeApi.getProviders()
-        .then((data) => {
-          const connectedIds = data.providers
-            .filter((p) => p.has_api_key)
-            .map((p) => p.id)
-          return Promise.all(
-            connectedIds.map((id) => runtimeApi.getProvider(id))
-          )
-        })
-        .then((details) => {
-          if (!cancelled) setConnectedProviders(details)
-        })
-        .catch(() => {
-          if (!cancelled) setConnectedProviders([])
-        })
-        .finally(() => {
-          if (!cancelled) setProvidersLoading(false)
-        })
-    }, 0)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-    }
-  }, [open, isEdit])
-
-  useEffect(() => {
     if (!open || !authoring) return
 
     const timer = window.setTimeout(() => {
@@ -224,7 +176,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
         ...agent.permissionPolicy,
       })
         setAllowedSubagents([...agent.allowedSubagents])
-        setLocalAgent(agent)
       } else {
         const defaults = authoring.defaults
         setName("")
@@ -235,7 +186,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
         setAllowedTools([...defaults.allowedTools as UserAgentAllowedTool[]])
         setPermissionPolicy({ ...defaults.permissionPolicy })
         setAllowedSubagents([...defaults.allowedSubagents])
-        setLocalAgent(null)
       }
       setCapIdInput("")
       setCapNameInput("")
@@ -355,25 +305,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
 
   const isReadonly = isEdit && agent?.readonly
   const loadingContent = authoringLoading || isLoading
-
-  const handleBindModel = useCallback(async (value: string) => {
-    if (!agent || !value || isReadonly) return
-    const [providerId, modelId] = value.split("/")
-    if (!providerId || !modelId) return
-    setBinding(true)
-    try {
-      const provider = connectedProviders.find((p) => p.id === providerId)
-      const model = provider?.models[modelId]
-      const modelName = model?.name ?? modelId
-      const updated = await agentsApi.bindModel(agent.id, { providerId, modelId })
-      setLocalAgent(updated)
-      toast.success(`已绑定 ${modelName}`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "绑定失败")
-    } finally {
-      setBinding(false)
-    }
-  }, [agent, connectedProviders, isReadonly])
 
   const hasWriteTools = allowedTools.some((t) => t === "write_file" || t === "edit_file")
   const hasReadTools = allowedTools.some((t) => t === "ls" || t === "read_file" || t === "glob" || "grep" === t)
@@ -789,47 +720,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
                   </div>
                 </div>
               </div>
-
-              {isEdit && agent?.origin !== "external" && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">模型绑定</label>
-                  <div className="rounded-md border p-3">
-                    <Select
-                      value={selectedModel ?? ""}
-                      onValueChange={handleBindModel}
-                      disabled={isReadonly || providersLoading || binding}
-                    >
-                      <SelectTrigger className="h-8 text-xs w-full">
-                        <SelectValue placeholder={providersLoading ? "加载中..." : "选择模型"} />
-                      </SelectTrigger>
-                      <SelectContent position="popper">
-                        {connectedProviders.map((provider) => {
-                          const enabledModels = Object.values(provider.models).filter((m) => m.enabled)
-                          if (enabledModels.length === 0) return null
-                          return (
-                            <SelectGroup key={provider.id}>
-                              <SelectLabel>{provider.name}</SelectLabel>
-                              {enabledModels.map((model) => (
-                                <SelectItem key={`${provider.id}/${model.id}`} value={`${provider.id}/${model.id}`}>
-                                  {model.name}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-              {!isEdit && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">模型绑定</label>
-                  <p className="text-xs text-muted-foreground">
-                    创建智能体后，可在编辑时绑定模型。
-                  </p>
-                </div>
-              )}
 
             </>
           )}
