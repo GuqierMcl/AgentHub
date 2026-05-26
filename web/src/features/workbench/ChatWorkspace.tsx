@@ -1,30 +1,64 @@
-import { useMemo, useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 
-import { conversations } from "./mock-data"
 import { ConversationSidebar } from "./components/ConversationSidebar"
+import { NewConversationDialog } from "./components/NewConversationDialog"
 import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout"
+import { conversationsApi } from "./api/conversations"
+import type { ConversationListItem } from "./types"
 
 export function ChatWorkspace() {
-  const [activeConversationId, setActiveConversationId] = useState(
-    conversations[0].id
-  )
-  const activeConversation = useMemo(
-    () =>
-      conversations.find(
-        (conversation) => conversation.id === activeConversationId
-      ) ?? conversations[0],
-    [activeConversationId]
-  )
+  const [conversations, setConversations] = useState<ConversationListItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+  const [newDialogOpen, setNewDialogOpen] = useState(false)
+
+  useEffect(() => {
+    conversationsApi.list({ status: "active", limit: 50 }).then((data) => {
+      setConversations(data.items)
+      if (data.items.length > 0) {
+        setActiveConversationId(data.items[0].id)
+      }
+    }).catch(() => {
+      // ignore
+    }).finally(() => {
+      setLoading(false)
+    })
+  }, [])
+
+  const handleSelectConversation = useCallback((id: string) => {
+    setActiveConversationId(id)
+  }, [])
+
+  const refreshConversations = useCallback(() => {
+    conversationsApi.list({ status: "active", limit: 50 }).then((data) => {
+      setConversations(data.items)
+    }).catch(() => {
+      // ignore
+    })
+  }, [])
+
+  const handleCreated = useCallback((id: string) => {
+    setActiveConversationId(id)
+    refreshConversations()
+  }, [refreshConversations])
 
   return (
     <section className="grid h-full min-h-0 min-w-0 grid-cols-[18rem_minmax(0,1fr)] bg-background">
       <ConversationSidebar
-        activeConversationId={activeConversation.id}
         conversations={conversations}
-        onSelectConversation={setActiveConversationId}
+        loading={loading}
+        activeConversationId={activeConversationId}
+        onSelectConversation={handleSelectConversation}
+        onAdd={() => setNewDialogOpen(true)}
       />
-      <WorkbenchContentLayout activeConversation={activeConversation} />
+      <WorkbenchContentLayout activeConversationId={activeConversationId} />
+      <NewConversationDialog
+        open={newDialogOpen}
+        onOpenChange={setNewDialogOpen}
+        onCreated={handleCreated}
+        existingConversations={conversations}
+        onSwitchConversation={handleSelectConversation}
+      />
     </section>
   )
 }
-

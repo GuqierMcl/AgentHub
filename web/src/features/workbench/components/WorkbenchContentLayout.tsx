@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePanelRef } from "react-resizable-panels"
 
 import {
@@ -14,16 +14,30 @@ import { ChatPanel } from "./ChatPanel"
 import type { Conversation } from "../types"
 
 type WorkbenchContentLayoutProps = {
-  activeConversation: Conversation
+  activeConversationId: string | null
 }
 
 export function WorkbenchContentLayout({
-  activeConversation,
+  activeConversationId,
 }: WorkbenchContentLayoutProps) {
   const workspacePanelRef = usePanelRef()
   const [isWorkspaceCollapsed, setIsWorkspaceCollapsed] = useState(true)
   const tabs = useTabStore((s) => s.tabs)
   const hasTabsRef = useRef(false)
+
+  const activeConversation = useMemo((): Conversation | null => {
+    if (!activeConversationId) return null
+    return {
+      id: activeConversationId,
+      title: "",
+      mode: "single",
+      agentIds: [],
+      preview: "",
+      activeAt: "",
+      workspace: "",
+      messages: [],
+    }
+  }, [activeConversationId])
 
   const handleToggleWorkspaceCollapsed = useCallback(() => {
     const workspacePanel = workspacePanelRef.current
@@ -73,11 +87,17 @@ export function WorkbenchContentLayout({
           minSize={28}
         >
           <div className="h-full">
-            <ChatPanel
-              conversation={activeConversation}
-              isWorkspaceOpen={!isWorkspaceCollapsed}
-              onToggleWorkspace={handleToggleWorkspaceCollapsed}
-            />
+            {activeConversation ? (
+              <ChatPanel
+                conversation={activeConversation}
+                isWorkspaceOpen={!isWorkspaceCollapsed}
+                onToggleWorkspace={handleToggleWorkspaceCollapsed}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                选择或创建会话开始聊天
+              </div>
+            )}
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />

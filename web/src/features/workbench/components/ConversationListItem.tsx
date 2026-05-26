@@ -1,20 +1,32 @@
-import { ArchiveIcon, FolderIcon, PinIcon } from "lucide-react"
+import { PinIcon, ArchiveIcon, MessageSquareTextIcon, UsersIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 
-import type { Conversation } from "../types"
-import { ConversationAvatar } from "./AgentAvatar"
+import type { ConversationListItem as ConversationListItemType } from "../types"
 
 type ConversationListItemProps = {
-  conversation: Conversation
+  conversation: ConversationListItemType
   selected: boolean
   collapsed?: boolean
   onSelect: (conversationId: string) => void
 }
 
-export function ConversationListItem({
+function formatTime(dateStr: string): string {
+  const d = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - d.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1) return "刚刚"
+  if (diffMins < 60) return `${diffMins}分钟前`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}小时前`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 7) return `${diffDays}天前`
+  return d.toLocaleDateString("zh-CN", { month: "short", day: "numeric" })
+}
+
+export function ConversationListItemView({
   collapsed = false,
   conversation,
   selected,
@@ -23,6 +35,10 @@ export function ConversationListItem({
   if (collapsed) {
     return null
   }
+
+  const isPinned = !!conversation.pinnedAt
+  const isArchived = conversation.status === "archived"
+  const isGroup = conversation.mode === "group"
 
   return (
     <button
@@ -33,41 +49,39 @@ export function ConversationListItem({
       onClick={() => onSelect(conversation.id)}
       type="button"
     >
-      <ConversationAvatar conversation={conversation} />
+      <div className="flex size-9 items-center justify-center rounded-lg bg-muted shrink-0">
+        {isGroup ? (
+          <UsersIcon className="size-4 text-muted-foreground" />
+        ) : (
+          <MessageSquareTextIcon className="size-4 text-muted-foreground" />
+        )}
+      </div>
       <span className="flex min-w-0 flex-col gap-1">
         <span className="flex min-w-0 items-center justify-between gap-2">
           <span className="truncate text-sm font-semibold">
             {conversation.title}
           </span>
-          <span className="shrink-0 flex items-center gap-1 text-muted-foreground text-xs">
-            {conversation.running && <Spinner className="size-3" />}
-            {conversation.activeAt}
+          <span className="shrink-0 text-muted-foreground text-xs">
+            {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : ""}
           </span>
         </span>
-        <span className="line-clamp-1 text-muted-foreground text-xs">
-          {conversation.preview}
-        </span>
         <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
-          <FolderIcon className="size-3 shrink-0" />
-          {conversation.workspace.split("\\").pop()}
+          <span className="line-clamp-1">
+            {conversation.lastMessageId ? "有消息记录" : "无消息"}
+          </span>
         </span>
         <span className="flex min-w-0 items-center gap-1">
-          <Badge variant={conversation.mode === "group" ? "default" : "secondary"}>
-            {conversation.mode === "group" ? "群聊" : "单聊"}
+          <Badge variant={isGroup ? "default" : "secondary"}>
+            {isGroup ? "群聊" : "单聊"}
           </Badge>
-          {conversation.pinned ? (
+          {isPinned ? (
             <PinIcon className="size-3 text-muted-foreground" />
           ) : null}
-          {conversation.archived ? (
+          {isArchived ? (
             <ArchiveIcon className="size-3 text-muted-foreground" />
           ) : null}
         </span>
       </span>
-      {conversation.unread ? (
-        <span className="absolute right-3 bottom-3 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
-          {conversation.unread}
-        </span>
-      ) : null}
     </button>
   )
 }
