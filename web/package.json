@@ -12,6 +12,7 @@
   "dependencies": {
     "@floating-ui/react": "^0.27.19",
     "@fontsource-variable/geist": "^5.2.9",
+    "@monaco-editor/react": "^4.7.0",
     "@rive-app/react-webgl2": "^4.28.6",
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
