@@ -17,7 +17,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body?.error?.message || `请求失败 (${res.status})`)
+    const errMsg = body?.error?.message || `请求失败 (${res.status})`
+    const details = body?.error?.details
+    if (Array.isArray(details) && details.length > 0) {
+      const detailMessages = details.map((d: { message?: string }) => d.message).filter(Boolean)
+      if (detailMessages.length > 0) {
+        throw new Error(detailMessages.join("；"))
+      }
+    }
+    throw new Error(errMsg)
   }
   return res.json()
 }

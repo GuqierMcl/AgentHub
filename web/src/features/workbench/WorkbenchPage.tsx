@@ -38,32 +38,34 @@ export function WorkbenchPage() {
   }, []);
 
   return (
-    <main
-      className={cn(
-        "grid h-svh min-h-0 overflow-hidden bg-muted text-foreground",
-        isSidebarCollapsed
-          ? "grid-cols-[4.25rem_minmax(0,1fr)]"
-          : "grid-cols-[20rem_minmax(0,1fr)]",
-      )}
-    >
-      <ConversationSidebar
-        activeConversationId={activeConversation.id}
-        collapsed={isSidebarCollapsed}
-        conversations={conversations}
-        onSelectConversation={setActiveConversationId}
-        onOpenSettings={handleOpenSettings}
-        onOpenAgents={handleOpenAgents}
-        onToggleCollapsed={() =>
-          setIsSidebarCollapsed((collapsed) => !collapsed)
-        }
-      />
-      <WorkbenchContentLayout activeConversation={activeConversation} />
+    <>
+      <main
+        className={cn(
+          "grid h-svh min-h-0 overflow-hidden bg-muted text-foreground",
+          isSidebarCollapsed
+            ? "grid-cols-[4.25rem_minmax(0,1fr)]"
+            : "grid-cols-[20rem_minmax(0,1fr)]",
+        )}
+      >
+        <ConversationSidebar
+          activeConversationId={activeConversation.id}
+          collapsed={isSidebarCollapsed}
+          conversations={conversations}
+          onSelectConversation={setActiveConversationId}
+          onOpenSettings={handleOpenSettings}
+          onOpenAgents={handleOpenAgents}
+          onToggleCollapsed={() =>
+            setIsSidebarCollapsed((collapsed) => !collapsed)
+          }
+        />
+        <WorkbenchContentLayout activeConversation={activeConversation} />
+      </main>
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
       />
       <AgentsDialog open={agentsOpen} onOpenChange={setAgentsOpen} />
       <Toaster position="top-center" richColors />
-    </main>
+    </>
   );
 }

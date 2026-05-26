@@ -105,11 +105,11 @@ function ModelItem({
 
   return (
     <ModelSelectorItem onSelect={handleSelect} value={model.id}>
-      <ModelSelectorLogo provider={model.chefSlug} />
+      <ModelSelectorLogo provider={model.chefSlug} onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
       <ModelSelectorName>{model.name}</ModelSelectorName>
       <ModelSelectorLogoGroup>
         {model.providers.map((provider) => (
-          <ModelSelectorLogo key={provider} provider={provider} />
+          <ModelSelectorLogo key={provider} provider={provider} onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
         ))}
       </ModelSelectorLogoGroup>
       {isSelected ? (
@@ -201,7 +201,7 @@ export function ChatComposer() {
               <ModelSelectorTrigger asChild>
                 <PromptInputButton>
                   {selectedModel?.chefSlug ? (
-                    <ModelSelectorLogo provider={selectedModel.chefSlug} />
+                    <ModelSelectorLogo provider={selectedModel.chefSlug} onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
                   ) : null}
                   {selectedModel?.name ? (
                     <ModelSelectorName>{selectedModel.name}</ModelSelectorName>

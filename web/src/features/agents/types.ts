@@ -15,7 +15,6 @@ export type AgentPermissionPolicy = {
   shell: "none" | "limited" | "full"
   network: "none" | "limited" | "full"
   deploy: "none" | "preview" | "publish"
-  requiresApproval: boolean
 }
 
 export type UserAgentAllowedTool = "ls" | "read_file" | "glob" | "grep" | "write_file" | "edit_file"
