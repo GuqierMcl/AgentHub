@@ -57,6 +57,7 @@ export interface ConversationListItem {
   pinnedAt: string | null
   createdAt: string
   updatedAt: string
+  agents: { agentId: string; role: AgentRole }[]
 }
 
 export interface ConversationDetail {

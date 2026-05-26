@@ -4,10 +4,11 @@ import {
   findConversationWithAgents,
   updateConversation,
   deleteConversationById,
-  listConversations,
+  listConversationsWithAgents,
   countConversations,
   type ConversationOutput,
   type ConversationDetailOutput,
+  type ConversationListOutput,
 } from '../repositories/conversation.repo'
 import { createConversationAgent } from '../repositories/conversation-agent.repo'
 import { badRequest, notFound } from '../lib/errors'
@@ -22,7 +23,7 @@ import type {
 import type { ConversationMode, ConversationStatus, MetadataJson } from '../lib/types'
 
 export class ConversationService {
-  private toListItem(o: ConversationOutput): ConversationListItem {
+  private toListItem(o: ConversationListOutput): ConversationListItem {
     return {
       id: o.id,
       title: o.title,
@@ -34,6 +35,10 @@ export class ConversationService {
       pinnedAt: o.pinnedAt,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
+      agents: o.agents.map((a) => ({
+        agentId: a.agentId,
+        role: a.role as ConversationAgentItem['role'],
+      })),
     }
   }
 
@@ -114,7 +119,7 @@ export class ConversationService {
     const { status, limit, offset } = query
 
     const [items, total] = await Promise.all([
-      listConversations({ status, limit, offset }),
+      listConversationsWithAgents({ status, limit, offset }),
       countConversations({ status }),
     ])
 
@@ -204,7 +209,7 @@ export class ConversationService {
     const existing = await findConversationById(id)
     if (!existing) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
 
-    if (existing.pinnedAt) return this.toListItem(existing)
+    if (existing.pinnedAt) return this.toListItem({ ...existing, agents: [] })
 
     await updateConversation(id, {
       pinnedAt: new Date().toISOString(),
@@ -212,7 +217,7 @@ export class ConversationService {
 
     const updated = await findConversationById(id)
     if (!updated) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
-    return this.toListItem(updated)
+    return this.toListItem({ ...updated, agents: [] })
   }
 
   async unpinConversation(
@@ -225,7 +230,7 @@ export class ConversationService {
 
     const updated = await findConversationById(id)
     if (!updated) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
-    return this.toListItem(updated)
+    return this.toListItem({ ...updated, agents: [] })
   }
 
   async deleteConversation(id: string): Promise<void> {
