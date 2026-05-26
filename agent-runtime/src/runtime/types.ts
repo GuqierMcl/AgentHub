@@ -29,6 +29,13 @@ export const RunWorkspaceSummarySchema = z.object({
 })
 export type RunWorkspaceSummary = z.infer<typeof RunWorkspaceSummarySchema>
 
+export const RunDiagnosticsSchema = z.object({
+  includeModelStream: z.boolean().optional(),
+  includeReasoning: z.boolean().optional(),
+  includeRawModelChunks: z.boolean().optional(),
+}).strict()
+export type RunDiagnostics = z.infer<typeof RunDiagnosticsSchema>
+
 export const RunInputSchema = z.object({
   conversationId: z.string().min(1),
   mode: RuntimeConversationModeSchema,
@@ -39,6 +46,7 @@ export const RunInputSchema = z.object({
   }),
   history: z.array(RuntimeMessageSchema).default([]),
   workspace: RunWorkspaceSnapshotSchema.optional(),
+  diagnostics: RunDiagnosticsSchema.optional(),
 })
 export type RunInput = z.infer<typeof RunInputSchema>
 
@@ -76,6 +84,10 @@ export const RunEventTypeSchema = z.enum([
   "permission.approved",
   "permission.denied",
   "permission.cancelled",
+  "model.stream.part",
+  "reasoning.started",
+  "reasoning.delta",
+  "reasoning.completed",
   "message.delta",
   "message.completed",
   "agent.completed",

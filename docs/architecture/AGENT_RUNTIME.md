@@ -191,6 +191,8 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 
 系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`。`AiSdkExecutor` 和 `OrchestratorExecutor` 都从 `AgentDefinition.systemPrompt` 读取提示词，再追加运行态上下文、任务信息、可用工具和会话参与者等执行说明。普通主智能体不会看到 `internal` 工具；`orchestrator` 通过专用执行路径显式开启 `includeInternal=true`，因此只它能看到 `write_plan` 和 `run_task`。
 
+AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄封装进入 RunEvent 流；provider/AI SDK 显式暴露的 reasoning/thinking 会同步提升为 `reasoning.started`、`reasoning.delta`、`reasoning.completed`。RunInput 可通过 `diagnostics` 关闭模型流透传、关闭 reasoning 输出或显式开启 `raw` chunk。默认开启 `includeModelStream` 和 `includeReasoning`，默认关闭 `includeRawModelChunks`。完整 SSE 契约见 `docs/contracts/RUNTIME_SSE_EVENTS.md`。
+
 ### 3.3.1 当前对话链路闭环状态
 
 当前 Runtime 内部对话链路已经闭环到以下程度：
@@ -201,7 +203,7 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 - `POST /runtime/runs` 可以接收单聊或群聊 RunInput，并通过 `EntryResolver` 实现单聊入口、群聊默认 `orchestrator`、群聊显式 @ 单个主智能体。
 - `coder`、`reviewer`、`writer`、`planner` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和非内部 Runtime Tools。
 - `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派当前 Run participants 中的其他主智能体或自身 `allowedSubagents` 中的子智能体。
-- `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*` 与完整 `permission.*` 事件。
+- `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*`、`model.stream.part`、`reasoning.*` 与完整 `permission.*` 事件。
 - Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取、沙箱外敏感读取、敏感写入和沙箱外写入请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
 - `write_file` / `edit_file` 已开放给 `coder`、`writer` 和 `file` 子智能体；用户自定义智能体也可在显式配置 `filesystem: "write"` 后选择这些工具。
 

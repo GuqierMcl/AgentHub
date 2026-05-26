@@ -4,6 +4,12 @@ export { MockExecutor } from "./mock-executor"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
+export {
+  DEFAULT_RUN_DIAGNOSTICS,
+  ModelStreamEventBuilder,
+  resolveRunDiagnostics,
+  sanitizeModelStreamPart,
+} from "./model-stream-events"
 export { RuntimeToolRegistry, createDefaultRuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "./tools"
 export { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 export { createWorkspaceReadOnlyTools, createWorkspaceWriteTools, createWorkspaceTools } from "./tools"
@@ -11,6 +17,7 @@ export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
 export type {
   RuntimeConversationMode,
   RuntimeMessage,
+  RunDiagnostics,
   RunInput,
   RunWorkspaceSnapshot,
   RunWorkspaceSummary,
@@ -85,6 +92,7 @@ export type {
 export {
   RuntimeConversationModeSchema,
   RuntimeMessageSchema,
+  RunDiagnosticsSchema,
   RunWorkspaceSnapshotSchema,
   RunWorkspaceSummarySchema,
   RunInputSchema,

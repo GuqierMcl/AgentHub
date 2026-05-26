@@ -479,6 +479,11 @@ type RunInput = {
     backendType: "local"
     rootPath: string
   }
+  diagnostics?: {
+    includeModelStream?: boolean
+    includeReasoning?: boolean
+    includeRawModelChunks?: boolean
+  }
 }
 ```
 
@@ -490,6 +495,7 @@ type RunInput = {
 | `participantAgentIds` | 当前会话包含的主智能体成员，由 HubServer 提供 |
 | `addressedAgentIds` | 当前用户消息显式 @ 的主智能体；为空表示未显式指定 |
 | `workspace` | 可选的本次 Run 主工作区 snapshot；首版只支持已存在本地目录 |
+| `diagnostics` | 可选模型流追踪开关；默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk |
 
 入口解析规则：
 
@@ -551,6 +557,11 @@ workspace 规则：
     "workspaceId": "workspace_conv_123",
     "backendType": "local",
     "rootPath": "D:/Projects/example"
+  },
+  "diagnostics": {
+    "includeModelStream": true,
+    "includeReasoning": true,
+    "includeRawModelChunks": false
   }
 }
 ```
@@ -629,6 +640,8 @@ workspace 规则：
 
 响应类型：`text/event-stream`
 
+完整 SSE 事件契约见 `docs/contracts/RUNTIME_SSE_EVENTS.md`。本节保留 Runtime Runs API 中最常用的事件格式和类型索引。
+
 行为：
 
 - 订阅时先按顺序 replay 已有事件。
@@ -662,6 +675,10 @@ permission.requested
 permission.approved
 permission.denied
 permission.cancelled
+model.stream.part
+reasoning.started
+reasoning.delta
+reasoning.completed
 message.delta
 message.completed
 agent.completed
@@ -698,6 +715,8 @@ type RunEvent = {
 - `tool.failed` 的 `data` 应尽量包含结构化错误码、错误消息和可调试细节。
 - `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 携带 `toolCallId`、`toolName`，其 `data` 为权限请求记录，包含 `requestId`、`riskLevel`、`status` 与可选 grant 信息。
 - 工具进入审批时先产生 `permission.requested` 而不产生 `tool.started`；批准后恢复工具并发送正常工具事件，拒绝后发送 `tool.failed`，错误码为 `TOOL_EXECUTION_DENIED`。
+- `model.stream.part` 通过 `data.partType` 和 `data.part` 薄封装 AI SDK `fullStream` part；默认过滤 `raw`，除非 RunInput 设置 `diagnostics.includeRawModelChunks = true`。
+- `reasoning.started`、`reasoning.delta`、`reasoning.completed` 仅表示 provider/AI SDK 显式暴露的 reasoning/thinking 内容；默认开启，可通过 `diagnostics.includeReasoning = false` 关闭。
 - `write_plan` 的成功结果通过 `tool.completed.data.data.plan` 承载；HubServer/UI 应选择最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。
 - `run_task` 的工具事件只用于 UI 与追踪，不作为父智能体的模型上下文输入。
 

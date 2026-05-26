@@ -3,6 +3,7 @@ import type { AgentDefinition, AgentRegistry } from "../agents"
 import { createChildLogger } from "../logger"
 import type { ProviderService } from "../provider"
 import { AgentModelResolutionError, resolveAgentLanguageModel } from "./model-resolver"
+import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { createRunEvent } from "./run-events"
 import type {
   AgentExecutionContext,
@@ -48,6 +49,7 @@ export class OrchestratorExecutor implements AgentExecutor {
 
   async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
     const { agent, runId, signal, task, parentAgentId, groupId, parentTaskId } = context
+    const diagnostics = resolveRunDiagnostics(context.input)
 
     if (signal.aborted) {
       log.info({ runId, agentId: agent.id }, "Orchestrator execution aborted before start")
@@ -108,6 +110,7 @@ export class OrchestratorExecutor implements AgentExecutor {
       activeTools: toolSettings.activeTools,
       stopWhen: stepCountIs(ORCHESTRATOR_MAX_STEPS),
       abortSignal: signal,
+      includeRawChunks: diagnostics.includeModelStream && diagnostics.includeRawModelChunks,
       experimental_onToolCallStart: ({ toolCall }) => {
         log.info(
           {
@@ -144,12 +147,17 @@ export class OrchestratorExecutor implements AgentExecutor {
 
     let content = ""
     let approvalPending = false
+    const modelStreamEvents = new ModelStreamEventBuilder(context)
 
     try {
       for await (const chunk of result.fullStream) {
         if (signal.aborted) {
           log.info({ runId, agentId: agent.id }, "Orchestrator execution aborted during stream")
           return
+        }
+
+        for (const event of modelStreamEvents.createEvents(chunk)) {
+          yield event
         }
 
         if (chunk.type === "tool-approval-request") {

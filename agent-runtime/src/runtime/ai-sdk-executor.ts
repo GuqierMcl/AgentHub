@@ -1,6 +1,7 @@
 import { stepCountIs, streamText, type ModelMessage } from "ai"
 import { createChildLogger } from "../logger"
 import { resolveAgentLanguageModel } from "./model-resolver"
+import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { createRunEvent } from "./run-events"
 import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
 import type { RuntimeToolRegistry } from "./tools"
@@ -132,6 +133,7 @@ export class AiSdkExecutor implements AgentExecutor {
     const toolSettings = resolution.resolvedModel.capabilities.supports_tools && this.toolRegistry
       ? this.toolRegistry.buildAiSdkToolSettings(context)
       : null
+    const diagnostics = resolveRunDiagnostics(context.input)
 
     const result = streamText({
       model: resolution.languageModel,
@@ -148,6 +150,7 @@ export class AiSdkExecutor implements AgentExecutor {
           }
         : {}),
       abortSignal: signal,
+      includeRawChunks: diagnostics.includeModelStream && diagnostics.includeRawModelChunks,
       onError: ({ error }) => {
         log.warn(
           {
@@ -162,12 +165,17 @@ export class AiSdkExecutor implements AgentExecutor {
 
     let content = ""
     let approvalPending = false
+    const modelStreamEvents = new ModelStreamEventBuilder(context)
 
     try {
       for await (const chunk of result.fullStream) {
         if (signal.aborted) {
           log.info({ runId, agentId: agent.id }, "AI SDK execution aborted during stream")
           return
+        }
+
+        for (const event of modelStreamEvents.createEvents(chunk)) {
+          yield event
         }
 
         if (chunk.type === "tool-approval-request") {

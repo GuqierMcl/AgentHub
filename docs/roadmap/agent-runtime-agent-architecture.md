@@ -178,7 +178,7 @@ Agent Runtime 智能体架构
 
 ## 当前进度
 
-阶段 1 和阶段 2 已完成。阶段 3 已完成 Agents 查询 API、用户自定义主智能体 CRUD API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API，以及系统预设主智能体系统提示词集中化。阶段 6 已完成 Workspace Backend、文件读写工具、工具目录与权限单源化、per-run workspace、敏感读写审批、scoped read/write grant，以及 Runtime 内部审批续跑闭环。隐藏子智能体已迁移到 `ai-sdk` 执行器，并按直接调用方继承模型；阶段 7 继续保留外部 Adapter 骨架。
+阶段 1 和阶段 2 已完成。阶段 3 已完成 Agents 查询 API、用户自定义主智能体 CRUD API、Run API、IM 会话入口解析和 SSE 事件骨架。阶段 4 已完成 `orchestrator` 的 AI SDK tool calling、`write_plan` 计划工具、`run_task` 内部任务工具化、任务组事件、依赖表达和批次并行委派；委派边界已从静态 `AgentRelation` 收敛为 `participantAgentIds` + `allowedSubagents`。阶段 5 已完成最小 AI SDK 执行器、provider/model 解析、agent 模型绑定回显、按主智能体配置模型的 API、系统预设主智能体系统提示词集中化，以及 AI SDK fullStream 的 `model.stream.part` 透传和 `reasoning.*` RunEvent。阶段 6 已完成 Workspace Backend、文件读写工具、工具目录与权限单源化、per-run workspace、敏感读写审批、scoped read/write grant，以及 Runtime 内部审批续跑闭环。隐藏子智能体已迁移到 `ai-sdk` 执行器，并按直接调用方继承模型；阶段 7 继续保留外部 Adapter 骨架。
 
 ## 已完成
 
@@ -197,6 +197,7 @@ Agent Runtime 智能体架构
 - 阶段 4-5 之间已补齐 Runtime Tool 基础设施、`write_plan` / `run_task` 正式工具化、工具事件协议和 AI SDK 工具注册骨架。
 - 阶段 5 已落地最小 `AiSdkExecutor`、provider/model 解析、`orchestrator` / 主智能体模型绑定返回，以及 agent 模型绑定 API。
 - 系统预设主智能体 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 已统一从 `agent-runtime/src/agents/preset-agent-prompts.ts` 读取系统提示词。
+- AI SDK 执行层已输出 `model.stream.part` 透传事件，并将 provider/AI SDK 显式暴露的 reasoning/thinking 提升为 `reasoning.started`、`reasoning.delta`、`reasoning.completed`；独立 SSE 契约见 `docs/contracts/RUNTIME_SSE_EVENTS.md`。
 - `planner` 已收敛为人类可读方案顾问，`delegationPolicy = "terminal"`，不承担运行时任务委派，避免与 `orchestrator` 职责重叠。
 - 阶段 6 已落地 `WorkspaceService`、`LocalWorkspaceBackend`、沙箱外访问请求与授权挂载语义，以及首批只读文件工具 `ls`、`read_file`、`glob`、`grep`。
 - 阶段 6 已落地首批写工具 `write_file`、`edit_file`：支持 UTF-8 文本写入、overwrite 冲突保护和 search/replace 编辑冲突检测。
@@ -219,6 +220,7 @@ Agent Runtime 智能体架构
 - 补齐 HubServer 面向浏览器的自定义 Agent 管理 API 与前端配置 UI。
 - 在 HubServer 与前端补齐 Runtime 权限审批的代理、用户交互、状态展示与持久化。
 - 补充 AI SDK 工具循环、结构化输出和更完整的 agent 运行参数映射。
+- 后续按 UI 需求从 `model.stream.part` 增量投影 `source`、`file`、`tool-input-*` 等更多稳定语义事件。
 - 实现外部智能体 Adapter 骨架。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
 - 后续扩展 Patch / diff artifact、一键 apply、版本历史、回滚和更复杂的写入冲突处理。
@@ -252,3 +254,4 @@ Agent Runtime 智能体架构
 - 本轮已完成 per-run workspace 隔离、敏感读取审批和分支级 continuation：Run 可绑定固定 local workspace；文件工具不再回退到全局 `config.workdir`；敏感读取和沙箱外敏感读取通过 scoped read grant 恢复原执行分支。
 - 本轮已完成 `write_file` / `edit_file`、write grant 与敏感/沙箱外写入审批；写工具已接入 Tool Catalog、Authoring Options 和 per-agent permission policy。
 - 本轮已将隐藏子智能体迁移到 `ai-sdk` 执行器，并确定子智能体不绑定模型、执行时继承直接调用方模型。
+- 本轮已增强 Run SSE 事件契约：AI SDK `fullStream` 通过 `model.stream.part` 薄封装透传，reasoning/thinking 默认提升为 `reasoning.*`，`raw` chunk 仅显式 opt-in，并新增 `RUNTIME_SSE_EVENTS.md` 作为事件契约专文。

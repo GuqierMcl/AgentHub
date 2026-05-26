@@ -641,21 +641,30 @@ task.group.started
 task.group.completed
 task.started
 task.completed
- task.failed
- tool.started
- tool.completed
- tool.failed
- message.delta
-message.completed
+task.failed
+tool.started
+tool.completed
+tool.failed
 permission.requested
+permission.approved
+permission.denied
+permission.cancelled
+model.stream.part
+reasoning.started
+reasoning.delta
+reasoning.completed
+message.delta
+message.completed
 artifact.created
 diff.proposed
 agent.completed
- run.completed
- run.failed
+run.completed
+run.failed
+run.cancelled
 ```
 
 其中 `orchestrator.plan.created` 目前保留为后续可视化和调试事件的扩展点，当前计划的主事实来源是 `tool.completed(toolName="write_plan")`。
+`model.stream.part` 是 AI SDK fullStream part 的薄封装透传；`reasoning.*` 是 provider/AI SDK 显式暴露 reasoning/thinking 的稳定语义事件。完整 SSE 事件契约见 `docs/contracts/RUNTIME_SSE_EVENTS.md`。
 
 事件载荷要包含足够的追踪信息：
 
