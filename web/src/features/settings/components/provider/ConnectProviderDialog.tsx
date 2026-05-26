@@ -45,37 +45,52 @@ export function ConnectProviderDialog({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (open && provider) {
+    if (!open || !provider) return
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
       setApiKey("")
       setApiBase(provider.api_base || "")
       setName(provider.name)
       setModels([])
       setError(null)
       setShowKey(false)
+      setLoadingDetail(false)
 
-      if (isConnected) {
-        setLoadingDetail(true)
-        runtimeApi
-          .getProvider(provider.id)
-          .then((detail) => {
-            setApiKey(detail.api_key || "")
-            if (isCustom) {
-              setName(detail.name)
-              setApiBase(detail.api_base || "")
-              const modelList: ModelEntry[] = Object.values(detail.models).map(
-                (m: ModelResponse) => ({
-                  id: m.id,
-                  name: m.name,
-                })
-              )
-              setModels(modelList)
-            }
-          })
-          .catch(() => {})
-          .finally(() => {
-            setLoadingDetail(false)
-          })
+      if (!isConnected) {
+        return
       }
+
+      setLoadingDetail(true)
+      void runtimeApi
+        .getProvider(provider.id)
+        .then((detail) => {
+          if (cancelled) return
+
+          setApiKey(detail.api_key || "")
+          if (isCustom) {
+            setName(detail.name)
+            setApiBase(detail.api_base || "")
+            const modelList: ModelEntry[] = Object.values(detail.models).map(
+              (m: ModelResponse) => ({
+                id: m.id,
+                name: m.name,
+              })
+            )
+            setModels(modelList)
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) {
+            setLoadingDetail(false)
+          }
+        })
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
     }
   }, [open, provider, isConnected, isCustom])
 

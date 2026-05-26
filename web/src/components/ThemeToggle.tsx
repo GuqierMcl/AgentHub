@@ -1,23 +1,23 @@
-import { MonitorIcon, MoonIcon, SunIcon } from "lucide-react"
+import { MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { useTheme } from "@/components/ThemeProvider"
+} from "@/components/ui/dropdown-menu";
+import { useTheme } from "@/components/useTheme";
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme } = useTheme();
 
   const icons = {
     light: SunIcon,
     dark: MoonIcon,
     system: MonitorIcon,
-  }
-  const Icon = icons[theme]
+  };
+  const Icon = icons[theme];
 
   return (
     <DropdownMenu>
@@ -41,5 +41,5 @@ export function ThemeToggle() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

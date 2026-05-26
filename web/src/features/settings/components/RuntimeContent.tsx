@@ -99,10 +99,18 @@ export function RuntimeContent() {
   }, [])
 
   useEffect(() => {
-    fetchHealth()
-    fetchRuntimeInfo()
-    const timer = setInterval(fetchHealth, POLL_INTERVAL)
-    return () => clearInterval(timer)
+    const bootstrap = window.setTimeout(() => {
+      void fetchHealth()
+      void fetchRuntimeInfo()
+    }, 0)
+    const timer = window.setInterval(() => {
+      void fetchHealth()
+    }, POLL_INTERVAL)
+
+    return () => {
+      window.clearTimeout(bootstrap)
+      window.clearInterval(timer)
+    }
   }, [fetchHealth, fetchRuntimeInfo])
 
   const port = runtimeInfo?.runtime.port ?? "-"

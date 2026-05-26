@@ -63,10 +63,14 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
   }, [filterEnabledOnly, filterOrigin])
 
   useEffect(() => {
-    if (open) {
-      fetchAgents()
-    }
-  }, [open, filterEnabledOnly, filterOrigin, fetchAgents])
+    if (!open) return
+
+    const timer = window.setTimeout(() => {
+      void fetchAgents()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [open, fetchAgents])
 
   const handleCreate = useCallback(() => {
     setEditAgent(null)
@@ -102,6 +106,16 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
     setDeleteOpen(false)
     toast.success("智能体已删除")
     fetchAgents()
+  }, [fetchAgents])
+
+  const handleToggleEnabled = useCallback(async (agentId: string, enabled: boolean) => {
+    try {
+      await agentsApi.update(agentId, { enabled })
+      toast.success(enabled ? "智能体已启用" : "智能体已禁用")
+      fetchAgents()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    }
   }, [fetchAgents])
 
   return (
@@ -179,6 +193,7 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
                       agent={agent}
                       onClick={() => handleCardClick(agent)}
                       onDelete={() => handleDeleteClick(agent)}
+                      onToggleEnabled={handleToggleEnabled}
                     />
                   ))}
                 </div>

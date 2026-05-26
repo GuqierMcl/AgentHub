@@ -9,19 +9,6 @@ import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { AgentsDialog } from "../agents/AgentsDialog";
-import {
-  defaultPreviewTarget,
-  defaultSelectedFilePath,
-} from "./right-workbench/mock-data";
-import { type RightWorkbenchTabId } from "./right-workbench/RightWorkbench";
-import type { Artifact, ArtifactKind } from "./types";
-
-const artifactTabByType = {
-  code: "files",
-  deploy: "deploy",
-  diff: "review",
-  preview: "deploy",
-} satisfies Record<ArtifactKind, RightWorkbenchTabId>;
 
 export function WorkbenchPage() {
   const [activeConversationId, setActiveConversationId] = useState(
@@ -42,19 +29,6 @@ export function WorkbenchPage() {
     conversationTitle: activeConversation?.title,
   });
 
-  const activateRightTab = useCallback((tabId: RightWorkbenchTabId) => {
-    setActiveRightTab(tabId);
-    setMountedRightTabs((current) => {
-      if (current.has(tabId)) {
-        return current;
-      }
-
-      const next = new Set(current);
-      next.add(tabId);
-      return next;
-    });
-  }, []);
-
   const handleOpenSettings = useCallback(() => {
     setSettingsOpen(true);
   }, []);
@@ -62,28 +36,6 @@ export function WorkbenchPage() {
   const handleOpenAgents = useCallback(() => {
     setAgentsOpen(true);
   }, []);
-
-  const handleOpenArtifact = useCallback(
-    (artifact: Artifact) => {
-      setSelectedArtifact(artifact);
-      activateRightTab(artifactTabByType[artifact.type]);
-
-      if (artifact.type === "code") {
-        setSelectedFilePath(
-          "src/features/workbench/right-workbench/RightWorkbench.tsx",
-        );
-      }
-
-      if (artifact.type === "diff") {
-        setSelectedFilePath("src/features/workbench/WorkbenchPage.tsx");
-      }
-
-      if (artifact.type === "deploy" || artifact.type === "preview") {
-        setPreviewTarget(artifact.title);
-      }
-    },
-    [activateRightTab],
-  );
 
   return (
     <main

@@ -11,19 +11,23 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Switch } from "@/components/animate-ui/components/radix/switch"
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox"
+import { Switch } from "@/components/animate-ui/components/radix/switch"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
 import { agentsApi } from "../api/agents"
+import { runtimeApi } from "../../settings/api/runtime"
+import type { ProviderDetail } from "../../settings/types"
 import type {
   AgentDetail,
   UserAgentCreateRequest,
@@ -48,39 +52,16 @@ type SelectedCapability = {
   category: string
 }
 
-const KNOWN_CATEGORY_LABELS: Record<string, string> = {
-  engineering: "工程开发",
-  reasoning: "推理分析",
-  creative: "创意生成",
-  communication: "沟通协作",
-  operations: "运维管理",
-  analysis: "分析",
-  writing: "写作",
-  research: "研究",
-  coding: "编程",
-  design: "设计",
-  planning: "规划",
-  testing: "测试",
-  devops: "DevOps",
-  data: "数据",
-  security: "安全",
-  knowledge: "知识",
-}
+const CAPABILITY_CATEGORIES = [
+  { value: "engineering", label: "工程开发" },
+  { value: "reasoning", label: "推理分析" },
+  { value: "creative", label: "创意生成" },
+  { value: "communication", label: "沟通协作" },
+  { value: "operations", label: "运维管理" },
+]
 
 function getCategoryLabel(category: string): string {
-  return KNOWN_CATEGORY_LABELS[category] ?? category
-}
-
-function deriveCategories(tags: AuthoringCapabilityTag[]) {
-  const seen = new Set<string>()
-  const result: { value: string; label: string }[] = []
-  for (const tag of tags) {
-    if (!seen.has(tag.category)) {
-      seen.add(tag.category)
-      result.push({ value: tag.category, label: getCategoryLabel(tag.category) })
-    }
-  }
-  return result
+  return CAPABILITY_CATEGORIES.find((c) => c.value === category)?.label ?? category
 }
 
 const FILESYSTEM_OPTIONS = [
@@ -153,7 +134,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
     deploy: "none",
     requiresApproval: false,
   })
-  const [enabled, setEnabled] = useState(true)
   const [allowedSubagents, setAllowedSubagents] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -163,44 +143,106 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
   const [capCategoryInput, setCapCategoryInput] = useState("")
   const [showCustomCapForm, setShowCustomCapForm] = useState(false)
 
+  const [connectedProviders, setConnectedProviders] = useState<ProviderDetail[]>([])
+  const [providersLoading, setProvidersLoading] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
+  const [binding, setBinding] = useState(false)
+  const [localAgent, setLocalAgent] = useState<AgentDetail | null>(null)
+
   useEffect(() => {
     if (!open) return
-    setAuthoringLoading(true)
-    fetchAuthoringOptions()
-      .then((data) => setAuthoring(data))
-      .catch(() => setAuthoring(null))
-      .finally(() => setAuthoringLoading(false))
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setAuthoringLoading(true)
+      void fetchAuthoringOptions()
+        .then((data) => {
+          if (!cancelled) setAuthoring(data)
+        })
+        .catch(() => {
+          if (!cancelled) setAuthoring(null)
+        })
+        .finally(() => {
+          if (!cancelled) setAuthoringLoading(false)
+        })
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
   }, [open])
 
   useEffect(() => {
-    if (!open || !authoring) return
-    if (isEdit && agent) {
-      setName(agent.name)
-      setDescription(agent.description)
-      setSystemPrompt(agent.systemPrompt ?? "")
-      setAgentId(agent.id)
-      setSelectedCapabilities(resolveCapabilities(agent.capabilities, authoring.capabilityTags))
-      setAllowedTools([...agent.allowedTools as UserAgentAllowedTool[]])
-      setPermissionPolicy({ ...agent.permissionPolicy })
-      setEnabled(agent.enabled)
-      setAllowedSubagents([...agent.allowedSubagents])
-    } else {
-      const defaults = authoring.defaults
-      setName("")
-      setDescription("")
-      setSystemPrompt("")
-      setAgentId("")
-      setSelectedCapabilities([])
-      setAllowedTools([...defaults.allowedTools as UserAgentAllowedTool[]])
-      setPermissionPolicy({ ...defaults.permissionPolicy })
-      setEnabled(true)
-      setAllowedSubagents([...defaults.allowedSubagents])
+    if (!open || !isEdit) return
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setProvidersLoading(true)
+      void runtimeApi.getProviders()
+        .then((data) => {
+          const connectedIds = data.providers
+            .filter((p) => p.has_api_key)
+            .map((p) => p.id)
+          return Promise.all(
+            connectedIds.map((id) => runtimeApi.getProvider(id))
+          )
+        })
+        .then((details) => {
+          if (!cancelled) setConnectedProviders(details)
+        })
+        .catch(() => {
+          if (!cancelled) setConnectedProviders([])
+        })
+        .finally(() => {
+          if (!cancelled) setProvidersLoading(false)
+        })
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
     }
-    setCapIdInput("")
-    setCapNameInput("")
-    setCapCategoryInput("")
-    setShowCustomCapForm(false)
-    setError(null)
+  }, [open, isEdit])
+
+  useEffect(() => {
+    if (!open || !authoring) return
+
+    const timer = window.setTimeout(() => {
+      if (isEdit && agent) {
+        setName(agent.name)
+        setDescription(agent.description)
+        setSystemPrompt(agent.systemPrompt ?? "")
+        setAgentId(agent.id)
+        setSelectedCapabilities(resolveCapabilities(agent.capabilities, authoring.capabilityTags))
+        setAllowedTools([...agent.allowedTools as UserAgentAllowedTool[]])
+        setPermissionPolicy({
+          ...agent.permissionPolicy,
+          requiresApproval: agent.permissionPolicy.requiresApproval ?? false,
+        })
+        setAllowedSubagents([...agent.allowedSubagents])
+        setLocalAgent(agent)
+      } else {
+        const defaults = authoring.defaults
+        setName("")
+        setDescription("")
+        setSystemPrompt("")
+        setAgentId("")
+        setSelectedCapabilities([])
+        setAllowedTools([...defaults.allowedTools as UserAgentAllowedTool[]])
+        setPermissionPolicy({ ...defaults.permissionPolicy })
+        setAllowedSubagents([...defaults.allowedSubagents])
+        setLocalAgent(null)
+      }
+      setCapIdInput("")
+      setCapNameInput("")
+      setCapCategoryInput("")
+      setSelectedModel(null)
+      setShowCustomCapForm(false)
+      setError(null)
+    }, 0)
+
+    return () => window.clearTimeout(timer)
   }, [open, authoring, agent, isEdit])
 
   const handleSubmit = useCallback(async () => {
@@ -213,7 +255,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
         if (name !== agent.name) body.name = name
         if (description !== agent.description) body.description = description
         if (systemPrompt !== (agent.systemPrompt ?? "")) body.systemPrompt = systemPrompt
-        if (enabled !== agent.enabled) body.enabled = enabled
         if (JSON.stringify(capabilityIds) !== JSON.stringify(agent.capabilities))
           body.capabilities = capabilityIds
         if (JSON.stringify(allowedTools) !== JSON.stringify(agent.allowedTools))
@@ -236,7 +277,7 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
           capabilities: capabilityIds,
           allowedTools,
           permissionPolicy,
-          enabled,
+          enabled: true,
           allowedSubagents,
         }
         if (agentId.trim()) {
@@ -250,7 +291,7 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
     } finally {
       setSaving(false)
     }
-  }, [isEdit, agent, name, description, systemPrompt, agentId, selectedCapabilities, allowedSubagents, allowedTools, permissionPolicy, enabled, onSaved, onOpenChange])
+  }, [isEdit, agent, name, description, systemPrompt, agentId, selectedCapabilities, allowedSubagents, allowedTools, permissionPolicy, onSaved, onOpenChange])
 
   const toggleRecommendedCap = useCallback((tag: AuthoringCapabilityTag) => {
     setSelectedCapabilities((prev) => {
@@ -289,6 +330,35 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
     )
   }, [])
+
+  const handleBindModel = useCallback(async () => {
+    if (!agent || !selectedModel) return
+    const [providerId, modelId] = selectedModel.split("/")
+    if (!providerId || !modelId) return
+    setBinding(true)
+    try {
+      const updated = await agentsApi.bindModel(agent.id, { providerId, modelId })
+      setLocalAgent(updated)
+      setSelectedModel(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "绑定失败")
+    } finally {
+      setBinding(false)
+    }
+  }, [agent, selectedModel])
+
+  const handleUnbindModel = useCallback(async () => {
+    if (!agent) return
+    setBinding(true)
+    try {
+      const updated = await agentsApi.unbindModel(agent.id)
+      setLocalAgent(updated)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "解绑失败")
+    } finally {
+      setBinding(false)
+    }
+  }, [agent])
 
   const hasWriteTools = allowedTools.some((t) => t === "write_file" || t === "edit_file")
   const hasReadTools = allowedTools.some((t) => t === "ls" || t === "read_file" || t === "glob" || "grep" === t)
@@ -402,17 +472,6 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
                 />
               </div>
 
-              {isEdit && (
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">启用</label>
-                  <Switch
-                    checked={enabled}
-                    onCheckedChange={setEnabled}
-                    disabled={isReadonly}
-                  />
-                </div>
-              )}
-
               <div className="space-y-2">
                 <label className="text-sm font-medium">能力标签</label>
                 {selectedCapabilities.length > 0 && (
@@ -503,7 +562,7 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
                               <SelectValue placeholder="选择类别" />
                             </SelectTrigger>
                             <SelectContent>
-                              {deriveCategories(authoring?.capabilityTags ?? []).map((cat) => (
+                              {CAPABILITY_CATEGORIES.map((cat) => (
                                 <SelectItem key={cat.value} value={cat.value}>
                                   {cat.label}
                                 </SelectItem>
@@ -716,21 +775,90 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
                       </Select>
                     </div>
                   </div>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <Checkbox
+                  <div className="flex items-center justify-between text-sm">
+                    <span>需要审批</span>
+                    <Switch
                       checked={permissionPolicy.requiresApproval}
                       onCheckedChange={(checked) =>
                         setPermissionPolicy((prev) => ({
                           ...prev,
-                          requiresApproval: checked === true,
+                          requiresApproval: checked,
                         }))
                       }
                       disabled={isReadonly}
-                      size="sm"
                     />
-                    需要审批
-                  </label>
+                  </div>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">模型绑定</label>
+                {isEdit ? (
+                  <div className="rounded-md border p-3 space-y-3">
+                    {localAgent?.resolvedModel ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">
+                          {localAgent.resolvedModel.modelName}
+                          <span className="text-muted-foreground ml-1">
+                            ({localAgent.resolvedModel.providerName})
+                          </span>
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          onClick={handleUnbindModel}
+                          disabled={binding || isReadonly}
+                        >
+                          解绑
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">未绑定模型</p>
+                    )}
+                    {!isReadonly && (
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={selectedModel ?? ""}
+                          onValueChange={setSelectedModel}
+                          disabled={providersLoading}
+                        >
+                          <SelectTrigger className="h-8 text-xs flex-1">
+                            <SelectValue placeholder={providersLoading ? "加载中..." : "选择模型"} />
+                          </SelectTrigger>
+                          <SelectContent position="popper">
+                            {connectedProviders.map((provider) => {
+                              const enabledModels = Object.values(provider.models).filter((m) => m.enabled)
+                              if (enabledModels.length === 0) return null
+                              return (
+                                <SelectGroup key={provider.id}>
+                                  <SelectLabel>{provider.name}</SelectLabel>
+                                  {enabledModels.map((model) => (
+                                    <SelectItem key={`${provider.id}/${model.id}`} value={`${provider.id}/${model.id}`}>
+                                      {model.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              )
+                            })}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={handleBindModel}
+                          disabled={!selectedModel || binding}
+                        >
+                          绑定
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    创建智能体后，可在编辑时绑定模型。
+                  </p>
+                )}
               </div>
 
               {error && (
