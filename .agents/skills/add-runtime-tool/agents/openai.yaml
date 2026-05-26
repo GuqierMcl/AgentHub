@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Runtime Tool"
+  short_description: "Add AgentHub Runtime tools safely"
+  default_prompt: "Use $add-runtime-tool to add or modify an AgentHub Runtime tool."
