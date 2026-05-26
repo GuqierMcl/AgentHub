@@ -1,10 +1,10 @@
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { WorkbenchPage } from "@/features/workbench/WorkbenchPage"
+import { AppShell } from "@/features/app-shell/AppShell"
 
 function App() {
   return (
     <TooltipProvider>
-      <WorkbenchPage />
+      <AppShell />
     </TooltipProvider>
   )
 }

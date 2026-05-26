@@ -22,12 +22,22 @@
 - 新建群聊时，用户选择一个或多个可见主智能体，`orchestrator` 由 HubServer 自动加入且不需要用户手动选择。
 - 群聊消息当前阶段只允许显式 @ 一个主智能体；未 @ 时默认由 `orchestrator` 接管，后续再扩展并行 @ 多个主智能体。
 
-## 当前静态 Workbench
+## 当前应用工作区
 
-- 当前 Web 静态原型入口位于 `web/src/features/workbench/`，`App.tsx` 仅作为应用根组件和全局 Provider 容器。
-- Workbench 暂不接入后端、LLM Provider 或 Agent Runtime，只使用 mock 数据展示 IM 壳、会话列表、消息流、输入区和内联 Artifact。
-- Workbench 使用视口内滚动布局：页面根容器填满视口，不产生 `body` 级滚动；会话列表和消息流各自在内部滚动。
-- Workbench 左侧栏从上到下为品牌区、顶部功能入口、可折叠消息记录区和底部当前用户信息栏。折叠态只保留品牌标识、功能图标与用户入口，不显示会话记录文本。
+- `App.tsx` 仅作为应用根组件和全局 Provider 容器；应用壳、一级导航和模块注册表位于 `web/src/features/app-shell/`，聊天模块及产物工作台位于 `web/src/features/workbench/`。
+- 页面根布局由默认折叠、可展开的一级导航栏和模块内容工作区组成。一级模块必须通过 `features/app-shell/app-modules.tsx` 的集中注册表接入，不应在壳层复制模块专用的导航或切换判断。
+- 首批一级模块为 `chat` 与 `agents`。`chat` 内容区使用“会话列表、聊天区、产物工作台”的三栏布局；`agents` 使用“智能体列表、详情/编辑区”的两栏布局。
+- 聊天模块当前仍使用 mock 数据展示 IM 壳、消息流、输入区和内联 Artifact；智能体模块已经通过 HubServer 代理的 `/api/runtime/agents` 端点管理真实智能体配置。
+- 页面根容器填满视口，不产生 `body` 级滚动；模块内的列表、消息流、详情表单与产物内容各自在内部滚动。
+- 创建智能体、绑定模型和删除确认维持模态操作；已有用户智能体配置在智能体模块右侧内容区内联编辑。
+
+## Activity 生命周期约束
+
+- 一级模块在首次访问后使用 React `Activity` 保持挂载；产物工作台的标签页内容也可以使用内部 `Activity` 保持 UI 状态。
+- `Activity` 进入 `hidden` 时会保留组件状态与 DOM，但会清理隐藏子树中的 Effects；恢复为 `visible` 时 Effects 会重新建立。
+- `Activity` 只负责 UI 状态保活，例如输入草稿、已选会话、列表筛选、打开的产物标签页和面板布局状态。不要依赖隐藏模块中的 effect 持续执行后台工作。
+- 后续接入流式聊天、Run SSE 事件、后台任务进度或其他持续连接时，连接生命周期与运行状态必须放到页面级 `Activity` 边界之外的应用级 store、provider 或 service 中。聊天模块只订阅并渲染这些状态。
+- React 行为参考官方文档：[Activity](https://react.dev/reference/react/Activity)。
 
 ## 开发命令
 

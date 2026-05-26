@@ -11,12 +11,6 @@ export type Agent = {
   capabilities: string[]
 }
 
-export type CurrentUser = {
-  name: string
-  plan: string
-  initials: string
-}
-
 export type ArtifactKind = "code" | "preview" | "diff" | "deploy"
 
 export type Artifact = {

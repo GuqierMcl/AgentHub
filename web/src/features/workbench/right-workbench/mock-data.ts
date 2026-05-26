@@ -1,7 +1,7 @@
 import type { DeploymentEvent, ReviewFile, ReviewIssue, WorkspaceFile } from "./types"
 
 export const defaultSelectedFilePath =
-  "src/features/workbench/WorkbenchPage.tsx"
+  "src/features/app-shell/AppShell.tsx"
 
 export const defaultPreviewTarget = "AgentHub static web preview"
 
@@ -9,7 +9,7 @@ export const reviewFiles: ReviewFile[] = [
   {
     additions: 96,
     deletions: 18,
-    path: "src/features/workbench/WorkbenchPage.tsx",
+    path: "src/features/app-shell/AppShell.tsx",
     risk: "medium",
     status: "modified",
     summary: "主布局从两栏扩展为三栏，并接入右侧工作台状态。",
@@ -37,7 +37,7 @@ export const reviewIssues: ReviewIssue[] = [
     description:
       "右侧面板必须保持 min-h-0 和内部滚动，否则会重新引入页面级滚动条。",
     id: "issue-layout-scroll",
-    location: "WorkbenchPage.tsx:main grid",
+    location: "AppShell.tsx:main grid",
     severity: "P1",
     title: "三栏布局需要锁住滚动边界",
   },
@@ -75,9 +75,9 @@ export const workspaceFiles: WorkspaceFile[] = [
   {
     group: "Workbench",
     language: "tsx",
-    name: "WorkbenchPage.tsx",
-    path: "src/features/workbench/WorkbenchPage.tsx",
-    preview: `export function WorkbenchPage() {
+    name: "AppShell.tsx",
+    path: "src/features/app-shell/AppShell.tsx",
+    preview: `export function AppShell() {
   const [activeRightTab, setActiveRightTab] = useState("review")
 
   return (
