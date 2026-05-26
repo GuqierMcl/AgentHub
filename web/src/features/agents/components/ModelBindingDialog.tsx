@@ -101,7 +101,17 @@ export function ModelBindingDialog({ open, onOpenChange, agent, onBound }: Model
                 if (enabledModels.length === 0) return null
                 return (
                   <SelectGroup key={provider.id}>
-                    <SelectLabel>{provider.name}</SelectLabel>
+                    <SelectLabel className="flex items-center gap-1.5">
+                      <img
+                        alt={provider.id}
+                        className="size-3.5 shrink-0"
+                        src={`https://models.dev/logos/${provider.id}.svg`}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none"
+                        }}
+                      />
+                      {provider.name}
+                    </SelectLabel>
                     {enabledModels.map((model) => (
                       <SelectItem key={`${provider.id}/${model.id}`} value={`${provider.id}/${model.id}`}>
                         {model.name}

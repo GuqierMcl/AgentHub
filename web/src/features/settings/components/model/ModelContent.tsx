@@ -176,6 +176,14 @@ export function ModelContent() {
                     className="flex w-full items-center justify-between px-4 py-3 text-left"
                   >
                     <div className="flex items-center gap-2">
+                      <img
+                        alt={provider.id}
+                        className="size-4 shrink-0"
+                        src={`https://models.dev/logos/${provider.id}.svg`}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none"
+                        }}
+                      />
                       <span className="text-sm font-medium">{provider.name}</span>
                       <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                         {protocolLabels[provider.api_protocol]}

@@ -23,6 +23,14 @@ export function ProviderCard({ provider, onConnect, onDisconnect }: ProviderCard
     <div className="flex items-center justify-between rounded-xl bg-muted/30 px-4 py-3">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
+          <img
+            alt={provider.id}
+            className="size-4 shrink-0"
+            src={`https://models.dev/logos/${provider.id}.svg`}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none"
+            }}
+          />
           <span className="text-sm font-medium">{provider.name}</span>
           <Badge
             variant="outline"

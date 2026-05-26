@@ -1,4 +1,4 @@
-import { TrashIcon, BotIcon } from "lucide-react"
+import { CpuIcon, TrashIcon, BotIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -61,33 +61,44 @@ export function AgentCard({ agent, onClick, onDelete, onToggleEnabled, onManageM
         {agent.description}
       </p>
 
+      {agent.origin !== "external" && (
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          {agent.resolvedModel ? (
+            <img
+              alt={agent.resolvedModel.providerId}
+              className="size-4 shrink-0"
+              src={`https://models.dev/logos/${agent.resolvedModel.providerId}.svg`}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none"
+              }}
+            />
+          ) : (
+            <CpuIcon className="size-4 shrink-0 text-muted-foreground" />
+          )}
+          <div className="min-w-0 flex-1">
+            {agent.resolvedModel ? (
+              <span className="truncate text-xs font-medium">
+                {agent.resolvedModel.modelName}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">未绑定模型</span>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={(e) => { e.stopPropagation(); onManageModel(agent) }}
+          >
+            配置
+          </Button>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <div className="flex flex-wrap gap-1.5 flex-1">
           <Badge variant="secondary" className="text-[10px]">
             {originLabels[agent.origin] ?? agent.origin}
           </Badge>
-          {agent.resolvedModel && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onManageModel(agent) }}
-              className="cursor-pointer"
-            >
-              <Badge variant="outline" className="text-[10px] hover:bg-accent">
-                {agent.resolvedModel.modelName}
-              </Badge>
-            </button>
-          )}
-          {!agent.resolvedModel && agent.origin !== "external" && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onManageModel(agent) }}
-              className="cursor-pointer"
-            >
-              <Badge variant="ghost" className="text-[10px] text-muted-foreground hover:bg-accent">
-                未绑定
-              </Badge>
-            </button>
-          )}
         </div>
         {canToggleEnabled && (
           <div onClick={(e) => e.stopPropagation()}>
