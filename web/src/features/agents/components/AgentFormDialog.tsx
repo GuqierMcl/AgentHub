@@ -249,6 +249,28 @@ export function AgentFormDialog({ open, onOpenChange, agent, editingId, onSaved 
   const handleSubmit = useCallback(async () => {
     setSaving(true)
     const capabilityIds = selectedCapabilities.map((c) => c.id)
+
+    if (!isEdit && agentId.trim()) {
+      if (!/^[a-z][a-z0-9_-]*$/.test(agentId.trim())) {
+        toast.error("ID 必须以小写字母开头，仅允许小写字母、数字、下划线和连字符")
+        setSaving(false)
+        return
+      }
+    }
+
+    const hasReadTools = allowedTools.some((t) => t === "ls" || t === "read_file" || t === "glob" || t === "grep")
+    const hasWriteTools = allowedTools.some((t) => t === "write_file" || t === "edit_file")
+    if (hasReadTools && permissionPolicy.filesystem === "none") {
+      toast.error("已选择读取工具，文件系统权限应至少为「只读」")
+      setSaving(false)
+      return
+    }
+    if (hasWriteTools && permissionPolicy.filesystem !== "write") {
+      toast.error("已选择写入工具，文件系统权限必须为「读写」")
+      setSaving(false)
+      return
+    }
+
     try {
       if (isEdit && agent) {
         const body: UserAgentUpdateRequest = {}

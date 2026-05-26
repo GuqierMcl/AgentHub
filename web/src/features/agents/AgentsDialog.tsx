@@ -112,23 +112,20 @@ export function AgentsDialog({ open, onOpenChange }: AgentsDialogProps) {
     fetchAgents()
   }, [editAgent, fetchAgents])
 
-  const handleDeleted = useCallback(() => {
-    setDeleteOpen(false)
-    toast.success("智能体已删除")
-    fetchAgents()
-  }, [fetchAgents])
-
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget) return
     setDeleting(true)
     try {
       await agentsApi.delete(deleteTarget.id)
-      handleDeleted()
+      setDeleteOpen(false)
+      setDeleting(false)
+      toast.success("智能体已删除")
+      fetchAgents()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "删除失败")
       setDeleting(false)
     }
-  }, [deleteTarget, handleDeleted])
+  }, [deleteTarget, fetchAgents])
 
   const handleToggleEnabled = useCallback(async (agentId: string, enabled: boolean) => {
     try {
