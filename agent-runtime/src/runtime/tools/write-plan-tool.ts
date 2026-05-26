@@ -38,8 +38,8 @@ export function createWritePlanTool(): ToolDefinition<WritePlanInput, WritePlanM
     name: "write_plan",
     displayName: "Write plan",
     description: [
-      "Write or update the current orchestrator plan for UI rendering.",
-      "This records intent and executable task candidates, but does not execute tasks.",
+      "编写或更新当前编排器计划以供 UI 渲染。",
+      "这将记录意图和可执行的任务候选，但不会执行任务。",
     ].join(" "),
     category: "orchestration",
     inputSchema: WritePlanInputSchema,

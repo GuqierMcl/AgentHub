@@ -7,7 +7,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "orchestrator",
     name: "Orchestrator",
-    description: "Default entry agent that understands the task, chooses the right agents, and summarizes the final answer.",
+    description: "默认入口智能体，负责理解任务、选择合适的智能体并汇总最终结果。",
     tier: "primary",
     origin: "system",
     visibility: "visible",
@@ -30,7 +30,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "coder",
     name: "Coder",
-    description: "Implements focused code changes and coordinates safe file edits through internal subagents.",
+    description: "专注于代码变更实现，通过内部子智能体协调安全的文件编辑。",
     tier: "primary",
     origin: "system",
     visibility: "visible",
@@ -57,7 +57,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "reviewer",
     name: "Reviewer",
-    description: "Reviews code, plans, and diffs for correctness, regressions, and missing verification.",
+    description: "审查代码、计划和差异，关注正确性、回归问题和缺失的验证。",
     tier: "primary",
     origin: "system",
     visibility: "visible",
@@ -84,7 +84,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "writer",
     name: "Writer",
-    description: "Drafts product copy, technical notes, specs, and concise user-facing explanations.",
+    description: "撰写产品文案、技术文档、规范说明和简洁的用户面向解释。",
     tier: "primary",
     origin: "system",
     visibility: "visible",
@@ -111,7 +111,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "planner",
     name: "Planner",
-    description: "Drafts human-readable plans, tradeoffs, risks, milestones, and acceptance checks without runtime orchestration.",
+    description: "生成人类可读的计划、权衡分析、风险评估、里程碑和验收检查，不参与运行时编排。",
     tier: "primary",
     origin: "system",
     visibility: "visible",
@@ -138,7 +138,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "opencode",
     name: "OpenCode",
-    description: "External coding agent entry reserved for future OpenCode integration through the external adapter layer.",
+    description: "外部编码智能体入口，为未来通过外部适配器层集成 OpenCode 预留。",
     tier: "primary",
     origin: "external",
     visibility: "visible",
