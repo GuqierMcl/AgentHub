@@ -101,7 +101,11 @@ export function AppNavigation({
               type="button"
               variant="ghost"
             >
-              <Icon data-icon="inline-start" />
+              <Icon
+                data-icon="inline-start"
+                size={collapsed ? 22 : 16}
+                className="![&_svg]:size-auto"
+              />
               {collapsed ? null : <span>{module.label}</span>}
             </Button>
           )

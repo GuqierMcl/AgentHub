@@ -1,0 +1,17 @@
+{
+	"name": "agenthub-desktop",
+	"version": "0.0.1",
+	"description": "AgentHub Electrobun desktop shell",
+	"scripts": {
+		"dev": "electrobun dev --watch",
+		"build:canary": "electrobun build --env=canary"
+	},
+	"dependencies": {
+		"electrobun": "1.18.1"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/three": "^0.184.1",
+		"typescript": "^5.7.2"
+	}
+}

@@ -1,4 +1,4 @@
-import { SettingsIcon } from "lucide-react"
+import { SettingsIcon } from "@/components/ui/settings"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -20,7 +20,7 @@ type CurrentUserBarProps = {
 export function CurrentUserBar({ collapsed, onOpenSettings, user }: CurrentUserBarProps) {
   const settingsButton = (
     <Button aria-label="用户设置" onClick={onOpenSettings} size="icon-sm" type="button" variant="ghost">
-      <SettingsIcon />
+      <SettingsIcon className="![&_svg]:size-auto" size={18} />
     </Button>
   )
 
