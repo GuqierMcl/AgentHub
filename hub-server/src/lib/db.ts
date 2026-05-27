@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client'
+import { execSync } from 'node:child_process'
+import { resolve } from 'node:path'
 
 let prisma: PrismaClient | null = null
 
@@ -15,6 +17,12 @@ export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
   }
 
   process.env.DATABASE_URL = dbUrl
+
+  execSync('bunx prisma migrate deploy', {
+    cwd: resolve(import.meta.dir, '..', '..'),
+    env: { ...process.env, DATABASE_URL: dbUrl },
+    stdio: 'inherit',
+  })
 
   prisma = new PrismaClient()
 

@@ -47,13 +47,15 @@ export function ConversationListItemView({
   const isGroup = conversation.mode === "group"
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       className={cn(
-        "group relative w-full rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent",
+        "group relative w-full rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent cursor-pointer",
         selected && "border-primary/50 bg-accent"
       )}
       onClick={() => onSelect(conversation.id)}
-      type="button"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(conversation.id) } }}
     >
       <div className="flex gap-3">
         <div className="flex size-9 items-center justify-center rounded-lg bg-muted shrink-0">
@@ -114,6 +116,6 @@ export function ConversationListItemView({
           <ArchiveIcon className="size-3.5" />
         </button>
       </div>
-    </button>
+    </div>
   )
 }
