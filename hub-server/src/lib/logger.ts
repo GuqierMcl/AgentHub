@@ -31,7 +31,19 @@ function prettyStream(): Writable {
         const skip = new Set(['level', 'time', 'msg', 'pid', 'hostname', 'name', 'v'])
         const extras = Object.entries(log)
           .filter(([k]) => !skip.has(k))
-          .map(([k, v]) => `${DIM}${k}=${RESET}${v}`)
+          .map(([k, v]) => {
+            if (v instanceof Error) {
+              return `${DIM}${k}=${RESET}${v.message}\n${v.stack}`
+            }
+            if (typeof v === 'object' && v !== null) {
+              try {
+                return `${DIM}${k}=${RESET}${JSON.stringify(v)}`
+              } catch {
+                return `${DIM}${k}=${RESET}${String(v)}`
+              }
+            }
+            return `${DIM}${k}=${RESET}${v}`
+          })
 
         if (extras.length > 0) {
           line += `  ${extras.join(' ')}`
