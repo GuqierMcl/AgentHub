@@ -1,14 +1,11 @@
-import { Avatar, AvatarFallback, AvatarGroup } from "@/components/ui/avatar"
+import { AgentAvatar as SharedAgentAvatar } from "@/components/agent-avatar"
+import { AvatarGroup } from "@/components/ui/avatar"
 
 import { getAgentById } from "../mock-data"
 import type { Agent, Conversation } from "../types"
 
 export function AgentAvatar({ agent }: { agent: Agent }) {
-  return (
-    <Avatar size="lg">
-      <AvatarFallback>{agent.shortName}</AvatarFallback>
-    </Avatar>
-  )
+  return <SharedAgentAvatar agent={agent} size="lg" />
 }
 
 export function ConversationAvatar({
@@ -27,9 +24,7 @@ export function ConversationAvatar({
   return (
     <AvatarGroup>
       {conversationAgents.slice(0, 3).map((agent) => (
-        <Avatar key={agent.id} size="lg">
-          <AvatarFallback>{agent.shortName}</AvatarFallback>
-        </Avatar>
+        <AgentAvatar agent={agent} key={agent.id} />
       ))}
     </AvatarGroup>
   )
