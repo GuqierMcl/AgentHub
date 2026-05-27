@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import { PlusIcon, SearchIcon, Loader2Icon, XIcon } from "lucide-react"
+import { SearchIcon, Loader2Icon, XIcon } from "lucide-react"
+import { PlusIcon } from "@/components/ui/plus"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,7 +51,7 @@ export function ConversationSidebar({
             <p className="truncate text-muted-foreground text-xs">最近会话</p>
           </div>
           <Button aria-label="新聊天" size="icon-sm" type="button" variant="ghost" onClick={onAdd}>
-            <PlusIcon />
+            <PlusIcon className="![&_svg]:size-auto" size={16} />
           </Button>
         </div>
         <div className="relative">

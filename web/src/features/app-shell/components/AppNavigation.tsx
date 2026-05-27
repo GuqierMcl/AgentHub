@@ -19,6 +19,7 @@ type AppNavigationProps = {
   onOpenSettings: () => void
   onSelectModule: (moduleId: AppModuleId) => void
   onToggleCollapsed: () => void
+  showBrand?: boolean
 }
 
 export function AppNavigation({
@@ -28,43 +29,52 @@ export function AppNavigation({
   onOpenSettings,
   onSelectModule,
   onToggleCollapsed,
+  showBrand = true,
 }: AppNavigationProps) {
   return (
     <aside className="flex min-h-0 min-w-0 flex-col border-border border-r bg-sidebar">
-      <div
-        className={cn(
-          "flex shrink-0 items-center gap-3 px-4 pt-4 pb-5",
-          collapsed ? "justify-center px-3" : "justify-between"
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg">
-            <img src="/logo.png" alt="AgentHub" className="size-full object-cover" />
-          </div>
-          {collapsed ? null : (
-            <div className="min-w-0">
-              <div className="truncate text-base font-semibold">AgentHub</div>
-              <div className="truncate text-muted-foreground text-xs">
-                多 Agent 协作工作台
+      {showBrand || !collapsed ? (
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-3 px-4 pt-4 pb-5",
+            collapsed ? "justify-center px-3" : "justify-between",
+            !showBrand && "justify-end px-3 pt-3 pb-2"
+          )}
+        >
+          {showBrand ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg">
+                <img src="/logo.png" alt="AgentHub" className="size-full object-cover" />
               </div>
+              {collapsed ? null : (
+                <div className="min-w-0">
+                  <div className="truncate text-base font-semibold">AgentHub</div>
+                </div>
+              )}
             </div>
+          ) : null}
+
+          {collapsed ? null : (
+            <Button
+              aria-label="收起导航"
+              onClick={onToggleCollapsed}
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <PanelLeftCloseIcon />
+            </Button>
           )}
         </div>
+      ) : null}
 
-        {collapsed ? null : (
-          <Button
-            aria-label="收起导航"
-            onClick={onToggleCollapsed}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <PanelLeftCloseIcon />
-          </Button>
+      <nav
+        aria-label="主导航"
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-1 px-3",
+          !showBrand && collapsed && "pt-3"
         )}
-      </div>
-
-      <nav aria-label="主导航" className="flex min-h-0 flex-1 flex-col gap-1 px-3">
+      >
         {collapsed ? (
           <Tooltip>
             <TooltipTrigger asChild>
