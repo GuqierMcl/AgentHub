@@ -189,6 +189,8 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 
 主智能体的模型绑定是运行时配置覆盖层，持久化到 `config.dataDir` 下的 agent 模型绑定文件中，并在注册表加载时合并到 agent 定义。`orchestrator` 已被纳入允许绑定模型的内部主智能体集合，外部智能体和隐藏子智能体仍不在这套绑定层内。隐藏子智能体执行时固定继承直接调用方智能体的模型；继承只影响模型选择，不继承调用方工具、权限、系统提示词或身份。
 
+Runtime 还支持独立的系统智能体层，用于自动执行不属于用户可见主智能体和隐藏子智能体的维护任务。首版系统智能体为 `title`：仅在会话第一次对话对应的 Run 中触发，继承当前 Run 入口智能体的模型快照生成短标题。若标题结果在 `run.completed` 前完成，Runtime 会在同一条 Run SSE 中输出 `system_agent.completed`；若没有赶上则取消标题任务并跳过，不延迟主 Run 完成。Runtime 不直接更新会话标题，HubServer 链路接入后再消费事件并落库。
+
 系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`。`AiSdkExecutor` 和 `OrchestratorExecutor` 都从 `AgentDefinition.systemPrompt` 读取提示词，再追加运行态上下文、任务信息、可用工具和会话参与者等执行说明。普通主智能体不会看到 `internal` 工具；`orchestrator` 通过专用执行路径显式开启 `includeInternal=true`，因此只它能看到 `write_plan` 和 `run_task`。
 
 AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄封装进入 RunEvent 流；provider/AI SDK 显式暴露的 reasoning/thinking 会同步提升为 `reasoning.started`、`reasoning.delta`、`reasoning.completed`。RunInput 可通过 `diagnostics` 关闭模型流透传、关闭 reasoning 输出或显式开启 `raw` chunk。默认开启 `includeModelStream` 和 `includeReasoning`，默认关闭 `includeRawModelChunks`。完整 SSE 契约见 `docs/contracts/RUNTIME_SSE_EVENTS.md`。

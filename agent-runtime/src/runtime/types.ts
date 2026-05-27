@@ -36,6 +36,12 @@ export const RunDiagnosticsSchema = z.object({
 }).strict()
 export type RunDiagnostics = z.infer<typeof RunDiagnosticsSchema>
 
+export const RunConversationStateSchema = z.object({
+  messageCountBeforeRun: z.number().int().min(0).optional(),
+  titleSource: z.enum(["default", "auto", "manual"]).optional(),
+}).strict()
+export type RunConversationState = z.infer<typeof RunConversationStateSchema>
+
 export const RunInputSchema = z.object({
   conversationId: z.string().min(1),
   mode: RuntimeConversationModeSchema,
@@ -47,6 +53,7 @@ export const RunInputSchema = z.object({
   history: z.array(RuntimeMessageSchema).default([]),
   workspace: RunWorkspaceSnapshotSchema.optional(),
   diagnostics: RunDiagnosticsSchema.optional(),
+  conversationState: RunConversationStateSchema.optional(),
 })
 export type RunInput = z.infer<typeof RunInputSchema>
 
@@ -91,6 +98,7 @@ export const RunEventTypeSchema = z.enum([
   "message.delta",
   "message.completed",
   "agent.completed",
+  "system_agent.completed",
   "run.completed",
   "run.failed",
   "run.cancelled",

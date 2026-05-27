@@ -8,6 +8,7 @@ import { AgentModelResolutionError } from "./model-resolver"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
+import { SystemAgentRunner, type SystemAgentCompletedData } from "./system-agents"
 import { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./tools"
 import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 import { WorkspaceError, WorkspaceService } from "./workspace"
@@ -52,6 +53,13 @@ type RunExecutionState = {
   activeTaskExecutions: Set<string>
 }
 
+type PendingSystemAgentResult<T> = {
+  settled: boolean
+  result: T | null
+  wait: Promise<void>
+  cancel: () => void
+}
+
 export class RunWorkspaceValidationError extends Error {
   code = "RUN_INVALID_WORKSPACE" as const
 
@@ -90,6 +98,7 @@ export class RunManager {
   private aiSdkExecutor: AiSdkExecutor
   private mockExecutor = new MockExecutor()
   private orchestratorExecutor: OrchestratorExecutor
+  private systemAgentRunner: SystemAgentRunner
   private toolRegistry: RuntimeToolRegistry
   private runs: Map<string, RunRecord> = new Map()
   private events: Map<string, RunEvent[]> = new Map()
@@ -107,6 +116,7 @@ export class RunManager {
     this.toolRegistry = toolRegistry
     this.aiSdkExecutor = new AiSdkExecutor(providerService, this.toolRegistry)
     this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry, providerService, this.toolRegistry)
+    this.systemAgentRunner = new SystemAgentRunner(providerService)
   }
 
   createRun(input: RunInput): RunRecord {
@@ -355,6 +365,8 @@ export class RunManager {
         entryReason: run.entryReason,
       }))
 
+      const pendingTitle = this.startTitleSystemAgent(run, agent, abortController)
+
       log.info({ runId, agentId: agent.id, executorType: agent.executorType }, "Executing entry agent")
       await this.executeAgentExecution({
         run,
@@ -366,6 +378,12 @@ export class RunManager {
       if (abortController.signal.aborted || run.status === "cancelled") {
         log.info({ runId }, "Run aborted after execution loop")
         return
+      }
+
+      await this.flushReadySystemAgent(pendingTitle)
+      const emittedTitle = this.emitReadyTitleSystemAgent(run, pendingTitle)
+      if (!emittedTitle) {
+        this.cancelPendingSystemAgent(pendingTitle)
       }
 
       this.updateRunStatus(run, "completed")
@@ -401,6 +419,96 @@ export class RunManager {
         this.executionState.get(runId)?.workspaceService?.close()
       }
     }
+  }
+
+  private startTitleSystemAgent(
+    run: RunRecord,
+    entryAgent: AgentDefinition,
+    abortController: AbortController
+  ): PendingSystemAgentResult<SystemAgentCompletedData> | null {
+    if (!this.systemAgentRunner.shouldRunTitle(run.input)) {
+      return null
+    }
+
+    const systemAgentAbortController = new AbortController()
+    const abortSystemAgent = () => {
+      systemAgentAbortController.abort()
+    }
+    const cancelSystemAgent = () => {
+      abortController.signal.removeEventListener("abort", abortSystemAgent)
+      abortSystemAgent()
+    }
+    if (abortController.signal.aborted) {
+      systemAgentAbortController.abort()
+    } else {
+      abortController.signal.addEventListener("abort", abortSystemAgent, { once: true })
+    }
+
+    const pending: PendingSystemAgentResult<SystemAgentCompletedData> = {
+      settled: false,
+      result: null,
+      wait: Promise.resolve(),
+      cancel: cancelSystemAgent,
+    }
+    pending.wait = Promise.resolve()
+      .then(() => this.systemAgentRunner.runTitle({
+        runId: run.id,
+        input: run.input,
+        entryAgent,
+        signal: systemAgentAbortController.signal,
+      }))
+      .then((result) => {
+        pending.result = result
+      })
+      .catch((error) => {
+        log.warn(
+          {
+            runId: run.id,
+            agentId: entryAgent.id,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "Title system agent failed"
+        )
+        pending.result = null
+      })
+      .finally(() => {
+        abortController.signal.removeEventListener("abort", abortSystemAgent)
+        pending.settled = true
+      })
+
+    return pending
+  }
+
+  private async flushReadySystemAgent(
+    pending: PendingSystemAgentResult<unknown> | null
+  ): Promise<void> {
+    if (!pending || pending.settled) {
+      return
+    }
+
+    await Promise.race([pending.wait, Promise.resolve()])
+  }
+
+  private emitReadyTitleSystemAgent(
+    run: RunRecord,
+    pending: PendingSystemAgentResult<SystemAgentCompletedData> | null
+  ): boolean {
+    if (!pending?.settled || !pending.result || isTerminalStatus(run.status)) {
+      return false
+    }
+
+    this.emit(createRunEvent(run.id, "system_agent.completed", "system:title", pending.result))
+    return true
+  }
+
+  private cancelPendingSystemAgent(
+    pending: PendingSystemAgentResult<unknown> | null
+  ): void {
+    if (!pending || pending.settled) {
+      return
+    }
+
+    pending.cancel()
   }
 
   private async executeAgentExecution(options: {

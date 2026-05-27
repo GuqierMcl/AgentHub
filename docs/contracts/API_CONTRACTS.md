@@ -468,6 +468,10 @@ type RunInput = {
   addressedAgentIds?: string[]
   userMessage: unknown
   history: unknown[]
+  conversationState?: {
+    messageCountBeforeRun?: number
+    titleSource?: "default" | "auto" | "manual"
+  }
   workspace?: {
     workspaceId: string
     backendType: "local"
@@ -488,6 +492,7 @@ type RunInput = {
 | `mode` | `single` 表示单聊，`group` 表示群聊 |
 | `participantAgentIds` | 当前会话包含的主智能体成员，由 HubServer 提供 |
 | `addressedAgentIds` | 当前用户消息显式 @ 的主智能体；为空表示未显式指定 |
+| `conversationState` | HubServer 提供的会话状态快照；首版用于 Runtime 判断是否在第一次对话触发 `title` 系统智能体 |
 | `workspace` | 可选的本次 Run 主工作区 snapshot；首版只支持已存在本地目录 |
 | `diagnostics` | 可选模型流追踪开关；默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk |
 
@@ -676,12 +681,35 @@ reasoning.completed
 message.delta
 message.completed
 agent.completed
+system_agent.completed
 run.completed
 run.failed
 run.cancelled
 ```
 
 `orchestrator.plan.created` 目前保留为后续可视化和调试的扩展事件；当前 AI SDK orchestrator V1 主路径不强制发送该事件。
+
+`system_agent.completed` 表示 Runtime 内部系统智能体在当前 Run 完成前产出了可消费结果。首版只定义 `title`；如果标题任务没有赶上 `run.completed`，Runtime 会取消该任务且不发送此事件：
+
+```json
+{
+  "id": "evt_xxx",
+  "runId": "run_xxx",
+  "type": "system_agent.completed",
+  "timestamp": "2026-05-27T00:00:00.000Z",
+  "agentId": "system:title",
+  "data": {
+    "systemAgentId": "title",
+    "conversationId": "conv_123",
+    "target": "conversation.title",
+    "trigger": "first_user_message",
+    "inheritedModelFromAgentId": "coder",
+    "result": {
+      "title": "系统智能体层级设计"
+    }
+  }
+}
+```
 
 事件字段：
 
