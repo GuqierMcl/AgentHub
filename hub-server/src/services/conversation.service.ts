@@ -4,10 +4,10 @@ import {
   findConversationWithAgents,
   updateConversation,
   deleteConversationById,
-  listConversations,
-  countConversations,
+  listConversationsWithAgents,
   type ConversationOutput,
   type ConversationDetailOutput,
+  type ConversationListOutput,
 } from '../repositories/conversation.repo'
 import { createConversationAgent } from '../repositories/conversation-agent.repo'
 import { badRequest, notFound } from '../lib/errors'
@@ -16,13 +16,12 @@ import type {
   ConversationListItem,
   ConversationAgentItem,
   CreateConversationBody,
-  ListConversationsQuery,
   UpdateConversationBody,
 } from '../domains/conversation/types'
 import type { ConversationMode, ConversationStatus, MetadataJson } from '../lib/types'
 
 export class ConversationService {
-  private toListItem(o: ConversationOutput): ConversationListItem {
+  private toListItem(o: ConversationListOutput): ConversationListItem {
     return {
       id: o.id,
       title: o.title,
@@ -34,6 +33,10 @@ export class ConversationService {
       pinnedAt: o.pinnedAt,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
+      agents: o.agents.map((a) => ({
+        agentId: a.agentId,
+        role: a.role as ConversationAgentItem['role'],
+      })),
     }
   }
 
@@ -86,7 +89,7 @@ export class ConversationService {
       }
 
       if (input.mode === 'group' && !input.orchestratorAgentId) {
-        const orchestrator = input.agents.find((a) => a.role === 'orchestrator')
+        const orchestrator = input.agents.find((a: { agentId: string; role: 'primary' | 'member' | 'orchestrator' }) => a.role === 'orchestrator')
         if (orchestrator) {
           await updateConversation(conv.id, {
             orchestratorAgentId: orchestrator.agentId,
@@ -108,20 +111,14 @@ export class ConversationService {
     return this.toDetail(detail)
   }
 
-  async listConversationsPaginated(
-    query: ListConversationsQuery,
-  ): Promise<{ items: ConversationListItem[]; total: number }> {
-    const { status, limit, offset } = query
+  async listConversations(
+    status?: 'active' | 'archived',
+  ): Promise<ConversationListItem[]> {
+    const items = await listConversationsWithAgents(
+      status ? { status } : {},
+    )
 
-    const [items, total] = await Promise.all([
-      listConversations({ status, limit, offset }),
-      countConversations({ status }),
-    ])
-
-    return {
-      items: items.map((o) => this.toListItem(o)),
-      total,
-    }
+    return items.map((o) => this.toListItem(o))
   }
 
   async archiveConversation(
@@ -204,7 +201,7 @@ export class ConversationService {
     const existing = await findConversationById(id)
     if (!existing) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
 
-    if (existing.pinnedAt) return this.toListItem(existing)
+    if (existing.pinnedAt) return this.toListItem({ ...existing, agents: [] })
 
     await updateConversation(id, {
       pinnedAt: new Date().toISOString(),
@@ -212,7 +209,7 @@ export class ConversationService {
 
     const updated = await findConversationById(id)
     if (!updated) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
-    return this.toListItem(updated)
+    return this.toListItem({ ...updated, agents: [] })
   }
 
   async unpinConversation(
@@ -225,7 +222,7 @@ export class ConversationService {
 
     const updated = await findConversationById(id)
     if (!updated) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
-    return this.toListItem(updated)
+    return this.toListItem({ ...updated, agents: [] })
   }
 
   async deleteConversation(id: string): Promise<void> {

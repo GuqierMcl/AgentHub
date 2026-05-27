@@ -73,3 +73,53 @@ export type Conversation = {
   running?: boolean
   messages: WorkbenchMessage[]
 }
+
+// Backend API types
+
+export type AgentRole = "primary" | "member" | "orchestrator"
+
+export type ConversationListItem = {
+  id: string
+  title: string
+  mode: "single" | "group"
+  status: "active" | "archived"
+  orchestratorAgentId: string | null
+  lastMessageId: string | null
+  lastMessageAt: string | null
+  pinnedAt: string | null
+  createdAt: string
+  updatedAt: string
+  agents: { agentId: string; role: AgentRole }[]
+}
+
+export type ConversationAgentItem = {
+  agentId: string
+  role: AgentRole
+  sortOrder: number
+  joinedAt: string
+}
+
+export type ConversationDetail = {
+  id: string
+  title: string
+  mode: "single" | "group"
+  status: "active" | "archived"
+  orchestratorAgentId: string | null
+  lastMessageId: string | null
+  lastMessageAt: string | null
+  pinnedAt: string | null
+  archivedAt: string | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
+  agents: ConversationAgentItem[]
+}
+
+export type CreateConversationBody = {
+  title: string
+  mode: "single" | "group"
+  orchestratorAgentId?: string
+  agents?: { agentId: string; role: AgentRole }[]
+  metadata?: Record<string, unknown>
+}
+

@@ -2,7 +2,6 @@ import { Hono, Context } from 'hono'
 import type { ConversationService } from '../services/conversation.service'
 import type { Logger } from 'pino'
 import {
-  ListConversationsQuerySchema,
   CreateConversationBodySchema,
   UpdateConversationBodySchema,
 } from '../domains/conversation/types'
@@ -18,16 +17,8 @@ const conversation = new Hono()
 
 conversation.get('/api/conversations', async (c: Context) => {
   const service = c.get('conversationService')
-  const raw = c.req.query()
-  const parsed = ListConversationsQuerySchema.safeParse(raw)
-  if (!parsed.success) {
-    return c.json(
-      { error: { code: 'VALIDATION_ERROR', message: parsed.error.message } },
-      400,
-    )
-  }
-
-  const result = await service.listConversationsPaginated(parsed.data)
+  const status = c.req.query('status') as 'active' | 'archived' | undefined
+  const result = await service.listConversations(status)
   return c.json(result)
 })
 

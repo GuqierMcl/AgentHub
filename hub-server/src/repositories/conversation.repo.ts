@@ -93,6 +93,37 @@ export async function listConversations(filter: ListConversationsFilter = {}): P
   return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
+function toListOutput(record: Record<string, unknown>): ConversationListOutput {
+  const agents = (record.agents as Record<string, unknown>[]) ?? []
+  return {
+    ...Object.fromEntries(
+      Object.entries(record).filter(([k]) => k !== 'agents')
+    ),
+    metadataJson: JSON.parse((record.metadataJson as string) || '{}'),
+    agents: agents.map((a) => ({
+      agentId: a.agentId as string,
+      role: a.role as string,
+    })),
+  } as ConversationListOutput
+}
+
+export async function listConversationsWithAgents(filter: ListConversationsFilter = {}): Promise<ConversationListOutput[]> {
+  const db = getPrismaClient()
+  const { status, pinnedOnly, limit, offset = 0, order = 'desc' } = filter
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: Record<string, any> = {}
+  if (status) where.status = status
+  if (pinnedOnly) where.pinnedAt = { not: null }
+
+  const records = await db.conversation.findMany({
+    where,
+    orderBy: [{ pinnedAt: 'desc' }, { lastMessageAt: order }],
+    ...(limit !== undefined ? { take: limit, skip: offset } : {}),
+    include: { agents: { orderBy: { sortOrder: 'asc' } } },
+  })
+  return records.map(r => toListOutput(r as Record<string, unknown>))
+}
+
 export async function updateConversation(id: string, input: UpdateConversationInput): Promise<ConversationOutput> {
   const db = getPrismaClient()
   const now = new Date().toISOString()
@@ -148,6 +179,27 @@ export interface ConversationDetailOutput {
   createdAt: string
   updatedAt: string
   agents: ConversationAgentDetailOutput[]
+}
+
+export interface ConversationListAgentOutput {
+  agentId: string
+  role: string
+}
+
+export interface ConversationListOutput {
+  id: string
+  title: string
+  mode: string
+  status: string
+  orchestratorAgentId: string | null
+  lastMessageId: string | null
+  lastMessageAt: string | null
+  pinnedAt: string | null
+  archivedAt: string | null
+  metadataJson: MetadataJson
+  createdAt: string
+  updatedAt: string
+  agents: ConversationListAgentOutput[]
 }
 
 export interface ConversationAgentDetailOutput {
