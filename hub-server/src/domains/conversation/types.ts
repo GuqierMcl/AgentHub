@@ -33,6 +33,11 @@ export const UpdateConversationBodySchema = z.object({
 export type CreateConversationBody = z.infer<typeof CreateConversationBodySchema>
 export type UpdateConversationBody = z.infer<typeof UpdateConversationBodySchema>
 
+export const DeleteConversationsBodySchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+})
+export type DeleteConversationsBody = z.infer<typeof DeleteConversationsBodySchema>
+
 // ── 响应 DTO ──
 
 export interface ConversationAgentItem {

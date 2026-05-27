@@ -4,6 +4,7 @@ import type { Logger } from 'pino'
 import {
   CreateConversationBodySchema,
   UpdateConversationBodySchema,
+  DeleteConversationsBodySchema,
 } from '../domains/conversation/types'
 
 declare module 'hono' {
@@ -65,6 +66,20 @@ conversation.delete('/api/conversations/:id', async (c: Context) => {
   const id = c.req.param('id')!
   await service.deleteConversation(id)
   return c.body(null, 204)
+})
+
+conversation.post('/api/conversations/delete-batch', async (c: Context) => {
+  const service = c.get('conversationService')
+  const body = await c.req.json()
+  const parsed = DeleteConversationsBodySchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      { error: { code: 'VALIDATION_ERROR', message: parsed.error.message } },
+      400,
+    )
+  }
+  const result = await service.deleteConversations(parsed.data.ids)
+  return c.json(result)
 })
 
 conversation.post('/api/conversations/:id/pin', async (c: Context) => {

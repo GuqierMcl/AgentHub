@@ -29,6 +29,19 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
     <Sidebar collapsible="none" className="w-[160px] bg-background">
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupLabel>会话管理</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem key="archived">
+              <SidebarMenuButton
+                isActive={activeTab === "archived"}
+                onClick={() => onTabChange("archived")}
+              >
+                已归档会话
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+        <SidebarGroup>
           <SidebarGroupLabel>AI 能力</SidebarGroupLabel>
           <SidebarMenu>
             {menuItems.map((item) => (

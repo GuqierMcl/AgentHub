@@ -3,6 +3,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { RuntimeContent } from "./RuntimeContent"
 import { ProviderContent } from "./provider/ProviderContent"
 import { ModelContent } from "./model/ModelContent"
+import { ArchivedContent } from "./ArchivedContent"
 
 type SettingsContentProps = {
   activeTab: SettingsTabId
@@ -12,10 +13,11 @@ const tabLabels: Record<SettingsTabId, string> = {
   runtime: "Agent Runtime",
   provider: "供应商",
   model: "模型",
+  archived: "已归档对话",
 }
 
 export function SettingsContent({ activeTab }: SettingsContentProps) {
-  const isPinnable = activeTab === "provider" || activeTab === "model"
+  const isPinnable = activeTab === "provider" || activeTab === "model" || activeTab === "archived"
 
   return (
     <div className="flex flex-col h-full border-l border-border/50">
@@ -29,6 +31,7 @@ export function SettingsContent({ activeTab }: SettingsContentProps) {
           {activeTab === "runtime" && <RuntimeContent />}
           {activeTab === "provider" && <ProviderContent />}
           {activeTab === "model" && <ModelContent />}
+          {activeTab === "archived" && <ArchivedContent />}
         </div>
       </ScrollArea>
     </div>

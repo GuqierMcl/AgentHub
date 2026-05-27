@@ -56,6 +56,13 @@ export const conversationsApi = {
     })
   },
 
+  deleteBatch(ids: string[]): Promise<{ deleted: number }> {
+    return request("/api/conversations/delete-batch", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    })
+  },
+
   pin(id: string): Promise<ConversationListItem> {
     return request(`/api/conversations/${encodeURIComponent(id)}/pin`, {
       method: "POST",

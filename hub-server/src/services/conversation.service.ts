@@ -248,4 +248,15 @@ export class ConversationService {
 
     await deleteConversationById(id)
   }
+
+  async deleteConversations(ids: string[]): Promise<{ deleted: number }> {
+    let deleted = 0
+    for (const id of ids) {
+      const existing = await findConversationById(id)
+      if (!existing) continue
+      await deleteConversationById(id)
+      deleted++
+    }
+    return { deleted }
+  }
 }

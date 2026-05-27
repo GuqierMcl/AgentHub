@@ -1,4 +1,4 @@
-export type SettingsTabId = "runtime" | "provider" | "model"
+export type SettingsTabId = "runtime" | "provider" | "model" | "archived"
 
 export type SettingsTab = {
   id: SettingsTabId
