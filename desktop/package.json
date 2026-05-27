@@ -3,7 +3,8 @@
 	"version": "0.0.1",
 	"description": "AgentHub Electrobun desktop shell",
 	"scripts": {
-		"dev": "electrobun dev --watch",
+		"dev": "electrobun dev",
+		"dev:watch": "electrobun dev --watch",
 		"build:canary": "electrobun build --env=canary"
 	},
 	"dependencies": {

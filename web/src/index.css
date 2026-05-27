@@ -119,6 +119,12 @@ body {
   overflow: hidden;
 }
 
+html.agenthub-desktop-runtime,
+html.agenthub-desktop-runtime body,
+html.agenthub-desktop-runtime #root {
+  background: transparent;
+}
+
 button {
   cursor: pointer;
 }
@@ -130,6 +136,14 @@ textarea {
 }
 
 @layer components {
+  .app-region-drag,
+  .electrobun-webkit-app-region-drag {
+    -webkit-app-region: drag;
+  }
+  .app-region-no-drag,
+  .electrobun-webkit-app-region-no-drag {
+    -webkit-app-region: no-drag;
+  }
   .scrollbar-shadcn {
     scrollbar-gutter: stable;
     scrollbar-width: thin;
