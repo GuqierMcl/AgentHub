@@ -15,7 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ThemeToggle } from "@/components/ThemeToggle"
+
 
 import { getAgentById } from "../mock-data"
 import type { Agent, Conversation } from "../types"
@@ -66,7 +66,7 @@ export function ChatHeader({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-              <ThemeToggle />
+
               <Button
                   className="hidden sm:inline-flex"
                   size="sm"

@@ -33,6 +33,11 @@ Subagent 子智能体
   ├─ file
   ├─ deploy
   └─ 后续扩展能力单元
+
+System Agent 系统智能体
+  ├─ title
+  ├─ summary（预留）
+  └─ compaction（预留）
 ```
 
 ### 2.1 主智能体
@@ -71,6 +76,14 @@ MVP 子智能体建议如下：
 | `artifact` | 生成和更新 document、code、webpage 等 Artifact |
 | `browser` | 网页访问、截图、网页内容提取 |
 | `review` | 静态审查、风险检查、变更摘要 |
+
+### 2.3 系统智能体
+
+系统智能体是 Runtime 围绕一次 Run 自动触发的后台维护能力，独立于主智能体和子智能体体系。它们不出现在 Agent 列表，不作为会话成员，不通过 `run_task` 调用，也不写入普通聊天消息。
+
+首版系统智能体只包含 `title`：当 Runtime 判断当前 Run 是会话第一次对话时，后台异步生成短标题。如果结果在 `run.completed` 前完成，则作为同一条 Run SSE 流中的 `system_agent.completed` 事件输出；如果没有赶上、失败或 Run 被取消，则取消后台标题任务并静默跳过。
+
+系统智能体执行时继承当前 Run 入口主智能体的模型快照。继承只用于模型选择，不继承入口智能体的工具、权限、身份或系统提示词。Runtime 只输出事件，不直接写业务状态；HubServer 链路接入后再消费事件并更新 `Conversation.title` 等业务状态。
 
 ## 3. Orchestrator 的核心位置
 

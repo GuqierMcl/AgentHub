@@ -4,6 +4,7 @@ export { MockExecutor } from "./mock-executor"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
+export { SystemAgentRunner } from "./system-agents"
 export {
   DEFAULT_RUN_DIAGNOSTICS,
   ModelStreamEventBuilder,
@@ -18,6 +19,7 @@ export type {
   RuntimeConversationMode,
   RuntimeMessage,
   RunDiagnostics,
+  RunConversationState,
   RunInput,
   RunWorkspaceSnapshot,
   RunWorkspaceSummary,
@@ -37,6 +39,10 @@ export type {
   RunCreateResponse,
   RunRecordResponse,
 } from "./types"
+export type {
+  SystemAgentCompletedData,
+  SystemAgentId,
+} from "./system-agents"
 export type {
   AiSdkToolSettings,
   RuntimeToolExecuteOptions,
@@ -93,6 +99,7 @@ export {
   RuntimeConversationModeSchema,
   RuntimeMessageSchema,
   RunDiagnosticsSchema,
+  RunConversationStateSchema,
   RunWorkspaceSnapshotSchema,
   RunWorkspaceSummarySchema,
   RunInputSchema,

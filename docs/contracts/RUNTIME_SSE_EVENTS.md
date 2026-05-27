@@ -95,12 +95,15 @@ reasoning.completed
 message.delta
 message.completed
 agent.completed
+system_agent.completed
 run.completed
 run.failed
 run.cancelled
 ```
 
 `message.*`、`tool.*`、`task.*`、`permission.*`、`agent.*` 和 `run.*` 是 Runtime 语义事件，优先供 HubServer 持久化与 UI 状态渲染使用。
+
+`system_agent.completed` 是 Runtime 内部系统智能体的结果事件。首版只支持 `agentId = "system:title"`，用于把第一次对话生成的短标题作为同一条 Run SSE 流的一部分交给上游消费方。Runtime 只在该结果赶上 `run.completed` 前输出；否则取消标题任务并静默跳过，不延迟主 Run 完成。该事件不表示 Runtime 已经更新业务状态，HubServer 后续接入时负责条件落库。
 
 ## 4. AI SDK Part Passthrough
 
