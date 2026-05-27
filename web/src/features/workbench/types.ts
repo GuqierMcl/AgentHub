@@ -90,6 +90,7 @@ export type ConversationListItem = {
   createdAt: string
   updatedAt: string
   agents: { agentId: string; role: AgentRole }[]
+  metadata: Record<string, unknown> | null
 }
 
 export type ConversationAgentItem = {

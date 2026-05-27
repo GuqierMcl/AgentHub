@@ -37,6 +37,7 @@ export class ConversationService {
         agentId: a.agentId,
         role: a.role as ConversationAgentItem['role'],
       })),
+      metadata: o.metadataJson,
     }
   }
 

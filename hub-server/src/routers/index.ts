@@ -3,6 +3,7 @@ import conversation from './conversation'
 import provider from './provider'
 import agent from './agent'
 import runs from './runs'
+import workspace from './workspace'
 
 const router = new Hono()
 
@@ -19,5 +20,6 @@ router.route('/', conversation)
 router.route('/', provider)
 router.route('/', agent)
 router.route('/', runs)
+router.route('/', workspace)
 
 export default router

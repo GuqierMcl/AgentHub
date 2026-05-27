@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { SearchIcon, XIcon, ChevronRightIcon } from "lucide-react"
+import { SearchIcon, XIcon, ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -41,12 +41,14 @@ export function NewConversationDialog({
   const [saving, setSaving] = useState(false)
   const [existingOpen, setExistingOpen] = useState(true)
   const [agentsOpen, setAgentsOpen] = useState(true)
+  const [workspacePath, setWorkspacePath] = useState("")
 
   useEffect(() => {
     if (!open) return
     const timer = window.setTimeout(() => {
       setSearch("")
       setSelectedAgentIds([])
+      setWorkspacePath("")
     }, 0)
     agentsApi.list({ tier: "primary", enabledOnly: true }).then((data) => {
       setAgents(data.agents)
@@ -77,6 +79,18 @@ export function NewConversationDialog({
     )
   }, [])
 
+  const handleSelectWorkspace = useCallback(async () => {
+    try {
+      const res = await fetch("/api/workspace/select", { method: "POST" })
+      const data = await res.json()
+      if (data.path) {
+        setWorkspacePath(data.path)
+      }
+    } catch {
+      // user cancelled or error
+    }
+  }, [])
+
   const handleCreate = useCallback(async () => {
     if (selectedAgentIds.length === 0) {
       toast.error("请至少选择一个智能体")
@@ -94,10 +108,19 @@ export function NewConversationDialog({
         role: i === 0 ? "primary" as const : "member" as const,
       }))
 
-      const body: { title: string; mode: "single" | "group"; agents: { agentId: string; role: AgentRole }[] } = {
+      const body: { title: string; mode: "single" | "group"; agents: { agentId: string; role: AgentRole }[]; metadata?: Record<string, unknown> } = {
         title,
         mode,
         agents: agentRoles,
+        metadata: workspacePath.trim()
+          ? {
+              workspace: {
+                workspaceId: `workspace_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                backendType: "local",
+                rootPath: workspacePath.trim(),
+              },
+            }
+          : undefined,
       }
 
       const result = await conversationsApi.create(body)
@@ -109,7 +132,7 @@ export function NewConversationDialog({
     } finally {
       setSaving(false)
     }
-  }, [selectedAgentIds, agents, onCreated, onOpenChange])
+  }, [selectedAgentIds, agents, workspacePath, onCreated, onOpenChange])
 
   const handleSwitch = useCallback((id: string) => {
     onSwitchConversation(id)
@@ -124,8 +147,8 @@ export function NewConversationDialog({
           <DialogDescription>选择已有会话或创建新会话</DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 pb-3">
-          <div className="relative">
+        <div className="px-6 pb-3 flex gap-2">
+          <div className="relative flex-1">
             <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜索会话或智能体"
@@ -133,6 +156,31 @@ export function NewConversationDialog({
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
             />
+          </div>
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={handleSelectWorkspace}
+              className="flex items-center gap-1.5 h-9 rounded-lg border border-input bg-transparent px-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors whitespace-nowrap"
+            >
+              {workspacePath ? (
+                <>
+                  <FolderOpenIcon className="size-4" />
+                  <span className="max-w-[140px] truncate">{workspacePath}</span>
+                  <span
+                    onClick={(e) => { e.stopPropagation(); setWorkspacePath("") }}
+                    className="ml-1 hover:text-foreground"
+                  >
+                    <XIcon className="size-3.5" />
+                  </span>
+                </>
+              ) : (
+                <>
+                  <FolderIcon className="size-4" />
+                  工作空间
+                </>
+              )}
+            </button>
           </div>
         </div>
 

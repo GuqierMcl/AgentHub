@@ -54,6 +54,7 @@ export interface ConversationListItem {
   createdAt: string
   updatedAt: string
   agents: { agentId: string; role: AgentRole }[]
+  metadata: Record<string, unknown> | null
 }
 
 export interface ConversationDetail {

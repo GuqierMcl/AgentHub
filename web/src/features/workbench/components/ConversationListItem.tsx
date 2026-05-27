@@ -1,4 +1,4 @@
-import { PenIcon, PinIcon, ArchiveIcon, MessageSquareTextIcon, UsersIcon } from "lucide-react"
+import { PenIcon, PinIcon, ArchiveIcon, MessageSquareTextIcon, UsersIcon, FolderIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -13,6 +13,12 @@ type ConversationListItemProps = {
   onPin: (conversationId: string, pinned: boolean) => void
   onArchive: (conversationId: string, archived: boolean) => void
   onRename: (conversationId: string) => void
+}
+
+function getWorkspacePath(metadata: Record<string, unknown> | null): string | null {
+  if (!metadata || typeof metadata.workspace !== "object" || metadata.workspace === null) return null
+  const ws = metadata.workspace as Record<string, unknown>
+  return typeof ws.rootPath === "string" ? ws.rootPath : null
 }
 
 function formatTime(dateStr: string): string {
@@ -79,6 +85,14 @@ export function ConversationListItemView({
               {conversation.lastMessageId ? "有消息记录" : "无消息"}
             </span>
           </span>
+          {getWorkspacePath(conversation.metadata) && (
+            <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
+              <FolderIcon className="size-3 shrink-0" />
+              <span className="line-clamp-1">
+                {getWorkspacePath(conversation.metadata)}
+              </span>
+            </span>
+          )}
           <span className="flex min-w-0 items-center gap-1">
             <Badge variant={isGroup ? "default" : "secondary"}>
               {isGroup ? "群聊" : "单聊"}
