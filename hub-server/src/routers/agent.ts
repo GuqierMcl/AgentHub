@@ -1,10 +1,13 @@
 import { Hono, Context } from 'hono'
 import type { RuntimeClient } from '../lib/runtime'
+import type { ConversationService } from '../services/conversation.service'
 import type { Logger } from 'pino'
+import { findConversationAgentsByAgentId } from '../repositories/conversation-agent.repo'
 
 declare module 'hono' {
   interface ContextVariableMap {
     runtimeClient: RuntimeClient
+    conversationService: ConversationService
     logger: Logger
   }
 }
@@ -53,7 +56,17 @@ agent.put('/api/runtime/agents/:agentId', async (c: Context) => {
 
 agent.delete('/api/runtime/agents/:agentId', async (c: Context) => {
   const client = c.get('runtimeClient')
+  const service = c.get('conversationService')
+  const logger = c.get('logger')
   const agentId = c.req.param('agentId')!
+
+  const records = await findConversationAgentsByAgentId(agentId)
+  if (records.length > 0) {
+    const convIds = [...new Set(records.map((r) => r.conversationId))]
+    logger.info({ agentId, conversationIds: convIds }, 'Archiving conversations that contain the agent being deleted')
+    await Promise.all(convIds.map((convId) => service.archiveConversation(convId)))
+  }
+
   const { data, status } = await client.forward('DELETE', `/runtime/agents/${encodeURIComponent(agentId)}`, undefined, { raw: true })
   return c.json(data, status as 200)
 })

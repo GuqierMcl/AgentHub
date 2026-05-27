@@ -59,6 +59,14 @@ export async function deleteConversationAgent(conversationId: string, agentId: s
   })
 }
 
+export async function findConversationAgentsByAgentId(agentId: string) {
+  const db = getPrismaClient()
+  return db.conversationAgent.findMany({
+    where: { agentId },
+    select: { conversationId: true },
+  })
+}
+
 export async function deleteConversationAgentsByConversationId(conversationId: string) {
   const db = getPrismaClient()
   return db.conversationAgent.deleteMany({ where: { conversationId } })

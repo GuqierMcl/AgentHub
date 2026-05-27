@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -24,11 +24,8 @@ export function ChatWorkspace() {
   const [renameTarget, setRenameTarget] = useState<ConversationListItem | null>(null)
   const [renameTitle, setRenameTitle] = useState("")
   const [renaming, setRenaming] = useState(false)
-  const loadedRef = useRef(false)
 
   useEffect(() => {
-    if (loadedRef.current) return
-    loadedRef.current = true
     conversationsApi.list("active").then((data) => {
       setConversations(data)
       if (data.length > 0) {
@@ -45,18 +42,14 @@ export function ChatWorkspace() {
     setActiveConversationId(id)
   }, [])
 
-  const refreshConversations = useCallback(() => {
+  const handleCreated = useCallback((id: string) => {
+    setActiveConversationId(id)
     conversationsApi.list("active").then((data) => {
       setConversations(data)
     }).catch(() => {
       // ignore
     })
   }, [])
-
-  const handleCreated = useCallback((id: string) => {
-    setActiveConversationId(id)
-    refreshConversations()
-  }, [refreshConversations])
 
   const handlePin = useCallback(async (id: string, pinned: boolean) => {
     try {
@@ -65,20 +58,23 @@ export function ChatWorkspace() {
       } else {
         await conversationsApi.unpin(id)
       }
-      refreshConversations()
+      // optimistically update local state
+      setConversations((prev) => prev.map((c) =>
+        c.id === id ? { ...c, pinnedAt: pinned ? new Date().toISOString() : null } : c
+      ))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败")
     }
-  }, [refreshConversations])
+  }, [])
 
   const handleArchive = useCallback(async (id: string, archived: boolean) => {
     try {
       await conversationsApi.update(id, { status: archived ? "archived" : "active" })
-      refreshConversations()
+      setConversations((prev) => prev.filter((c) => c.id !== id))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败")
     }
-  }, [refreshConversations])
+  }, [])
 
   const handleRename = useCallback((id: string) => {
     const conv = conversations.find((c) => c.id === id)
@@ -91,16 +87,18 @@ export function ChatWorkspace() {
     if (!renameTarget || !renameTitle.trim()) return
     setRenaming(true)
     try {
-      await conversationsApi.update(renameTarget.id, { title: renameTitle.trim() })
+      const result = await conversationsApi.update(renameTarget.id, { title: renameTitle.trim() })
+      setConversations((prev) => prev.map((c) =>
+        c.id === renameTarget.id ? { ...c, title: result.title } : c
+      ))
       toast.success("会话已重命名")
       setRenameTarget(null)
-      refreshConversations()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "重命名失败")
     } finally {
       setRenaming(false)
     }
-  }, [renameTarget, renameTitle, refreshConversations])
+  }, [renameTarget, renameTitle])
 
   return (
     <section className="grid h-full min-h-0 min-w-0 grid-cols-[18rem_minmax(0,1fr)] bg-background">
