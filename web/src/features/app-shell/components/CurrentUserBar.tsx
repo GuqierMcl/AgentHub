@@ -1,4 +1,5 @@
 import { SettingsIcon } from "@/components/ui/settings"
+import { ThemeToggle } from "@/components/ThemeToggle"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -46,6 +47,7 @@ export function CurrentUserBar({ collapsed, onOpenSettings, user }: CurrentUserB
         </div>
       )}
 
+      <ThemeToggle />
       {collapsed ? (
         <Tooltip>
           <TooltipTrigger asChild>{settingsButton}</TooltipTrigger>
