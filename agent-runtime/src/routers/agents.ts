@@ -8,7 +8,6 @@ import {
   UserAgentUpdateRequestSchema,
   DEFAULT_USER_AGENT_PERMISSION_POLICY,
   type AgentDefinition,
-  type AgentAuthoringCapabilityTagOption,
   type AgentAuthoringOptionsResponse,
   type AgentDetailResponse,
   type AgentSummaryResponse,
@@ -28,15 +27,16 @@ declare module "hono" {
 const agents = new Hono()
 
 const userAgentCapabilityTagOptions = [
-  { id: "implementation", name: "Implementation", category: "engineering" },
-  { id: "review", name: "Review", category: "engineering" },
-  { id: "documentation", name: "Documentation", category: "writing" },
-  { id: "planning-advice", name: "Planning advice", category: "planning" },
-  { id: "research", name: "Research", category: "analysis" },
-  { id: "summarization", name: "Summarization", category: "writing" },
-  { id: "rewrite", name: "Rewrite", category: "writing" },
-  { id: "codebase-scan", name: "Codebase scan", category: "engineering" },
-] satisfies AgentAuthoringCapabilityTagOption[]
+  "Implementation",
+  "Review",
+  "Documentation",
+  "Planning",
+  "Research",
+  "Summarization",
+  "Rewrite",
+  "Codebase Scan",
+  "Thinking",
+] as const
 
 function serializeAgentSummary(
   agent: AgentDefinition,

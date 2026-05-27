@@ -295,13 +295,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
       }
     }
   ],
-  "capabilityTags": [
-    {
-      "id": "implementation",
-      "name": "Implementation",
-      "category": "engineering"
-    }
-  ],
+  "capabilityTags": ["Implementation", "Review", "Documentation", "Thinking"],
   "subagents": [
     {
       "id": "general",
@@ -328,7 +322,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `tools` 从注册工具的 Tool Catalog 投影，只返回 `configurableByUserAgent = true` 且非 internal 的工具；不在路由或 CRUD 中维护重复白名单。
 - `write_plan`、`run_task` 不会出现在 `tools` 中。
 - `approvalPolicy = "contextual"` 表示是否审批取决于运行上下文；读工具在敏感/沙箱外读取时触发审批，写工具在敏感/沙箱外写入时触发审批。
-- `capabilityTags` 是推荐标签，不是强枚举；创建和更新自定义智能体时 `capabilities` 仍允许自定义字符串。
+- `capabilityTags` 是推荐标签字符串数组，不是强枚举；创建和更新自定义智能体时 `capabilities` 仍允许自定义字符串数组，例如 `["Thinking"]`。
 - `subagents` 只返回可配置到 `allowedSubagents` 的启用隐藏子智能体摘要，不改变隐藏子智能体不可直接调用的规则。
 
 ### 创建用户自定义智能体

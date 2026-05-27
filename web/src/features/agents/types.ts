@@ -29,11 +29,7 @@ export type AuthoringToolOption = {
   requiredPermissions: Record<string, string>
 }
 
-export type AuthoringCapabilityTag = {
-  id: string
-  name: string
-  category: string
-}
+export type AuthoringCapabilityTag = string
 
 export type AuthoringSubagentOption = {
   id: string

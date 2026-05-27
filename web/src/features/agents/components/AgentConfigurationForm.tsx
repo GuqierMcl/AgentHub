@@ -381,13 +381,13 @@ export function AgentConfigurationForm({
           <div className="flex flex-wrap gap-2">
             {authoring.capabilityTags.map((tag) => (
               <Button
-                key={tag.id}
-                onClick={() => toggleCapability(tag.id)}
+                key={tag}
+                onClick={() => toggleCapability(tag)}
                 size="xs"
                 type="button"
-                variant={capabilities.includes(tag.id) ? "secondary" : "outline"}
+                variant={capabilities.includes(tag) ? "secondary" : "outline"}
               >
-                {tag.name}
+                {tag}
               </Button>
             ))}
           </div>
@@ -395,7 +395,7 @@ export function AgentConfigurationForm({
         <div className="flex gap-2">
           <Input
             onChange={(event) => setCustomCapability(event.currentTarget.value)}
-            placeholder="自定义标签 ID"
+            placeholder="自定义标签"
             value={customCapability}
           />
           <Button

@@ -213,11 +213,7 @@ export type AgentAuthoringToolOption = {
   requiredPermissions: Partial<Pick<AgentPermissionPolicy, "filesystem" | "shell" | "network" | "deploy">>
 }
 
-export type AgentAuthoringCapabilityTagOption = {
-  id: string
-  name: string
-  category: string
-}
+export type AgentAuthoringCapabilityTagOption = string
 
 export type AgentAuthoringSubagentOption = {
   id: string

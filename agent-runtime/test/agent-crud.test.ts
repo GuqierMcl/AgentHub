@@ -259,15 +259,16 @@ describe("user agent CRUD", () => {
     expect(toolsById.get("write_file")?.requiredPermissions.filesystem).toBe("write")
     expect(toolsById.get("edit_file")?.requiredPermissions.filesystem).toBe("write")
 
-    expect(options.capabilityTags.map((tag: { id: string }) => tag.id)).toEqual(expect.arrayContaining([
-      "implementation",
-      "review",
-      "documentation",
-      "planning-advice",
-      "research",
-      "summarization",
-      "rewrite",
-      "codebase-scan",
+    expect(options.capabilityTags).toEqual(expect.arrayContaining([
+      "Implementation",
+      "Review",
+      "Documentation",
+      "Planning",
+      "Research",
+      "Summarization",
+      "Rewrite",
+      "Codebase Scan",
+      "Thinking",
     ]))
 
     expect(options.subagents.map((agent: { id: string }) => agent.id)).toEqual(expect.arrayContaining([
