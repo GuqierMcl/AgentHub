@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { PlusIcon, TrashIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { AgentAvatar } from "@/components/agent-avatar"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -316,15 +317,18 @@ export function AgentsWorkspace() {
               <section className="flex min-h-0 min-w-0 flex-col">
                   {selectedAgent ? (
                       <header className="flex min-h-16 shrink-0 items-center justify-between gap-3 border-border border-b px-6">
-                          <div className="min-w-0">
-                              <p className="truncate text-sm font-medium">
-                                  {selectedAgent.name}
-                              </p>
-                              <p className="truncate text-muted-foreground text-xs">
-                                  {canEdit
-                                      ? "编辑自定义智能体配置"
-                                      : "查看智能体详情"}
-                              </p>
+                          <div className="flex min-w-0 items-center gap-3">
+                              <AgentAvatar agent={selectedAgent} />
+                              <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium">
+                                      {selectedAgent.name}
+                                  </p>
+                                  <p className="truncate text-muted-foreground text-xs">
+                                      {canEdit
+                                          ? "编辑自定义智能体配置"
+                                          : "查看智能体详情"}
+                                  </p>
+                              </div>
                           </div>
                           <div className="flex items-center gap-2">
                               {canDelete ? (

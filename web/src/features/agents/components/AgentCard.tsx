@@ -1,6 +1,5 @@
-import { BotIcon } from "lucide-react"
-
 import { Switch } from "@/components/animate-ui/components/radix/switch"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
@@ -49,9 +48,7 @@ export function AgentCard({
       tabIndex={0}
     >
       <span className="flex min-w-0 items-center gap-2">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-          <BotIcon />
-        </span>
+        <AgentAvatar agent={agent} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{agent.name}</span>
           <span className="block truncate text-muted-foreground text-xs">
