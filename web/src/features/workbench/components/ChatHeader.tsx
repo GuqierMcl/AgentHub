@@ -9,6 +9,7 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { InfiniteLinearProgress } from "@/components/ui/infinite-linear-progress"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,27 +19,34 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import type { Conversation, ConversationAgentProfile } from "../types"
+import type { RuntimeRunStatus } from "../api/runtime-runs"
+import type { RunConnectionStatus } from "../store/workbench-store"
 import { getConversationAgentProfiles } from "../utils/conversation-agents"
 import { ConversationAvatar } from "./AgentAvatar"
 
 type ChatHeaderProps = {
   conversation: Conversation
+  runStatus: RuntimeRunStatus | "idle" | "submitted"
+  connectionStatus: RunConnectionStatus
   isWorkspaceOpen: boolean
   onToggleWorkspace: () => void
 }
 
 export function ChatHeader({
+  connectionStatus,
   conversation,
   isWorkspaceOpen,
   onToggleWorkspace,
+  runStatus,
 }: ChatHeaderProps) {
   const conversationAgents = getConversationAgentProfiles(conversation)
   const agentNames = conversationAgents.map((agent) => agent.name)
   const workspaceLabel = getWorkspaceLabel(conversation.workspace)
   const missingModelCount = conversationAgents.filter(needsModelBinding).length
+  const showRunProgress = shouldShowRunProgress(runStatus, connectionStatus)
 
   return (
-      <header className="flex min-h-20 shrink-0 items-center justify-between gap-4 border-border border-b bg-background px-5">
+      <header className="relative flex min-h-20 shrink-0 items-center justify-between gap-4 border-border border-b bg-background px-5">
           <div className="flex min-w-0 items-center gap-3">
               <ConversationAvatar conversation={conversation} />
               <div className="min-w-0">
@@ -125,6 +133,12 @@ export function ChatHeader({
                   )}
               </Button>
           </div>
+          {showRunProgress ? (
+              <InfiniteLinearProgress
+                  aria-label="当前会话正在运行"
+                  className="absolute inset-x-0 bottom-0 h-0.5 rounded-none bg-muted/60"
+              />
+          ) : null}
       </header>
   );
 }
@@ -139,5 +153,20 @@ function needsModelBinding(agent: ConversationAgentProfile): boolean {
     agent.enabled !== false &&
     (agent.executorType === "ai-sdk" || agent.executorType === "orchestrator") &&
     !agent.resolvedModel
+  )
+}
+
+function shouldShowRunProgress(
+  runStatus: RuntimeRunStatus | "idle" | "submitted",
+  connectionStatus: RunConnectionStatus
+): boolean {
+  return (
+    connectionStatus !== "error" &&
+    (
+    runStatus === "submitted" ||
+    runStatus === "queued" ||
+    runStatus === "running" ||
+    runStatus === "waiting_approval"
+    )
   )
 }

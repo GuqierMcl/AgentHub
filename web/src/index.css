@@ -32,6 +32,28 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --animate-indeterminate-fast: indeterminate-fast 1s infinite linear;
+  --animate-indeterminate-slow: indeterminate-slow 1.8s infinite linear;
+}
+
+@keyframes indeterminate-fast {
+  0% {
+    left: -30%;
+  }
+
+  100% {
+    left: 100%;
+  }
+}
+
+@keyframes indeterminate-slow {
+  0% {
+    left: -80%;
+  }
+
+  100% {
+    left: 100%;
+  }
 }
 
 :root {
