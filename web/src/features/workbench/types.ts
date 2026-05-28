@@ -1,4 +1,9 @@
 import type { ToolUIPart } from "ai"
+import type {
+  AgentExecutorType,
+  AgentOrigin,
+  AgentResolvedModel,
+} from "@/features/agents/types"
 
 export type AgentStatus = "online" | "busy" | "idle"
 
@@ -66,6 +71,7 @@ export type Conversation = {
   title: string
   mode: "single" | "group"
   agentIds: string[]
+  agents?: ConversationAgentProfile[]
   preview: string
   activeAt: string
   workspace: string
@@ -79,6 +85,18 @@ export type Conversation = {
 // Backend API types
 
 export type AgentRole = "primary" | "member" | "orchestrator"
+
+export type ConversationAgentProfile = {
+  id: string
+  name: string
+  shortName?: string
+  role: AgentRole
+  origin?: AgentOrigin
+  executorType?: AgentExecutorType
+  capabilities: string[]
+  enabled?: boolean
+  resolvedModel?: AgentResolvedModel
+}
 
 export type ConversationListItem = {
   id: string

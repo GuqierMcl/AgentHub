@@ -1,10 +1,13 @@
-import { AgentAvatar as SharedAgentAvatar } from "@/components/agent-avatar"
-import { AvatarGroup } from "@/components/ui/avatar"
+import {
+  AgentAvatar as SharedAgentAvatar,
+  type AgentAvatarAgent,
+} from "@/components/agent-avatar"
+import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 
-import { getAgentById } from "../mock-data"
-import type { Agent, Conversation } from "../types"
+import type { Conversation } from "../types"
+import { getConversationAgentProfiles } from "../utils/conversation-agents"
 
-export function AgentAvatar({ agent }: { agent: Agent }) {
+export function AgentAvatar({ agent }: { agent: AgentAvatarAgent }) {
   return <SharedAgentAvatar agent={agent} size="lg" />
 }
 
@@ -13,35 +16,10 @@ export function ConversationAvatar({
 }: {
   conversation: Conversation
 }) {
-  const conversationAgents = conversation.agentIds
-    .map((id) => getAgentById(id))
-    .filter((agent): agent is Agent => Boolean(agent))
+  const conversationAgents = getConversationAgentProfiles(conversation)
 
   if (conversationAgents.length === 1) {
     return <AgentAvatar agent={conversationAgents[0]} />
-  }
-
-  if (conversationAgents.length === 0 && conversation.agentIds.length > 0) {
-    const fallbackAgents = conversation.agentIds.map((id) => ({
-      id,
-      name: id,
-      shortName: id.slice(0, 2).toUpperCase(),
-      role: "",
-      status: "idle" as const,
-      capabilities: [],
-    }))
-
-    if (fallbackAgents.length === 1) {
-      return <AgentAvatar agent={fallbackAgents[0]} />
-    }
-
-    return (
-      <AvatarGroup>
-        {fallbackAgents.slice(0, 3).map((agent) => (
-          <AgentAvatar agent={agent} key={agent.id} />
-        ))}
-      </AvatarGroup>
-    )
   }
 
   return (
@@ -49,6 +27,9 @@ export function ConversationAvatar({
       {conversationAgents.slice(0, 3).map((agent) => (
         <AgentAvatar agent={agent} key={agent.id} />
       ))}
+      {conversationAgents.length > 3 ? (
+        <AvatarGroupCount>+{conversationAgents.length - 3}</AvatarGroupCount>
+      ) : null}
     </AvatarGroup>
   )
 }

@@ -29,6 +29,7 @@
 - 首批一级模块为 `chat` 与 `agents`。`chat` 内容区使用“会话列表、聊天区、产物工作台”的三栏布局；`agents` 使用“智能体列表、详情/编辑区”的两栏布局。
 - Chat 模块首次进入时不自动选中已有会话；`activeConversationId` 为空时右侧内容区渲染欢迎页，不挂载聊天面板和产物工作台。用户手动选择会话或创建新会话后，才渲染聊天区和产物工作台。
 - 聊天模块的会话列表、会话详情、新建、重命名、置顶和归档已经接入 HubServer conversation API；消息流当前处于“未持久化 Runs 聊天”阶段：Web 使用本地 Zustand 状态保存每个 conversation 的草稿、临时消息、最近 Runtime `runId`、Run 状态、SSE 连接状态和已接收事件 id，刷新页面丢失这些本地消息与 active run 映射是当前阶段的预期行为。
+- 聊天 header 使用 conversation detail 的成员关系和 runtime agents 查询结果渲染真实智能体头像组、会话标题、群聊/单聊 badge、参与智能体名称、成员数量、工作区标签和基础模型绑定提示；不得再依赖 workbench mock agent 数据。
 - Web 通过 HubServer 的 `/api/runtime/runs*` 转发接口创建 Runtime Run、订阅 Run SSE 和取消 Run；浏览器仍不得直接调用 `agent-runtime`。本阶段不写 HubServer `Message`、`Run` 或 `RunEvent` 表，后续由产品级 messages/runs API 接管持久化。
 - 当前智能体头像 V1 由前端共享 resolver 根据 agent id/origin 解析：系统预设使用图标库，外部智能体可使用静态资源，未知或用户自定义智能体使用 initials/hash 兜底；API 契约暂不包含头像字段。
 - 页面根容器填满视口，不产生 `body` 级滚动；模块内的列表、消息流、详情表单与产物内容各自在内部滚动。
