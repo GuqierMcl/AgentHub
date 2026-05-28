@@ -13,6 +13,13 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/animate-ui/components/radix/alert-dialog"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 
 import type { ConversationListItem as ConversationListItemType } from "../types"
 
@@ -66,86 +73,107 @@ export function ConversationListItemView({
   const isGroup = conversation.mode === "group"
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={cn(
-        "group relative w-full rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent cursor-pointer",
-        selected && "border-primary/50 bg-accent"
-      )}
-      onClick={() => onSelect(conversation.id)}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(conversation.id) } }}
-    >
-      <div className="flex gap-3">
-        <div className="flex size-9 items-center justify-center rounded-lg bg-muted shrink-0">
-          {isGroup ? (
-            <UsersIcon className="size-4 text-muted-foreground" />
-          ) : (
-            <MessageSquareTextIcon className="size-4 text-muted-foreground" />
-          )}
-        </div>
-        <span className="flex min-w-0 flex-col gap-1 flex-1">
-          <span className="flex min-w-0 items-center justify-between gap-2">
-            <span className="truncate text-sm font-semibold">
-              {conversation.title}
-            </span>
-            <span className="shrink-0 text-muted-foreground text-xs">
-              {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : ""}
-            </span>
-          </span>
-          <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
-            <span className="line-clamp-1">
-              {conversation.lastMessageId ? "有消息记录" : "无消息"}
-            </span>
-          </span>
-          {getWorkspacePath(conversation.metadata) && (
-            <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
-              <FolderIcon className="size-3 shrink-0" />
-              <span className="line-clamp-1">
-                {getWorkspacePath(conversation.metadata)}
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            role="button"
+            tabIndex={0}
+            className={cn(
+              "group relative w-full rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent cursor-pointer",
+              selected && "border-primary/50 bg-accent"
+            )}
+            onClick={() => onSelect(conversation.id)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(conversation.id) } }}
+          >
+            <div className="flex gap-3">
+              <div className="flex size-9 items-center justify-center rounded-lg bg-muted shrink-0">
+                {isGroup ? (
+                  <UsersIcon className="size-4 text-muted-foreground" />
+                ) : (
+                  <MessageSquareTextIcon className="size-4 text-muted-foreground" />
+                )}
+              </div>
+              <span className="flex min-w-0 flex-col gap-1 flex-1">
+                <span className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold">
+                    {conversation.title}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground text-xs">
+                    {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : ""}
+                  </span>
+                </span>
+                <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
+                  <span className="line-clamp-1">
+                    {conversation.lastMessageId ? "有消息记录" : "无消息"}
+                  </span>
+                </span>
+                {getWorkspacePath(conversation.metadata) && (
+                  <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
+                    <FolderIcon className="size-3 shrink-0" />
+                    <span className="line-clamp-1">
+                      {getWorkspacePath(conversation.metadata)}
+                    </span>
+                  </span>
+                )}
+                <span className="flex min-w-0 items-center gap-1">
+                  <Badge variant={isGroup ? "default" : "secondary"}>
+                    {isGroup ? "群聊" : "单聊"}
+                  </Badge>
+                </span>
               </span>
-            </span>
-          )}
-          <span className="flex min-w-0 items-center gap-1">
-            <Badge variant={isGroup ? "default" : "secondary"}>
-              {isGroup ? "群聊" : "单聊"}
-            </Badge>
-          </span>
-        </span>
-      </div>
+            </div>
 
-      <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onRename(conversation.id) }}
-          className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          title="重命名"
-        >
-          <PenIcon className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onPin(conversation.id, !isPinned) }}
-          className={cn(
-            "flex size-6 items-center justify-center rounded-md hover:bg-accent transition-colors",
-            isPinned ? "text-foreground" : "text-muted-foreground"
-          )}
-          title={isPinned ? "取消置顶" : "置顶"}
-        >
-          <PinIcon className={cn("size-3.5", isPinned && "fill-current")} />
-        </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setConfirmArchive(true) }}
-          className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          title={isArchived ? "取消归档" : "归档"}
-        >
-          <ArchiveIcon className="size-3.5" />
-        </button>
-      </div>
+            <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onRename(conversation.id) }}
+                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                title="重命名"
+              >
+                <PenIcon className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onPin(conversation.id, !isPinned) }}
+                className={cn(
+                  "flex size-6 items-center justify-center rounded-md hover:bg-accent transition-colors",
+                  isPinned ? "text-foreground" : "text-muted-foreground"
+                )}
+                title={isPinned ? "取消置顶" : "置顶"}
+              >
+                <PinIcon className={cn("size-3.5", isPinned && "fill-current")} />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setConfirmArchive(true) }}
+                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                title={isArchived ? "取消归档" : "归档"}
+              >
+                <ArchiveIcon className="size-3.5" />
+              </button>
+            </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => onRename(conversation.id)}>
+            <PenIcon />
+            编辑
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => onPin(conversation.id, !isPinned)}>
+            <PinIcon />
+            {isPinned ? "取消置顶" : "置顶"}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" onClick={() => setConfirmArchive(true)}>
+            <ArchiveIcon />
+            {isArchived ? "取消归档" : "归档"}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
-        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认归档</AlertDialogTitle>
             <AlertDialogDescription>
@@ -153,13 +181,13 @@ export function ConversationListItemView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setConfirmArchive(false)}>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { onArchive(conversation.id, !isArchived); setConfirmArchive(false) }}>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { onArchive(conversation.id, !isArchived) }}>
               归档
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   )
 }

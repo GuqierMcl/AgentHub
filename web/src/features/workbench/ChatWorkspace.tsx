@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useCallback, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
@@ -123,11 +123,6 @@ export function ChatWorkspace() {
     },
   })
 
-  useEffect(() => {
-    if (activeConversationId || conversations.length === 0) return
-    handleSelectConversation(conversations[0].id)
-  }, [activeConversationId, conversations, handleSelectConversation])
-
   const handleCreateConversation = useCallback(
     async (body: CreateConversationBody): Promise<ConversationDetail> => {
       return createMutation.mutateAsync(body)
@@ -182,7 +177,10 @@ export function ChatWorkspace() {
         onArchive={handleArchive}
         onRename={handleRename}
       />
-      <WorkbenchContentLayout activeConversationId={activeConversationId} />
+      <WorkbenchContentLayout
+        activeConversationId={activeConversationId}
+        onCreateConversation={() => setNewDialogOpen(true)}
+      />
       <NewConversationDialog
         open={newDialogOpen}
         onOpenChange={setNewDialogOpen}

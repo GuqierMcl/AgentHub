@@ -39,9 +39,9 @@ import {
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input"
 import { SpeechInput } from "@/components/ai-elements/speech-input"
-import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion"
 
-import { modelChefs, modelOptions, suggestedPrompts } from "../mock-data"
+
+import { modelChefs, modelOptions } from "../mock-data"
 
 function AttachmentItem({
   attachment,
@@ -150,10 +150,6 @@ export function ChatComposer({
     await onSubmit(message.text)
   }, [onSubmit])
 
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    onValueChange(suggestion)
-  }, [onValueChange])
-
   const handleTranscriptionChange = useCallback((transcript: string) => {
     onValueChange(value ? `${value} ${transcript}` : transcript)
   }, [onValueChange, value])
@@ -164,17 +160,7 @@ export function ChatComposer({
   }, [])
 
   return (
-    <div className="grid shrink-0 gap-3 border-border border-t bg-background p-3">
-      <Suggestions>
-        {suggestedPrompts.map((suggestion) => (
-          <Suggestion
-            key={suggestion}
-            onClick={handleSuggestionClick}
-            suggestion={suggestion}
-          />
-        ))}
-      </Suggestions>
-
+    <div className="grid shrink-0 gap-3 border-border bg-transparent p-3">
       <PromptInput globalDrop multiple onSubmit={handleSubmit}>
         <PromptInputHeader>
           <PromptInputAttachmentsDisplay />
@@ -184,7 +170,7 @@ export function ChatComposer({
             className="min-h-14"
             disabled={disabled}
             onChange={(event) => onValueChange(event.currentTarget.value)}
-            placeholder="@AgentHub 描述下一步任务..."
+            placeholder="说点什么吧..."
             value={value}
           />
         </PromptInputBody>

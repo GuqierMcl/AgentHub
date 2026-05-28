@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/resizable"
 
 import { useTabStore } from "@/store/tab-store"
+import type { AgentSummary } from "@/features/agents/types"
+import { agentsApi } from "@/features/agents/api/agents"
 
 import { conversationsApi } from "../api/conversations"
 import { workbenchQueryKeys } from "../api/query-keys"
@@ -22,14 +24,23 @@ import {
   useWorkbenchStore,
 } from "../store/workbench-store"
 import { ChatPanel } from "./ChatPanel"
-import type { Conversation } from "../types"
+import { WorkbenchWelcome } from "./WorkbenchWelcome"
+import type {
+  Conversation,
+  ConversationAgentItem,
+  ConversationAgentProfile,
+} from "../types"
+
+const EMPTY_AGENT_SUMMARIES: AgentSummary[] = []
 
 type WorkbenchContentLayoutProps = {
   activeConversationId: string | null
+  onCreateConversation: () => void
 }
 
 export function WorkbenchContentLayout({
   activeConversationId,
+  onCreateConversation,
 }: WorkbenchContentLayoutProps) {
   const workspacePanelRef = usePanelRef()
   const [isWorkspaceCollapsed, setIsWorkspaceCollapsed] = useState(true)
@@ -54,7 +65,14 @@ export function WorkbenchContentLayout({
     enabled: !!activeConversationId,
   })
 
+  const agentsQuery = useQuery({
+    queryKey: workbenchQueryKeys.agents.all,
+    queryFn: () => agentsApi.list({ includeHidden: true, enabledOnly: false }),
+    enabled: !!activeConversationId,
+  })
+
   const conversationDetail = conversationQuery.data
+  const agentSummaries = agentsQuery.data?.agents ?? EMPTY_AGENT_SUMMARIES
 
   useEffect(() => {
     if (!conversationDetail) return
@@ -68,12 +86,17 @@ export function WorkbenchContentLayout({
     if (!conversationDetail) return null
     const messages = runtimeState?.messages ?? []
     const workspace = getWorkspacePath(conversationDetail.metadata)
+    const agents = resolveConversationAgents(
+      conversationDetail.agents,
+      agentSummaries
+    )
     const latestMessage = messages.at(-1)
     return {
       id: conversationDetail.id,
       title: conversationDetail.title,
       mode: conversationDetail.mode,
-      agentIds: conversationDetail.agents.map((agent) => agent.agentId),
+      agentIds: agents.map((agent) => agent.id),
+      agents,
       preview: latestMessage?.text ?? "",
       activeAt: conversationDetail.lastMessageAt ?? conversationDetail.updatedAt,
       workspace,
@@ -85,7 +108,7 @@ export function WorkbenchContentLayout({
         : false,
       messages,
     }
-  }, [conversationDetail, runtimeState])
+  }, [agentSummaries, conversationDetail, runtimeState])
 
   const handleDraftChange = useCallback((draft: string) => {
     if (!activeConversationId) return
@@ -171,6 +194,10 @@ export function WorkbenchContentLayout({
     hasTabsRef.current = hasTabs
   }, [tabs.length, workspacePanelRef])
 
+  if (!activeConversationId) {
+    return <WorkbenchWelcome onCreateConversation={onCreateConversation} />
+  }
+
   return (
     <div className="h-full min-h-0 min-w-0 bg-background">
       <ResizablePanelGroup
@@ -228,4 +255,40 @@ function getWorkspacePath(metadata: Record<string, unknown> | null): string {
   if (typeof workspace !== "object" || workspace === null) return ""
   const snapshot = workspace as Record<string, unknown>
   return typeof snapshot.rootPath === "string" ? snapshot.rootPath : ""
+}
+
+function resolveConversationAgents(
+  conversationAgents: ConversationAgentItem[],
+  agentSummaries: AgentSummary[]
+): ConversationAgentProfile[] {
+  const agentById = new Map(agentSummaries.map((agent) => [agent.id, agent]))
+  return [...conversationAgents]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((member) => {
+      const agent = agentById.get(member.agentId)
+      return {
+        id: member.agentId,
+        name: agent?.name ?? member.agentId,
+        shortName: resolveShortName(agent?.name ?? member.agentId, member.agentId),
+        role: member.role,
+        origin: agent?.origin,
+        executorType: agent?.executorType,
+        capabilities: agent?.capabilities ?? [],
+        enabled: agent?.enabled,
+        resolvedModel: agent?.resolvedModel,
+      }
+    })
+}
+
+function resolveShortName(name: string, id: string): string {
+  const source = name.trim() || id
+  const words = source.split(/[\s_-]+/).filter(Boolean)
+  if (words.length > 1) {
+    return words
+      .slice(0, 2)
+      .map((word) => Array.from(word)[0])
+      .join("")
+      .toUpperCase()
+  }
+  return Array.from(source).slice(0, 2).join("").toUpperCase()
 }
