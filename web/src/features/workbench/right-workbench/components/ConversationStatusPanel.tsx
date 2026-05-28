@@ -51,6 +51,13 @@ export function ConversationStatusPanel({
   const completedTaskCount =
     latestPlan?.tasks.filter((task) => task.status === "completed").length ?? 0
 
+  const planAggregateStatus = latestPlan
+    ? getPlanAggregateStatus(latestPlan.tasks)
+    : null
+  const planStatusMeta = planAggregateStatus
+    ? getPlanTaskStatusMeta(planAggregateStatus)
+    : null
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background w-full">
       <div className="shrink-0 border-border border-b p-3">
@@ -70,8 +77,10 @@ export function ConversationStatusPanel({
           <section className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <h4 className="font-medium text-sm">执行计划</h4>
-              {latestPlan ? (
-                <Badge variant="secondary">{latestPlan.status}</Badge>
+              {planStatusMeta ? (
+                <Badge className={planStatusMeta.className} variant="outline">
+                  {planStatusMeta.label}
+                </Badge>
               ) : null}
             </div>
             {latestPlan ? (
@@ -222,6 +231,16 @@ function PlanQueue({ item }: { item: WorkbenchTimelinePlanItem }) {
       </QueueSection>
     </Queue>
   )
+}
+
+function getPlanAggregateStatus(tasks: WorkbenchTimelinePlanItem["tasks"]): string | undefined {
+  if (tasks.length === 0) return undefined
+  const statuses = tasks.map((t) => t.status?.toLowerCase())
+  if (statuses.some((s) => s === "failed" || s === "error")) return "failed"
+  if (statuses.some((s) => s === "running" || s === "in_progress" || s === "active")) return "running"
+  if (statuses.every((s) => s === "completed" || s === "done" || s === "success")) return "completed"
+  if (statuses.some((s) => s === "cancelled" || s === "canceled")) return "cancelled"
+  return "pending"
 }
 
 function getPlanTaskStatusMeta(status?: string) {
