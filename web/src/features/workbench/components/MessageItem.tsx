@@ -22,13 +22,17 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import {
-  Plan,
-  PlanContent,
-  PlanDescription,
-  PlanHeader,
-  PlanTitle,
-  PlanTrigger,
-} from "@/components/ai-elements/plan"
+  Queue,
+  QueueItem,
+  QueueItemContent,
+  QueueItemDescription,
+  QueueItemIndicator,
+  QueueList,
+  QueueSection,
+  QueueSectionContent,
+  QueueSectionLabel,
+  QueueSectionTrigger,
+} from "@/components/ai-elements/queue"
 import {
   Reasoning,
   ReasoningContent,
@@ -260,43 +264,69 @@ function TaskTimelineItem({ item }: { item: WorkbenchTimelineTaskItem }) {
 function PlanTimelineItem({ item }: { item: WorkbenchTimelinePlanItem }) {
   return (
     <TimelineCard>
-      <Plan className="max-w-[min(720px,100%)]" defaultOpen>
-        <PlanHeader>
-          <div className="min-w-0">
-            <PlanTitle>{item.title}</PlanTitle>
-            <PlanDescription>{item.description}</PlanDescription>
-          </div>
-          <PlanTrigger />
-        </PlanHeader>
-        <PlanContent>
-          <div className="space-y-2 text-sm">
+      <Queue className="max-w-[min(720px,100%)]">
+        <QueueSection defaultOpen>
+          <QueueSectionTrigger>
+            <QueueSectionLabel count={item.tasks.length} label="个任务" />
+            <span className="min-w-0 truncate text-right text-muted-foreground text-xs pl-2">
+              {item.title}
+            </span>
+          </QueueSectionTrigger>
+          <QueueSectionContent>
+            {item.description ? (
+              <div className="px-3 pt-2 text-muted-foreground text-xs">
+                {item.description}
+              </div>
+            ) : null}
             {item.tasks.length ? (
-              item.tasks.map((task) => (
-                <div
-                  className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2"
-                  key={task.taskId}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{task.title}</div>
-                    {task.targetAgentId ? (
-                      <div className="text-muted-foreground text-xs">
-                        {task.targetAgentId}
-                      </div>
-                    ) : null}
-                  </div>
-                  {task.status ? (
-                    <Badge className="shrink-0" variant="secondary">
-                      {task.status}
-                    </Badge>
-                  ) : null}
-                </div>
-              ))
+              <QueueList>
+                {item.tasks.map((task) => {
+                  const completed = task.status === "completed"
+                  const failed = task.status === "failed" || task.status === "cancelled"
+
+                  return (
+                    <QueueItem key={task.taskId}>
+                      <span className="flex min-w-0 items-start gap-3">
+                        <QueueItemIndicator
+                          className={
+                            failed
+                              ? "border-destructive/50 bg-destructive/10"
+                              : undefined
+                          }
+                          completed={completed}
+                        />
+                        <QueueItemContent
+                          className={failed ? "text-destructive" : undefined}
+                          completed={completed}
+                        >
+                          {task.title}
+                        </QueueItemContent>
+                        {task.status ? (
+                          <Badge
+                            className="shrink-0"
+                            variant={failed ? "destructive" : "secondary"}
+                          >
+                            {task.status}
+                          </Badge>
+                        ) : null}
+                      </span>
+                      {task.targetAgentId ? (
+                        <QueueItemDescription completed={completed}>
+                          Target: {task.targetAgentId}
+                        </QueueItemDescription>
+                      ) : null}
+                    </QueueItem>
+                  )
+                })}
+              </QueueList>
             ) : (
-              <div className="text-muted-foreground">Plan updated.</div>
+              <div className="px-3 pt-2 text-muted-foreground text-sm">
+                Plan updated.
+              </div>
             )}
-          </div>
-        </PlanContent>
-      </Plan>
+          </QueueSectionContent>
+        </QueueSection>
+      </Queue>
     </TimelineCard>
   )
 }
@@ -327,7 +357,7 @@ function ReasoningTimelineItem({
 
 function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
   return (
-    <Tool className="mb-0 max-w-[min(720px,100%)]" defaultOpen>
+    <Tool className="mb-0 max-w-[min(720px,100%)]" defaultOpen={false} >
       <ToolHeader
         state={item.status}
         title={item.title}

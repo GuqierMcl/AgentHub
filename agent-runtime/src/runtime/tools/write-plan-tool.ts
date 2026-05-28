@@ -38,8 +38,9 @@ export function createWritePlanTool(): ToolDefinition<WritePlanInput, WritePlanM
     name: "write_plan",
     displayName: "Write plan",
     description: [
-      "编写或更新当前编排器计划以供 UI 渲染。",
+      "编写或更新当前编排器计划及任务状态以供 UI 渲染。",
       "这将记录意图和可执行的任务候选，但不会执行任务。",
+      "当已委派任务完成、失败或取消后，应使用相同 taskId 再次调用本工具更新对应任务的 status。",
     ].join(" "),
     category: "orchestration",
     inputSchema: WritePlanInputSchema,

@@ -369,6 +369,7 @@ POST /api/runs/:runId/cancel
 - 阶段 1.6：完成 Runtime message identity 和 Web alternating chat bubbles；一次 Run 内多段主智能体发言不再被合并到同一个气泡，`run_task` 工具事件只保留追踪不渲染工具卡片。
 - 阶段 1.6 补强：完成 message-scoped reasoning/tool/permission 聚合；同一智能体当前输出中的 reasoning、普通工具、审批和文本可以落到同一条消息容器，为后续 MessagePart 持久化预留路径。
 - 阶段 1.6 补强：完成 Orchestrator prompt 去复述策略；委派给可见主智能体后只补充增量信息或简短确认，不再转述已经显示的主智能体输出。
+- 阶段 1.6 补强：Plan timeline UI 改为使用 ai-elements `Queue`，并强化 Orchestrator / `write_plan` 提示，要求委派任务完成、失败或取消后用相同 `taskId` 更新计划状态。
 
 ## 待办
 
@@ -377,6 +378,7 @@ POST /api/runs/:runId/cancel
 - 阶段 3：接入上下文、标题、pin、@、停止与重试语义。
 - 阶段 4：接入权限审批。
 - 阶段 5：接入计划、任务、工具事件 UI。
+- 阶段 5：如果 Orchestrator 偶发漏调 `write_plan` 更新状态，在 Web/HubServer projection 层按 `taskId` 将 `task.completed` / `task.failed` 自动回填到当前 Plan task status。
 - 阶段 6：接入 Artifact 投影。
 - 阶段 7：接入 Sidecar 和恢复能力。
 - 阶段 8：接入真实外部 Agent adapter 和端到端验收。
@@ -401,4 +403,5 @@ POST /api/runs/:runId/cancel
 - 2026-05-28：实施阶段 1.6。Runtime `message.*` 事件按 AI SDK 文本块生成 `messageId/messageIndex`；Web 按 `messageId` 渲染交替聊天气泡，并隐藏 `run_task` 工具卡片。
 - 2026-05-28：补强阶段 1.6。Runtime 将当前输出上下文的 `messageId/messageIndex` 扩展到 reasoning、普通工具和权限事件；Web 将这些事件聚合进同一条消息或关联 task。
 - 2026-05-28：补强阶段 1.6。优化 Orchestrator prompt，禁止复述可见主智能体已经在聊天流中展示的回复，仅在有增量价值时补充状态、下一步或风险。
+- 2026-05-28：补强阶段 1.6。Plan timeline UI 改用 ai-elements `Queue`；强化 Orchestrator / `write_plan` 描述，要求任务批次完成后更新计划状态，并将 projection 自动回填列入后续计划。
 - 2026-05-27：创建路线图，确定先做 Web 未持久化 Runs 聊天闭环，再做 HubServer 持久化与产品级发送入口；记录 Zustand + TanStack Query 状态管理方向。

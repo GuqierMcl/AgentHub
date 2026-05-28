@@ -177,6 +177,7 @@ Runtime trace 可以和 parent run 的事件流关联，但不应作为模型输
 - 同一 Run 内可以多次调用 `write_plan`；最后一个成功的 `tool.completed(toolName="write_plan")` 是当前计划。
 - `write_plan` 不执行任务，不产生 `task.*` 事件。
 - `write_plan` 与 `run_task` 是软约束关系：Prompt 要求先写计划，但 Runtime 不强制拦截未计划任务。
+- Orchestrator 应在委派任务完成、失败或取消后，用相同 `taskId` 再次调用 `write_plan` 更新对应任务的 `status`；并行任务建议在一个批次结果明确后批量更新一次，避免过度消耗模型工具步数。
 
 ### 7.2 输入与输出
 
@@ -197,7 +198,7 @@ Runtime trace 可以和 parent run 的事件流关联，但不应作为模型输
 - `dependsOn`
 - `status`
 
-工具输出为统一工具结果，其中 `data.plan` 是前端可直接渲染的结构化计划。
+工具输出为统一工具结果，其中 `data.plan` 是前端可直接渲染的结构化计划。`status` 字段来自 Orchestrator 写入的计划状态，当前 Runtime 不会自动用 `task.completed` / `task.failed` 回填计划任务状态。
 
 ### 7.3 事件流
 

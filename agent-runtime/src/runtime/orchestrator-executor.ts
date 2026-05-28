@@ -275,6 +275,8 @@ export class OrchestratorExecutor implements AgentExecutor {
         "- For complex requests or any request that may need delegation, call write_plan first.",
         "- write_plan records the current UI-renderable plan only; it does not execute tasks.",
         "- If the plan changes, call write_plan again; the latest successful write_plan result is the current plan.",
+        "- After delegated run_task work completes, fails, or is cancelled, call write_plan again with the same taskId values to update task status.",
+        "- For parallel task batches, update the plan once after the batch result is known instead of writing a separate plan for every finished task.",
         "- Use run_task when another listed target is better suited for a task.",
         "- Each run_task call must target exactly one agent and one task.",
         "- When possible, keep run_task taskId values aligned with the latest write_plan taskId values.",
