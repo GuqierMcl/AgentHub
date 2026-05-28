@@ -338,8 +338,8 @@ function TooltipOverlay() {
                   transition={transition}
                   {...rendered.data.contentProps}
                   style={{
-                    position: 'relative',
                     ...(rendered.data.contentProps?.style || {}),
+                    position: 'relative',
                   }}
                 />
               </RenderedTooltipProvider>

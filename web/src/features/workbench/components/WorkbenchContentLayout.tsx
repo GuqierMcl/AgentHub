@@ -22,14 +22,17 @@ import {
   useWorkbenchStore,
 } from "../store/workbench-store"
 import { ChatPanel } from "./ChatPanel"
+import { WorkbenchWelcome } from "./WorkbenchWelcome"
 import type { Conversation } from "../types"
 
 type WorkbenchContentLayoutProps = {
   activeConversationId: string | null
+  onCreateConversation: () => void
 }
 
 export function WorkbenchContentLayout({
   activeConversationId,
+  onCreateConversation,
 }: WorkbenchContentLayoutProps) {
   const workspacePanelRef = usePanelRef()
   const [isWorkspaceCollapsed, setIsWorkspaceCollapsed] = useState(true)
@@ -170,6 +173,10 @@ export function WorkbenchContentLayout({
 
     hasTabsRef.current = hasTabs
   }, [tabs.length, workspacePanelRef])
+
+  if (!activeConversationId) {
+    return <WorkbenchWelcome onCreateConversation={onCreateConversation} />
+  }
 
   return (
     <div className="h-full min-h-0 min-w-0 bg-background">
