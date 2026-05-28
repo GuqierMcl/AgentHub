@@ -89,7 +89,7 @@ export function applyRuntimeEventToTimeline(
     case "orchestrator.plan.created":
       return upsertPlanFromEvent(items, event)
     case "run.completed":
-      return completeRunItems(items, event.runId)
+      return completeRunItems(items, event)
     case "run.failed":
       return upsertRunStatus(items, event, "failed")
     case "run.cancelled":
@@ -489,12 +489,16 @@ function createReasoningBlock(
   content?: string
 ): WorkbenchTimelineReasoningBlock {
   const data = getEventDataObject(event)
+  const startedAt = status === "streaming" ? event.timestamp : undefined
+  const completedAt = status === "completed" ? event.timestamp : undefined
   return {
     reasoningId: getString(data.reasoningId) ?? "default",
     messageId: event.messageId,
     messageIndex: event.messageIndex,
     text: content ?? delta ?? "",
     time: formatTimelineTime(new Date(event.timestamp)),
+    ...(startedAt ? { startedAt } : {}),
+    ...(completedAt ? { completedAt } : {}),
     status,
   }
 }
@@ -510,6 +514,9 @@ function upsertReasoning(
 
   return upsertItem(items, id, (item) => {
     const current = item?.kind === "reasoning" ? item : undefined
+    const startedAt = current?.startedAt ?? (status === "streaming" ? event.timestamp : undefined)
+    const completedAt = status === "completed" ? event.timestamp : current?.completedAt
+    const duration = current?.duration ?? getReasoningDuration(startedAt, completedAt)
     return {
       kind: "reasoning",
       id,
@@ -518,6 +525,9 @@ function upsertReasoning(
       agentId: event.agentId,
       text: getString(data.content) ?? current?.text ?? "",
       time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
+      startedAt,
+      completedAt,
+      duration,
       status,
     }
   })
@@ -542,6 +552,9 @@ function appendReasoningDelta(
       agentId: event.agentId,
       text: `${current?.text ?? ""}${delta}`,
       time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
+      startedAt: current?.startedAt ?? event.timestamp,
+      completedAt: current?.completedAt,
+      duration: current?.duration,
       status: "streaming",
     }
   })
@@ -600,30 +613,32 @@ function upsertPlan(
 
 function completeRunItems(
   items: WorkbenchTimelineItem[],
-  runId: string
+  event: RuntimeRunEvent
 ): WorkbenchTimelineItem[] {
+  const runId = event.runId
+  const completedAt = event.timestamp
   return items.map((item) => {
     if ("runId" in item && item.runId !== runId) return item
     if (item.kind === "chat_message" && item.status === "streaming") {
       return {
         ...item,
         status: "completed",
-        reasoningBlocks: item.reasoningBlocks?.map((block) => (
-          block.status === "streaming" ? { ...block, status: "completed" } : block
-        )),
+        reasoningBlocks: item.reasoningBlocks?.map((block) =>
+          completeReasoningBlock(block, completedAt)
+        ),
       }
     }
     if (item.kind === "task" && item.status === "running") {
       return {
         ...item,
         status: "completed",
-        reasoningBlocks: item.reasoningBlocks?.map((block) => (
-          block.status === "streaming" ? { ...block, status: "completed" } : block
-        )),
+        reasoningBlocks: item.reasoningBlocks?.map((block) =>
+          completeReasoningBlock(block, completedAt)
+        ),
       }
     }
     if (item.kind === "reasoning" && item.status === "streaming") {
-      return { ...item, status: "completed" }
+      return completeReasoningItem(item, completedAt)
     }
     return item
   })
@@ -751,13 +766,71 @@ function upsertReasoningBlock(
 
   return currentBlocks.map((block, blockIndex) =>
     blockIndex === index
-      ? {
-          ...block,
-          ...nextBlock,
-          text: append ? `${block.text}${nextBlock.text}` : nextBlock.text || block.text,
-        }
+      ? mergeReasoningBlock(block, nextBlock, append)
       : block
   )
+}
+
+function mergeReasoningBlock(
+  current: WorkbenchTimelineReasoningBlock,
+  nextBlock: WorkbenchTimelineReasoningBlock,
+  append: boolean
+): WorkbenchTimelineReasoningBlock {
+  const startedAt = current.startedAt ?? nextBlock.startedAt
+  const completedAt = nextBlock.completedAt ?? current.completedAt
+  const duration =
+    nextBlock.duration ??
+    current.duration ??
+    getReasoningDuration(startedAt, completedAt)
+
+  return {
+    ...current,
+    ...nextBlock,
+    startedAt,
+    completedAt,
+    duration,
+    text: append ? `${current.text}${nextBlock.text}` : nextBlock.text || current.text,
+  }
+}
+
+function completeReasoningBlock(
+  block: WorkbenchTimelineReasoningBlock,
+  completedAt: string
+): WorkbenchTimelineReasoningBlock {
+  if (block.status === "completed") return block
+  const nextCompletedAt = block.completedAt ?? completedAt
+  return {
+    ...block,
+    completedAt: nextCompletedAt,
+    duration: block.duration ?? getReasoningDuration(block.startedAt, nextCompletedAt),
+    status: "completed",
+  }
+}
+
+function completeReasoningItem(
+  item: WorkbenchTimelineReasoningItem,
+  completedAt: string
+): WorkbenchTimelineReasoningItem {
+  const nextCompletedAt = item.completedAt ?? completedAt
+  return {
+    ...item,
+    completedAt: nextCompletedAt,
+    duration: item.duration ?? getReasoningDuration(item.startedAt, nextCompletedAt),
+    status: "completed",
+  }
+}
+
+function getReasoningDuration(
+  startedAt?: string,
+  completedAt?: string
+): number | undefined {
+  if (!startedAt || !completedAt) return undefined
+  const start = Date.parse(startedAt)
+  const end = Date.parse(completedAt)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return undefined
+  }
+  return Math.max(1, Math.ceil((end - start) / 1000))
 }
 
 function getChatMessageId(event: RuntimeRunEvent): string {

@@ -1,12 +1,12 @@
 import {
   CheckCircleIcon,
+  CheckIcon,
   CircleAlertIcon,
   ClockIcon,
   CopyIcon,
-  RefreshCcwIcon,
   XCircleIcon,
 } from "lucide-react"
-import { memo, type ReactNode } from "react"
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react"
 
 import {
   Message,
@@ -59,6 +59,7 @@ import {
   ConfirmationRejected,
   ConfirmationRequest,
   ConfirmationTitle,
+  type ConfirmationProps,
 } from "@/components/ai-elements/confirmation"
 import { Badge } from "@/components/ui/badge"
 import type { ToolUIPart } from "ai"
@@ -112,9 +113,23 @@ function ChatMessageItem({
   agentProfiles: ConversationAgentProfile[]
 }) {
   const agent = resolveAgentProfile(agentProfiles, item.agentId)
-  const versions = item.versions?.length
-    ? item.versions
-    : [{ content: item.text, id: `${item.id}-default` }]
+  const versions = useMemo(
+    () =>
+      item.versions?.length
+        ? item.versions
+        : [{ content: item.text, id: `${item.id}-default` }],
+    [item.id, item.text, item.versions]
+  )
+
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    const text = versions.map((v) => v.content).join("\n")
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [versions])
 
   return (
     <MessageBranch defaultBranch={0}>
@@ -176,17 +191,9 @@ function ChatMessageItem({
               <MessageActions
                 className={item.role === "user" ? "justify-end" : undefined}
               >
-                <MessageAction label="Copy message" tooltip="Copy">
-                  <CopyIcon />
+                <MessageAction label="Copy message" tooltip={copied ? "Copied!" : "Copy"} onClick={handleCopy}>
+                  {copied ? <CheckIcon /> : <CopyIcon />}
                 </MessageAction>
-                {item.role === "assistant" ? (
-                  <MessageAction
-                    label="Regenerate response"
-                    tooltip="Regenerate"
-                  >
-                    <RefreshCcwIcon />
-                  </MessageAction>
-                ) : null}
               </MessageActions>
             </div>
           </Message>
@@ -335,7 +342,7 @@ function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
 }
 
 function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }) {
-  const approval =
+  const approval: NonNullable<ConfirmationProps["approval"]> =
     item.approved === undefined
       ? { id: item.requestId }
       : { id: item.requestId, approved: item.approved }
@@ -365,11 +372,16 @@ function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }
 function ReasoningBlockView({
   block,
 }: {
-  block: { status: "streaming" | "completed"; text: string }
+  block: {
+    duration?: number
+    status: "streaming" | "completed"
+    text: string
+  }
 }) {
   return (
     <Reasoning
       className="max-w-[min(720px,100%)]"
+      duration={block.duration}
       isStreaming={block.status === "streaming"}
     >
       <ReasoningTrigger />

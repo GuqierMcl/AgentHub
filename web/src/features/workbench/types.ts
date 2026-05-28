@@ -63,6 +63,9 @@ export type WorkbenchTimelineReasoningBlock = {
   messageIndex?: number
   text: string
   time: string
+  startedAt?: string
+  completedAt?: string
+  duration?: number
   status: "streaming" | "completed"
 }
 
@@ -149,6 +152,9 @@ export type WorkbenchTimelineReasoningItem = {
   agentId?: string
   text: string
   time: string
+  startedAt?: string
+  completedAt?: string
+  duration?: number
   status: "streaming" | "completed"
 }
 
