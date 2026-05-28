@@ -150,10 +150,6 @@ export function ChatComposer({
     await onSubmit(message.text)
   }, [onSubmit])
 
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    onValueChange(suggestion)
-  }, [onValueChange])
-
   const handleTranscriptionChange = useCallback((transcript: string) => {
     onValueChange(value ? `${value} ${transcript}` : transcript)
   }, [onValueChange, value])
