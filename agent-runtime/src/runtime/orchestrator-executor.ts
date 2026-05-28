@@ -3,6 +3,7 @@ import type { AgentDefinition, AgentRegistry } from "../agents"
 import { createChildLogger } from "../logger"
 import type { ProviderService } from "../provider"
 import { AgentModelResolutionError, resolveAgentLanguageModel } from "./model-resolver"
+import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { createRunEvent } from "./run-events"
 import type {
@@ -69,7 +70,13 @@ export class OrchestratorExecutor implements AgentExecutor {
       )
     }
 
-    const toolSettings = this.toolRegistry.buildAiSdkToolSettings(context, {
+    const messageIdentity = new MessageBlockIdentityTracker(context)
+    const streamContext: AgentExecutionContext = {
+      ...context,
+      getCurrentMessageId: () => messageIdentity.getOrCreateCurrentMessageId(),
+    }
+
+    const toolSettings = this.toolRegistry.buildAiSdkToolSettings(streamContext, {
       includeInternal: true,
     })
     if (!toolSettings || toolSettings.activeTools.length === 0) {
@@ -102,8 +109,8 @@ export class OrchestratorExecutor implements AgentExecutor {
 
     const result = streamText({
       model: resolution.languageModel,
-      system: this.buildSystemPrompt(context),
-      messages: normalizeHistoryMessages(context),
+      system: this.buildSystemPrompt(streamContext),
+      messages: normalizeHistoryMessages(streamContext),
       maxOutputTokens: resolution.resolvedModel.outputLength,
       temperature: resolution.resolvedModel.capabilities.temperature ? DEFAULT_TEMPERATURE : undefined,
       tools: toolSettings.tools,
@@ -145,9 +152,9 @@ export class OrchestratorExecutor implements AgentExecutor {
       },
     })
 
-    let content = ""
     let approvalPending = false
-    const modelStreamEvents = new ModelStreamEventBuilder(context)
+    const messageBlockEvents = new MessageBlockEventBuilder(streamContext, messageIdentity)
+    const modelStreamEvents = new ModelStreamEventBuilder(streamContext, messageIdentity)
 
     try {
       for await (const chunk of result.fullStream) {
@@ -165,19 +172,10 @@ export class OrchestratorExecutor implements AgentExecutor {
           context.permissionService?.bindAiSdkApproval(runId, chunk.toolCall.toolCallId, chunk.approvalId)
           continue
         }
-        if (chunk.type !== "text-delta" || !chunk.text) {
-          continue
-        }
 
-        content += chunk.text
-        const delta = createRunEvent(runId, "message.delta", agent.id, {
-          delta: chunk.text,
-        })
-        delta.taskId = task?.taskId
-        delta.parentAgentId = parentAgentId
-        delta.parentTaskId = parentTaskId
-        delta.groupId = groupId
-        yield delta
+        for (const event of messageBlockEvents.createEvents(chunk)) {
+          yield event
+        }
       }
 
       if (signal.aborted) {
@@ -186,6 +184,10 @@ export class OrchestratorExecutor implements AgentExecutor {
       }
 
       if (approvalPending) {
+        for (const event of messageBlockEvents.flushOpenBlocks()) {
+          yield event
+        }
+
         const response = await result.response
         context.onApprovalPending?.([
           ...normalizeHistoryMessages(context),
@@ -199,21 +201,17 @@ export class OrchestratorExecutor implements AgentExecutor {
         result.usage,
       ])
 
-      if (!content) {
-        content = await Promise.resolve(result.text).catch(() => "")
+      for (const event of messageBlockEvents.flushOpenBlocks()) {
+        yield event
       }
 
-      const completed = createRunEvent(runId, "message.completed", agent.id, {
-        content,
-        finishReason,
-        usage,
-        resolvedModel: resolution.resolvedModel,
-      })
-      completed.taskId = task?.taskId
-      completed.parentAgentId = parentAgentId
-      completed.parentTaskId = parentTaskId
-      completed.groupId = groupId
-      yield completed
+      if (!messageBlockEvents.hasEmittedMessage()) {
+        const fallbackText = await Promise.resolve(result.text).catch(() => "")
+        const fallbackCompleted = messageBlockEvents.createCompletedFallback(fallbackText)
+        if (fallbackCompleted) {
+          yield fallbackCompleted
+        }
+      }
 
       const agentCompleted = createRunEvent(runId, "agent.completed", agent.id, {
         status: "completed",

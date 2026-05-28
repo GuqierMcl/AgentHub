@@ -261,6 +261,7 @@ export class RuntimeToolRegistry {
       executionId: baseContext.executionId,
       executeTask: baseContext.executeTask,
       runTask: baseContext.runTask,
+      getCurrentMessageId: baseContext.getCurrentMessageId,
     }
   }
 
@@ -298,6 +299,7 @@ export class RuntimeToolRegistry {
     const event: RunEvent = createRunEvent(context.runId, type, context.agent.id, data)
     event.toolCallId = context.toolCallId
     event.toolName = toolName
+    event.messageId = context.getCurrentMessageId?.()
     event.taskId = context.task?.taskId
     event.parentAgentId = context.parentAgentId ?? context.agent.id
     event.parentTaskId = context.parentTaskId

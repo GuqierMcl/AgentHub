@@ -18,7 +18,6 @@ const runtimeEventTypes = [
   "permission.approved",
   "permission.denied",
   "permission.cancelled",
-  "model.stream.part",
   "reasoning.started",
   "reasoning.delta",
   "reasoning.completed",
@@ -39,6 +38,8 @@ type ManagedConnection = {
 
 class RunStreamManager {
   private connections = new Map<string, ManagedConnection>()
+  private pendingEvents = new Map<string, RuntimeRunEvent[]>()
+  private pendingFlushes = new Map<string, number>()
 
   connect(conversationId: string, runId: string): void {
     const current = this.connections.get(conversationId)
@@ -72,11 +73,7 @@ class RunStreamManager {
       if (this.connections.get(conversationId)?.source !== source) return
       try {
         const event = JSON.parse(eventMessage.data) as RuntimeRunEvent
-        useWorkbenchStore.getState().applyRuntimeEvent(conversationId, event)
-        const nextStatus = useWorkbenchStore.getState().getConversationState(conversationId).runStatus
-        if (isTerminalRunStatus(nextStatus)) {
-          this.disconnect(conversationId, "disconnected")
-        }
+        this.enqueueEvent(conversationId, event)
       } catch {
         useWorkbenchStore.getState().setConnectionStatus(conversationId, "error")
       }
@@ -96,7 +93,48 @@ class RunStreamManager {
     if (!connection) return
     connection.source.close()
     this.connections.delete(conversationId)
+    this.pendingEvents.delete(conversationId)
+    const flushId = this.pendingFlushes.get(conversationId)
+    if (flushId !== undefined) {
+      this.pendingFlushes.delete(conversationId)
+      globalThis.cancelAnimationFrame?.(flushId)
+      window.clearTimeout(flushId)
+    }
     useWorkbenchStore.getState().setConnectionStatus(conversationId, status)
+  }
+
+  private enqueueEvent(conversationId: string, event: RuntimeRunEvent): void {
+    const pending = this.pendingEvents.get(conversationId) ?? []
+    pending.push(event)
+    this.pendingEvents.set(conversationId, pending)
+
+    if (this.pendingFlushes.has(conversationId)) {
+      return
+    }
+
+    const flush = () => {
+      this.pendingFlushes.delete(conversationId)
+      this.flushEvents(conversationId)
+    }
+    const flushId = typeof globalThis.requestAnimationFrame === "function"
+      ? globalThis.requestAnimationFrame(flush)
+      : window.setTimeout(flush, 16)
+    this.pendingFlushes.set(conversationId, flushId)
+  }
+
+  private flushEvents(conversationId: string): void {
+    const events = this.pendingEvents.get(conversationId)
+    if (!events?.length) {
+      return
+    }
+
+    this.pendingEvents.delete(conversationId)
+    useWorkbenchStore.getState().applyRuntimeEvents(conversationId, events)
+
+    const nextStatus = useWorkbenchStore.getState().getConversationState(conversationId).runStatus
+    if (isTerminalRunStatus(nextStatus)) {
+      this.disconnect(conversationId, "disconnected")
+    }
   }
 }
 

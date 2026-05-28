@@ -117,6 +117,8 @@ export const RunEventSchema = z.object({
   groupId: z.string().optional(),
   toolCallId: z.string().optional(),
   toolName: z.string().optional(),
+  messageId: z.string().optional(),
+  messageIndex: z.number().int().min(0).optional(),
   data: z.unknown().optional(),
 })
 export type RunEvent = z.infer<typeof RunEventSchema>
@@ -215,6 +217,8 @@ export type AgentExecutionContext = {
     groupId?: string
     parentTaskId?: string
   }) => Promise<TaskExecutionResult>
+  createMessageId?: () => string
+  getCurrentMessageId?: () => string
 }
 
 export type AgentExecutor = {

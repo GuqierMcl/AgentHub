@@ -153,6 +153,26 @@ Web local message state
 - SSE replay 后 timeline 不重复追加 delta 或卡片。
 - 单聊与群聊主智能体消息仍按 IM 聊天气泡显示。
 
+### 阶段 1.6：Runtime Message Identity 与交替聊天气泡
+
+目的：让一次 Runtime Run 中可以自然出现多条主聊天气泡，例如 `orchestrator -> coder/task -> orchestrator`，并为后续 HubServer 消息持久化提供稳定 message identity。
+
+任务：
+
+- Runtime `RunEvent` 增加可选顶层字段 `messageId` 与 `messageIndex`。
+- Runtime 使用 AI SDK `text-start/text-delta/text-end` 作为 Runtime message block 边界；同一文本块的 delta/completed 共享同一个 `messageId`。
+- 缺少 `text-start/text-end` 的 provider 或旧路径使用 fallback block：第一条 `text-delta` 创建 message，execution 暂停或结束时补 `message.completed`。
+- `messageIndex` 由 RunManager 在首次看到新 `messageId` 时按实际 emit 顺序分配，支持并发任务下稳定排序。
+- Web timeline projection 优先使用 `messageId` 作为 chat item identity；老事件缺少 `messageId` 时保留原 fallback。
+- Web 不再把 `toolName = "run_task"` 的工具事件渲染为工具卡片；原始事件仍保留给 event log 和后续持久化。
+
+出口标准：
+
+- 同一个主智能体在同一次 Run 内多段发言可以渲染成多条聊天气泡。
+- 子智能体输出仍进入 task 卡片。
+- `run_task` 不再与 task/subagent 输出重复显示。
+- 新 `messageId/messageIndex` 可以直接映射到后续 `Message`、`MessagePart` 和 `RunEvent.messageId`。
+
 ### 阶段 2：HubServer 产品级发送入口与持久化
 
 目的：把消息发送从 Runtime 代理升级为 HubServer 产品 API。
@@ -333,6 +353,8 @@ POST /api/runs/:runId/cancel
 - Web 已新增 Runtime Runs API client 和 EventSource connection manager，复用 HubServer `/api/runtime/runs*` 转发接口。
 - Web 聊天消息流已从静态原型推进到第一阶段未持久化 Runtime Runs 聊天；刷新页面丢失本地消息与 active run 映射仍是当前阶段预期。
 - Web 已新增 timeline projection 层，使用 `WorkbenchTimelineItem` 和 ai-elements renderer 表达 chat message、task、tool、permission、reasoning、plan 与 run status。
+- Runtime message 事件已增加 `messageId/messageIndex`；Web timeline projection 已按 `messageId` 拆分主聊天气泡，并隐藏 `run_task` 工具卡片以避免与 task/subagent 输出重复。
+- Runtime reasoning/tool/permission 事件已开始复用当前输出上下文的 `messageId/messageIndex`；Web projection 会把同一 `messageId` 的 reasoning、普通工具和审批嵌入对应聊天消息，旧事件才退回独立 timeline item。
 
 ## 已完成
 
@@ -343,6 +365,8 @@ POST /api/runs/:runId/cancel
 - 阶段 0：完成 TanStack Query Provider、conversation list/detail 查询、conversation create/rename/pin/archive mutation，以及 Zustand workbench store。
 - 阶段 1：完成 Web 本地消息发送、Runtime Run 创建、SSE 流式输出、Runtime event id 去重、基础失败/取消显示，以及切会话关闭订阅但不取消 Run、切回后重新订阅 replay 的前端机制。
 - 阶段 1.5：完成 Web timeline projection 和 ai-elements timeline renderer；子智能体输出、工具、任务、权限、reasoning、plan 与 run 状态不再混入普通消息模型。
+- 阶段 1.6：完成 Runtime message identity 和 Web alternating chat bubbles；一次 Run 内多段主智能体发言不再被合并到同一个气泡，`run_task` 工具事件只保留追踪不渲染工具卡片。
+- 阶段 1.6 补强：完成 message-scoped reasoning/tool/permission 聚合；同一智能体当前输出中的 reasoning、普通工具、审批和文本可以落到同一条消息容器，为后续 MessagePart 持久化预留路径。
 
 ## 待办
 
@@ -362,7 +386,7 @@ POST /api/runs/:runId/cancel
 - Orchestrator 必须绑定支持 tool calling 的模型，否则群聊默认入口会失败。
 - 阶段 1 的消息刷新丢失是预期行为；不要为它临时写入数据库。
 - 阶段 1 切会话恢复依赖 Agent Runtime 的 in-memory Run 和 event replay；Runtime 进程重启后不能恢复，这是阶段 2/7 的持久化与恢复能力要解决的问题。
-- Runtime SSE replay 会重放已有 `message.delta`；Web 如果直接在已有文本上追加 replay delta，会产生重复内容，必须按 `event.id` 去重或从事件列表重新派生视图。
+- Runtime SSE replay 会重放已有 `message.delta`；Web 如果直接在已有文本上追加 replay delta，会产生重复内容，必须按 `event.id` 去重或从事件列表重新派生视图。聊天气泡身份优先使用 Runtime `messageId`，缺少该字段时才使用旧 fallback。
 - Web 当前 timeline 仍是浏览器内存态；刷新后丢失 timeline 是阶段 1.5 的预期行为，阶段 2 后再迁移为 HubServer 持久化消息和事件投影。
 - HubServer SSE 消费和前端 SSE 转发要避免同一 Runtime event 被重复持久化。
 - HubServer 的本地 `Run.id` 和 Runtime `runId` 必须通过 `Run.runtimeId` 明确映射。
@@ -372,4 +396,6 @@ POST /api/runs/:runId/cancel
 
 - 2026-05-28：实施阶段 0+1。Web 使用 Zustand + TanStack Query 管理会话与运行态，并通过 HubServer `/api/runtime/runs*` 转发接口跑通未持久化 Runtime Runs 聊天、SSE 流式输出和切会话重新订阅恢复策略。
 - 2026-05-28：实施阶段 1.5。Web 将未持久化聊天流迁移为 Timeline Projection，使用 ai-elements 渲染 chat message、task、tool、permission、reasoning、plan 和 run status。
+- 2026-05-28：实施阶段 1.6。Runtime `message.*` 事件按 AI SDK 文本块生成 `messageId/messageIndex`；Web 按 `messageId` 渲染交替聊天气泡，并隐藏 `run_task` 工具卡片。
+- 2026-05-28：补强阶段 1.6。Runtime 将当前输出上下文的 `messageId/messageIndex` 扩展到 reasoning、普通工具和权限事件；Web 将这些事件聚合进同一条消息或关联 task。
 - 2026-05-27：创建路线图，确定先做 Web 未持久化 Runs 聊天闭环，再做 HubServer 持久化与产品级发送入口；记录 Zustand + TanStack Query 状态管理方向。

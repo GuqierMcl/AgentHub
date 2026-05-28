@@ -10,7 +10,7 @@
 
 ```text
 event: message.delta
-data: {"id":"evt_xxx","runId":"run_xxx","type":"message.delta","timestamp":"2026-05-26T00:00:00.000Z","agentId":"coder","data":{"delta":"hello"}}
+data: {"id":"evt_xxx","runId":"run_xxx","type":"message.delta","timestamp":"2026-05-26T00:00:00.000Z","agentId":"coder","messageId":"msg_run_xxx_execution_xxx_0","messageIndex":0,"data":{"delta":"hello"}}
 ```
 
 订阅行为：
@@ -35,6 +35,8 @@ type RunEvent = {
   groupId?: string
   toolCallId?: string
   toolName?: string
+  messageId?: string
+  messageIndex?: number
   data?: unknown
 }
 ```
@@ -105,7 +107,46 @@ run.cancelled
 
 `system_agent.completed` 是 Runtime 内部系统智能体的结果事件。首版只支持 `agentId = "system:title"`，用于把第一次对话生成的短标题作为同一条 Run SSE 流的一部分交给上游消费方。Runtime 只在该结果赶上 `run.completed` 前输出；否则取消标题任务并静默跳过，不延迟主 Run 完成。该事件不表示 Runtime 已经更新业务状态，HubServer 后续接入时负责条件落库。
 
-## 4. AI SDK Part Passthrough
+## 4. Message Identity
+
+Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`message.delta` 与 `message.completed` 仍以模型文本块作为文本边界；`reasoning.*`、`tool.*` 与 `permission.*` 在能归属到当前模型输出时也会携带同一个 `messageId`，供 UI 和后续 HubServer 持久化把同一智能体的思考、工具、审批和文本聚合到同一条产品消息。
+
+规则：
+
+- AI SDK `text-start` 创建一个 Runtime message block。
+- 同一 block 内的 `text-delta` 使用同一个 `messageId` 输出 `message.delta`。
+- AI SDK `text-end` 输出同一个 `messageId` 的 `message.completed`。
+- 若 provider 或旧路径缺少 `text-start/text-end`，Runtime 在第一条 `text-delta` 时创建 fallback block，并在 execution 暂停或结束时补 `message.completed`。
+- `messageId` 是 run 内稳定 id，当前形态为 `msg_${runId}_${executionId}_${blockIndex}`。
+- `reasoning-start` 可在 `text-start` 之前预留当前消息的 `messageId`；随后同一输出中的文本块复用该 `messageId`。
+- 工具或权限事件如果发生在当前模型输出上下文中，也复用当前 `messageId`；缺少明确当前消息时 Runtime 会为该工具/权限上下文创建新的 `messageId`。
+- `messageIndex` 由 RunManager 在首次看到新 `messageId` 时按实际 emit 顺序分配，是 run-local 递增序号；同一 `messageId` 下的 reasoning、tool、permission 和 message 事件共享同一个 `messageIndex`。
+- `agent.completed` 仍表示一次 agent execution 完成；`usage`、`finishReason`、`resolvedModel` 以 `agent.completed.data` 为准。`message.completed.data` 只保证包含最终 `content`。
+
+示例：
+
+```json
+{
+  "id": "evt_xxx",
+  "runId": "run_xxx",
+  "type": "message.completed",
+  "timestamp": "2026-05-26T00:00:00.000Z",
+  "agentId": "orchestrator",
+  "messageId": "msg_run_xxx_execution_xxx_1",
+  "messageIndex": 1,
+  "data": {
+    "content": "我已经让 Coder 检查过，实现建议如下。"
+  }
+}
+```
+
+持久化兼容：
+
+- HubServer 后续消费 Runtime SSE 时，应把 `RunEvent.messageId` 保存为 `event.messageId`。
+- 同一 `messageId` 的 `reasoning.*`、`tool.*`、`permission.*`、`message.delta/completed` 投影到同一 assistant `Message`；文本进入 text `MessagePart`，reasoning/tool/permission 可进入对应 message parts 或 metadata。
+- `messageIndex` 可先落入 `Message.metadataJson.runtime.messageIndex`；若后续需要强排序字段，可以再做破坏性迁移。
+
+## 5. AI SDK Part Passthrough
 
 `model.stream.part` 是 AI SDK `streamText().fullStream` part 的薄封装。它用于调试、细粒度 UI 和未来事件投影，不替代现有高层 RunEvent。
 
@@ -155,7 +196,7 @@ type ModelStreamPartEventData = {
 
 `raw` part 仅在 `includeRawModelChunks=true` 时输出。
 
-## 5. Reasoning Events
+## 6. Reasoning Events
 
 `reasoning.*` 是从 AI SDK reasoning part 提升出的稳定 RunEvent。它只表示 provider 或 AI SDK 显式暴露的 reasoning/thinking 内容，不表示 Runtime 能访问隐藏链路。
 
@@ -177,7 +218,7 @@ type ReasoningCompletedData = {
 }
 ```
 
-同一个 reasoning block 内，Runtime 会按 `reasoningId` 聚合 delta，并在 `reasoning.completed.data.content` 中返回聚合文本。
+同一个 reasoning block 内，Runtime 会按 `reasoningId` 聚合 delta，并在 `reasoning.completed.data.content` 中返回聚合文本。`reasoning.*` 会尽量携带当前输出的 `messageId/messageIndex`，以便 UI 将 reasoning 折叠块嵌入对应智能体消息；老事件缺少 `messageId` 时，消费者可以退回按 `runId + agentId + reasoningId` 独立渲染。
 
 对于同一个 AI SDK reasoning part，事件顺序为：
 
@@ -186,14 +227,14 @@ model.stream.part
 reasoning.started | reasoning.delta | reasoning.completed
 ```
 
-## 6. Ordering And Compatibility
+## 7. Ordering And Compatibility
 
-- 对于 `text-delta`，Runtime 先输出 `model.stream.part`，再输出现有 `message.delta`。
+- 对于 `text-start/text-delta/text-end`，Runtime 先输出 `model.stream.part`，再按文本块输出 `message.delta` 或 `message.completed`。
 - 对于 reasoning part，Runtime 先输出 `model.stream.part`，再输出对应 `reasoning.*`。
 - 工具调用仍以 `tool.*`、`permission.*` 和 `task.*` 作为稳定语义事件；`model.stream.part` 中的 tool part 只作为模型流追踪。
 - 后续如果需要把 `source`、`file`、`tool-input-*` 等提升为独立 RunEvent，应从 `model.stream.part` 增量投影，不改变现有高层事件语义。
 
-## 7. Redaction And Serialization
+## 8. Redaction And Serialization
 
 Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 

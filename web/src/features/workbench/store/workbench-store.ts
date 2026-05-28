@@ -22,7 +22,7 @@ type ConversationRuntimeState = {
   runStatus: RuntimeRunStatus | "idle" | "submitted"
   connectionStatus: RunConnectionStatus
   chatSpeakerIds: Record<string, true>
-  receivedEventIds: Record<string, true>
+  receivedEventIds: Set<string>
   events: RuntimeRunEvent[]
 }
 
@@ -36,12 +36,43 @@ type WorkbenchStore = {
   markRunSubmitted: (conversationId: string) => void
   startRuntimeRun: (conversationId: string, runId: string, status: RuntimeRunStatus) => void
   applyRuntimeEvent: (conversationId: string, event: RuntimeRunEvent) => void
+  applyRuntimeEvents: (conversationId: string, events: RuntimeRunEvent[]) => void
   failRunStart: (conversationId: string, message: string, code?: string) => void
   setConnectionStatus: (conversationId: string, status: RunConnectionStatus) => void
   getConversationState: (conversationId: string) => ConversationRuntimeState
 }
 
 const terminalRunStatuses = new Set(["completed", "failed", "cancelled"])
+const maxEventLogSize = 200
+
+const timelineEventTypes = new Set([
+  "message.delta",
+  "message.completed",
+  "task.started",
+  "task.completed",
+  "task.failed",
+  "tool.started",
+  "tool.completed",
+  "tool.failed",
+  "permission.requested",
+  "permission.approved",
+  "permission.denied",
+  "permission.cancelled",
+  "reasoning.started",
+  "reasoning.delta",
+  "reasoning.completed",
+  "orchestrator.plan.created",
+  "run.completed",
+  "run.failed",
+  "run.cancelled",
+])
+
+const runStatusByEventType: Partial<Record<string, RuntimeRunStatus>> = {
+  "run.started": "running",
+  "run.completed": "completed",
+  "run.cancelled": "cancelled",
+  "run.failed": "failed",
+}
 
 function createEmptyConversationState(): ConversationRuntimeState {
   return {
@@ -51,7 +82,7 @@ function createEmptyConversationState(): ConversationRuntimeState {
     runStatus: "idle",
     connectionStatus: "idle",
     chatSpeakerIds: {},
-    receivedEventIds: {},
+    receivedEventIds: new Set(),
     events: [],
   }
 }
@@ -154,7 +185,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             activeRuntimeRunId: runId,
             runStatus: status,
             connectionStatus: "connecting",
-            receivedEventIds: {},
+            receivedEventIds: new Set(),
             events: [],
           },
         },
@@ -163,63 +194,72 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   applyRuntimeEvent: (conversationId, event) => {
+    get().applyRuntimeEvents(conversationId, [event])
+  },
+
+  applyRuntimeEvents: (conversationId, events) => {
+    if (events.length === 0) return
+
     set((state) => {
       const current = getOrCreateState(state.conversations, conversationId)
-      if (current.receivedEventIds[event.id]) {
-        return state
-      }
+      let activeRuntimeRunId = current.activeRuntimeRunId
+      let runStatus = current.runStatus
+      let connectionStatus = current.connectionStatus
+      let timelineItems = current.timelineItems
+      let eventLog = current.events
+      let hasRenderableChange = false
 
-      let next: ConversationRuntimeState = {
-        ...current,
-        activeRuntimeRunId: current.activeRuntimeRunId ?? event.runId,
-        receivedEventIds: {
-          ...current.receivedEventIds,
-          [event.id]: true,
-        },
-        events: [...current.events, event],
-      }
-
-      if (event.type === "run.started") {
-        next = { ...next, runStatus: "running" }
-      }
-
-      if (event.type === "run.completed") {
-        next = {
-          ...next,
-          runStatus: "completed",
-          connectionStatus: "disconnected",
+      for (const event of events) {
+        if (current.receivedEventIds.has(event.id)) {
+          continue
         }
-      }
 
-      if (event.type === "run.cancelled") {
-        next = {
-          ...next,
-          runStatus: "cancelled",
-          connectionStatus: "disconnected",
+        current.receivedEventIds.add(event.id)
+        activeRuntimeRunId = activeRuntimeRunId ?? event.runId
+
+        const nextRunStatus = runStatusByEventType[event.type]
+        if (nextRunStatus && nextRunStatus !== runStatus) {
+          runStatus = nextRunStatus
+          hasRenderableChange = true
+          if (isTerminalRunStatus(nextRunStatus)) {
+            connectionStatus = "disconnected"
+          }
         }
-      }
 
-      if (event.type === "run.failed") {
-        next = {
-          ...next,
-          runStatus: "failed",
-          connectionStatus: "disconnected",
+        const shouldProject = timelineEventTypes.has(event.type)
+        if (!shouldProject) {
+          continue
         }
-      }
 
-      next = {
-        ...next,
-        timelineItems: applyRuntimeEventToTimeline(
-          next.timelineItems,
+        eventLog = appendEventLog(eventLog, event)
+        hasRenderableChange = true
+        const nextTimelineItems = applyRuntimeEventToTimeline(
+          timelineItems,
           event,
-          next.chatSpeakerIds
-        ),
+          current.chatSpeakerIds
+        )
+
+        if (nextTimelineItems !== timelineItems) {
+          timelineItems = nextTimelineItems
+          hasRenderableChange = true
+        }
+      }
+
+      if (!hasRenderableChange && activeRuntimeRunId === current.activeRuntimeRunId) {
+        return state
       }
 
       return {
         conversations: {
           ...state.conversations,
-          [conversationId]: next,
+          [conversationId]: {
+            ...current,
+            activeRuntimeRunId,
+            runStatus,
+            connectionStatus,
+            timelineItems,
+            events: eventLog,
+          },
         },
       }
     })
@@ -263,3 +303,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     return getOrCreateState(get().conversations, conversationId)
   },
 }))
+
+function appendEventLog(
+  events: RuntimeRunEvent[],
+  event: RuntimeRunEvent
+): RuntimeRunEvent[] {
+  if (events.length >= maxEventLogSize) {
+    return [...events.slice(events.length - maxEventLogSize + 1), event]
+  }
+  return [...events, event]
+}

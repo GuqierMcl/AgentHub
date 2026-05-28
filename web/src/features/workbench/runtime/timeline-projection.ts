@@ -5,6 +5,7 @@ import type {
   WorkbenchTimelinePermissionItem,
   WorkbenchTimelinePlanItem,
   WorkbenchTimelinePlanTask,
+  WorkbenchTimelineReasoningBlock,
   WorkbenchTimelineReasoningItem,
   WorkbenchTimelineRunStatusItem,
   WorkbenchTimelineTaskItem,
@@ -64,24 +65,27 @@ export function applyRuntimeEventToTimeline(
     case "task.failed":
       return upsertTask(items, event, "failed")
     case "tool.started":
-      return upsertTool(items, event, "input-available")
+      return applyToolEvent(items, event, chatSpeakerIds, "input-available")
     case "tool.completed":
-      return upsertPlanFromTool(upsertTool(items, event, "output-available"), event)
+      return upsertPlanFromTool(
+        applyToolEvent(items, event, chatSpeakerIds, "output-available"),
+        event
+      )
     case "tool.failed":
-      return upsertTool(items, event, "output-error")
+      return applyToolEvent(items, event, chatSpeakerIds, "output-error")
     case "permission.requested":
-      return upsertPermission(items, event, "approval-requested")
+      return applyPermissionEvent(items, event, chatSpeakerIds, "approval-requested")
     case "permission.approved":
-      return upsertPermission(items, event, "approval-responded", true)
+      return applyPermissionEvent(items, event, chatSpeakerIds, "approval-responded", true)
     case "permission.denied":
     case "permission.cancelled":
-      return upsertPermission(items, event, "output-denied", false)
+      return applyPermissionEvent(items, event, chatSpeakerIds, "output-denied", false)
     case "reasoning.started":
-      return upsertReasoning(items, event, "streaming")
+      return applyReasoningStarted(items, event, chatSpeakerIds)
     case "reasoning.delta":
-      return appendReasoningDelta(items, event)
+      return applyReasoningDelta(items, event, chatSpeakerIds)
     case "reasoning.completed":
-      return upsertReasoning(items, event, "completed")
+      return applyReasoningCompleted(items, event, chatSpeakerIds)
     case "orchestrator.plan.created":
       return upsertPlanFromEvent(items, event)
     case "run.completed":
@@ -145,6 +149,8 @@ function upsertChatMessage(
     kind: "chat_message",
     id,
     runId: event.runId,
+    runtimeMessageId: event.messageId,
+    messageIndex: event.messageIndex,
     role: "assistant",
     agentId: event.agentId,
     text: "",
@@ -155,7 +161,12 @@ function upsertChatMessage(
   return upsertItem(items, id, (item) =>
     update(
       item?.kind === "chat_message"
-        ? item
+        ? {
+            ...item,
+            runtimeMessageId: item.runtimeMessageId ?? event.messageId,
+            messageIndex: item.messageIndex ?? event.messageIndex,
+            agentId: item.agentId ?? event.agentId,
+          }
         : created
     )
   )
@@ -189,6 +200,7 @@ function upsertTask(
       time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
       status,
       error,
+      transcriptMessages: current?.transcriptMessages,
     }
   })
 }
@@ -202,6 +214,9 @@ function appendTaskTranscript(
   const id = getTaskItemId(event)
   return upsertItem(items, id, (item) => {
     const current = item?.kind === "task" ? item : undefined
+    const transcriptMessages = event.messageId
+      ? updateTaskTranscriptMessages(current?.transcriptMessages, event, text, replace)
+      : current?.transcriptMessages
     return {
       kind: "task",
       id,
@@ -210,12 +225,83 @@ function appendTaskTranscript(
       agentId: event.agentId,
       parentAgentId: event.parentAgentId,
       title: `${event.agentId ?? "Agent"} activity`,
-      text: replace ? text : `${current?.text ?? ""}${text}`,
+      text: event.messageId && transcriptMessages
+        ? formatTaskTranscript(transcriptMessages)
+        : replace ? text : `${current?.text ?? ""}${text}`,
       time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
       status: current?.status ?? "running",
       error: current?.error,
+      transcriptMessages,
     }
   })
+}
+
+function applyToolEvent(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  chatSpeakerIds: ChatSpeakerIds,
+  status: WorkbenchTimelineToolItem["status"]
+): WorkbenchTimelineItem[] {
+  if (!event.toolCallId || !event.toolName || event.toolName === "run_task") return items
+  if (isChatSpeaker(chatSpeakerIds, event.agentId)) {
+    return upsertChatMessage(items, event, (item) => ({
+      ...item,
+      text: item.text,
+      toolItems: upsertToolNestedItem(item.toolItems, event, status),
+    }))
+  }
+
+  if (event.taskId || event.parentTaskId) {
+    return upsertTaskNestedItem(items, event, (task) => ({
+      ...task,
+      toolItems: upsertToolNestedItem(task.toolItems, event, status),
+    }))
+  }
+
+  return upsertTool(items, event, status)
+}
+
+function updateTaskTranscriptMessages(
+  currentMessages: WorkbenchTimelineTaskItem["transcriptMessages"] | undefined,
+  event: RuntimeRunEvent,
+  text: string,
+  replace: boolean
+): WorkbenchTimelineTaskItem["transcriptMessages"] | undefined {
+  const messageId = event.messageId
+  if (!messageId) {
+    return currentMessages
+  }
+
+  const nextMessages = [...(currentMessages ?? [])]
+  const index = nextMessages.findIndex((message) => message.messageId === messageId)
+  const currentMessage = index >= 0 ? nextMessages[index] : undefined
+  const nextMessage = {
+    messageId,
+    messageIndex: event.messageIndex,
+    text: replace ? text : `${currentMessage?.text ?? ""}${text}`,
+  }
+
+  if (index >= 0) {
+    nextMessages[index] = nextMessage
+  } else {
+    nextMessages.push(nextMessage)
+  }
+
+  return nextMessages.sort((left, right) => {
+    if (typeof left.messageIndex === "number" && typeof right.messageIndex === "number") {
+      return left.messageIndex - right.messageIndex
+    }
+    return 0
+  })
+}
+
+function formatTaskTranscript(
+  messages: NonNullable<WorkbenchTimelineTaskItem["transcriptMessages"]>
+): string {
+  return messages
+    .map((message) => message.text.trim())
+    .filter(Boolean)
+    .join("\n\n")
 }
 
 function upsertTool(
@@ -223,30 +309,40 @@ function upsertTool(
   event: RuntimeRunEvent,
   status: WorkbenchTimelineToolItem["status"]
 ): WorkbenchTimelineItem[] {
-  if (!event.toolCallId || !event.toolName) return items
+  if (!event.toolCallId || !event.toolName || event.toolName === "run_task") return items
   const id = `tool:${event.runId}:${event.toolCallId}`
-  const data = getEventDataObject(event)
-  const errorText = status === "output-error" ? getErrorMessage(data) : undefined
 
   return upsertItem(items, id, (item) => {
     const current = item?.kind === "tool" ? item : undefined
-    return {
-      kind: "tool",
-      id,
-      runId: event.runId,
-      agentId: event.agentId,
-      toolCallId: event.toolCallId ?? current?.toolCallId ?? id,
-      toolName: event.toolName ?? current?.toolName ?? "tool",
-      title: getString(data.summary) ?? current?.title ?? event.toolName ?? "Tool",
-      time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
-      status,
-      input: current?.input ?? data.input ?? data.parameters,
-      output: status === "output-available"
-        ? data.data ?? data.result ?? data.summary ?? data
-        : current?.output,
-      errorText: errorText ?? current?.errorText,
-    }
+    return createToolItem(event, status, current)
   })
+}
+
+function createToolItem(
+  event: RuntimeRunEvent,
+  status: WorkbenchTimelineToolItem["status"],
+  current?: WorkbenchTimelineToolItem
+): WorkbenchTimelineToolItem {
+  const id = `tool:${event.runId}:${event.toolCallId ?? event.id}`
+  const data = getEventDataObject(event)
+  const errorText = status === "output-error" ? getErrorMessage(data) : undefined
+
+  return {
+    kind: "tool",
+    id,
+    runId: event.runId,
+    agentId: event.agentId,
+    toolCallId: event.toolCallId ?? current?.toolCallId ?? id,
+    toolName: event.toolName ?? current?.toolName ?? "tool",
+    title: getString(data.summary) ?? current?.title ?? event.toolName ?? "Tool",
+    time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
+    status,
+    input: current?.input ?? data.input ?? data.parameters,
+    output: status === "output-available"
+      ? data.data ?? data.result ?? data.summary ?? data
+      : current?.output,
+    errorText: errorText ?? current?.errorText,
+  }
 }
 
 function upsertPermission(
@@ -255,29 +351,155 @@ function upsertPermission(
   status: WorkbenchTimelinePermissionItem["status"],
   approved?: boolean
 ): WorkbenchTimelineItem[] {
-  const data = getEventDataObject(event)
-  const requestId = getString(data.requestId) ?? event.toolCallId ?? event.id
+  const requestId = getPermissionRequestId(event)
   const id = `permission:${event.runId}:${requestId}`
 
   return upsertItem(items, id, (item) => {
     const current = item?.kind === "permission" ? item : undefined
-    return {
-      kind: "permission",
-      id,
-      runId: event.runId,
-      requestId,
-      agentId: event.agentId,
-      toolCallId: event.toolCallId,
-      toolName: event.toolName,
-      title: event.toolName
-        ? `Permission required for ${event.toolName}`
-        : "Permission required",
-      reason: getString(data.reason) ?? getString(data.approvalReason) ?? current?.reason,
-      time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
-      status,
-      approved,
-    }
+    return createPermissionItem(event, status, approved, current)
   })
+}
+
+function applyPermissionEvent(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  chatSpeakerIds: ChatSpeakerIds,
+  status: WorkbenchTimelinePermissionItem["status"],
+  approved?: boolean
+): WorkbenchTimelineItem[] {
+  if (isChatSpeaker(chatSpeakerIds, event.agentId)) {
+    return upsertChatMessage(items, event, (item) => ({
+      ...item,
+      text: item.text,
+      permissionItems: upsertPermissionNestedItem(
+        item.permissionItems,
+        event,
+        status,
+        approved
+      ),
+    }))
+  }
+
+  if (event.taskId || event.parentTaskId) {
+    return upsertTaskNestedItem(items, event, (task) => ({
+      ...task,
+      permissionItems: upsertPermissionNestedItem(
+        task.permissionItems,
+        event,
+        status,
+        approved
+      ),
+    }))
+  }
+
+  return upsertPermission(items, event, status, approved)
+}
+
+function createPermissionItem(
+  event: RuntimeRunEvent,
+  status: WorkbenchTimelinePermissionItem["status"],
+  approved?: boolean,
+  current?: WorkbenchTimelinePermissionItem
+): WorkbenchTimelinePermissionItem {
+  const data = getEventDataObject(event)
+  const requestId = getPermissionRequestId(event)
+  return {
+    kind: "permission",
+    id: `permission:${event.runId}:${requestId}`,
+    runId: event.runId,
+    requestId,
+    agentId: event.agentId,
+    toolCallId: event.toolCallId,
+    toolName: event.toolName,
+    title: event.toolName
+      ? `Permission required for ${event.toolName}`
+      : "Permission required",
+    reason: getString(data.reason) ?? getString(data.approvalReason) ?? current?.reason,
+    time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
+    status,
+    approved,
+  }
+}
+
+function applyReasoningStarted(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  chatSpeakerIds: ChatSpeakerIds
+): WorkbenchTimelineItem[] {
+  return applyReasoningEvent(items, event, chatSpeakerIds, "streaming")
+}
+
+function applyReasoningDelta(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  chatSpeakerIds: ChatSpeakerIds
+): WorkbenchTimelineItem[] {
+  const data = getEventDataObject(event)
+  const delta = getString(data.delta) ?? ""
+  return applyReasoningEvent(items, event, chatSpeakerIds, "streaming", delta)
+}
+
+function applyReasoningCompleted(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  chatSpeakerIds: ChatSpeakerIds
+): WorkbenchTimelineItem[] {
+  const data = getEventDataObject(event)
+  return applyReasoningEvent(
+    items,
+    event,
+    chatSpeakerIds,
+    "completed",
+    undefined,
+    getString(data.content)
+  )
+}
+
+function applyReasoningEvent(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  chatSpeakerIds: ChatSpeakerIds,
+  status: WorkbenchTimelineReasoningBlock["status"],
+  delta?: string,
+  content?: string
+): WorkbenchTimelineItem[] {
+  if (!event.messageId) {
+    if (typeof delta === "string") {
+      return appendReasoningDelta(items, event)
+    }
+    return upsertReasoning(items, event, status)
+  }
+
+  const block = createReasoningBlock(event, status, delta, content)
+  if (isChatSpeaker(chatSpeakerIds, event.agentId)) {
+    return upsertChatMessage(items, event, (item) => ({
+      ...item,
+      text: item.text,
+      reasoningBlocks: upsertReasoningBlock(item.reasoningBlocks, block, delta !== undefined),
+    }))
+  }
+
+  return upsertTaskNestedItem(items, event, (task) => ({
+    ...task,
+    reasoningBlocks: upsertReasoningBlock(task.reasoningBlocks, block, delta !== undefined),
+  }))
+}
+
+function createReasoningBlock(
+  event: RuntimeRunEvent,
+  status: WorkbenchTimelineReasoningBlock["status"],
+  delta?: string,
+  content?: string
+): WorkbenchTimelineReasoningBlock {
+  const data = getEventDataObject(event)
+  return {
+    reasoningId: getString(data.reasoningId) ?? "default",
+    messageId: event.messageId,
+    messageIndex: event.messageIndex,
+    text: content ?? delta ?? "",
+    time: formatTimelineTime(new Date(event.timestamp)),
+    status,
+  }
 }
 
 function upsertReasoning(
@@ -386,10 +608,22 @@ function completeRunItems(
   return items.map((item) => {
     if ("runId" in item && item.runId !== runId) return item
     if (item.kind === "chat_message" && item.status === "streaming") {
-      return { ...item, status: "completed" }
+      return {
+        ...item,
+        status: "completed",
+        reasoningBlocks: item.reasoningBlocks?.map((block) => (
+          block.status === "streaming" ? { ...block, status: "completed" } : block
+        )),
+      }
     }
     if (item.kind === "task" && item.status === "running") {
-      return { ...item, status: "completed" }
+      return {
+        ...item,
+        status: "completed",
+        reasoningBlocks: item.reasoningBlocks?.map((block) => (
+          block.status === "streaming" ? { ...block, status: "completed" } : block
+        )),
+      }
     }
     if (item.kind === "reasoning" && item.status === "streaming") {
       return { ...item, status: "completed" }
@@ -438,7 +672,101 @@ function upsertItem<T extends WorkbenchTimelineItem>(
   )
 }
 
+function upsertTaskNestedItem(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  update: (task: WorkbenchTimelineTaskItem) => WorkbenchTimelineTaskItem
+): WorkbenchTimelineItem[] {
+  const id = getTaskItemId(event)
+  return upsertItem(items, id, (item) => {
+    const current = item?.kind === "task" ? item : undefined
+    return update({
+      kind: "task",
+      id,
+      runId: event.runId,
+      taskId: getTaskId(event),
+      agentId: event.agentId,
+      parentAgentId: event.parentAgentId,
+      title: current?.title ?? `${event.agentId ?? "Agent"} activity`,
+      targetAgentId: current?.targetAgentId,
+      text: current?.text ?? "",
+      time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
+      status: current?.status ?? "running",
+      error: current?.error,
+      transcriptMessages: current?.transcriptMessages,
+      reasoningBlocks: current?.reasoningBlocks,
+      toolItems: current?.toolItems,
+      permissionItems: current?.permissionItems,
+    })
+  })
+}
+
+function upsertNestedItem<T extends { id: string }>(
+  items: T[] | undefined,
+  nextItem: T
+): T[] {
+  const currentItems = items ?? []
+  const index = currentItems.findIndex((item) => item.id === nextItem.id)
+  if (index < 0) {
+    return [...currentItems, nextItem]
+  }
+  return currentItems.map((item, itemIndex) =>
+    itemIndex === index ? { ...item, ...nextItem } : item
+  )
+}
+
+function upsertToolNestedItem(
+  items: WorkbenchTimelineToolItem[] | undefined,
+  event: RuntimeRunEvent,
+  status: WorkbenchTimelineToolItem["status"]
+): WorkbenchTimelineToolItem[] {
+  const id = `tool:${event.runId}:${event.toolCallId ?? event.id}`
+  const currentItems = items ?? []
+  const current = currentItems.find((item) => item.id === id)
+  return upsertNestedItem(currentItems, createToolItem(event, status, current))
+}
+
+function upsertPermissionNestedItem(
+  items: WorkbenchTimelinePermissionItem[] | undefined,
+  event: RuntimeRunEvent,
+  status: WorkbenchTimelinePermissionItem["status"],
+  approved?: boolean
+): WorkbenchTimelinePermissionItem[] {
+  const id = `permission:${event.runId}:${getPermissionRequestId(event)}`
+  const currentItems = items ?? []
+  const current = currentItems.find((item) => item.id === id)
+  return upsertNestedItem(currentItems, createPermissionItem(event, status, approved, current))
+}
+
+function upsertReasoningBlock(
+  blocks: WorkbenchTimelineReasoningBlock[] | undefined,
+  nextBlock: WorkbenchTimelineReasoningBlock,
+  append: boolean
+): WorkbenchTimelineReasoningBlock[] {
+  const currentBlocks = blocks ?? []
+  const index = currentBlocks.findIndex((block) =>
+    block.reasoningId === nextBlock.reasoningId &&
+    block.messageId === nextBlock.messageId
+  )
+  if (index < 0) {
+    return [...currentBlocks, nextBlock]
+  }
+
+  return currentBlocks.map((block, blockIndex) =>
+    blockIndex === index
+      ? {
+          ...block,
+          ...nextBlock,
+          text: append ? `${block.text}${nextBlock.text}` : nextBlock.text || block.text,
+        }
+      : block
+  )
+}
+
 function getChatMessageId(event: RuntimeRunEvent): string {
+  if (event.messageId) {
+    return `chat:${event.runId}:${event.messageId}`
+  }
   return `chat:${event.runId}:${event.agentId ?? "assistant"}:${event.taskId ?? "entry"}`
 }
 
@@ -448,6 +776,11 @@ function getTaskItemId(event: RuntimeRunEvent): string {
 
 function getTaskId(event: RuntimeRunEvent): string {
   return event.taskId ?? event.parentTaskId ?? `agent-${event.agentId ?? "unknown"}`
+}
+
+function getPermissionRequestId(event: RuntimeRunEvent): string {
+  const data = getEventDataObject(event)
+  return getString(data.requestId) ?? event.toolCallId ?? event.id
 }
 
 function isChatSpeaker(

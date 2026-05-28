@@ -1,5 +1,6 @@
 import { basename, dirname } from "node:path"
 import type { TextStreamPart, ToolSet } from "ai"
+import { MessageBlockIdentityTracker } from "./message-stream-events"
 import { createRunEvent } from "./run-events"
 import type { AgentExecutionContext, RunDiagnostics, RunEvent, RunInput } from "./types"
 
@@ -40,7 +41,10 @@ export class ModelStreamEventBuilder {
   private readonly diagnostics: ResolvedRunDiagnostics
   private readonly reasoningContentById = new Map<string, string>()
 
-  constructor(private readonly context: AgentExecutionContext) {
+  constructor(
+    private readonly context: AgentExecutionContext,
+    private readonly identityTracker = new MessageBlockIdentityTracker(context)
+  ) {
     this.diagnostics = resolveRunDiagnostics(context.input)
   }
 
@@ -54,6 +58,10 @@ export class ModelStreamEventBuilder {
     const reasoningEvent = this.createReasoningEvent(part)
     if (reasoningEvent) {
       events.push(reasoningEvent)
+    }
+
+    if (part.type === "finish-step") {
+      this.identityTracker.resetCurrentMessageId()
     }
 
     return events
@@ -86,11 +94,14 @@ export class ModelStreamEventBuilder {
 
     if (part.type === "reasoning-start") {
       this.reasoningContentById.set(part.id, "")
-      return this.attachContextMetadata(
-        createRunEvent(this.context.runId, "reasoning.started", this.context.agent.id, {
-          reasoningId: part.id,
-        }),
-        part
+      return this.attachMessageIdentity(
+        this.attachContextMetadata(
+          createRunEvent(this.context.runId, "reasoning.started", this.context.agent.id, {
+            reasoningId: part.id,
+          }),
+          part
+        ),
+        part.id
       )
     }
 
@@ -99,24 +110,32 @@ export class ModelStreamEventBuilder {
         part.id,
         `${this.reasoningContentById.get(part.id) ?? ""}${part.text}`
       )
-      return this.attachContextMetadata(
-        createRunEvent(this.context.runId, "reasoning.delta", this.context.agent.id, {
-          reasoningId: part.id,
-          delta: part.text,
-        }),
-        part
+      return this.attachMessageIdentity(
+        this.attachContextMetadata(
+          createRunEvent(this.context.runId, "reasoning.delta", this.context.agent.id, {
+            reasoningId: part.id,
+            delta: part.text,
+          }),
+          part
+        ),
+        part.id
       )
     }
 
     const content = this.reasoningContentById.get(part.id) ?? ""
     this.reasoningContentById.delete(part.id)
-    return this.attachContextMetadata(
-      createRunEvent(this.context.runId, "reasoning.completed", this.context.agent.id, {
-        reasoningId: part.id,
-        content,
-      }),
-      part
+    const event = this.attachMessageIdentity(
+      this.attachContextMetadata(
+        createRunEvent(this.context.runId, "reasoning.completed", this.context.agent.id, {
+          reasoningId: part.id,
+          content,
+        }),
+        part
+      ),
+      part.id
     )
+    this.identityTracker.completeReasoningBlock(part.id)
+    return event
   }
 
   private attachContextMetadata(event: RunEvent, part: TextStreamPart<ToolSet>): RunEvent {
@@ -127,6 +146,11 @@ export class ModelStreamEventBuilder {
     event.groupId = this.context.groupId
     event.toolCallId = toolIdentity.toolCallId
     event.toolName = toolIdentity.toolName
+    return event
+  }
+
+  private attachMessageIdentity(event: RunEvent, reasoningId: string): RunEvent {
+    event.messageId = this.identityTracker.getOrCreateReasoningMessageId(reasoningId)
     return event
   }
 }

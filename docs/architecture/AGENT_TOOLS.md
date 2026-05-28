@@ -158,6 +158,8 @@ Runtime trace 可以和 parent run 的事件流关联，但不应作为模型输
 - `permission.denied`
 - `permission.cancelled`
 
+当工具或审批发生在某个模型输出上下文中，Runtime 应把当前消息容器的 `messageId/messageIndex` 写到对应 `tool.*` / `permission.*` RunEvent。UI 和后续 HubServer 持久化应优先把这些事件聚合到同一条 assistant message，而不是默认生成独立聊天发言；`run_task` 仍按后文规则只保留追踪，不渲染为普通工具卡片。
+
 如果工具对应的是内部任务，还应继续产出：
 
 - `task.started`
@@ -259,6 +261,7 @@ Runtime 内部还会保留 trace，用于 UI 展示和事件重放。
 - UI 可以订阅这条事件流。
 - 父智能体只获得最终结果。
 - 内部任务与直接用户调用共享同一套事件协议。
+- `run_task` 自身的 `tool.*` 事件应作为原始追踪和持久化 RunEvent 保留，但产品 UI 不应渲染为普通工具卡片；可见执行过程来自 `task.*`、子智能体输出和 task summary，避免同一智能体输出被工具卡片和任务卡片重复展示。
 
 Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.executeTask` 负责裸任务生命周期，`RuntimeToolRegistry.executeTool("run_task", ...)` 只负责在外层补上 `tool.started` / `tool.completed` / `tool.failed`。这样一个 `run_task` 调用只会对应一组工具事件和一组任务事件，不会出现双层工具包装。
 

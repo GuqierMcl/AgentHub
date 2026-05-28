@@ -6,6 +6,10 @@ export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
 export { SystemAgentRunner } from "./system-agents"
 export {
+  MessageBlockEventBuilder,
+  MessageBlockIdentityTracker,
+} from "./message-stream-events"
+export {
   DEFAULT_RUN_DIAGNOSTICS,
   ModelStreamEventBuilder,
   resolveRunDiagnostics,

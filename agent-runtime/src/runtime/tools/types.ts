@@ -50,6 +50,7 @@ export type ToolExecutionContext = {
     groupId?: string
     parentTaskId?: string
   }) => Promise<TaskExecutionResult>
+  getCurrentMessageId?: () => string
 }
 
 export type ToolApprovalPolicy = "never" | "contextual" | "always"

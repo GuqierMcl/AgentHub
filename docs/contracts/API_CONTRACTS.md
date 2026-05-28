@@ -652,7 +652,7 @@ workspace 规则：
 
 ```text
 event: message.delta
-data: {"id":"evt_xxx","runId":"run_xxx","type":"message.delta","timestamp":"2026-05-23T00:00:00.000Z","agentId":"coder","data":{"delta":"Coder received the task."}}
+data: {"id":"evt_xxx","runId":"run_xxx","type":"message.delta","timestamp":"2026-05-23T00:00:00.000Z","agentId":"coder","messageId":"msg_run_xxx_execution_xxx_0","messageIndex":0,"data":{"delta":"Coder received the task."}}
 ```
 
 本阶段事件类型：
@@ -726,21 +726,31 @@ type RunEvent = {
   groupId?: string
   toolCallId?: string
   toolName?: string
+  messageId?: string
+  messageIndex?: number
   data?: unknown
 }
 ```
 
+消息事件身份规则：
+
+- `message.delta` / `message.completed` 以 AI SDK 文本块为边界；一次 agent execution 可以输出多条 Runtime message。
+- `messageId` 表示一次可聚合的智能体消息容器。同一文本块的 delta 和 completed 必须共享同一个 `messageId`；同一输出上下文内的 `reasoning.*`、`tool.*`、`permission.*` 也应复用该 `messageId`。
+- `messageIndex` 是 RunManager 按首次 emit 顺序分配的 run-local 递增序号，用于并发任务和交替发言下的稳定排序；同一 `messageId` 下的 reasoning/tool/permission/message 事件共享同一个 `messageIndex`。
+- `agent.completed` 仍表示 execution 完成；usage、finishReason、resolvedModel 以 `agent.completed.data` 为准。`message.completed.data` 只保证包含最终 `content`。
+- HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。
+
 工具事件的附加约束：
 
-- `tool.started`、`tool.completed`、`tool.failed` 必须携带 `toolCallId` 与 `toolName`。
+- `tool.started`、`tool.completed`、`tool.failed` 必须携带 `toolCallId` 与 `toolName`；当工具调用来自某个模型输出上下文时，还应携带对应 `messageId/messageIndex`。
 - `tool.started` 不回显原始文件路径入参；workspace 类工具的普通事件和成功结果只使用 workspace-relative 路径或 `mounts/<mountId>/...` 逻辑路径。
 - `tool.failed` 的 `data` 应尽量包含结构化错误码、错误消息和可调试细节。
-- `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 携带 `toolCallId`、`toolName`，其 `data` 为权限请求记录，包含 `requestId`、`riskLevel`、`status` 与可选 grant 信息。
+- `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 携带 `toolCallId`、`toolName`，其 `data` 为权限请求记录，包含 `requestId`、`riskLevel`、`status` 与可选 grant 信息；当权限请求来自某个模型输出上下文时，还应携带对应 `messageId/messageIndex`。
 - 工具进入审批时先产生 `permission.requested` 而不产生 `tool.started`；批准后恢复工具并发送正常工具事件，拒绝后发送 `tool.failed`，错误码为 `TOOL_EXECUTION_DENIED`。
 - `model.stream.part` 通过 `data.partType` 和 `data.part` 薄封装 AI SDK `fullStream` part；默认过滤 `raw`，除非 RunInput 设置 `diagnostics.includeRawModelChunks = true`。
-- `reasoning.started`、`reasoning.delta`、`reasoning.completed` 仅表示 provider/AI SDK 显式暴露的 reasoning/thinking 内容；默认开启，可通过 `diagnostics.includeReasoning = false` 关闭。
+- `reasoning.started`、`reasoning.delta`、`reasoning.completed` 仅表示 provider/AI SDK 显式暴露的 reasoning/thinking 内容；默认开启，可通过 `diagnostics.includeReasoning = false` 关闭；当 reasoning 属于当前智能体输出时，应携带同一条消息的 `messageId/messageIndex`。
 - `write_plan` 的成功结果通过 `tool.completed.data.data.plan` 承载；HubServer/UI 应选择最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。
-- `run_task` 的工具事件只用于 UI 与追踪，不作为父智能体的模型上下文输入。
+- `run_task` 的工具事件只用于追踪与持久化原始 RunEvent，不作为父智能体的模型上下文输入；产品 UI 不应把它渲染为普通工具卡片，应优先展示对应的 `task.*`、子智能体输出和 task summary。
 
 `write_plan` 成功事件示例：
 

@@ -78,6 +78,11 @@ export function buildRuntimeRunInput(
       messageCountBeforeRun: history.length,
       titleSource: getTitleSource(conversation.metadata),
     },
+    diagnostics: {
+      includeModelStream: false,
+      includeReasoning: true,
+      includeRawModelChunks: false,
+    },
     ...(workspace ? { workspace } : {}),
   }
 }

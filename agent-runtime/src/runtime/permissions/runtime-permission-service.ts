@@ -49,6 +49,7 @@ export class RuntimePermissionService {
       status: "pending",
       reason: draft.reason,
       executionId: context.executionId,
+      messageId: context.getCurrentMessageId?.(),
       parentAgentId: context.parentAgentId,
       taskId: context.task?.taskId,
       groupId: context.groupId,
@@ -137,6 +138,7 @@ export class RuntimePermissionService {
     const event = createRunEvent(request.runId, type, request.agentId, request)
     event.toolCallId = request.toolCallId
     event.toolName = request.toolName
+    event.messageId = request.messageId
     event.parentAgentId = request.parentAgentId ?? request.agentId
     event.taskId = request.taskId
     event.parentTaskId = request.parentTaskId

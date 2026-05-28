@@ -51,6 +51,9 @@ type RunExecutionState = {
   permissionService: RuntimePermissionService
   continuations: Map<string, ApprovalContinuationFrame>
   activeTaskExecutions: Set<string>
+  messageBlockCounters: Map<string, number>
+  messageIndexById: Map<string, number>
+  nextMessageIndex: number
 }
 
 type PendingSystemAgentResult<T> = {
@@ -163,6 +166,9 @@ export class RunManager {
       permissionService,
       continuations: new Map(),
       activeTaskExecutions: new Set(),
+      messageBlockCounters: new Map(),
+      messageIndexById: new Map(),
+      nextMessageIndex: 0,
     })
 
     log.info({ runId: run.id, entryAgentId: resolution.entryAgents[0].id }, "Run created, scheduling execution")
@@ -250,6 +256,7 @@ export class RunManager {
       })
       failed.toolCallId = request.toolCallId
       failed.toolName = request.toolName
+      failed.messageId = request.messageId
       failed.parentAgentId = request.parentAgentId ?? request.agentId
       failed.taskId = request.taskId
       failed.parentTaskId = request.parentTaskId
@@ -555,7 +562,10 @@ export class RunManager {
         return
       }
 
-      const normalizedEvent = this.normalizeEvent(event, parentAgentId, task?.taskId, groupId, parentTaskId)
+      const normalizedEvent = this.assignMessageIndex(
+        this.normalizeEvent(event, parentAgentId, task?.taskId, groupId, parentTaskId),
+        state
+      )
       events.push(normalizedEvent)
       onEvent(normalizedEvent)
     }
@@ -597,6 +607,7 @@ export class RunManager {
         state.activeTaskExecutions.delete(executionId)
         this.updateApprovalWaitStatus(run, state)
       },
+      createMessageId: () => this.createExecutionMessageId(run.id, state, executionId),
     }
 
     if (agent.id === "orchestrator") {
@@ -996,6 +1007,37 @@ export class RunManager {
     }
   }
 
+  private createExecutionMessageId(
+    runId: string,
+    state: RunExecutionState,
+    executionId: string
+  ): string {
+    const blockIndex = state.messageBlockCounters.get(executionId) ?? 0
+    state.messageBlockCounters.set(executionId, blockIndex + 1)
+    return `msg_${runId}_${executionId}_${blockIndex}`
+  }
+
+  private assignMessageIndex(
+    event: RunEvent,
+    state: RunExecutionState | undefined = this.executionState.get(event.runId)
+  ): RunEvent {
+    if (!state || !event.messageId) {
+      return event
+    }
+
+    const current = state.messageIndexById.get(event.messageId)
+    if (typeof current === "number") {
+      event.messageIndex = current
+      return event
+    }
+
+    const nextIndex = state.nextMessageIndex
+    state.nextMessageIndex += 1
+    state.messageIndexById.set(event.messageId, nextIndex)
+    event.messageIndex = nextIndex
+    return event
+  }
+
   private createWorkspaceSession(runId: string, input: RunInput): WorkspaceService | undefined {
     if (!input.workspace) {
       return undefined
@@ -1061,25 +1103,26 @@ export class RunManager {
   }
 
   private emit(event: RunEvent): void {
-    const events = this.events.get(event.runId)
+    const eventToEmit = this.assignMessageIndex(event)
+    const events = this.events.get(eventToEmit.runId)
     if (events) {
-      events.push(event)
+      events.push(eventToEmit)
     }
 
-    const run = this.runs.get(event.runId)
+    const run = this.runs.get(eventToEmit.runId)
     if (run) {
-      run.updatedAt = event.timestamp
+      run.updatedAt = eventToEmit.timestamp
     }
 
-    const subscriptions = this.subscriptions.get(event.runId)
+    const subscriptions = this.subscriptions.get(eventToEmit.runId)
     if (subscriptions) {
       for (const handler of subscriptions) {
-        handler(event)
+        handler(eventToEmit)
       }
     }
 
-    if (isTerminalRunEvent(event)) {
-      this.subscriptions.delete(event.runId)
+    if (isTerminalRunEvent(eventToEmit)) {
+      this.subscriptions.delete(eventToEmit.runId)
     }
   }
 }

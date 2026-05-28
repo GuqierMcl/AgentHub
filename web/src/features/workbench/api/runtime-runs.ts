@@ -61,6 +61,8 @@ export type RuntimeRunEvent = {
   groupId?: string
   toolCallId?: string
   toolName?: string
+  messageId?: string
+  messageIndex?: number
   data?: unknown
 }
 

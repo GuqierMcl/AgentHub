@@ -6,7 +6,7 @@ import {
   RefreshCcwIcon,
   XCircleIcon,
 } from "lucide-react"
-import type { ReactNode } from "react"
+import { memo, type ReactNode } from "react"
 
 import {
   Message,
@@ -82,7 +82,10 @@ type TimelineItemProps = {
   agentProfiles: ConversationAgentProfile[]
 }
 
-export function TimelineItem({ agentProfiles, item }: TimelineItemProps) {
+export const TimelineItem = memo(function TimelineItem({
+  agentProfiles,
+  item,
+}: TimelineItemProps) {
   switch (item.kind) {
     case "chat_message":
       return <ChatMessageItem agentProfiles={agentProfiles} item={item} />
@@ -99,7 +102,7 @@ export function TimelineItem({ agentProfiles, item }: TimelineItemProps) {
     case "run_status":
       return <RunStatusTimelineItem item={item} />
   }
-}
+})
 
 function ChatMessageItem({
   agentProfiles,
@@ -141,6 +144,21 @@ function ChatMessageItem({
                   </SourcesContent>
                 </Sources>
               ) : null}
+
+              {item.reasoningBlocks?.map((reasoning) => (
+                <ReasoningBlockView
+                  block={reasoning}
+                  key={`${reasoning.messageId ?? item.id}:${reasoning.reasoningId}`}
+                />
+              ))}
+
+              {item.permissionItems?.map((permission) => (
+                <PermissionBlockView item={permission} key={permission.id} />
+              ))}
+
+              {item.toolItems?.map((tool) => (
+                <ToolBlockView item={tool} key={tool.id} />
+              ))}
 
               <MessageContent className="max-w-[min(680px,100%)]">
                 <MessageResponse>
@@ -188,17 +206,7 @@ function ChatMessageItem({
 function ToolTimelineItem({ item }: { item: WorkbenchTimelineToolItem }) {
   return (
     <TimelineCard>
-      <Tool className="mb-0 max-w-[min(720px,100%)]" defaultOpen>
-        <ToolHeader
-          state={item.status}
-          title={item.title}
-          type={`tool-${item.toolName}` as ToolUIPart["type"]}
-        />
-        <ToolContent>
-          {item.input !== undefined ? <ToolInput input={item.input} /> : null}
-          <ToolOutput errorText={item.errorText} output={item.output} />
-        </ToolContent>
-      </Tool>
+      <ToolBlockView item={item} />
     </TimelineCard>
   )
 }
@@ -218,6 +226,21 @@ function TaskTimelineItem({ item }: { item: WorkbenchTimelineTaskItem }) {
           {item.text ? (
             <TaskItem className="whitespace-pre-wrap">{item.text}</TaskItem>
           ) : null}
+          {item.reasoningBlocks?.map((reasoning) => (
+            <TaskItem key={`${reasoning.messageId ?? item.id}:${reasoning.reasoningId}`}>
+              <ReasoningBlockView block={reasoning} />
+            </TaskItem>
+          ))}
+          {item.permissionItems?.map((permission) => (
+            <TaskItem key={permission.id}>
+              <PermissionBlockView item={permission} />
+            </TaskItem>
+          ))}
+          {item.toolItems?.map((tool) => (
+            <TaskItem key={tool.id}>
+              <ToolBlockView item={tool} />
+            </TaskItem>
+          ))}
           {item.error ? (
             <TaskItem className="text-destructive">{item.error}</TaskItem>
           ) : null}
@@ -276,31 +299,9 @@ function PermissionTimelineItem({
 }: {
   item: WorkbenchTimelinePermissionItem
 }) {
-  const approval =
-    item.approved === undefined
-      ? { id: item.requestId }
-      : { id: item.requestId, approved: item.approved }
-
   return (
     <TimelineCard>
-      <Confirmation
-        approval={approval}
-        className="max-w-[min(720px,100%)]"
-        state={item.status}
-      >
-        <ConfirmationTitle>
-          <ConfirmationRequest>
-            {item.title}
-            {item.reason ? `: ${item.reason}` : ""}
-          </ConfirmationRequest>
-          <ConfirmationAccepted>
-            Permission approved for {item.toolName ?? "tool"}.
-          </ConfirmationAccepted>
-          <ConfirmationRejected>
-            Permission denied for {item.toolName ?? "tool"}.
-          </ConfirmationRejected>
-        </ConfirmationTitle>
-      </Confirmation>
+      <PermissionBlockView item={item} />
     </TimelineCard>
   )
 }
@@ -312,14 +313,68 @@ function ReasoningTimelineItem({
 }) {
   return (
     <TimelineCard>
-      <Reasoning
-        className="max-w-[min(720px,100%)]"
-        isStreaming={item.status === "streaming"}
-      >
-        <ReasoningTrigger />
-        <ReasoningContent>{item.text}</ReasoningContent>
-      </Reasoning>
+      <ReasoningBlockView block={item} />
     </TimelineCard>
+  )
+}
+
+function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
+  return (
+    <Tool className="mb-0 max-w-[min(720px,100%)]" defaultOpen>
+      <ToolHeader
+        state={item.status}
+        title={item.title}
+        type={`tool-${item.toolName}` as ToolUIPart["type"]}
+      />
+      <ToolContent>
+        {item.input !== undefined ? <ToolInput input={item.input} /> : null}
+        <ToolOutput errorText={item.errorText} output={item.output} />
+      </ToolContent>
+    </Tool>
+  )
+}
+
+function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }) {
+  const approval =
+    item.approved === undefined
+      ? { id: item.requestId }
+      : { id: item.requestId, approved: item.approved }
+
+  return (
+    <Confirmation
+      approval={approval}
+      className="max-w-[min(720px,100%)]"
+      state={item.status}
+    >
+      <ConfirmationTitle>
+        <ConfirmationRequest>
+          {item.title}
+          {item.reason ? `: ${item.reason}` : ""}
+        </ConfirmationRequest>
+        <ConfirmationAccepted>
+          Permission approved for {item.toolName ?? "tool"}.
+        </ConfirmationAccepted>
+        <ConfirmationRejected>
+          Permission denied for {item.toolName ?? "tool"}.
+        </ConfirmationRejected>
+      </ConfirmationTitle>
+    </Confirmation>
+  )
+}
+
+function ReasoningBlockView({
+  block,
+}: {
+  block: { status: "streaming" | "completed"; text: string }
+}) {
+  return (
+    <Reasoning
+      className="max-w-[min(720px,100%)]"
+      isStreaming={block.status === "streaming"}
+    >
+      <ReasoningTrigger />
+      <ReasoningContent>{block.text}</ReasoningContent>
+    </Reasoning>
   )
 }
 

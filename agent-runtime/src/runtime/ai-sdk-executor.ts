@@ -1,6 +1,7 @@
 import { stepCountIs, streamText, type ModelMessage } from "ai"
 import { createChildLogger } from "../logger"
 import { resolveAgentLanguageModel } from "./model-resolver"
+import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { createRunEvent } from "./run-events"
 import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
@@ -130,8 +131,14 @@ export class AiSdkExecutor implements AgentExecutor {
     started.groupId = groupId
     yield started
 
+    const messageIdentity = new MessageBlockIdentityTracker(context)
+    const streamContext: AgentExecutionContext = {
+      ...context,
+      getCurrentMessageId: () => messageIdentity.getOrCreateCurrentMessageId(),
+    }
+
     const toolSettings = resolution.resolvedModel.capabilities.supports_tools && this.toolRegistry
-      ? this.toolRegistry.buildAiSdkToolSettings(context)
+      ? this.toolRegistry.buildAiSdkToolSettings(streamContext)
       : null
     const diagnostics = resolveRunDiagnostics(context.input)
 
@@ -163,9 +170,9 @@ export class AiSdkExecutor implements AgentExecutor {
       },
     })
 
-    let content = ""
     let approvalPending = false
-    const modelStreamEvents = new ModelStreamEventBuilder(context)
+    const messageBlockEvents = new MessageBlockEventBuilder(streamContext, messageIdentity)
+    const modelStreamEvents = new ModelStreamEventBuilder(streamContext, messageIdentity)
 
     try {
       for await (const chunk of result.fullStream) {
@@ -183,19 +190,10 @@ export class AiSdkExecutor implements AgentExecutor {
           context.permissionService?.bindAiSdkApproval(runId, chunk.toolCall.toolCallId, chunk.approvalId)
           continue
         }
-        if (chunk.type !== "text-delta" || !chunk.text) {
-          continue
-        }
 
-        content += chunk.text
-        const delta = createRunEvent(runId, "message.delta", agent.id, {
-          delta: chunk.text,
-        })
-        delta.taskId = task?.taskId
-        delta.parentAgentId = parentAgentId
-        delta.parentTaskId = parentTaskId
-        delta.groupId = groupId
-        yield delta
+        for (const event of messageBlockEvents.createEvents(chunk)) {
+          yield event
+        }
       }
 
       if (signal.aborted) {
@@ -204,6 +202,10 @@ export class AiSdkExecutor implements AgentExecutor {
       }
 
       if (approvalPending) {
+        for (const event of messageBlockEvents.flushOpenBlocks()) {
+          yield event
+        }
+
         const response = await result.response
         context.onApprovalPending?.([
           ...(context.resumeMessages ?? normalizeHistoryMessages(context)),
@@ -217,21 +219,17 @@ export class AiSdkExecutor implements AgentExecutor {
         result.usage,
       ])
 
-      if (!content) {
-        content = await Promise.resolve(result.text).catch(() => "")
+      for (const event of messageBlockEvents.flushOpenBlocks()) {
+        yield event
       }
 
-      const completed = createRunEvent(runId, "message.completed", agent.id, {
-        content,
-        finishReason,
-        usage,
-        resolvedModel: resolution.resolvedModel,
-      })
-      completed.taskId = task?.taskId
-      completed.parentAgentId = parentAgentId
-      completed.parentTaskId = parentTaskId
-      completed.groupId = groupId
-      yield completed
+      if (!messageBlockEvents.hasEmittedMessage()) {
+        const fallbackText = await Promise.resolve(result.text).catch(() => "")
+        const fallbackCompleted = messageBlockEvents.createCompletedFallback(fallbackText)
+        if (fallbackCompleted) {
+          yield fallbackCompleted
+        }
+      }
 
       const agentCompleted = createRunEvent(runId, "agent.completed", agent.id, {
         status: "completed",

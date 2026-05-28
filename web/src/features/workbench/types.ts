@@ -57,16 +57,30 @@ export type WorkbenchTimelineStatus =
   | "failed"
   | "cancelled"
 
+export type WorkbenchTimelineReasoningBlock = {
+  reasoningId: string
+  messageId?: string
+  messageIndex?: number
+  text: string
+  time: string
+  status: "streaming" | "completed"
+}
+
 export type WorkbenchTimelineChatMessageItem = {
   kind: "chat_message"
   id: string
   role: "user" | "assistant"
   runId?: string
+  runtimeMessageId?: string
+  messageIndex?: number
   agentId?: string
   text: string
   time: string
   status?: WorkbenchTimelineStatus
   error?: string
+  reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
+  toolItems?: WorkbenchTimelineToolItem[]
+  permissionItems?: WorkbenchTimelinePermissionItem[]
   versions?: MessageVersion[]
   sources?: MessageSource[]
   artifacts?: Artifact[]
@@ -85,6 +99,16 @@ export type WorkbenchTimelineTaskItem = {
   time: string
   status: "pending" | "running" | "completed" | "failed"
   error?: string
+  transcriptMessages?: WorkbenchTimelineTaskTranscriptMessage[]
+  reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
+  toolItems?: WorkbenchTimelineToolItem[]
+  permissionItems?: WorkbenchTimelinePermissionItem[]
+}
+
+export type WorkbenchTimelineTaskTranscriptMessage = {
+  messageId: string
+  messageIndex?: number
+  text: string
 }
 
 export type WorkbenchTimelineToolItem = {
@@ -242,7 +266,7 @@ export type CreateConversationBody = {
   title: string
   mode: "single" | "group"
   orchestratorAgentId?: string
-  agents?: { agentId: string; role: AgentRole }[]
+  agents?: { agentId: string }[]
   metadata?: Record<string, unknown>
 }
 

@@ -17,6 +17,7 @@ export type RuntimePermissionRequest = {
   status: RuntimePermissionStatus
   reason: string
   executionId?: string
+  messageId?: string
   parentAgentId?: string
   taskId?: string
   groupId?: string

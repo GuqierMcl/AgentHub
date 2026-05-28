@@ -26,6 +26,10 @@ export function AppShell() {
     () => appModules.find((module) => module.id === activeModuleId) ?? appModules[0],
     [activeModuleId]
   )
+  const visibleModuleIds = useMemo(() => {
+    if (mountedModuleIds.has(activeModuleId)) return mountedModuleIds
+    return new Set([...mountedModuleIds, activeModuleId])
+  }, [activeModuleId, mountedModuleIds])
 
   useDocumentTitle({
     conversationTitle: activeModule.title,
@@ -74,7 +78,7 @@ export function AppShell() {
       />
       <div className="relative h-full min-h-0 min-w-0 overflow-hidden bg-background">
         {appModules.map((module) => {
-          if (!mountedModuleIds.has(module.id)) {
+          if (!visibleModuleIds.has(module.id)) {
             return null
           }
 

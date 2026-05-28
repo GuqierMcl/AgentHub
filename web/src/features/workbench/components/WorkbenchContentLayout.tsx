@@ -74,6 +74,13 @@ export function WorkbenchContentLayout({
 
   const conversationDetail = conversationQuery.data
   const agentSummaries = agentsQuery.data?.agents ?? EMPTY_AGENT_SUMMARIES
+  const resolvedAgents = useMemo((): ConversationAgentProfile[] => {
+    if (!conversationDetail) return []
+    return resolveConversationAgents(
+      conversationDetail.agents,
+      agentSummaries
+    )
+  }, [agentSummaries, conversationDetail])
 
   useEffect(() => {
     if (!conversationDetail) return
@@ -87,17 +94,13 @@ export function WorkbenchContentLayout({
     if (!conversationDetail) return null
     const timelineItems = runtimeState?.timelineItems ?? []
     const workspace = getWorkspacePath(conversationDetail.metadata)
-    const agents = resolveConversationAgents(
-      conversationDetail.agents,
-      agentSummaries
-    )
     const latestMessage = getLatestChatMessage(timelineItems)
     return {
       id: conversationDetail.id,
       title: conversationDetail.title,
       mode: conversationDetail.mode,
-      agentIds: agents.map((agent) => agent.id),
-      agents,
+      agentIds: resolvedAgents.map((agent) => agent.id),
+      agents: resolvedAgents,
       preview: latestMessage?.text ?? "",
       activeAt: conversationDetail.lastMessageAt ?? conversationDetail.updatedAt,
       workspace,
@@ -109,7 +112,7 @@ export function WorkbenchContentLayout({
         : false,
       timelineItems,
     }
-  }, [agentSummaries, conversationDetail, runtimeState])
+  }, [conversationDetail, resolvedAgents, runtimeState])
 
   const handleDraftChange = useCallback((draft: string) => {
     if (!activeConversationId) return
