@@ -30,6 +30,7 @@
 - Chat 模块首次进入时不自动选中已有会话；`activeConversationId` 为空时右侧内容区渲染欢迎页，不挂载聊天面板和产物工作台。用户手动选择会话或创建新会话后，才渲染聊天区和产物工作台。
 - 聊天模块的会话列表、会话详情、新建、重命名、置顶和归档已经接入 HubServer conversation API；消息流当前处于“未持久化 Runs 聊天 + Timeline Projection”阶段：Web 使用本地 Zustand 状态保存每个 conversation 的草稿、临时 timeline items、最近 Runtime `runId`、Run 状态、SSE 连接状态和已接收事件 id，刷新页面丢失这些本地 timeline 与 active run 映射是当前阶段的预期行为。
 - 聊天 header 使用 conversation detail 的成员关系和 runtime agents 查询结果渲染真实智能体头像组、会话标题、群聊/单聊 badge、参与智能体名称、成员数量、工作区标签和基础模型绑定提示；不得再依赖 workbench mock agent 数据。当前 Run 处于提交、排队、运行或等待审批时，header 底部使用 `InfiniteLinearProgress` 展示 indeterminate 进度线，不为 Run 状态单独保留一条额外状态栏。
+- 产物工作台包含全局单例“会话状态”标签页，内容随当前 active conversation 切换。`orchestrator.plan.created` 或 `tool.completed(toolName="write_plan")` 投影出的 Plan 保留为本地 timeline item，但不在聊天消息流渲染；当前 Plan 在“会话状态”标签页中使用 ai-elements `Queue` 展示。当前会话收到新的 Plan 或 Plan 更新事件时，Web 会通过 Zustand workspace focus request 自动展开右侧产物工作台并激活“会话状态”标签页；切换到已有历史 Plan 的会话不会仅因历史数据自动弹开工作台。
 - Web 通过 HubServer 的 `/api/runtime/runs*` 转发接口创建 Runtime Run、订阅 Run SSE 和取消 Run；浏览器仍不得直接调用 `agent-runtime`。Web 聊天默认请求 `diagnostics.includeModelStream=false`，避免高频 `model.stream.part` 诊断事件进入前端热路径；需要调试模型原始 part 时再显式打开诊断。本阶段不写 HubServer `Message`、`Run` 或 `RunEvent` 表，后续由产品级 messages/runs API 接管持久化。
 - 当前智能体头像 V1 由前端共享 resolver 根据 agent id/origin 解析：系统预设使用图标库，外部智能体可使用静态资源，未知或用户自定义智能体使用 initials/hash 兜底；API 契约暂不包含头像字段。
 - 页面根容器填满视口，不产生 `body` 级滚动；模块内的列表、消息流、详情表单与产物内容各自在内部滚动。
@@ -43,17 +44,17 @@
 ## 状态管理
 
 - TanStack Query 管理服务端事实：active conversation list、conversation detail、runtime agents，以及后续持久化 messages/runs/permissions/artifacts。
-- Zustand 管理客户端运行态和 UI overlay：`activeConversationId`、per-conversation draft、第一阶段未持久化 timeline items、最近 active Runtime `runId`、Run 状态、SSE 连接状态、已收到 Runtime event ids 和轻量 event log。
+- Zustand 管理客户端运行态和 UI overlay：`activeConversationId`、per-conversation draft、第一阶段未持久化 timeline items、最近 active Runtime `runId`、Run 状态、SSE 连接状态、已收到 Runtime event ids、轻量 event log、产物工作台 tab、折叠状态和自动聚焦请求。`ResizablePanel` 等 DOM imperative ref 不进入 store，布局组件只消费 store 意图并执行展开/折叠。
 - Conversation create、rename、pin、archive 使用 mutation；成功后 invalidate conversation list 和对应 detail。模态框开关、输入框内容等纯临时 UI 状态仍可以保留在组件局部 state。
 - 当前阶段同一 conversation 同时只允许一个 active run。发送消息时 Web 先 append 本地 `chat_message` timeline item，再调用 `POST /api/runtime/runs`，并只把 timeline 中的 `chat_message` 投影为 Runtime `history`；`addressedAgentIds` 暂固定为空数组。
 - Runtime 事件按 `event.id` 去重，并通过 Web 本地 projection reducer 转为 `WorkbenchTimelineItem` 后渲染。`message.delta` / `message.completed` 优先使用 `event.messageId` 作为聊天气泡身份：`chat:${runId}:${messageId}`；缺少 `messageId` 的老事件才回退到 `runId + agentId + taskId/entry`。因此同一次 Runtime Run 中，同一主智能体也可以在工具调用或任务委派前后产生多条交替聊天气泡。
 - `messageId` 是 Web 聚合智能体消息的主键：同一 `messageId` 下的 `reasoning.*`、普通 `tool.*`、`permission.*` 和 `message.*` 会嵌入同一个 `chat_message` item；旧事件缺少 `messageId` 时，Web 退回按同一 run 内当前 chat speaker 聚合。这样 reasoning、工具和审批是消息内部过程卡片，而不是散落在消息流里的独立发言。
 - Reasoning UI 的耗时显示由 Web timeline projection 使用 `reasoning.started` / `reasoning.completed` 的 event timestamp 推导并写入 timeline item，再传给 ai-elements `Reasoning` 组件；不要依赖组件挂载期间的本地计时作为 replay 后的事实来源。
-- `message.delta` / `message.completed` 只在 `event.agentId` 属于 conversation chat speakers 时投影为 `chat_message`；非 chat speaker 的子智能体输出进入关联 `task` item，不创建普通聊天气泡。子智能体的 reasoning/tool/permission 同样优先进入关联 task item；无法归属到消息或 task 的老事件才作为独立 reasoning/tool/permission timeline item 渲染。`orchestrator.plan.created` 和 `write_plan` 成功结果投影为 plan timeline item。`run.failed` / `run.cancelled` 投影为 run status item。
+- `message.delta` / `message.completed` 只在 `event.agentId` 属于 conversation chat speakers 时投影为 `chat_message`；非 chat speaker 的子智能体输出进入关联 `task` item，不创建普通聊天气泡。子智能体的 reasoning/tool/permission 同样优先进入关联 task item；无法归属到消息或 task 的老事件才作为独立 reasoning/tool/permission timeline item 渲染。`orchestrator.plan.created` 和 `write_plan` 成功结果投影为 plan timeline item，供右侧“会话状态”标签页展示。`run.failed` / `run.cancelled` 投影为 run status item。
 - `toolName = "run_task"` 的 `tool.*` 事件保留在原始 event log 中，但不投影为 `ToolTimelineItem`，避免与 `task.*`、子智能体输出和 task summary 重复展示。普通工具仍渲染为 tool 卡片。
 - Task 卡片标题只来自任务 title / instruction 的短摘要兜底，不得使用 `task.completed.data.summary` 作为标题；`summary` 可能包含子智能体完整输出，应保留为运行结果/上下文数据，而不是 UI 标题。
 - SSE 事件进入 Web 后按 animation frame 批量写入 Zustand；`receivedEventIds` 使用 per-conversation `Set` 去重，轻量 event log 只保留最近一段 UI 相关事件，避免子智能体和工具调用产生大量诊断事件时触发每事件一次的全量重渲染。
-- Timeline 渲染层复用本仓库 `ai-elements` 组件：chat message 使用 `Message`，tool 使用 `Tool`，task 使用 `Task`，plan 使用 `Queue`，permission 使用 `Confirmation`，reasoning 使用 `Reasoning`。Timeline 渲染不得再依赖 workbench mock agent 数据，智能体头像与名称来自 conversation detail + runtime agents 查询结果。
+- Timeline 渲染层复用本仓库 `ai-elements` 组件：chat message 使用 `Message`，tool 使用 `Tool`，task 使用 `Task`，permission 使用 `Confirmation`，reasoning 使用 `Reasoning`。Plan 不作为聊天流 item 渲染，而是在产物工作台“会话状态”标签页使用 `Queue` 展示。Timeline 渲染不得再依赖 workbench mock agent 数据，智能体头像与名称来自 conversation detail + runtime agents 查询结果。
 
 ## Activity 生命周期约束
 

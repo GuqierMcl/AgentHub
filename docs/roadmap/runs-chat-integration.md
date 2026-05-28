@@ -143,7 +143,7 @@ Web local message state
 - 将 Zustand conversation runtime state 从 `messages` 迁移为 `timelineItems`，继续保留原始 `events` 和 `receivedEventIds`。
 - 抽出 `RuntimeRunEvent -> WorkbenchTimelineItem` projection reducer，确保 replay 时按稳定 item id 更新，不重复 append。
 - Runtime `history` 只从 timeline 中的 `chat_message` 投影。
-- 使用 ai-elements 渲染 timeline：`Message` 渲染聊天消息，`Task` 渲染任务和子智能体输出，`Tool` 渲染工具调用，`Confirmation` 渲染权限事件，`Reasoning` 渲染 reasoning，`Plan` 渲染 orchestrator 计划。
+- 使用 ai-elements 渲染 timeline：`Message` 渲染聊天消息，`Task` 渲染任务和子智能体输出，`Tool` 渲染工具调用，`Confirmation` 渲染权限事件，`Reasoning` 渲染 reasoning；Plan 保留为 timeline item，并在右侧“会话状态”标签页使用 `Queue` 渲染。
 - Timeline 渲染层使用真实 conversation agent profiles，不再依赖 workbench mock agent 数据。
 
 出口标准：
@@ -352,10 +352,11 @@ POST /api/runs/:runId/cancel
 - Web 已新增 Zustand workbench store，按 conversation 保存 draft、未持久化 timeline items、最近 active Runtime `runId`、Run 状态、SSE 连接状态、已接收 Runtime event ids 和轻量 event log。
 - Web 已新增 Runtime Runs API client 和 EventSource connection manager，复用 HubServer `/api/runtime/runs*` 转发接口。
 - Web 聊天消息流已从静态原型推进到第一阶段未持久化 Runtime Runs 聊天；刷新页面丢失本地消息与 active run 映射仍是当前阶段预期。
-- Web 已新增 timeline projection 层，使用 `WorkbenchTimelineItem` 和 ai-elements renderer 表达 chat message、task、tool、permission、reasoning、plan 与 run status。
+- Web 已新增 timeline projection 层，使用 `WorkbenchTimelineItem` 和 ai-elements renderer 表达 chat message、task、tool、permission、reasoning、plan 与 run status；其中 Plan 由右侧“会话状态”标签页展示。
 - Runtime message 事件已增加 `messageId/messageIndex`；Web timeline projection 已按 `messageId` 拆分主聊天气泡，并隐藏 `run_task` 工具卡片以避免与 task/subagent 输出重复。
 - Runtime reasoning/tool/permission 事件已开始复用当前输出上下文的 `messageId/messageIndex`；Web projection 会把同一 `messageId` 的 reasoning、普通工具和审批嵌入对应聊天消息，旧事件才退回独立 timeline item。
 - Orchestrator prompt 已收紧为“协调而不复述”：可见主智能体已经在聊天流中展示的回复不再由 Orchestrator 以最终总结形式重复输出，除非用户明确要求总结或结果来自隐藏子智能体。
+- Plan timeline item 已迁移到产物工作台“会话状态”单例标签页展示；聊天流不再渲染 Plan，当前会话收到 Plan 更新时会自动展开右侧工作台并激活该标签页。
 
 ## 已完成
 
@@ -370,6 +371,7 @@ POST /api/runs/:runId/cancel
 - 阶段 1.6 补强：完成 message-scoped reasoning/tool/permission 聚合；同一智能体当前输出中的 reasoning、普通工具、审批和文本可以落到同一条消息容器，为后续 MessagePart 持久化预留路径。
 - 阶段 1.6 补强：完成 Orchestrator prompt 去复述策略；委派给可见主智能体后只补充增量信息或简短确认，不再转述已经显示的主智能体输出。
 - 阶段 1.6 补强：Plan timeline UI 改为使用 ai-elements `Queue`，并强化 Orchestrator / `write_plan` 提示，要求委派任务完成、失败或取消后用相同 `taskId` 更新计划状态。
+- 阶段 1.6 补强：新增产物工作台“会话状态”单例标签页，使用 ai-elements `Queue` 展示当前 Plan；Plan 保留在本地 timeline 但不再出现在聊天消息流，Plan 更新会触发右侧工作台自动聚焦。
 
 ## 待办
 
@@ -404,4 +406,5 @@ POST /api/runs/:runId/cancel
 - 2026-05-28：补强阶段 1.6。Runtime 将当前输出上下文的 `messageId/messageIndex` 扩展到 reasoning、普通工具和权限事件；Web 将这些事件聚合进同一条消息或关联 task。
 - 2026-05-28：补强阶段 1.6。优化 Orchestrator prompt，禁止复述可见主智能体已经在聊天流中展示的回复，仅在有增量价值时补充状态、下一步或风险。
 - 2026-05-28：补强阶段 1.6。Plan timeline UI 改用 ai-elements `Queue`；强化 Orchestrator / `write_plan` 描述，要求任务批次完成后更新计划状态，并将 projection 自动回填列入后续计划。
+- 2026-05-28：补强阶段 1.6。将 Plan 展示迁移到右侧产物工作台“会话状态”单例标签页，新增 store 管理的工作台折叠状态和 Plan focus request；聊天消息流不再渲染 Plan。
 - 2026-05-27：创建路线图，确定先做 Web 未持久化 Runs 聊天闭环，再做 HubServer 持久化与产品级发送入口；记录 Zustand + TanStack Query 状态管理方向。

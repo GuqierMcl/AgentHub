@@ -44,7 +44,7 @@ export function RightWorkbenchTabBar({
 
   return (
     <div className="flex shrink-0 items-center gap-1 border-border border-b px-2 py-1.5">
-      <ScrollArea className="right-workbench-tab-scroll h-10 min-w-0 flex-1">
+      <ScrollArea className="right-workbench-tab-scroll min-w-0 flex-1">
         <div className="flex h-8 w-max items-center gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon

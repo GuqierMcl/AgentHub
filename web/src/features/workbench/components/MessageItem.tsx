@@ -22,18 +22,6 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import {
-  Queue,
-  QueueItem,
-  QueueItemContent,
-  QueueItemDescription,
-  QueueItemIndicator,
-  QueueList,
-  QueueSection,
-  QueueSectionContent,
-  QueueSectionLabel,
-  QueueSectionTrigger,
-} from "@/components/ai-elements/queue"
-import {
   Reasoning,
   ReasoningContent,
   ReasoningTrigger,
@@ -73,7 +61,6 @@ import type {
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
   WorkbenchTimelinePermissionItem,
-  WorkbenchTimelinePlanItem,
   WorkbenchTimelineReasoningItem,
   WorkbenchTimelineRunStatusItem,
   WorkbenchTimelineTaskItem,
@@ -103,7 +90,7 @@ export const TimelineItem = memo(function TimelineItem({
     case "reasoning":
       return <ReasoningTimelineItem item={item} />
     case "plan":
-      return <PlanTimelineItem item={item} />
+      return null
     case "run_status":
       return <RunStatusTimelineItem item={item} />
   }
@@ -257,76 +244,6 @@ function TaskTimelineItem({ item }: { item: WorkbenchTimelineTaskItem }) {
           ) : null}
         </TaskContent>
       </Task>
-    </TimelineCard>
-  )
-}
-
-function PlanTimelineItem({ item }: { item: WorkbenchTimelinePlanItem }) {
-  return (
-    <TimelineCard>
-      <Queue className="max-w-[min(720px,100%)]">
-        <QueueSection defaultOpen>
-          <QueueSectionTrigger>
-            <QueueSectionLabel count={item.tasks.length} label="个任务" />
-            <span className="min-w-0 truncate text-right text-muted-foreground text-xs pl-2">
-              {item.title}
-            </span>
-          </QueueSectionTrigger>
-          <QueueSectionContent>
-            {item.description ? (
-              <div className="px-3 pt-2 text-muted-foreground text-xs">
-                {item.description}
-              </div>
-            ) : null}
-            {item.tasks.length ? (
-              <QueueList>
-                {item.tasks.map((task) => {
-                  const completed = task.status === "completed"
-                  const failed = task.status === "failed" || task.status === "cancelled"
-
-                  return (
-                    <QueueItem key={task.taskId}>
-                      <span className="flex min-w-0 items-start gap-3">
-                        <QueueItemIndicator
-                          className={
-                            failed
-                              ? "border-destructive/50 bg-destructive/10"
-                              : undefined
-                          }
-                          completed={completed}
-                        />
-                        <QueueItemContent
-                          className={failed ? "text-destructive" : undefined}
-                          completed={completed}
-                        >
-                          {task.title}
-                        </QueueItemContent>
-                        {task.status ? (
-                          <Badge
-                            className="shrink-0"
-                            variant={failed ? "destructive" : "secondary"}
-                          >
-                            {task.status}
-                          </Badge>
-                        ) : null}
-                      </span>
-                      {task.targetAgentId ? (
-                        <QueueItemDescription completed={completed}>
-                          Target: {task.targetAgentId}
-                        </QueueItemDescription>
-                      ) : null}
-                    </QueueItem>
-                  )
-                })}
-              </QueueList>
-            ) : (
-              <div className="px-3 pt-2 text-muted-foreground text-sm">
-                Plan updated.
-              </div>
-            )}
-          </QueueSectionContent>
-        </QueueSection>
-      </Queue>
     </TimelineCard>
   )
 }

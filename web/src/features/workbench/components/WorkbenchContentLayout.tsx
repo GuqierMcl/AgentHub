@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { usePanelRef } from "react-resizable-panels"
 import { toast } from "sonner"
@@ -44,8 +44,14 @@ export function WorkbenchContentLayout({
   onCreateConversation,
 }: WorkbenchContentLayoutProps) {
   const workspacePanelRef = usePanelRef()
-  const [isWorkspaceCollapsed, setIsWorkspaceCollapsed] = useState(true)
   const tabs = useTabStore((s) => s.tabs)
+  const isWorkspaceCollapsed = useTabStore((s) => s.isWorkspaceCollapsed)
+  const setWorkspaceCollapsed = useTabStore((s) => s.setWorkspaceCollapsed)
+  const openTab = useTabStore((s) => s.openTab)
+  const workspaceFocusRequest = useTabStore((s) => s.workspaceFocusRequest)
+  const consumeWorkspaceFocusRequest = useTabStore(
+    (s) => s.consumeWorkspaceFocusRequest
+  )
   const runtimeState = useWorkbenchStore((s) =>
     activeConversationId ? s.conversations[activeConversationId] : undefined
   )
@@ -172,13 +178,41 @@ export function WorkbenchContentLayout({
 
     if (workspacePanel.isCollapsed()) {
       workspacePanel.expand()
-      setIsWorkspaceCollapsed(false)
+      setWorkspaceCollapsed(false)
       return
     }
 
     workspacePanel.collapse()
-    setIsWorkspaceCollapsed(true)
-  }, [workspacePanelRef])
+    setWorkspaceCollapsed(true)
+  }, [setWorkspaceCollapsed, workspacePanelRef])
+
+  useEffect(() => {
+    if (!workspaceFocusRequest) return
+
+    if (
+      workspaceFocusRequest.conversationId &&
+      workspaceFocusRequest.conversationId !== activeConversationId
+    ) {
+      consumeWorkspaceFocusRequest(workspaceFocusRequest.id)
+      return
+    }
+
+    openTab(workspaceFocusRequest.tabType)
+
+    const workspacePanel = workspacePanelRef.current
+    if (workspacePanel?.isCollapsed()) {
+      workspacePanel.expand()
+    }
+    setWorkspaceCollapsed(false)
+    consumeWorkspaceFocusRequest(workspaceFocusRequest.id)
+  }, [
+    activeConversationId,
+    consumeWorkspaceFocusRequest,
+    openTab,
+    setWorkspaceCollapsed,
+    workspaceFocusRequest,
+    workspacePanelRef,
+  ])
 
   useEffect(() => {
     const workspacePanel = workspacePanelRef.current
@@ -189,14 +223,14 @@ export function WorkbenchContentLayout({
 
     if (hasTabs && !hadTabs) {
       workspacePanel.expand()
-      setIsWorkspaceCollapsed(false)
+      setWorkspaceCollapsed(false)
     } else if (!hasTabs && hadTabs) {
       workspacePanel.collapse()
-      setIsWorkspaceCollapsed(true)
+      setWorkspaceCollapsed(true)
     }
 
     hasTabsRef.current = hasTabs
-  }, [tabs.length, workspacePanelRef])
+  }, [setWorkspaceCollapsed, tabs.length, workspacePanelRef])
 
   if (!activeConversationId) {
     return <WorkbenchWelcome onCreateConversation={onCreateConversation} />
@@ -247,7 +281,11 @@ export function WorkbenchContentLayout({
           panelRef={workspacePanelRef}
           groupResizeBehavior="preserve-pixel-size"
         >
-          <RightWorkbench />
+          <RightWorkbench
+            conversation={activeConversation}
+            connectionStatus={runtimeState?.connectionStatus ?? "idle"}
+            runStatus={runtimeState?.runStatus ?? "idle"}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

@@ -28,10 +28,10 @@ export function WorkbenchEmptyState() {
       <EmptyContent>
         <button
           className="text-muted-foreground text-sm hover:text-foreground"
-          onClick={() => openTab("review")}
+          onClick={() => openTab("conversation-status")}
           type="button"
         >
-          或点击此处打开代码审查
+          或点击此处打开会话状态
         </button>
       </EmptyContent>
     </Empty>

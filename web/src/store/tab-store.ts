@@ -4,11 +4,12 @@ import {
   FileSearchIcon,
   FolderOpenIcon,
   GlobeIcon,
+  ListTodoIcon,
   RocketIcon,
   SquareTerminalIcon,
 } from "lucide-react"
 
-export type SingletonTabId = "review" | "files" | "deploy"
+export type SingletonTabId = "conversation-status" | "review" | "files" | "deploy"
 export type MultiTabId = "terminal" | "preview"
 export type TabType = SingletonTabId | MultiTabId
 
@@ -19,7 +20,16 @@ export type TabInstance = {
   icon: LucideIcon
 }
 
+export type WorkspaceFocusRequest = {
+  id: string
+  tabType: SingletonTabId
+  conversationId?: string
+  reason: "plan"
+  reasonKey: string
+}
+
 export const tabMeta: Record<TabType, { icon: LucideIcon; label: string }> = {
+  "conversation-status": { icon: ListTodoIcon, label: "会话状态" },
   review: { icon: FileSearchIcon, label: "代码审查" },
   files: { icon: FolderOpenIcon, label: "文件浏览" },
   deploy: { icon: RocketIcon, label: "部署预览" },
@@ -27,7 +37,12 @@ export const tabMeta: Record<TabType, { icon: LucideIcon; label: string }> = {
   preview: { icon: GlobeIcon, label: "浏览器" },
 }
 
-export const singletonTabIds: SingletonTabId[] = ["review", "files", "deploy"]
+export const singletonTabIds: SingletonTabId[] = [
+  "conversation-status",
+  "review",
+  "files",
+  "deploy",
+]
 export const multiTabIds: MultiTabId[] = ["terminal", "preview"]
 
 type TabStore = {
@@ -35,12 +50,20 @@ type TabStore = {
   activeTabUid: string | null
   mountedTabUids: Set<string>
   tabCounters: Record<MultiTabId, number>
+  isWorkspaceCollapsed: boolean
+  workspaceFocusRequest: WorkspaceFocusRequest | null
+  workspaceFocusRequestSeq: number
 
   openTab: (type: TabType, title?: string) => string
   closeTab: (uid: string) => void
   activateTab: (uid: string) => void
   closeAllTabs: () => void
   isSingletonOpen: (type: SingletonTabId) => boolean
+  setWorkspaceCollapsed: (collapsed: boolean) => void
+  requestWorkspaceFocus: (
+    request: Omit<WorkspaceFocusRequest, "id">
+  ) => WorkspaceFocusRequest
+  consumeWorkspaceFocusRequest: (id: string) => void
 }
 
 export const useTabStore = create<TabStore>((set, get) => ({
@@ -48,17 +71,16 @@ export const useTabStore = create<TabStore>((set, get) => ({
   activeTabUid: null,
   mountedTabUids: new Set(),
   tabCounters: { terminal: 0, preview: 0 },
+  isWorkspaceCollapsed: true,
+  workspaceFocusRequest: null,
+  workspaceFocusRequestSeq: 0,
 
   openTab: (type, title) => {
     const state = get()
     const meta = tabMeta[type]
 
     // Singleton: already open → just activate
-    if (
-      type === "review" ||
-      type === "files" ||
-      type === "deploy"
-    ) {
+    if (singletonTabIds.includes(type as SingletonTabId)) {
       const existing = state.tabs.find((t) => t.type === type)
       if (existing) {
         set({ activeTabUid: existing.uid })
@@ -81,7 +103,8 @@ export const useTabStore = create<TabStore>((set, get) => ({
     }
 
     // Multi-instance
-    const counter = state.tabCounters[type]
+    const multiType = type as MultiTabId
+    const counter = state.tabCounters[multiType]
     const uid = `${type}-${counter + 1}`
     const tab: TabInstance = {
       uid,
@@ -93,7 +116,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
       tabs: [...s.tabs, tab],
       activeTabUid: uid,
       mountedTabUids: new Set([...s.mountedTabUids, uid]),
-      tabCounters: { ...s.tabCounters, [type]: counter + 1 },
+      tabCounters: { ...s.tabCounters, [multiType]: counter + 1 },
     }))
     return uid
   },
@@ -146,5 +169,30 @@ export const useTabStore = create<TabStore>((set, get) => ({
 
   isSingletonOpen: (type) => {
     return get().tabs.some((t) => t.type === type)
+  },
+
+  setWorkspaceCollapsed: (collapsed) => {
+    set({ isWorkspaceCollapsed: collapsed })
+  },
+
+  requestWorkspaceFocus: (request) => {
+    const nextSeq = get().workspaceFocusRequestSeq + 1
+    const focusRequest: WorkspaceFocusRequest = {
+      ...request,
+      id: `workspace-focus-${nextSeq}`,
+    }
+    set({
+      workspaceFocusRequest: focusRequest,
+      workspaceFocusRequestSeq: nextSeq,
+    })
+    return focusRequest
+  },
+
+  consumeWorkspaceFocusRequest: (id) => {
+    set((state) =>
+      state.workspaceFocusRequest?.id === id
+        ? { workspaceFocusRequest: null }
+        : state
+    )
   },
 }))

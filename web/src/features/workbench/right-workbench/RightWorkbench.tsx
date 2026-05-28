@@ -1,10 +1,23 @@
 import { useTabStore } from "@/store/tab-store"
 
+import type { RuntimeRunStatus } from "../api/runtime-runs"
+import type { RunConnectionStatus } from "../store/workbench-store"
+import type { Conversation } from "../types"
 import { RightWorkbenchTabBar } from "./components/RightWorkbenchTabBar"
 import { RightWorkbenchTabView } from "./components/RightWorkbenchTabView"
 import { WorkbenchEmptyState } from "./components/WorkbenchEmptyState"
 
-export function RightWorkbench() {
+type RightWorkbenchProps = {
+  conversation: Conversation | null
+  connectionStatus: RunConnectionStatus
+  runStatus: RuntimeRunStatus | "idle" | "submitted"
+}
+
+export function RightWorkbench({
+  conversation,
+  connectionStatus,
+  runStatus,
+}: RightWorkbenchProps) {
   const tabs = useTabStore((s) => s.tabs)
   const activeTabUid = useTabStore((s) => s.activeTabUid)
   const mountedTabUids = useTabStore((s) => s.mountedTabUids)
@@ -36,7 +49,10 @@ export function RightWorkbench() {
         ) : (
           <RightWorkbenchTabView
             activeTabUid={activeTabUid}
+            connectionStatus={connectionStatus}
+            conversation={conversation}
             mountedTabUids={mountedTabUids}
+            runStatus={runStatus}
             tabs={tabs}
           />
         )}

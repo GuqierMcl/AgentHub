@@ -1,12 +1,14 @@
 import { create } from "zustand"
 
+import { useTabStore } from "@/store/tab-store"
+
 import type { RuntimeRunEvent, RuntimeRunStatus } from "../api/runtime-runs"
 import {
   applyRuntimeEventToTimeline,
   createLocalRunStatusItem,
   createLocalUserTimelineItem,
 } from "../runtime/timeline-projection"
-import type { WorkbenchTimelineItem } from "../types"
+import type { WorkbenchTimelineItem, WorkbenchTimelinePlanItem } from "../types"
 
 export type RunConnectionStatus =
   | "idle"
@@ -200,6 +202,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   applyRuntimeEvents: (conversationId, events) => {
     if (events.length === 0) return
 
+    let planFocusReasonKey: string | null = null
+
     set((state) => {
       const current = getOrCreateState(state.conversations, conversationId)
       let activeRuntimeRunId = current.activeRuntimeRunId
@@ -233,6 +237,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
         eventLog = appendEventLog(eventLog, event)
         hasRenderableChange = true
+        const previousPlanSignature = getLatestPlanSignature(timelineItems)
         const nextTimelineItems = applyRuntimeEventToTimeline(
           timelineItems,
           event,
@@ -240,6 +245,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         )
 
         if (nextTimelineItems !== timelineItems) {
+          const nextPlanSignature = getLatestPlanSignature(nextTimelineItems)
+          if (
+            nextPlanSignature &&
+            nextPlanSignature !== previousPlanSignature
+          ) {
+            planFocusReasonKey = nextPlanSignature
+          }
           timelineItems = nextTimelineItems
           hasRenderableChange = true
         }
@@ -263,6 +275,18 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         },
       }
     })
+
+    if (
+      planFocusReasonKey &&
+      get().activeConversationId === conversationId
+    ) {
+      useTabStore.getState().requestWorkspaceFocus({
+        tabType: "conversation-status",
+        conversationId,
+        reason: "plan",
+        reasonKey: planFocusReasonKey,
+      })
+    }
   },
 
   failRunStart: (conversationId, message, code) => {
@@ -312,4 +336,25 @@ function appendEventLog(
     return [...events.slice(events.length - maxEventLogSize + 1), event]
   }
   return [...events, event]
+}
+
+function getLatestPlanSignature(items: WorkbenchTimelineItem[]): string | null {
+  const plan = items.findLast(
+    (item): item is WorkbenchTimelinePlanItem => item.kind === "plan"
+  )
+  if (!plan) return null
+
+  return JSON.stringify({
+    id: plan.id,
+    runId: plan.runId,
+    title: plan.title,
+    description: plan.description,
+    status: plan.status,
+    tasks: plan.tasks.map((task) => ({
+      taskId: task.taskId,
+      title: task.title,
+      targetAgentId: task.targetAgentId,
+      status: task.status,
+    })),
+  })
 }
