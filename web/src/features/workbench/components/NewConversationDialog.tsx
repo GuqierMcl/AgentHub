@@ -172,7 +172,7 @@ export function NewConversationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent from="top" className="w-[640px] p-0 flex flex-col max-h-[80vh]">
+      <DialogContent from="top" className="w-[700px] p-0 flex flex-col max-h-[80vh]">
         <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle>新建会话</DialogTitle>
           <DialogDescription>选择已有会话或创建新会话</DialogDescription>
@@ -215,7 +215,7 @@ export function NewConversationDialog({
           </div>
         </div>
 
-        <div className="flex flex-1 min-h-0 px-6 gap-4 pb-2">
+        <div className="flex flex-1 min-h-0 px-6 gap-4 pb-2 overflow-hidden">
           <ScrollArea className="flex-1 min-h-0">
             <div className="space-y-2 pr-3">
               <Collapsible open={existingOpen} onOpenChange={setExistingOpen}>
@@ -277,7 +277,7 @@ export function NewConversationDialog({
             </div>
           </ScrollArea>
 
-          <ScrollArea className="w-[160px] shrink-0">
+          <ScrollArea className="w-[160px] shrink-0 min-w-0">
             {selectedAgents.length > 0 ? (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">
