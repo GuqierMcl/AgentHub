@@ -37,7 +37,6 @@ model ConversationAgent {
   id             String @id @map("id")
   conversationId String @map("conversation_id")
   agentId        String @map("agent_id")
-  role           String @map("role")
   joinedAt       String @map("joined_at")
   sortOrder      Int    @default(0) @map("sort_order")
 

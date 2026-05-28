@@ -78,8 +78,6 @@ export type Conversation = {
 
 // Backend API types
 
-export type AgentRole = "primary" | "member" | "orchestrator"
-
 export type ConversationListItem = {
   id: string
   title: string
@@ -91,13 +89,12 @@ export type ConversationListItem = {
   pinnedAt: string | null
   createdAt: string
   updatedAt: string
-  agents: { agentId: string; role: AgentRole }[]
+  agents: { agentId: string }[]
   metadata: Record<string, unknown> | null
 }
 
 export type ConversationAgentItem = {
   agentId: string
-  role: AgentRole
   sortOrder: number
   joinedAt: string
 }
@@ -122,7 +119,7 @@ export type CreateConversationBody = {
   title: string
   mode: "single" | "group"
   orchestratorAgentId?: string
-  agents?: { agentId: string; role: AgentRole }[]
+  agents?: { agentId: string }[]
   metadata?: Record<string, unknown>
 }
 

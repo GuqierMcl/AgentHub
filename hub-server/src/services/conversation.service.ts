@@ -35,7 +35,6 @@ export class ConversationService {
       updatedAt: o.updatedAt,
       agents: o.agents.map((a) => ({
         agentId: a.agentId,
-        role: a.role as ConversationAgentItem['role'],
       })),
       metadata: o.metadataJson,
     }
@@ -57,7 +56,6 @@ export class ConversationService {
       updatedAt: o.updatedAt,
       agents: (o.agents ?? []).map((a): ConversationAgentItem => ({
         agentId: a.agentId,
-        role: a.role as ConversationAgentItem['role'],
         sortOrder: a.sortOrder,
         joinedAt: a.joinedAt,
       })),
@@ -79,39 +77,12 @@ export class ConversationService {
     })
 
     if (input.agents && input.agents.length > 0) {
-      if (input.mode === 'group') {
-        let sortOrder = 0
-
-        if (!input.agents.some((a) => a.role === 'orchestrator') && !input.orchestratorAgentId) {
-          await createConversationAgent({
-            conversationId: conv.id,
-            agentId: 'orchestrator',
-            role: 'primary',
-            sortOrder: sortOrder++,
-          })
-          await updateConversation(conv.id, {
-            orchestratorAgentId: 'orchestrator',
-          })
-        }
-
-        for (const agent of input.agents) {
-          await createConversationAgent({
-            conversationId: conv.id,
-            agentId: agent.agentId,
-            role: 'member',
-            sortOrder: sortOrder++,
-          })
-        }
-      } else {
-        for (let i = 0; i < input.agents.length; i++) {
-          const agent = input.agents[i]
-          await createConversationAgent({
-            conversationId: conv.id,
-            agentId: agent.agentId,
-            role: agent.role,
-            sortOrder: i,
-          })
-        }
+      for (let i = 0; i < input.agents.length; i++) {
+        await createConversationAgent({
+          conversationId: conv.id,
+          agentId: input.agents[i].agentId,
+          sortOrder: i,
+        })
       }
     }
 

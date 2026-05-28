@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import type { AgentRole } from '../../lib/types'
 
 // ── 请求 Schema ──
 
@@ -17,7 +16,6 @@ export const CreateConversationBodySchema = z.object({
     .array(
       z.object({
         agentId: z.string().min(1),
-        role: z.enum(['primary', 'member', 'orchestrator'] as const),
       }),
     )
     .optional(),
@@ -42,7 +40,6 @@ export type DeleteConversationsBody = z.infer<typeof DeleteConversationsBodySche
 
 export interface ConversationAgentItem {
   agentId: string
-  role: AgentRole
   sortOrder: number
   joinedAt: string
 }
@@ -58,7 +55,7 @@ export interface ConversationListItem {
   pinnedAt: string | null
   createdAt: string
   updatedAt: string
-  agents: { agentId: string; role: AgentRole }[]
+  agents: { agentId: string }[]
   metadata: Record<string, unknown> | null
 }
 

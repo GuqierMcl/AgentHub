@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { agentsApi } from "@/features/agents/api/agents"
 import { workbenchQueryKeys } from "../api/query-keys"
-import type { ConversationDetail, ConversationListItem, AgentRole, CreateConversationBody } from "../types"
+import type { ConversationDetail, ConversationListItem, CreateConversationBody } from "../types"
 import type { AgentSummary } from "@/features/agents/types"
 
 const EMPTY_AGENTS: AgentSummary[] = []
@@ -83,9 +83,31 @@ export function NewConversationDialog({
   )
 
   const toggleAgent = useCallback((id: string) => {
-    setSelectedAgentIds((prev) =>
-      prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
-    )
+    setSelectedAgentIds((prev) => {
+      if (id === "orchestrator") {
+        if (prev.includes("orchestrator")) {
+          const nonOrch = prev.filter((a) => a !== "orchestrator")
+          if (nonOrch.length >= 2) {
+            toast.warning("群聊内必须包含orchestrator")
+            return prev
+          }
+          return nonOrch
+        }
+        return [...prev, "orchestrator"]
+      }
+
+      const isSelecting = !prev.includes(id)
+
+      if (isSelecting) {
+        const next = [...prev, id]
+        if (next.filter((a) => a !== "orchestrator").length >= 2 && !next.includes("orchestrator")) {
+          next.push("orchestrator")
+        }
+        return next
+      } else {
+        return prev.filter((a) => a !== id)
+      }
+    })
   }, [])
 
   const handleSelectWorkspace = useCallback(async () => {
@@ -112,15 +134,14 @@ export function NewConversationDialog({
         ? agents.find((a) => a.id === selectedAgentIds[0])?.name ?? "新会话"
         : `群聊 (${selectedAgentIds.length}人)`
 
-      const agentRoles: { agentId: string; role: AgentRole }[] = selectedAgentIds.map((id, i) => ({
+      const agentList = selectedAgentIds.map((id) => ({
         agentId: id,
-        role: i === 0 ? "primary" as const : "member" as const,
       }))
 
       const body: CreateConversationBody = {
         title,
         mode,
-        agents: agentRoles,
+        agents: agentList,
         metadata: workspacePath.trim()
           ? {
               workspace: {

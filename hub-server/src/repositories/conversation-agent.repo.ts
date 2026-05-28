@@ -1,16 +1,13 @@
 import { getPrismaClient } from '../lib/db'
 import { generateId } from '../lib/id'
-import type { AgentRole } from '../lib/types'
 
 export interface CreateConversationAgentInput {
   conversationId: string
   agentId: string
-  role: AgentRole
   sortOrder?: number
 }
 
 export interface UpdateConversationAgentInput {
-  role?: AgentRole
   sortOrder?: number
 }
 
@@ -22,7 +19,6 @@ export async function createConversationAgent(input: CreateConversationAgentInpu
       id: generateId('conv'),
       conversationId: input.conversationId,
       agentId: input.agentId,
-      role: input.role,
       joinedAt: now,
       sortOrder: input.sortOrder ?? 0,
     },

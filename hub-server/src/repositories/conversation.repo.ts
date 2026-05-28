@@ -102,7 +102,6 @@ function toListOutput(record: Record<string, unknown>): ConversationListOutput {
     metadataJson: JSON.parse((record.metadataJson as string) || '{}'),
     agents: agents.map((a) => ({
       agentId: a.agentId as string,
-      role: a.role as string,
     })),
   } as ConversationListOutput
 }
@@ -183,7 +182,6 @@ export interface ConversationDetailOutput {
 
 export interface ConversationListAgentOutput {
   agentId: string
-  role: string
 }
 
 export interface ConversationListOutput {
@@ -206,7 +204,6 @@ export interface ConversationAgentDetailOutput {
   id: string
   conversationId: string
   agentId: string
-  role: string
   sortOrder: number
   joinedAt: string
 }
@@ -222,7 +219,6 @@ function toConversationDetailOutput(record: Record<string, unknown>): Conversati
       id: a.id as string,
       conversationId: a.conversationId as string,
       agentId: a.agentId as string,
-      role: a.role as string,
       sortOrder: a.sortOrder as number,
       joinedAt: a.joinedAt as string,
     })),

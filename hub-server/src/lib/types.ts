@@ -12,7 +12,6 @@ export type ArtifactStatus = 'draft' | 'ready' | 'failed'
 export type ArtifactVersionSource = 'agent' | 'user' | 'diff_apply'
 export type PermissionType = 'file_read' | 'file_write' | 'command_execute' | 'network_access' | 'deployment'
 export type PermissionStatus = 'pending' | 'approved' | 'rejected' | 'expired'
-export type AgentRole = 'primary' | 'member' | 'orchestrator'
 export type SortOrder = 'asc' | 'desc'
 
 export type MetadataJson = Record<string, unknown>
