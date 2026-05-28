@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/animate-ui/components/radix/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { agentsApi } from "@/features/agents/api/agents"
 import { workbenchQueryKeys } from "../api/query-keys"
 import type { ConversationDetail, ConversationListItem, CreateConversationBody } from "../types"
@@ -262,6 +263,7 @@ export function NewConversationDialog({
                             onCheckedChange={() => toggleAgent(agent.id)}
                             size="sm"
                           />
+                          <AgentAvatar agent={agent} size="sm" />
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium truncate">{agent.name}</div>
                             <div className="text-[10px] text-muted-foreground truncate">{agent.description}</div>

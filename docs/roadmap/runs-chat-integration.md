@@ -133,6 +133,26 @@ Web local message state
 - 智能体回答期间切换到其他会话不会取消 Runtime Run；切回原会话可以 replay 并继续显示后续输出。
 - 不写 HubServer `Message`、`Run`、`RunEvent` 表。
 
+### 阶段 1.5：Workbench Timeline Projection + ai-elements Renderer
+
+目的：在进入 HubServer 持久化前，把 Runtime 事件到 Web UI 的投影层明确化，避免把任务、工具、权限和子智能体输出继续塞进普通消息模型。
+
+任务：
+
+- 新增 `WorkbenchTimelineItem`，作为 Web 未持久化聊天流的唯一 UI source of truth。
+- 将 Zustand conversation runtime state 从 `messages` 迁移为 `timelineItems`，继续保留原始 `events` 和 `receivedEventIds`。
+- 抽出 `RuntimeRunEvent -> WorkbenchTimelineItem` projection reducer，确保 replay 时按稳定 item id 更新，不重复 append。
+- Runtime `history` 只从 timeline 中的 `chat_message` 投影。
+- 使用 ai-elements 渲染 timeline：`Message` 渲染聊天消息，`Task` 渲染任务和子智能体输出，`Tool` 渲染工具调用，`Confirmation` 渲染权限事件，`Reasoning` 渲染 reasoning，`Plan` 渲染 orchestrator 计划。
+- Timeline 渲染层使用真实 conversation agent profiles，不再依赖 workbench mock agent 数据。
+
+出口标准：
+
+- 子智能体 `message.*` 不创建普通聊天气泡，而进入任务卡片。
+- tool/task/permission/reasoning/plan 事件有稳定 UI 落点。
+- SSE replay 后 timeline 不重复追加 delta 或卡片。
+- 单聊与群聊主智能体消息仍按 IM 聊天气泡显示。
+
 ### 阶段 2：HubServer 产品级发送入口与持久化
 
 目的：把消息发送从 Runtime 代理升级为 HubServer 产品 API。
@@ -299,7 +319,7 @@ POST /api/runs/:runId/cancel
 - active run ids and SSE connection status
 - per-conversation latest active run pointer and received event ids
 - workbench tabs and layout
-- 第一阶段的未持久化 messages 属于 Zustand；第二阶段持久化后，messages 逐步迁移为 TanStack Query cache，Zustand 只保留 optimistic overlay 和 streaming overlay。
+- 第一阶段的未持久化 timeline items 属于 Zustand；第二阶段持久化后，messages/events 逐步迁移为 TanStack Query cache，Zustand 只保留 optimistic overlay 和 streaming overlay。
 
 ## 当前进度
 
@@ -309,9 +329,10 @@ POST /api/runs/:runId/cancel
 - Web conversation list、新建、重命名、pin/archive 已接 HubServer。
 - Web 已引入 `@tanstack/react-query`，并在应用根部安装 `QueryClientProvider`。
 - Web conversation list/detail、新建、重命名、pin/archive 已迁移为 TanStack Query 查询与 mutation。
-- Web 已新增 Zustand workbench store，按 conversation 保存 draft、未持久化 messages、最近 active Runtime `runId`、Run 状态、SSE 连接状态、已接收 Runtime event ids 和轻量 event log。
+- Web 已新增 Zustand workbench store，按 conversation 保存 draft、未持久化 timeline items、最近 active Runtime `runId`、Run 状态、SSE 连接状态、已接收 Runtime event ids 和轻量 event log。
 - Web 已新增 Runtime Runs API client 和 EventSource connection manager，复用 HubServer `/api/runtime/runs*` 转发接口。
 - Web 聊天消息流已从静态原型推进到第一阶段未持久化 Runtime Runs 聊天；刷新页面丢失本地消息与 active run 映射仍是当前阶段预期。
+- Web 已新增 timeline projection 层，使用 `WorkbenchTimelineItem` 和 ai-elements renderer 表达 chat message、task、tool、permission、reasoning、plan 与 run status。
 
 ## 已完成
 
@@ -321,6 +342,7 @@ POST /api/runs/:runId/cancel
 - 确认持久化阶段需要新增产品级发送入口，而不是继续扩大 Runtime 代理语义。
 - 阶段 0：完成 TanStack Query Provider、conversation list/detail 查询、conversation create/rename/pin/archive mutation，以及 Zustand workbench store。
 - 阶段 1：完成 Web 本地消息发送、Runtime Run 创建、SSE 流式输出、Runtime event id 去重、基础失败/取消显示，以及切会话关闭订阅但不取消 Run、切回后重新订阅 replay 的前端机制。
+- 阶段 1.5：完成 Web timeline projection 和 ai-elements timeline renderer；子智能体输出、工具、任务、权限、reasoning、plan 与 run 状态不再混入普通消息模型。
 
 ## 待办
 
@@ -341,6 +363,7 @@ POST /api/runs/:runId/cancel
 - 阶段 1 的消息刷新丢失是预期行为；不要为它临时写入数据库。
 - 阶段 1 切会话恢复依赖 Agent Runtime 的 in-memory Run 和 event replay；Runtime 进程重启后不能恢复，这是阶段 2/7 的持久化与恢复能力要解决的问题。
 - Runtime SSE replay 会重放已有 `message.delta`；Web 如果直接在已有文本上追加 replay delta，会产生重复内容，必须按 `event.id` 去重或从事件列表重新派生视图。
+- Web 当前 timeline 仍是浏览器内存态；刷新后丢失 timeline 是阶段 1.5 的预期行为，阶段 2 后再迁移为 HubServer 持久化消息和事件投影。
 - HubServer SSE 消费和前端 SSE 转发要避免同一 Runtime event 被重复持久化。
 - HubServer 的本地 `Run.id` 和 Runtime `runId` 必须通过 `Run.runtimeId` 明确映射。
 - conversation metadata 中 workspace snapshot 目前由 Web 创建；后续可能需要 HubServer 校验和规范化。
@@ -348,4 +371,5 @@ POST /api/runs/:runId/cancel
 ## 最近更新
 
 - 2026-05-28：实施阶段 0+1。Web 使用 Zustand + TanStack Query 管理会话与运行态，并通过 HubServer `/api/runtime/runs*` 转发接口跑通未持久化 Runtime Runs 聊天、SSE 流式输出和切会话重新订阅恢复策略。
+- 2026-05-28：实施阶段 1.5。Web 将未持久化聊天流迁移为 Timeline Projection，使用 ai-elements 渲染 chat message、task、tool、permission、reasoning、plan 和 run status。
 - 2026-05-27：创建路线图，确定先做 Web 未持久化 Runs 聊天闭环，再做 HubServer 持久化与产品级发送入口；记录 Zustand + TanStack Query 状态管理方向。

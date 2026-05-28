@@ -61,9 +61,9 @@ export const reviewIssues: ReviewIssue[] = [
 
 export const diffPreviewLines = [
   "- <MessageList messages={activeConversation.messages} />",
-  "+ <MessageList",
-  "+   messages={activeConversation.messages}",
-  "+   onOpenArtifact={handleOpenArtifact}",
+  "+ <TimelineList",
+  "+   timelineItems={activeConversation.timelineItems}",
+  "+   agentProfiles={activeConversation.agents}",
   "+ />",
   "+ <RightWorkbench",
   "+   activeTab={activeRightTab}",
@@ -84,7 +84,7 @@ export const workspaceFiles: WorkspaceFile[] = [
     <main className="grid h-svh min-h-0 overflow-hidden">
       <ConversationSidebar />
       <section className="flex min-h-0 flex-col">
-        <MessageList />
+        <TimelineList />
       </section>
       <RightWorkbench activeTab={activeRightTab} />
     </main>

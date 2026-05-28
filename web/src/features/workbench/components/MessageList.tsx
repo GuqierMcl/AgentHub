@@ -4,19 +4,27 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 
-import type { WorkbenchMessage } from "../types"
-import { MessageItem } from "./MessageItem"
+import type { ConversationAgentProfile, WorkbenchTimelineItem } from "../types"
+import { TimelineItem } from "./MessageItem"
 
-type MessageListProps = {
-  messages: WorkbenchMessage[]
+type TimelineListProps = {
+  timelineItems: WorkbenchTimelineItem[]
+  agentProfiles: ConversationAgentProfile[]
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function TimelineList({
+  agentProfiles,
+  timelineItems,
+}: TimelineListProps) {
   return (
     <Conversation className="min-h-0 flex-1">
       <ConversationContent className="gap-5 p-5">
-        {messages.map((message) => (
-          <MessageItem key={message.id} message={message} />
+        {timelineItems.map((item) => (
+          <TimelineItem
+            agentProfiles={agentProfiles}
+            item={item}
+            key={item.id}
+          />
         ))}
       </ConversationContent>
       <ConversationScrollButton />

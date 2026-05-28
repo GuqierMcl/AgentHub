@@ -2,7 +2,7 @@ import type { ChatStatus } from "ai"
 
 import { ChatComposer } from "./ChatComposer"
 import { ChatHeader } from "./ChatHeader"
-import { MessageList } from "./MessageList"
+import { TimelineList } from "./MessageList"
 import type { Conversation } from "../types"
 import type { RuntimeRunStatus } from "../api/runtime-runs"
 import type { RunConnectionStatus } from "../store/workbench-store"
@@ -44,7 +44,10 @@ export function ChatPanel({
         onToggleWorkspace={onToggleWorkspace}
         runStatus={runStatus}
       />
-      <MessageList messages={conversation.messages} />
+      <TimelineList
+        agentProfiles={conversation.agents ?? []}
+        timelineItems={conversation.timelineItems}
+      />
       <ChatComposer
         disabled={composerDisabled}
         onSubmit={onSubmit}

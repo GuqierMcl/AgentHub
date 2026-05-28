@@ -3,6 +3,7 @@ import { Toaster } from "sonner"
 
 import { useDocumentTitle } from "@/hooks/useDocumentTitle"
 import { cn } from "@/lib/utils"
+import { useAppNavStore } from "@/store/app-nav-store"
 
 import { SettingsDialog } from "@/features/settings/SettingsDialog"
 
@@ -12,7 +13,8 @@ import { DesktopTitleBar } from "./components/DesktopTitleBar"
 import { isElectrobunRuntime } from "./desktop-runtime"
 
 export function AppShell() {
-  const [activeModuleId, setActiveModuleId] = useState<AppModuleId>("chat")
+  const activeModuleId = useAppNavStore((s) => s.activeModuleId)
+  const selectModule = useAppNavStore((s) => s.selectModule)
   const [mountedModuleIds, setMountedModuleIds] = useState<Set<AppModuleId>>(
     () => new Set(["chat"])
   )
@@ -35,8 +37,8 @@ export function AppShell() {
 
   const handleSelectModule = useCallback((moduleId: AppModuleId) => {
     setMountedModuleIds((mountedIds) => new Set([...mountedIds, moduleId]))
-    setActiveModuleId(moduleId)
-  }, [])
+    selectModule(moduleId)
+  }, [selectModule])
 
   useEffect(() => {
     document.documentElement.classList.toggle(

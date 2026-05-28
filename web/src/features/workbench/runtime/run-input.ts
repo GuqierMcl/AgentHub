@@ -1,5 +1,9 @@
 import type { RuntimeMessage, RuntimeRunInput } from "../api/runtime-runs"
-import type { ConversationDetail, WorkbenchMessage } from "../types"
+import type {
+  ConversationDetail,
+  WorkbenchTimelineChatMessageItem,
+  WorkbenchTimelineItem,
+} from "../types"
 
 type RuntimeWorkspace = NonNullable<RuntimeRunInput["workspace"]>
 type TitleSource = NonNullable<
@@ -37,11 +41,13 @@ function getRuntimeWorkspace(
   }
 }
 
-export function projectMessagesToRuntimeHistory(
-  messages: WorkbenchMessage[]
+export function projectTimelineToRuntimeHistory(
+  timelineItems: WorkbenchTimelineItem[]
 ): RuntimeMessage[] {
-  return messages
-    .filter((message) => message.text.trim().length > 0)
+  return timelineItems
+    .filter((item): item is WorkbenchTimelineChatMessageItem =>
+      item.kind === "chat_message" && item.text.trim().length > 0
+    )
     .map((message) => ({
       id: message.id,
       role: message.role,
@@ -53,9 +59,10 @@ export function projectMessagesToRuntimeHistory(
 export function buildRuntimeRunInput(
   conversation: ConversationDetail,
   userContent: string,
-  previousMessages: WorkbenchMessage[]
+  previousTimelineItems: WorkbenchTimelineItem[]
 ): RuntimeRunInput {
   const workspace = getRuntimeWorkspace(conversation.metadata)
+  const history = projectTimelineToRuntimeHistory(previousTimelineItems)
 
   return {
     conversationId: conversation.id,
@@ -66,9 +73,9 @@ export function buildRuntimeRunInput(
       role: "user",
       content: userContent,
     },
-    history: projectMessagesToRuntimeHistory(previousMessages),
+    history,
     conversationState: {
-      messageCountBeforeRun: previousMessages.length,
+      messageCountBeforeRun: history.length,
       titleSource: getTitleSource(conversation.metadata),
     },
     ...(workspace ? { workspace } : {}),

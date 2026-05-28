@@ -29,6 +29,7 @@ import type {
   Conversation,
   ConversationAgentItem,
   ConversationAgentProfile,
+  WorkbenchTimelineItem,
 } from "../types"
 
 const EMPTY_AGENT_SUMMARIES: AgentSummary[] = []
@@ -84,13 +85,13 @@ export function WorkbenchContentLayout({
 
   const activeConversation = useMemo((): Conversation | null => {
     if (!conversationDetail) return null
-    const messages = runtimeState?.messages ?? []
+    const timelineItems = runtimeState?.timelineItems ?? []
     const workspace = getWorkspacePath(conversationDetail.metadata)
     const agents = resolveConversationAgents(
       conversationDetail.agents,
       agentSummaries
     )
-    const latestMessage = messages.at(-1)
+    const latestMessage = getLatestChatMessage(timelineItems)
     return {
       id: conversationDetail.id,
       title: conversationDetail.title,
@@ -106,7 +107,7 @@ export function WorkbenchContentLayout({
         ? !isTerminalRunStatus(runtimeState.runStatus) &&
           runtimeState.runStatus !== "idle"
         : false,
-      messages,
+      timelineItems,
     }
   }, [agentSummaries, conversationDetail, runtimeState])
 
@@ -129,11 +130,11 @@ export function WorkbenchContentLayout({
       return
     }
 
-    const previousMessages = current.messages
+    const previousTimelineItems = current.timelineItems
     const input = buildRuntimeRunInput(
       conversationDetail,
       trimmedContent,
-      previousMessages
+      previousTimelineItems
     )
 
     addUserMessage(activeConversationId, trimmedContent)
@@ -255,6 +256,12 @@ function getWorkspacePath(metadata: Record<string, unknown> | null): string {
   if (typeof workspace !== "object" || workspace === null) return ""
   const snapshot = workspace as Record<string, unknown>
   return typeof snapshot.rootPath === "string" ? snapshot.rootPath : ""
+}
+
+function getLatestChatMessage(
+  timelineItems: WorkbenchTimelineItem[]
+): Extract<WorkbenchTimelineItem, { kind: "chat_message" }> | undefined {
+  return timelineItems.findLast((item) => item.kind === "chat_message")
 }
 
 function resolveConversationAgents(

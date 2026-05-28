@@ -47,14 +47,16 @@ export const conversations: Conversation[] = [
     unread: 2,
     pinned: true,
     running: true,
-    messages: [
+    timelineItems: [
       {
+        kind: "chat_message",
         id: "m1",
         role: "user",
         text: "基于文档先做一个静态 Web 界面，不接后端。布局要像微信，左侧是会话记录，右侧是当前对话。",
         time: "09:20",
       },
       {
+        kind: "chat_message",
         id: "m2",
         role: "assistant",
         agentId: "codex",
@@ -68,22 +70,6 @@ export const conversations: Conversation[] = [
           {
             href: "https://ai-sdk.dev/elements",
             title: "AI Elements",
-          },
-        ],
-        tools: [
-          {
-            id: "tool-search",
-            description: "Searching component references",
-            name: "mcp",
-            parameters: {
-              query: "AI Elements conversation message prompt-input",
-              source: "local registry",
-            },
-            result: `{
-  "components": ["Conversation", "Message", "PromptInput"],
-  "status": "available"
-}`,
-            status: "output-available",
           },
         ],
         artifacts: [
@@ -104,6 +90,7 @@ export const conversations: Conversation[] = [
         ],
       },
       {
+        kind: "chat_message",
         id: "m3",
         role: "user",
         text: "输入框这轮只要静态，不要调用 API。",
@@ -126,6 +113,7 @@ export const conversations: Conversation[] = [
         ],
       },
       {
+        kind: "chat_message",
         id: "m4",
         role: "assistant",
         agentId: "codex",
@@ -143,11 +131,6 @@ export const conversations: Conversation[] = [
 
 这些组件都只在前端本地渲染，不接入后端。`,
         time: "09:34",
-        reasoning: {
-          content:
-            "用户希望通过静态页面尽可能暴露 AI Elements 组件的问题，因此应覆盖更多官方示例中的组件组合，但仍然保持 Workbench 结构清晰。",
-          duration: 8,
-        },
         artifacts: [
           {
             id: "artifact-code",
@@ -169,14 +152,16 @@ export const conversations: Conversation[] = [
     activeAt: "昨天",
     workspace: "D:\\Projects\\AgentHub",
     pinned: true,
-    messages: [
+    timelineItems: [
       {
+        kind: "chat_message",
         id: "g1",
         role: "user",
         text: "@Orchestrator 帮我拆一下接入两个外部 Agent 的工作。",
         time: "14:08",
       },
       {
+        kind: "chat_message",
         id: "g2",
         role: "assistant",
         agentId: "orchestrator",
@@ -203,8 +188,9 @@ export const conversations: Conversation[] = [
     activeAt: "周二",
     workspace: "D:\\Projects\\agent-hub-landing",
     archived: true,
-    messages: [
+    timelineItems: [
       {
+        kind: "chat_message",
         id: "a1",
         role: "assistant",
         agentId: "claude",

@@ -1,7 +1,12 @@
 import { create } from "zustand"
 
 import type { RuntimeRunEvent, RuntimeRunStatus } from "../api/runtime-runs"
-import type { WorkbenchMessage } from "../types"
+import {
+  applyRuntimeEventToTimeline,
+  createLocalRunStatusItem,
+  createLocalUserTimelineItem,
+} from "../runtime/timeline-projection"
+import type { WorkbenchTimelineItem } from "../types"
 
 export type RunConnectionStatus =
   | "idle"
@@ -12,7 +17,7 @@ export type RunConnectionStatus =
 
 type ConversationRuntimeState = {
   draft: string
-  messages: WorkbenchMessage[]
+  timelineItems: WorkbenchTimelineItem[]
   activeRuntimeRunId: string | null
   runStatus: RuntimeRunStatus | "idle" | "submitted"
   connectionStatus: RunConnectionStatus
@@ -27,7 +32,7 @@ type WorkbenchStore = {
   setActiveConversationId: (conversationId: string | null) => void
   setConversationChatSpeakers: (conversationId: string, speakerIds: string[]) => void
   setDraft: (conversationId: string, draft: string) => void
-  addUserMessage: (conversationId: string, content: string) => WorkbenchMessage[]
+  addUserMessage: (conversationId: string, content: string) => WorkbenchTimelineItem[]
   markRunSubmitted: (conversationId: string) => void
   startRuntimeRun: (conversationId: string, runId: string, status: RuntimeRunStatus) => void
   applyRuntimeEvent: (conversationId: string, event: RuntimeRunEvent) => void
@@ -41,7 +46,7 @@ const terminalRunStatuses = new Set(["completed", "failed", "cancelled"])
 function createEmptyConversationState(): ConversationRuntimeState {
   return {
     draft: "",
-    messages: [],
+    timelineItems: [],
     activeRuntimeRunId: null,
     runStatus: "idle",
     connectionStatus: "idle",
@@ -51,115 +56,11 @@ function createEmptyConversationState(): ConversationRuntimeState {
   }
 }
 
-function formatTime(date = new Date()): string {
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
 function getOrCreateState(
   conversations: Record<string, ConversationRuntimeState>,
   conversationId: string
 ): ConversationRuntimeState {
   return conversations[conversationId] ?? createEmptyConversationState()
-}
-
-function getEventDataObject(event: RuntimeRunEvent): Record<string, unknown> {
-  return typeof event.data === "object" && event.data !== null
-    ? event.data as Record<string, unknown>
-    : {}
-}
-
-function getEventText(event: RuntimeRunEvent, key: string): string {
-  const data = getEventDataObject(event)
-  return typeof data[key] === "string" ? data[key] : ""
-}
-
-function getRunErrorMessage(event: RuntimeRunEvent): string {
-  const data = getEventDataObject(event)
-  if (typeof data.message === "string") return data.message
-  if (
-    typeof data.error === "object" &&
-    data.error !== null &&
-    "message" in data.error &&
-    typeof (data.error as { message?: unknown }).message === "string"
-  ) {
-    return (data.error as { message: string }).message
-  }
-  return "Run failed"
-}
-
-function getRunErrorCode(event: RuntimeRunEvent): string | undefined {
-  const data = getEventDataObject(event)
-  if (typeof data.code === "string") return data.code
-  if (
-    typeof data.error === "object" &&
-    data.error !== null &&
-    "code" in data.error &&
-    typeof (data.error as { code?: unknown }).code === "string"
-  ) {
-    return (data.error as { code: string }).code
-  }
-  return undefined
-}
-
-function getAssistantMessageId(event: RuntimeRunEvent): string {
-  const speakerId = event.agentId ?? "assistant"
-  const scopeId = event.taskId ?? "entry"
-  return `assistant-${event.runId}-${speakerId}-${scopeId}`
-}
-
-function isChatSpeaker(state: ConversationRuntimeState, agentId?: string): boolean {
-  if (!agentId) return false
-  return Boolean(state.chatSpeakerIds[agentId])
-}
-
-function upsertAssistantMessage(
-  state: ConversationRuntimeState,
-  event: RuntimeRunEvent,
-  update: (message: WorkbenchMessage) => WorkbenchMessage
-): WorkbenchMessage[] {
-  const assistantMessageId = getAssistantMessageId(event)
-  const existingIndex = state.messages.findIndex((message) => message.id === assistantMessageId)
-  if (existingIndex >= 0) {
-    return state.messages.map((message, index) =>
-      index === existingIndex ? update(message) : message
-    )
-  }
-
-  const created: WorkbenchMessage = {
-    id: assistantMessageId,
-    role: "assistant",
-    agentId: event.agentId,
-    text: "",
-    time: formatTime(new Date(event.timestamp)),
-    status: "streaming",
-  }
-  return [...state.messages, update(created)]
-}
-
-function appendRunStatusMessage(
-  state: ConversationRuntimeState,
-  event: RuntimeRunEvent,
-  update: (message: WorkbenchMessage) => WorkbenchMessage
-): WorkbenchMessage[] {
-  const assistantMessageId = `assistant-${event.runId}-run-status`
-  const existingIndex = state.messages.findIndex((message) => message.id === assistantMessageId)
-  if (existingIndex >= 0) {
-    return state.messages.map((message, index) =>
-      index === existingIndex ? update(message) : message
-    )
-  }
-
-  const created: WorkbenchMessage = {
-    id: assistantMessageId,
-    role: "assistant",
-    agentId: event.agentId,
-    text: "",
-    time: formatTime(new Date(event.timestamp)),
-  }
-  return [...state.messages, update(created)]
 }
 
 export function isTerminalRunStatus(status: RuntimeRunStatus | "idle" | "submitted"): boolean {
@@ -207,13 +108,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   },
 
   addUserMessage: (conversationId, content) => {
-    const message: WorkbenchMessage = {
-      id: `local-user-${crypto.randomUUID()}`,
-      role: "user",
-      text: content,
-      time: formatTime(),
-      status: "completed",
-    }
+    const message = createLocalUserTimelineItem(content)
 
     set((state) => {
       const current = getOrCreateState(state.conversations, conversationId)
@@ -223,13 +118,13 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           [conversationId]: {
             ...current,
             draft: "",
-            messages: [...current.messages, message],
+            timelineItems: [...current.timelineItems, message],
           },
         },
       }
     })
 
-    return get().getConversationState(conversationId).messages
+    return get().getConversationState(conversationId).timelineItems
   },
 
   markRunSubmitted: (conversationId) => {
@@ -288,46 +183,11 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         next = { ...next, runStatus: "running" }
       }
 
-      if (event.type === "message.delta") {
-        const delta = getEventText(event, "delta")
-        if (isChatSpeaker(next, event.agentId)) {
-          next = {
-            ...next,
-            messages: upsertAssistantMessage(next, event, (message) => ({
-              ...message,
-              agentId: event.agentId ?? message.agentId,
-              text: `${message.text}${delta}`,
-              status: "streaming",
-            })),
-          }
-        }
-      }
-
-      if (event.type === "message.completed") {
-        const content = getEventText(event, "content")
-        if (isChatSpeaker(next, event.agentId)) {
-          next = {
-            ...next,
-            messages: upsertAssistantMessage(next, event, (message) => ({
-              ...message,
-              agentId: event.agentId ?? message.agentId,
-              text: content || message.text,
-              status: "completed",
-            })),
-          }
-        }
-      }
-
       if (event.type === "run.completed") {
         next = {
           ...next,
           runStatus: "completed",
           connectionStatus: "disconnected",
-          messages: next.messages.map((message) =>
-            message.id.startsWith(`assistant-${event.runId}-`) && message.status === "streaming"
-              ? { ...message, status: "completed" }
-              : message
-          ),
         }
       }
 
@@ -336,28 +196,24 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
           ...next,
           runStatus: "cancelled",
           connectionStatus: "disconnected",
-          messages: appendRunStatusMessage(next, event, (message) => ({
-            ...message,
-            text: message.text || "Run cancelled.",
-            status: "cancelled",
-          })),
         }
       }
 
       if (event.type === "run.failed") {
-        const message = getRunErrorMessage(event)
-        const code = getRunErrorCode(event)
         next = {
           ...next,
           runStatus: "failed",
           connectionStatus: "disconnected",
-          messages: appendRunStatusMessage(next, event, (existing) => ({
-            ...existing,
-            text: existing.text || message,
-            status: "failed",
-            error: code ? `${code}: ${message}` : message,
-          })),
         }
+      }
+
+      next = {
+        ...next,
+        timelineItems: applyRuntimeEventToTimeline(
+          next.timelineItems,
+          event,
+          next.chatSpeakerIds
+        ),
       }
 
       return {
@@ -372,14 +228,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   failRunStart: (conversationId, message, code) => {
     set((state) => {
       const current = getOrCreateState(state.conversations, conversationId)
-      const errorMessage: WorkbenchMessage = {
-        id: `local-error-${crypto.randomUUID()}`,
-        role: "assistant",
-        text: message,
-        time: formatTime(),
-        status: "failed",
-        error: code ? `${code}: ${message}` : message,
-      }
+      const errorMessage = createLocalRunStatusItem(message, code)
 
       return {
         conversations: {
@@ -388,7 +237,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             ...current,
             runStatus: "failed",
             connectionStatus: "error",
-            messages: [...current.messages, errorMessage],
+            timelineItems: [...current.timelineItems, errorMessage],
           },
         },
       }

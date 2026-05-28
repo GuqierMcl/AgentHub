@@ -53,6 +53,13 @@ export function ChatWorkspace() {
   }, [queryClient])
 
   const handleSelectConversation = useCallback((id: string) => {
+    if (id === activeConversationId) {
+      runStreamManager.disconnect(id)
+      setActiveConversationId(null)
+      previousActiveConversationIdRef.current = null
+      return
+    }
+
     const previousId = previousActiveConversationIdRef.current
     if (previousId && previousId !== id) {
       runStreamManager.disconnect(previousId)
@@ -68,7 +75,7 @@ export function ChatWorkspace() {
     ) {
       runStreamManager.connect(id, runtimeState.activeRuntimeRunId)
     }
-  }, [getConversationState, setActiveConversationId])
+  }, [activeConversationId, getConversationState, setActiveConversationId])
 
   const createMutation = useMutation({
     mutationFn: (body: CreateConversationBody) => conversationsApi.create(body),
