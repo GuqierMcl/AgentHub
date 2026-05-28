@@ -18,7 +18,7 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
-} from "@/components/ui/alert-dialog"
+} from "@/components/animate-ui/components/radix/alert-dialog"
 import { conversationsApi } from "../../workbench/api/conversations"
 import type { ConversationListItem } from "../../workbench/types"
 

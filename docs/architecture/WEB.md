@@ -27,7 +27,8 @@
 - `App.tsx` 仅作为应用根组件和全局 Provider 容器；应用壳、一级导航和模块注册表位于 `web/src/features/app-shell/`，聊天模块及产物工作台位于 `web/src/features/workbench/`。
 - 页面根布局由默认折叠、可展开的一级导航栏和模块内容工作区组成。一级模块必须通过 `features/app-shell/app-modules.tsx` 的集中注册表接入，不应在壳层复制模块专用的导航或切换判断。
 - 首批一级模块为 `chat` 与 `agents`。`chat` 内容区使用“会话列表、聊天区、产物工作台”的三栏布局；`agents` 使用“智能体列表、详情/编辑区”的两栏布局。
-- 聊天模块当前仍使用 mock 数据展示 IM 壳、消息流、输入区和内联 Artifact；智能体模块已经通过 HubServer 代理的 `/api/runtime/agents` 端点管理真实智能体配置。
+- 聊天模块的会话列表、会话详情、新建、重命名、置顶和归档已经接入 HubServer conversation API；消息流当前处于“未持久化 Runs 聊天”阶段：Web 使用本地 Zustand 状态保存每个 conversation 的草稿、临时消息、最近 Runtime `runId`、Run 状态、SSE 连接状态和已接收事件 id，刷新页面丢失这些本地消息与 active run 映射是当前阶段的预期行为。
+- Web 通过 HubServer 的 `/api/runtime/runs*` 转发接口创建 Runtime Run、订阅 Run SSE 和取消 Run；浏览器仍不得直接调用 `agent-runtime`。本阶段不写 HubServer `Message`、`Run` 或 `RunEvent` 表，后续由产品级 messages/runs API 接管持久化。
 - 当前智能体头像 V1 由前端共享 resolver 根据 agent id/origin 解析：系统预设使用图标库，外部智能体可使用静态资源，未知或用户自定义智能体使用 initials/hash 兜底；API 契约暂不包含头像字段。
 - 页面根容器填满视口，不产生 `body` 级滚动；模块内的列表、消息流、详情表单与产物内容各自在内部滚动。
 - 当同一 Web 应用运行在 Electrobun 桌面壳内时，`AppShell` 可以通过 Electrobun 注入的 `window.__electrobunWindowId` 与 `window.__electrobunWebviewId` 检测桌面运行时，并渲染自定义 `DesktopTitleBar`。普通浏览器不显示该标题栏，保持原 Web 布局。
@@ -37,12 +38,21 @@
 - Windows 桌面壳必须在加载 Electrobun 窗口 API 之前设置 per-monitor DPI awareness，避免系统在 125%/150% 等缩放屏幕上对整个窗口做位图拉伸，导致 Web 内容模糊。该行为属于 `desktop` 壳层职责，Web CSS 不应为此做额外缩放补偿。
 - 创建智能体、绑定模型和删除确认维持模态操作；已有用户智能体配置在智能体模块右侧内容区内联编辑。
 
+## 状态管理
+
+- TanStack Query 管理服务端事实：active conversation list、conversation detail、runtime agents，以及后续持久化 messages/runs/permissions/artifacts。
+- Zustand 管理客户端运行态和 UI overlay：`activeConversationId`、per-conversation draft、第一阶段未持久化 messages、最近 active Runtime `runId`、Run 状态、SSE 连接状态、已收到 Runtime event ids 和轻量 event log。
+- Conversation create、rename、pin、archive 使用 mutation；成功后 invalidate conversation list 和对应 detail。模态框开关、输入框内容等纯临时 UI 状态仍可以保留在组件局部 state。
+- 当前阶段同一 conversation 同时只允许一个 active run。发送消息时 Web 先 append 本地 user message，再调用 `POST /api/runtime/runs`，并把本地历史消息投影为 Runtime `history`；`addressedAgentIds` 暂固定为空数组。
+- Runtime 事件按 `event.id` 去重。`message.delta` 追加到本地 assistant streaming message，`message.completed` 对齐最终内容；第一阶段本地 assistant message 只为 conversation detail 中的 chat speakers 创建，identity 按 `runId + agentId + taskId/entry` 归并，群聊中 orchestrator 与被委派主智能体的发言应渲染为不同消息气泡。子智能体不是群聊发言人，其 `message.*` 事件暂只进入 event log，后续投影为任务/工具 UI 卡片。`run.failed` / `run.cancelled` 转为可读错误或取消状态；工具、任务、权限和 reasoning 事件暂只记录或忽略，后续阶段投影到 UI。
+
 ## Activity 生命周期约束
 
 - 一级模块在首次访问后使用 React `Activity` 保持挂载；产物工作台的标签页内容也可以使用内部 `Activity` 保持 UI 状态。
 - `Activity` 进入 `hidden` 时会保留组件状态与 DOM，但会清理隐藏子树中的 Effects；恢复为 `visible` 时 Effects 会重新建立。
 - `Activity` 只负责 UI 状态保活，例如输入草稿、已选会话、列表筛选、打开的产物标签页和面板布局状态。不要依赖隐藏模块中的 effect 持续执行后台工作。
-- 后续接入流式聊天、Run SSE 事件、后台任务进度或其他持续连接时，连接生命周期与运行状态必须放到页面级 `Activity` 边界之外的应用级 store、provider 或 service 中。聊天模块只订阅并渲染这些状态。
+- Run SSE 连接由 workbench runtime connection manager 管理，EventSource 实例不得保存在 React 组件局部 state 中。聊天组件只订阅 Zustand 中的可渲染状态。
+- 切换 conversation 时，Web 关闭切出会话的 EventSource，但绝不调用 cancel；Agent Runtime 中的 Run 继续执行。切回该 conversation 时，如果 Zustand 中保存了非终态 `activeRuntimeRunId`，Web 重新打开 `/api/runtime/runs/:runId/events`，依赖 Runtime replay 和本地 event id 去重恢复流式显示。如果 Run 在切走期间完成，切回后 replay 到 terminal event 并自然关闭连接。
 - React 行为参考官方文档：[Activity](https://react.dev/reference/react/Activity)。
 
 ## 开发命令

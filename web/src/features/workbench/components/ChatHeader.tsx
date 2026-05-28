@@ -35,6 +35,9 @@ export function ChatHeader({
   const conversationAgents = conversation.agentIds
     .map((id) => getAgentById(id))
     .filter((agent): agent is Agent => Boolean(agent))
+  const agentNames = conversationAgents.length
+    ? conversationAgents.map((agent) => agent.name)
+    : conversation.agentIds
 
   return (
       <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-border border-b bg-background px-5">
@@ -56,12 +59,14 @@ export function ChatHeader({
                       </Badge>
                   </div>
                   <p className="truncate text-muted-foreground text-xs">
-                      {conversationAgents.map((agent) => agent.name).join(", ")}
+                      {agentNames.join(", ")}
                   </p>
-                  <p className="flex items-center gap-1 truncate text-muted-foreground text-xs">
-                      <FolderIcon className="size-3 shrink-0" />
-                      {conversation.workspace.split("\\").pop()} · 工作区
-                  </p>
+                  {conversation.workspace ? (
+                      <p className="flex items-center gap-1 truncate text-muted-foreground text-xs">
+                          <FolderIcon className="size-3 shrink-0" />
+                          {conversation.workspace.split("\\").pop()} · 工作区
+                      </p>
+                  ) : null}
               </div>
           </div>
 

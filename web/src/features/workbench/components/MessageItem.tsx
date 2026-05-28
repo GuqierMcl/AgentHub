@@ -43,6 +43,7 @@ type MessageItemProps = {
 
 export function MessageItem({ message }: MessageItemProps) {
   const agent = getAgentById(message.agentId)
+  const fallbackAgentName = message.agentId ?? "Assistant"
   const versions = message.versions?.length
     ? message.versions
     : [{ content: message.text, id: `${message.id}-default` }]
@@ -59,6 +60,20 @@ export function MessageItem({ message }: MessageItemProps) {
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">
                       {agent.name}
+                    </div>
+                    <div className="text-muted-foreground text-xs">
+                      {message.time}
+                    </div>
+                  </div>
+                </div>
+              ) : message.role === "assistant" ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground text-xs">
+                    {fallbackAgentName.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {fallbackAgentName}
                     </div>
                     <div className="text-muted-foreground text-xs">
                       {message.time}
@@ -110,7 +125,9 @@ export function MessageItem({ message }: MessageItemProps) {
               ))}
 
               <MessageContent className="max-w-[min(680px,100%)]">
-                <MessageResponse>{version.content}</MessageResponse>
+                <MessageResponse>
+                  {getMessageDisplayContent(message, version.content)}
+                </MessageResponse>
                 {message.artifacts?.length ? (
                   <div className="mt-3 flex flex-col gap-2">
                     {message.artifacts.map((artifact) => (
@@ -151,4 +168,20 @@ export function MessageItem({ message }: MessageItemProps) {
       ) : null}
     </MessageBranch>
   )
+}
+
+function getMessageDisplayContent(
+  message: WorkbenchMessage,
+  content: string
+): string {
+  if (message.status === "failed") {
+    return message.error ?? content
+  }
+  if (message.status === "cancelled" && !content) {
+    return "Run cancelled."
+  }
+  if (message.status === "streaming" && !content) {
+    return "正在生成..."
+  }
+  return content
 }

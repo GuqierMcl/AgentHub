@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { SearchIcon, XIcon, ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -16,14 +17,17 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { agentsApi } from "@/features/agents/api/agents"
-import { conversationsApi } from "../api/conversations"
-import type { ConversationListItem, AgentRole } from "../types"
+import { workbenchQueryKeys } from "../api/query-keys"
+import type { ConversationDetail, ConversationListItem, AgentRole, CreateConversationBody } from "../types"
 import type { AgentSummary } from "@/features/agents/types"
+
+const EMPTY_AGENTS: AgentSummary[] = []
 
 type NewConversationDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated: (conversationId: string) => void
+  onCreateConversation: (body: CreateConversationBody) => Promise<ConversationDetail>
   existingConversations: ConversationListItem[]
   onSwitchConversation: (conversationId: string) => void
 }
@@ -32,16 +36,24 @@ export function NewConversationDialog({
   open,
   onOpenChange,
   onCreated,
+  onCreateConversation,
   existingConversations,
   onSwitchConversation,
 }: NewConversationDialogProps) {
   const [search, setSearch] = useState("")
-  const [agents, setAgents] = useState<AgentSummary[]>([])
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [existingOpen, setExistingOpen] = useState(true)
   const [agentsOpen, setAgentsOpen] = useState(true)
   const [workspacePath, setWorkspacePath] = useState("")
+
+  const agentsQuery = useQuery({
+    queryKey: workbenchQueryKeys.agents.primaryEnabled,
+    queryFn: () => agentsApi.list({ tier: "primary", enabledOnly: true }),
+    enabled: open,
+  })
+
+  const agents = agentsQuery.data?.agents ?? EMPTY_AGENTS
 
   useEffect(() => {
     if (!open) return
@@ -50,9 +62,6 @@ export function NewConversationDialog({
       setSelectedAgentIds([])
       setWorkspacePath("")
     }, 0)
-    agentsApi.list({ tier: "primary", enabledOnly: true }).then((data) => {
-      setAgents(data.agents)
-    }).catch(() => setAgents([]))
     return () => window.clearTimeout(timer)
   }, [open])
 
@@ -108,7 +117,7 @@ export function NewConversationDialog({
         role: i === 0 ? "primary" as const : "member" as const,
       }))
 
-      const body: { title: string; mode: "single" | "group"; agents: { agentId: string; role: AgentRole }[]; metadata?: Record<string, unknown> } = {
+      const body: CreateConversationBody = {
         title,
         mode,
         agents: agentRoles,
@@ -123,7 +132,7 @@ export function NewConversationDialog({
           : undefined,
       }
 
-      const result = await conversationsApi.create(body)
+      const result = await onCreateConversation(body)
       toast.success("会话已创建")
       onCreated(result.id)
       onOpenChange(false)
@@ -132,7 +141,7 @@ export function NewConversationDialog({
     } finally {
       setSaving(false)
     }
-  }, [selectedAgentIds, agents, workspacePath, onCreated, onOpenChange])
+  }, [selectedAgentIds, agents, workspacePath, onCreateConversation, onCreated, onOpenChange])
 
   const handleSwitch = useCallback((id: string) => {
     onSwitchConversation(id)

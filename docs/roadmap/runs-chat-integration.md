@@ -1,0 +1,351 @@
+# Runs 聊天链路接入路线图
+
+## 模块名称
+
+Runs Chat Integration
+
+## 目标
+
+分阶段跑通 AgentHub 的真实聊天执行链路，并逐步从前端未持久化原型演进到 HubServer 产品级持久化入口：
+
+```text
+web -> hub-server -> agent-runtime
+```
+
+首要目标是尽快验证 Runtime Runs、SSE、模型绑定、会话成员和前端流式渲染是否能在真实 Web 聊天界面中工作；随后再把消息、Run、事件、权限和产物纳入 HubServer 业务状态。
+
+## 完成标准
+
+- Web 可以在已创建 conversation 中发送真实消息，并通过 HubServer 调用 Agent Runtime。
+- 单聊文本消息可以从 user input 触发 Runtime Run，并在 Web 中流式展示 assistant 回复。
+- 用户可以在智能体回答过程中切换会话；切换只断开当前前端 SSE 订阅，不取消 Runtime Run。切回执行中的会话后，Web 使用该会话保存的最近 active `runId` 重新订阅事件流，并恢复流式输出。
+- 群聊可以在未显式 @ 时默认进入 `orchestrator`，显式 @ 单个主智能体的能力后续接入。
+- HubServer 后续提供产品级发送入口，负责消息、Run、RunEvent、PermissionRequest 与 conversation 统计字段持久化。
+- 前端会话状态从局部 `useState` 迁移到 Zustand + TanStack Query 的组合模型。
+- 所有跨层契约变更同步更新 `docs/contracts/API_CONTRACTS.md`，状态管理和 UI 架构变更同步更新 `docs/architecture/WEB.md`。
+
+## 依赖文档
+
+- `docs/product/PRODUCT_SPEC.md`
+- `docs/architecture/ARCHITECTURE.md`
+- `docs/architecture/WEB.md`
+- `docs/architecture/HUB_SERVER.md`
+- `docs/architecture/AGENT_RUNTIME.md`
+- `docs/architecture/DATA_MODEL.md`
+- `docs/contracts/API_CONTRACTS.md`
+- `docs/contracts/RUNTIME_SSE_EVENTS.md`
+- `docs/reference/HONO.md`
+
+## 范围
+
+### 包含
+
+- Web 聊天模块接入真实 conversation detail、message draft、Runtime Run 和 SSE。
+- Web 状态管理迁移到 Zustand + TanStack Query。
+- HubServer 产品级消息发送入口。
+- Runtime RunEvent 到 HubServer 业务状态的投影。
+- 基础权限审批链路。
+- Orchestrator 计划、任务、工具事件的 UI 投影。
+- 后续 Artifact、Diff、文件、预览和部署状态事件投影。
+
+### 不包含
+
+- 浏览器直接调用 Agent Runtime 或 LLM Provider。
+- 在 Runtime 中写 HubServer 业务数据库。
+- 在第一阶段引入持久化消息写入。
+- 在第一阶段完整实现权限审批、工具详情、产物卡片和任务面板。
+- 未经文档更新就变更 Runtime RunInput、SSE 事件或 HubServer 产品 API。
+
+## 阶段拆分
+
+### 阶段 0：状态管理准备
+
+目的：让后续聊天接入不继续堆在组件局部 `useState` 中。
+
+任务：
+
+- 引入 `@tanstack/react-query`，在 `App` 根部安装 `QueryClientProvider`。
+- 保留 Zustand 负责 UI 与临时运行态：当前会话 id、草稿、未持久化消息、活动 Run、SSE 连接状态、右侧 workbench UI 状态。
+- 使用 TanStack Query 负责服务端状态：conversation list、conversation detail、agents、providers、后续 messages/runs。
+- 将当前 `ChatWorkspace` 中的 conversation list loading、active conversation id、rename state 拆分：
+  - server cache：conversation list/detail。
+  - global UI store：active conversation id、dialog 状态、草稿、临时 streaming messages。
+- 为每个 conversation 在 Zustand 中记录运行态：
+  - `activeRunId`
+  - `activeRuntimeRunId`
+  - `runStatus`
+  - 已收到的 Runtime event id 集合或事件列表
+  - 当前 SSE 连接状态
+- 明确 Activity 生命周期规则：SSE 连接和活动 Run 状态不得放在会被 Activity hidden 清理的子组件 effect 中。
+- 明确会话切换规则：切走会话时关闭该会话 EventSource；不得调用 cancel。切回时，如果该会话存在非终态 active run，则重新打开 SSE 并通过 replay 恢复状态。
+
+出口标准：
+
+- 会话列表和当前会话选择由 Query + Zustand 管理。
+- 现有新建、重命名、pin/archive 流程保持可用。
+- `bunx tsc --noEmit -p tsconfig.app.json` 通过。
+
+### 阶段 1：Web 未持久化 Runs 聊天闭环
+
+目的：最快验证真实执行链路，不新增 HubServer 产品写入逻辑。
+
+链路：
+
+```text
+Web local message state
+  -> POST /api/runtime/runs
+  -> HubServer proxy
+  -> POST /runtime/runs
+  -> GET /api/runtime/runs/:runId/events
+  -> Web local streaming state
+```
+
+任务：
+
+- 在 Web 增加 Runtime Runs API client，复用现有 HubServer 转发接口：
+  - `POST /api/runtime/runs`
+  - `GET /api/runtime/runs/:runId/events`
+  - `POST /api/runtime/runs/:runId/cancel`
+- 发送消息时从当前 conversation detail 组装 Runtime `RunInput`：
+  - `conversationId`
+  - `mode`
+  - `participantAgentIds`
+  - `addressedAgentIds: []`
+  - `userMessage`
+  - `history`：由 Web 内存消息投影为 `{ role, agentId?, content }`
+  - `conversationState.messageCountBeforeRun`
+  - `conversationState.titleSource`
+  - `workspace`：来自 `conversation.metadata.workspace`
+- 本地 append user message；收到 `message.delta` 时创建或更新 assistant streaming message。
+- 收到 `message.completed` 时完成 assistant message。
+- 收到 `run.failed` / `run.cancelled` 时将本地 Run 标为失败或取消。
+- 暂时忽略或轻量记录 `tool.*`、`task.*`、`permission.*`、`reasoning.*`、`system_agent.completed`。
+- 会话切换时保留活动 Run 状态；关闭旧会话 EventSource 但不取消 Runtime Run。切回会话时使用该会话保存的 `activeRuntimeRunId` 重新请求 `/api/runtime/runs/:runId/events`。
+- 重新订阅会 replay 已有事件；Web 必须按 Runtime `event.id` 去重，或由事件列表重新派生消息，避免 `message.delta` 重复拼接。
+- 如果 Run 在用户切走期间完成，切回后 replay 到 `run.completed` 并自然关闭流。
+- 页面刷新后丢失阶段 1 的本地 active run 映射是允许行为；阶段 2 后由 HubServer 持久化恢复。
+
+出口标准：
+
+- 单聊文本消息可以在 Web 中触发真实 Runtime Run 并流式显示结果。
+- Runtime 缺少模型绑定时，Web 能显示结构化失败原因，而不是静默卡住。
+- 群聊未 @ 时可以进入 orchestrator；如果 orchestrator 未绑定支持 tools 的模型，显示可读错误。
+- 智能体回答期间切换到其他会话不会取消 Runtime Run；切回原会话可以 replay 并继续显示后续输出。
+- 不写 HubServer `Message`、`Run`、`RunEvent` 表。
+
+### 阶段 2：HubServer 产品级发送入口与持久化
+
+目的：把消息发送从 Runtime 代理升级为 HubServer 产品 API。
+
+建议入口：
+
+```text
+POST /api/conversations/:conversationId/messages
+GET /api/conversations/:conversationId/messages
+GET /api/runs/:runId/events
+POST /api/runs/:runId/cancel
+```
+
+任务：
+
+- 新增 HubServer message/run service：
+  - 创建 user `Message`。
+  - 创建本地 `Run`，保存本地 run id。
+  - 调用 Runtime 后把 Runtime `runId` 写入 `Run.runtimeId`。
+  - 从 conversation agents、metadata、历史 messages 组装 Runtime `RunInput`。
+- HubServer 消费 Runtime SSE：
+  - 按顺序写 `RunEvent`。
+  - 投影 `message.delta` / `message.completed` 到 assistant `Message` 与 `MessagePart`。
+  - 更新 `Run.status`、`startedAt`、`completedAt`、`errorJson`。
+  - 更新 `Conversation.lastMessageId`、`lastMessageAt`。
+- 持久化 active/recent Run 恢复信息：
+  - 保存 Runtime `runId` 到 `Run.runtimeId`。
+  - 通过 `conversationId + status` 查询最近非终态 Run，或在 conversation metadata 中记录最近 active run 指针。
+  - Web 切回会话时优先查询 HubServer 的 active/recent Run，而不是依赖浏览器内存。
+- Web 改为调用产品发送入口，不再直接调用 `/api/runtime/runs`。
+- 补齐 HubServer 类型：
+  - `RunStatus` 增加 `waiting_approval`。
+  - `PermissionStatus` 对齐 Runtime 的 `pending`、`approved`、`denied`、`cancelled`、`expired`，或明确做映射。
+
+出口标准：
+
+- 刷新页面后能看到历史用户消息和 assistant 回复。
+- 同一个 Runtime run 的事件可以从 HubServer replay。
+- 切换会话、断开前端 SSE、再切回时，可以从 HubServer/Runtime replay 恢复正在运行或刚完成的 Run。
+- Runtime 事件不直接暴露私有 workspace path。
+- HubServer typecheck 通过。
+
+### 阶段 3：会话上下文与消息交互语义
+
+目的：在复杂事件 UI 之前，完成真实聊天必须依赖的 conversation 行为。
+
+任务：
+
+- 使用持久化消息组装多轮 `history`，明确哪些 `MessagePart` 会进入 Runtime 上下文。
+- 消费 `system_agent.completed(systemAgentId="title")`，仅在标题未被用户手动修改时更新 conversation title。
+- 接入 pinned message 的查询与上下文注入规则。
+- 接入群聊显式 @ 单个主智能体，将其映射为 `addressedAgentIds`。
+- 接入停止当前生成、失败重试和重新生成的产品语义，明确新 Run 与历史消息的关联。
+- 在 Web 表达 queued、running、waiting approval、completed、failed、cancelled 等基础状态。
+
+出口标准：
+
+- 多轮聊天刷新后仍使用正确历史上下文。
+- 自动标题不会覆盖手动标题。
+- 单一 @ 路由符合 Runtime 当前约束。
+- stop/retry/regenerate 不造成消息顺序或 Run 关联混乱。
+
+### 阶段 4：权限审批产品链路
+
+目的：把 Runtime 内部已闭环的 approval 机制接入产品 UI 和 HubServer 状态。
+
+任务：
+
+- HubServer 代理或产品化权限接口：
+  - 查询 Run pending permissions。
+  - 提交 approve/deny decision。
+  - 持久化 PermissionRequest。
+- Web 展示 `permission.requested`，允许用户批准或拒绝。
+- 审批后继续订阅同一 Run 事件并更新消息状态。
+- 对取消 Run 时的 pending permission 输出 `permission.cancelled`。
+
+出口标准：
+
+- 文件工具触发审批时，Web 能展示请求并恢复同一 Run。
+- 拒绝审批后展示 `TOOL_EXECUTION_DENIED` 或等价结构化失败。
+
+### 阶段 5：Orchestrator 计划、任务和工具事件 UI
+
+目的：让群聊协作过程可见，而不是只显示最终文本。
+
+任务：
+
+- 从最后一个成功 `tool.completed(toolName="write_plan")` 投影当前计划。
+- 展示 `task.started`、`task.completed`、`task.failed`。
+- 展示 `tool.started`、`tool.completed`、`tool.failed` 的简洁状态。
+- 区分主智能体、子智能体、orchestrator 和 system agent 事件。
+
+出口标准：
+
+- 群聊中 orchestrator 的计划和委派任务能在聊天流或右侧工作台中可读展示。
+- `run_task` 工具事件仅作为 UI/追踪，不误作为父智能体模型上下文。
+
+### 阶段 6：Artifact / 文件 / Diff 投影
+
+目的：把文本聊天扩展到 AgentHub 产品要求的富媒体产物。
+
+任务：
+
+- 定义 Runtime 事件到 HubServer Artifact / ArtifactVersion 的投影规则。
+- 从 `model.stream.part` 中可用的 `file`、`source` 或工具结果投影首批文件卡片。
+- 接入代码、网页预览、Diff 和后续 apply 流程。
+- 明确 Artifact 版本历史和消息内引用关系。
+
+出口标准：
+
+- Assistant 回复可以引用持久化 Artifact。
+- 右侧 workbench 可以从消息或 Artifact 打开预览。
+
+### 阶段 7：生产化与恢复能力
+
+目的：让链路能承受刷新、断线、Runtime 重启和桌面生产启动。
+
+任务：
+
+- HubServer 管理 Agent Runtime Sidecar 生命周期：spawn、health check、restart、shutdown。
+- SSE 断线恢复：HubServer replay 已持久化 RunEvent，再继续消费 Runtime 或标记失败。
+- 定义 active run 查询入口，支持 Web 刷新后恢复正在运行的会话。
+- 定义会话切换恢复策略：
+  - 前端切换会话只影响订阅，不影响 Runtime 执行。
+  - HubServer 需要能够在没有前端订阅时继续消费 Runtime 事件，或在前端重新订阅时从 Runtime replay 补齐后再落库。
+  - Runtime 重启导致未持久化事件丢失时，HubServer 必须将受影响 Run 标为 failed 或 recoverable error。
+- 补充轻量 smoke tests。
+
+出口标准：
+
+- 开发环境可连接独立 Runtime。
+- 生产环境 HubServer 可自动拉起 Runtime。
+- Web 刷新后能恢复未终态 Run 的已知状态或显示明确不可恢复状态。
+
+### 阶段 8：外部 Agent 与产品验收
+
+目的：补齐 P1 范围内的真实外部执行能力，并固化可演示、可回归的端到端路径。
+
+任务：
+
+- 将当前 `external-adapter` 占位替换为至少一个真实外部 Agent adapter，再扩展第二个 adapter。
+- 将外部 adapter 输出规范化为既有 Runtime RunEvent，不为 Web/HubsServer 引入 provider 特例。
+- 增加单聊、群聊、审批、文件产物和恢复场景的端到端 smoke 验证。
+- 准备 Demo 数据与最小演示路径。
+
+出口标准：
+
+- 至少两个外部 Agent adapter 能通过统一聊天产品入口执行。
+- Web 与 HubServer 无需知道底层 adapter 差异。
+- P0 与目标 P1 链路具备可重复验证记录。
+
+## 状态管理决策
+
+采用 Zustand + TanStack Query：
+
+- TanStack Query 管理服务端事实：
+  - conversations list/detail
+  - agents/providers
+  - persisted messages/runs/permissions/artifacts
+- Zustand 管理客户端运行态和 UI 状态：
+- active conversation id
+- composer drafts
+- optimistic / non-persisted streaming messages
+- active run ids and SSE connection status
+- per-conversation latest active run pointer and received event ids
+- workbench tabs and layout
+- 第一阶段的未持久化 messages 属于 Zustand；第二阶段持久化后，messages 逐步迁移为 TanStack Query cache，Zustand 只保留 optimistic overlay 和 streaming overlay。
+
+## 当前进度
+
+- Runtime Runs API 已实现并有测试覆盖：创建 Run、SSE replay、权限续跑、workspace、tool、orchestrator smoke。
+- HubServer 已有 `/api/runtime/runs*` 直通代理。
+- HubServer Prisma schema 与 repository 已包含 `Message`、`MessagePart`、`Run`、`RunEvent`、`PermissionRequest`。
+- Web conversation list、新建、重命名、pin/archive 已接 HubServer。
+- Web 已引入 `@tanstack/react-query`，并在应用根部安装 `QueryClientProvider`。
+- Web conversation list/detail、新建、重命名、pin/archive 已迁移为 TanStack Query 查询与 mutation。
+- Web 已新增 Zustand workbench store，按 conversation 保存 draft、未持久化 messages、最近 active Runtime `runId`、Run 状态、SSE 连接状态、已接收 Runtime event ids 和轻量 event log。
+- Web 已新增 Runtime Runs API client 和 EventSource connection manager，复用 HubServer `/api/runtime/runs*` 转发接口。
+- Web 聊天消息流已从静态原型推进到第一阶段未持久化 Runtime Runs 聊天；刷新页面丢失本地消息与 active run 映射仍是当前阶段预期。
+
+## 已完成
+
+- 确认文档目标是 `web -> hub-server -> agent-runtime`。
+- 确认 Runtime RunInput 与 SSE 契约可支撑未持久化聊天。
+- 确认 HubServer 当前代理接口可用于阶段 1。
+- 确认持久化阶段需要新增产品级发送入口，而不是继续扩大 Runtime 代理语义。
+- 阶段 0：完成 TanStack Query Provider、conversation list/detail 查询、conversation create/rename/pin/archive mutation，以及 Zustand workbench store。
+- 阶段 1：完成 Web 本地消息发送、Runtime Run 创建、SSE 流式输出、Runtime event id 去重、基础失败/取消显示，以及切会话关闭订阅但不取消 Run、切回后重新订阅 replay 的前端机制。
+
+## 待办
+
+- 阶段 0/1：补充更多手动端到端验证记录，覆盖真实模型绑定、缺失模型绑定、群聊 orchestrator、切会话 replay 和 archive/pin/rename/create 回归。
+- 阶段 2：设计并实现 HubServer 产品级 messages/runs API。
+- 阶段 3：接入上下文、标题、pin、@、停止与重试语义。
+- 阶段 4：接入权限审批。
+- 阶段 5：接入计划、任务、工具事件 UI。
+- 阶段 6：接入 Artifact 投影。
+- 阶段 7：接入 Sidecar 和恢复能力。
+- 阶段 8：接入真实外部 Agent adapter 和端到端验收。
+
+## 风险与待确认点
+
+- TanStack Query 尚未安装；进入阶段 0 时需要更新 `web/package.json` 与 lockfile。
+- Runtime 真实模型调用依赖 provider/model binding；未绑定时会结构化失败为 `MODEL_BINDING_MISSING`。
+- Orchestrator 必须绑定支持 tool calling 的模型，否则群聊默认入口会失败。
+- 阶段 1 的消息刷新丢失是预期行为；不要为它临时写入数据库。
+- 阶段 1 切会话恢复依赖 Agent Runtime 的 in-memory Run 和 event replay；Runtime 进程重启后不能恢复，这是阶段 2/7 的持久化与恢复能力要解决的问题。
+- Runtime SSE replay 会重放已有 `message.delta`；Web 如果直接在已有文本上追加 replay delta，会产生重复内容，必须按 `event.id` 去重或从事件列表重新派生视图。
+- HubServer SSE 消费和前端 SSE 转发要避免同一 Runtime event 被重复持久化。
+- HubServer 的本地 `Run.id` 和 Runtime `runId` 必须通过 `Run.runtimeId` 明确映射。
+- conversation metadata 中 workspace snapshot 目前由 Web 创建；后续可能需要 HubServer 校验和规范化。
+
+## 最近更新
+
+- 2026-05-28：实施阶段 0+1。Web 使用 Zustand + TanStack Query 管理会话与运行态，并通过 HubServer `/api/runtime/runs*` 转发接口跑通未持久化 Runtime Runs 聊天、SSE 流式输出和切会话重新订阅恢复策略。
+- 2026-05-27：创建路线图，确定先做 Web 未持久化 Runs 聊天闭环，再做 HubServer 持久化与产品级发送入口；记录 Zustand + TanStack Query 状态管理方向。

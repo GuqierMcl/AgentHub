@@ -1,7 +1,18 @@
+import { useState } from "react"
 import { PenIcon, PinIcon, ArchiveIcon, MessageSquareTextIcon, UsersIcon, FolderIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/animate-ui/components/radix/alert-dialog"
 
 import type { ConversationListItem as ConversationListItemType } from "../types"
 
@@ -44,6 +55,8 @@ export function ConversationListItemView({
   onArchive,
   onRename,
 }: ConversationListItemProps) {
+  const [confirmArchive, setConfirmArchive] = useState(false)
+
   if (collapsed) {
     return null
   }
@@ -123,13 +136,30 @@ export function ConversationListItemView({
         </button>
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onArchive(conversation.id, !isArchived) }}
+          onClick={(e) => { e.stopPropagation(); setConfirmArchive(true) }}
           className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           title={isArchived ? "取消归档" : "归档"}
         >
           <ArchiveIcon className="size-3.5" />
         </button>
       </div>
+
+      <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认归档</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要归档此会话吗？归档后可在设置中查看和恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmArchive(false)}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { onArchive(conversation.id, !isArchived); setConfirmArchive(false) }}>
+              归档
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

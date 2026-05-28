@@ -52,6 +52,8 @@ export type WorkbenchMessage = {
   agentId?: string
   text: string
   time: string
+  status?: "streaming" | "completed" | "failed" | "cancelled"
+  error?: string
   versions?: MessageVersion[]
   sources?: MessageSource[]
   reasoning?: MessageReasoning

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react"
+import type { ChatStatus } from "ai"
 import { CheckIcon, GlobeIcon } from "lucide-react"
 
 import {
@@ -121,8 +122,21 @@ function ModelItem({
   )
 }
 
-export function ChatComposer() {
-  const [input, setInput] = useState("")
+type ChatComposerProps = {
+  value: string
+  status: ChatStatus
+  disabled?: boolean
+  onValueChange: (value: string) => void
+  onSubmit: (message: string) => Promise<void> | void
+}
+
+export function ChatComposer({
+  disabled = false,
+  onSubmit,
+  onValueChange,
+  status,
+  value,
+}: ChatComposerProps) {
   const [useWebSearch, setUseWebSearch] = useState(false)
   const [model, setModel] = useState(modelOptions[0].id)
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
@@ -132,17 +146,17 @@ export function ChatComposer() {
     [model]
   )
 
-  const handleSubmit = useCallback((message: PromptInputMessage) => {
-    setInput(message.text)
-  }, [])
+  const handleSubmit = useCallback(async (message: PromptInputMessage) => {
+    await onSubmit(message.text)
+  }, [onSubmit])
 
   const handleSuggestionClick = useCallback((suggestion: string) => {
-    setInput(suggestion)
-  }, [])
+    onValueChange(suggestion)
+  }, [onValueChange])
 
   const handleTranscriptionChange = useCallback((transcript: string) => {
-    setInput((current) => (current ? `${current} ${transcript}` : transcript))
-  }, [])
+    onValueChange(value ? `${value} ${transcript}` : transcript)
+  }, [onValueChange, value])
 
   const handleModelSelect = useCallback((modelId: string) => {
     setModel(modelId)
@@ -168,9 +182,10 @@ export function ChatComposer() {
         <PromptInputBody>
           <PromptInputTextarea
             className="min-h-14"
-            onChange={(event) => setInput(event.currentTarget.value)}
+            disabled={disabled}
+            onChange={(event) => onValueChange(event.currentTarget.value)}
             placeholder="@AgentHub 描述下一步任务..."
-            value={input}
+            value={value}
           />
         </PromptInputBody>
         <PromptInputFooter>
@@ -188,6 +203,7 @@ export function ChatComposer() {
               variant="ghost"
             />
             <PromptInputButton
+              disabled={disabled}
               onClick={() => setUseWebSearch((value) => !value)}
               variant={useWebSearch ? "default" : "ghost"}
             >
@@ -199,7 +215,7 @@ export function ChatComposer() {
               open={modelSelectorOpen}
             >
               <ModelSelectorTrigger asChild>
-                <PromptInputButton>
+                <PromptInputButton disabled={disabled}>
                   {selectedModel?.chefSlug ? (
                     <ModelSelectorLogo provider={selectedModel.chefSlug} onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
                   ) : null}
@@ -230,7 +246,10 @@ export function ChatComposer() {
               </ModelSelectorContent>
             </ModelSelector>
           </PromptInputTools>
-          <PromptInputSubmit disabled={!input.trim()} status="ready" />
+          <PromptInputSubmit
+            disabled={disabled || !value.trim()}
+            status={status}
+          />
         </PromptInputFooter>
       </PromptInput>
     </div>

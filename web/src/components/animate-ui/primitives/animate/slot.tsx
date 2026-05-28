@@ -1,19 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import {
-  motion,
-  isMotionComponent,
-  type HTMLElements,
-  type HTMLMotionProps,
-} from 'motion/react';
+import { motion, isMotionComponent, type HTMLMotionProps } from 'motion/react';
 import { cn } from '@/lib/utils';
 
 type AnyProps = Record<string, unknown>;
-type MotionHTMLTag = Extract<keyof HTMLElementTagNameMap, keyof HTMLElements>;
 
 type DOMMotionProps<T extends HTMLElement = HTMLElement> = Omit<
-  HTMLMotionProps<MotionHTMLTag>,
+  HTMLMotionProps<keyof HTMLElementTagNameMap>,
   'ref'
 > & { ref?: React.Ref<T> };
 
