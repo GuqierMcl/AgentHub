@@ -179,14 +179,11 @@ function upsertTask(
 ): WorkbenchTimelineItem[] {
   const id = getTaskItemId(event)
   const data = getEventDataObject(event)
-  const title = getString(data.title) ??
-    getString(data.summary) ??
-    getString(data.instruction) ??
-    `${event.agentId ?? "Agent"} task`
   const error = status === "failed" ? getErrorMessage(data) : undefined
 
   return upsertItem(items, id, (item) => {
     const current = item?.kind === "task" ? item : undefined
+    const title = getTaskTitle(event, current)
     return {
       kind: "task",
       id,
@@ -687,7 +684,7 @@ function upsertTaskNestedItem(
       taskId: getTaskId(event),
       agentId: event.agentId,
       parentAgentId: event.parentAgentId,
-      title: current?.title ?? `${event.agentId ?? "Agent"} activity`,
+      title: getTaskTitle(event, current),
       targetAgentId: current?.targetAgentId,
       text: current?.text ?? "",
       time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
@@ -776,6 +773,30 @@ function getTaskItemId(event: RuntimeRunEvent): string {
 
 function getTaskId(event: RuntimeRunEvent): string {
   return event.taskId ?? event.parentTaskId ?? `agent-${event.agentId ?? "unknown"}`
+}
+
+function getTaskTitle(
+  event: RuntimeRunEvent,
+  current?: WorkbenchTimelineTaskItem
+): string {
+  const data = getEventDataObject(event)
+  const task = getRecord(data.task)
+  return compactTitle(
+    getString(task?.title) ??
+    getString(data.title) ??
+    current?.title ??
+    getString(task?.instruction) ??
+    getString(data.instruction) ??
+    `${event.agentId ?? "Agent"} task`
+  )
+}
+
+function compactTitle(title: string): string {
+  const normalized = title.replace(/\s+/g, " ").trim()
+  if (normalized.length <= 96) {
+    return normalized
+  }
+  return `${normalized.slice(0, 93)}...`
 }
 
 function getPermissionRequestId(event: RuntimeRunEvent): string {

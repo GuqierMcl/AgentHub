@@ -146,10 +146,10 @@ Orchestrator 的职责包括：
 - 将复杂任务拆分为多个子任务。
 - 为每个子任务选择合适的 Agent。
 - 确定执行顺序。
-- 汇总各个 Agent 的输出。
+- 在必要时汇总各个 Agent 的输出，但不复述可见主智能体已经在聊天流中展示的回复。
 - 在必要时处理失败降级。
 
-课题要求 Orchestrator 在群聊模式下自动理解用户意图，将复杂任务拆解并分派给合适的子 Agent；子 Agent 完成后，再由 Orchestrator 聚合产出并汇报结果。
+课题要求 Orchestrator 在群聊模式下自动理解用户意图，将复杂任务拆解并分派给合适的子 Agent。可见主智能体的回复会以独立聊天内容展示给用户，Orchestrator 不应再以“以下是某智能体的回应”等形式复述全文；只有隐藏子智能体结果不可直接作为聊天内容展示，或用户明确要求总结时，Orchestrator 才需要聚合摘要。
 
 MVP 阶段，Orchestrator 不需要做复杂 DAG 调度器外置化，可以直接在 Runtime 内采用“`write_plan` 计划工具 + `run_task` 任务工具 + 批次并行执行 + 汇总结果”的模式。`write_plan` 是 Runtime 内部计划工具，只对 Orchestrator 可见，用于输出 UI 可渲染计划；`run_task` 是 Runtime 内部任务工具，只对 Orchestrator 可见，用于调度当前群聊 participants 中的其他主智能体，或调度 Orchestrator 自身 `allowedSubagents` 中的隐藏子智能体。任务之间可通过 `dependsOn` 表达依赖关系。后续再扩展更复杂的并行恢复和冲突处理。
 
