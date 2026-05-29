@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import { SearchIcon, Loader2Icon, XIcon } from "lucide-react"
+import { Loader2Icon, XIcon } from "lucide-react"
+import { SearchIcon } from "@/components/ui/search"
 import { PlusIcon } from "@/components/ui/plus"
 
 import { Button } from "@/components/ui/button"
@@ -55,7 +56,7 @@ export function ConversationSidebar({
           </Button>
         </div>
         <div className="relative">
-          <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground ![&_svg]:size-4" size={16} />
           <Input
             placeholder="搜索聊天"
             value={search}

@@ -14,6 +14,7 @@ type ChatPanelProps = {
   connectionStatus: RunConnectionStatus
   isWorkspaceOpen: boolean
   onDraftChange: (draft: string) => void
+  onOpenConversationStatus: () => void
   onSubmit: (content: string) => Promise<void> | void
   onToggleWorkspace: () => void
 }
@@ -24,6 +25,7 @@ export function ChatPanel({
   draft,
   isWorkspaceOpen,
   onDraftChange,
+  onOpenConversationStatus,
   onSubmit,
   onToggleWorkspace,
   runStatus,
@@ -41,6 +43,7 @@ export function ChatPanel({
         connectionStatus={connectionStatus}
         conversation={conversation}
         isWorkspaceOpen={isWorkspaceOpen}
+        onOpenConversationStatus={onOpenConversationStatus}
         onToggleWorkspace={onToggleWorkspace}
         runStatus={runStatus}
       />

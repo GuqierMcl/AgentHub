@@ -1,22 +1,14 @@
 import {
   CircleAlertIcon,
   FolderIcon,
-  MoreHorizontalIcon,
   PanelRightCloseIcon,
   PanelRightOpenIcon,
-  PinIcon,
 } from "lucide-react"
+import { ActivityIcon } from "@/components/ui/activity"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { InfiniteLinearProgress } from "@/components/ui/infinite-linear-progress"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 import type { Conversation, ConversationAgentProfile } from "../types"
 import type { RuntimeRunStatus } from "../api/runtime-runs"
@@ -29,6 +21,7 @@ type ChatHeaderProps = {
   runStatus: RuntimeRunStatus | "idle" | "submitted"
   connectionStatus: RunConnectionStatus
   isWorkspaceOpen: boolean
+  onOpenConversationStatus: () => void
   onToggleWorkspace: () => void
 }
 
@@ -36,6 +29,7 @@ export function ChatHeader({
   connectionStatus,
   conversation,
   isWorkspaceOpen,
+  onOpenConversationStatus,
   onToggleWorkspace,
   runStatus,
 }: ChatHeaderProps) {
@@ -88,35 +82,15 @@ export function ChatHeader({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-
               <Button
-                  className="hidden sm:inline-flex"
-                  size="sm"
+                  aria-label="打开会话状态"
+                  onClick={onOpenConversationStatus}
+                  size="icon-sm"
                   type="button"
-                  variant="outline"
+                  variant="ghost"
               >
-                  <PinIcon data-icon="inline-start" />
-                  Pin
+                  <ActivityIcon className="![&_svg]:size-4" size={16} />
               </Button>
-              <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                      <Button
-                          aria-label="对话操作"
-                          size="icon-sm"
-                          type="button"
-                          variant="ghost"
-                      >
-                          <MoreHorizontalIcon />
-                      </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                      <DropdownMenuGroup>
-                          <DropdownMenuItem>查看上下文</DropdownMenuItem>
-                          <DropdownMenuItem>管理 Agent</DropdownMenuItem>
-                          <DropdownMenuItem>归档会话</DropdownMenuItem>
-                      </DropdownMenuGroup>
-                  </DropdownMenuContent>
-              </DropdownMenu>
               <Button
                   aria-label={
                       isWorkspaceOpen ? "收起产物工作台" : "展开产物工作台"

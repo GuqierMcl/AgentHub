@@ -48,6 +48,7 @@ export function WorkbenchContentLayout({
   const isWorkspaceCollapsed = useTabStore((s) => s.isWorkspaceCollapsed)
   const setWorkspaceCollapsed = useTabStore((s) => s.setWorkspaceCollapsed)
   const openTab = useTabStore((s) => s.openTab)
+  const requestWorkspaceFocus = useTabStore((s) => s.requestWorkspaceFocus)
   const workspaceFocusRequest = useTabStore((s) => s.workspaceFocusRequest)
   const consumeWorkspaceFocusRequest = useTabStore(
     (s) => s.consumeWorkspaceFocusRequest
@@ -186,6 +187,17 @@ export function WorkbenchContentLayout({
     setWorkspaceCollapsed(true)
   }, [setWorkspaceCollapsed, workspacePanelRef])
 
+  const handleOpenConversationStatus = useCallback(() => {
+    if (!activeConversationId) return
+
+    requestWorkspaceFocus({
+      tabType: "conversation-status",
+      conversationId: activeConversationId,
+      reason: "manual",
+      reasonKey: `conversation-status:${activeConversationId}`,
+    })
+  }, [activeConversationId, requestWorkspaceFocus])
+
   useEffect(() => {
     if (!workspaceFocusRequest) return
 
@@ -256,6 +268,7 @@ export function WorkbenchContentLayout({
                 draft={runtimeState?.draft ?? ""}
                 isWorkspaceOpen={!isWorkspaceCollapsed}
                 onDraftChange={handleDraftChange}
+                onOpenConversationStatus={handleOpenConversationStatus}
                 onSubmit={handleSubmit}
                 onToggleWorkspace={handleToggleWorkspaceCollapsed}
                 runStatus={runtimeState?.runStatus ?? "idle"}

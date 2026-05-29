@@ -3,9 +3,9 @@ import {
   CheckIcon,
   CircleAlertIcon,
   ClockIcon,
-  CopyIcon,
   XCircleIcon,
 } from "lucide-react"
+import { CopyIcon } from "@/components/ui/copy"
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react"
 
 import {
@@ -183,7 +183,7 @@ function ChatMessageItem({
                 className={item.role === "user" ? "justify-end" : undefined}
               >
                 <MessageAction label="Copy message" tooltip={copied ? "Copied!" : "Copy"} onClick={handleCopy}>
-                  {copied ? <CheckIcon /> : <CopyIcon />}
+                  {copied ? <CheckIcon /> : <CopyIcon className="![&_svg]:size-4" size={16} />}
                 </MessageAction>
               </MessageActions>
             </div>
