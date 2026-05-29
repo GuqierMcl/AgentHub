@@ -75,17 +75,17 @@ export function WorkbenchWelcome({ onCreateConversation }: WorkbenchWelcomeProps
         starsSize={3}
       />
       <div className="pointer-events-none relative flex h-full flex-col items-center justify-center gap-8 p-6">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <h1 className="text-4xl font-bold tracking-tight">
+        <div className="flex flex-col items-center gap-3 text-center animate-fade-in-up">
+          <h1 className="text-4xl font-bold tracking-tight animate-fade-in-up" >
             {greeting}
             <span className={cn("animate-caret")}>_</span>
           </h1>
-          <p className="max-w-md text-lg text-muted-foreground">
+          <p className="max-w-md text-lg text-muted-foreground animate-fade-in-up" style={{ animationDelay: "50ms" }}>
             创建新会话开始对话，或从左侧选择已有会话继续。
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 animate-fade-in-up" style={{ animationDelay: "100ms" }}>
           <Button
             className="pointer-events-auto"
             onClick={onCreateConversation}
