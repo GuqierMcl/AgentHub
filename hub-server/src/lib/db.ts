@@ -1,8 +1,10 @@
-import { PrismaClient } from '@prisma/client'
+import type { PrismaClient } from '@prisma/client'
 import { execSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
 let prisma: PrismaClient | null = null
+
+const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 
 export function getPrismaClient(): PrismaClient {
   if (!prisma) {
@@ -19,12 +21,18 @@ export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
   process.env.DATABASE_URL = dbUrl
 
   execSync('bunx prisma migrate deploy', {
-    cwd: resolve(import.meta.dir, '..', '..'),
+    cwd: PROJECT_ROOT,
     env: { ...process.env, DATABASE_URL: dbUrl },
     stdio: 'inherit',
   })
 
-  prisma = new PrismaClient()
+  execSync('bunx prisma generate', {
+    cwd: PROJECT_ROOT,
+    stdio: 'inherit',
+  })
+
+  const { PrismaClient: PC } = await import('@prisma/client')
+  prisma = new PC()
 
   await prisma.$connect()
   await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON;')
