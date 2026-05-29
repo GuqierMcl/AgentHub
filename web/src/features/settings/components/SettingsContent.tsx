@@ -4,6 +4,7 @@ import { RuntimeContent } from "./RuntimeContent"
 import { ProviderContent } from "./provider/ProviderContent"
 import { ModelContent } from "./model/ModelContent"
 import { ArchivedContent } from "./ArchivedContent"
+import { DiagnosticsContent } from "./DiagnosticsContent"
 
 type SettingsContentProps = {
   activeTab: SettingsTabId
@@ -14,10 +15,11 @@ const tabLabels: Record<SettingsTabId, string> = {
   provider: "供应商",
   model: "模型",
   archived: "已归档对话",
+  diagnostics: "诊断配置",
 }
 
 export function SettingsContent({ activeTab }: SettingsContentProps) {
-  const isPinnable = activeTab === "provider" || activeTab === "model" || activeTab === "archived"
+  const isPinnable = activeTab === "provider" || activeTab === "model" || activeTab === "archived" || activeTab === "diagnostics"
 
   return (
     <div className="flex flex-col h-full border-l border-border/50">
@@ -32,6 +34,7 @@ export function SettingsContent({ activeTab }: SettingsContentProps) {
           {activeTab === "provider" && <ProviderContent />}
           {activeTab === "model" && <ModelContent />}
           {activeTab === "archived" && <ArchivedContent />}
+          {activeTab === "diagnostics" && <DiagnosticsContent />}
         </div>
       </ScrollArea>
     </div>

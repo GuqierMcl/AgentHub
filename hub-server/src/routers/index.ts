@@ -4,6 +4,7 @@ import provider from './provider'
 import agent from './agent'
 import runs from './runs'
 import workspace from './workspace'
+import settings from './settings'
 
 const router = new Hono()
 
@@ -21,5 +22,6 @@ router.route('/', provider)
 router.route('/', agent)
 router.route('/', runs)
 router.route('/', workspace)
+router.route('/', settings)
 
 export default router

@@ -42,6 +42,19 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
+          <SidebarGroupLabel>会话设置</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem key="diagnostics">
+              <SidebarMenuButton
+                isActive={activeTab === "diagnostics"}
+                onClick={() => onTabChange("diagnostics")}
+              >
+                诊断配置
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+        <SidebarGroup>
           <SidebarGroupLabel>AI 能力</SidebarGroupLabel>
           <SidebarMenu>
             {menuItems.map((item) => (
