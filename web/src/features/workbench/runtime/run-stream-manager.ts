@@ -1,4 +1,7 @@
-import { runtimeRunsApi, type RuntimeRunEvent } from "../api/runtime-runs"
+import {
+  conversationMessagesApi,
+  type HubRunEventEnvelope,
+} from "../api/messages"
 import { isTerminalRunStatus, useWorkbenchStore } from "../store/workbench-store"
 
 const runtimeEventTypes = [
@@ -38,10 +41,10 @@ type ManagedConnection = {
 
 class RunStreamManager {
   private connections = new Map<string, ManagedConnection>()
-  private pendingEvents = new Map<string, RuntimeRunEvent[]>()
+  private pendingEvents = new Map<string, HubRunEventEnvelope[]>()
   private pendingFlushes = new Map<string, number>()
 
-  connect(conversationId: string, runId: string): void {
+  connect(conversationId: string, runId: string, afterSequence = 0): void {
     const current = this.connections.get(conversationId)
     if (current?.runId === runId) {
       return
@@ -50,7 +53,9 @@ class RunStreamManager {
     this.disconnect(conversationId, "disconnected")
     useWorkbenchStore.getState().setConnectionStatus(conversationId, "connecting")
 
-    const source = new EventSource(runtimeRunsApi.eventsUrl(runId))
+    const source = new EventSource(
+      conversationMessagesApi.eventsUrl(runId, afterSequence)
+    )
     const connection: ManagedConnection = { conversationId, runId, source }
     this.connections.set(conversationId, connection)
 
@@ -72,14 +77,15 @@ class RunStreamManager {
     const handleEvent = (eventMessage: MessageEvent<string>) => {
       if (this.connections.get(conversationId)?.source !== source) return
       try {
-        const event = JSON.parse(eventMessage.data) as RuntimeRunEvent
-        this.enqueueEvent(conversationId, event)
+        const envelope = JSON.parse(eventMessage.data) as HubRunEventEnvelope
+        this.enqueueEvent(conversationId, envelope)
       } catch {
         useWorkbenchStore.getState().setConnectionStatus(conversationId, "error")
       }
     }
 
     source.addEventListener("message", handleEvent)
+    source.addEventListener("run.event", handleEvent)
     for (const eventType of runtimeEventTypes) {
       source.addEventListener(eventType, handleEvent)
     }
@@ -103,9 +109,9 @@ class RunStreamManager {
     useWorkbenchStore.getState().setConnectionStatus(conversationId, status)
   }
 
-  private enqueueEvent(conversationId: string, event: RuntimeRunEvent): void {
+  private enqueueEvent(conversationId: string, envelope: HubRunEventEnvelope): void {
     const pending = this.pendingEvents.get(conversationId) ?? []
-    pending.push(event)
+    pending.push(envelope)
     this.pendingEvents.set(conversationId, pending)
 
     if (this.pendingFlushes.has(conversationId)) {
@@ -123,13 +129,17 @@ class RunStreamManager {
   }
 
   private flushEvents(conversationId: string): void {
-    const events = this.pendingEvents.get(conversationId)
-    if (!events?.length) {
+    const envelopes = this.pendingEvents.get(conversationId)
+    if (!envelopes?.length) {
       return
     }
 
     this.pendingEvents.delete(conversationId)
-    useWorkbenchStore.getState().applyRuntimeEvents(conversationId, events)
+    useWorkbenchStore.getState().applyRuntimeEventEnvelopes(
+      conversationId,
+      envelopes,
+      { source: "live" }
+    )
 
     const nextStatus = useWorkbenchStore.getState().getConversationState(conversationId).runStatus
     if (isTerminalRunStatus(nextStatus)) {

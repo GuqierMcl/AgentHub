@@ -1,5 +1,6 @@
 import { getPrismaClient } from '../lib/db'
 import { generateId } from '../lib/id'
+import { safeJsonParse } from '../lib/utils'
 import type { ConversationMode, ConversationStatus, SortOrder, MetadataJson } from '../lib/types'
 
 export interface CreateConversationInput {
@@ -47,7 +48,7 @@ export interface ConversationOutput {
 function toOutput(record: Record<string, unknown>): ConversationOutput {
   return {
     ...record,
-    metadataJson: JSON.parse((record.metadataJson as string) || '{}'),
+    metadataJson: safeJsonParse(record.metadataJson as string | undefined, {}),
   } as ConversationOutput
 }
 
@@ -99,7 +100,7 @@ function toListOutput(record: Record<string, unknown>): ConversationListOutput {
     ...Object.fromEntries(
       Object.entries(record).filter(([k]) => k !== 'agents')
     ),
-    metadataJson: JSON.parse((record.metadataJson as string) || '{}'),
+    metadataJson: safeJsonParse(record.metadataJson as string | undefined, {}),
     agents: agents.map((a) => ({
       agentId: a.agentId as string,
     })),
@@ -214,7 +215,7 @@ function toConversationDetailOutput(record: Record<string, unknown>): Conversati
     ...Object.fromEntries(
       Object.entries(record).filter(([k]) => k !== 'agents')
     ),
-    metadataJson: JSON.parse((record.metadataJson as string) || '{}'),
+    metadataJson: safeJsonParse(record.metadataJson as string | undefined, {}),
     agents: agents.map((a) => ({
       id: a.id as string,
       conversationId: a.conversationId as string,

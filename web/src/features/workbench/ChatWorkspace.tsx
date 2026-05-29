@@ -17,10 +17,7 @@ import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout"
 import { conversationsApi } from "./api/conversations"
 import { workbenchQueryKeys } from "./api/query-keys"
 import { runStreamManager } from "./runtime/run-stream-manager"
-import {
-  isTerminalRunStatus,
-  useWorkbenchStore,
-} from "./store/workbench-store"
+import { useWorkbenchStore } from "./store/workbench-store"
 import type {
   ConversationDetail,
   ConversationListItem,
@@ -33,7 +30,6 @@ export function ChatWorkspace() {
   const queryClient = useQueryClient()
   const activeConversationId = useWorkbenchStore((s) => s.activeConversationId)
   const setActiveConversationId = useWorkbenchStore((s) => s.setActiveConversationId)
-  const getConversationState = useWorkbenchStore((s) => s.getConversationState)
   const previousActiveConversationIdRef = useRef<string | null>(null)
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<ConversationListItem | null>(null)
@@ -67,15 +63,7 @@ export function ChatWorkspace() {
 
     setActiveConversationId(id)
     previousActiveConversationIdRef.current = id
-
-    const runtimeState = getConversationState(id)
-    if (
-      runtimeState.activeRuntimeRunId &&
-      !isTerminalRunStatus(runtimeState.runStatus)
-    ) {
-      runStreamManager.connect(id, runtimeState.activeRuntimeRunId)
-    }
-  }, [activeConversationId, getConversationState, setActiveConversationId])
+  }, [activeConversationId, setActiveConversationId])
 
   const createMutation = useMutation({
     mutationFn: (body: CreateConversationBody) => conversationsApi.create(body),

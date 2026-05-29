@@ -66,6 +66,7 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `RUN_INVALID_INPUT` | 400 | 请求参数校验失败 |
 | `RUN_INVALID_WORKSPACE` | 400 | RunInput.workspace 无效，例如本地目录不存在或不是目录 |
 | `RUN_NOT_FOUND` | 404 | 指定的 Run 不存在 |
+| `RUN_ALREADY_ACTIVE` | 409 | 同一会话已有非终态 Run，当前阶段不允许并发发送 |
 | `RUN_TIMEOUT` | 504 | Run 执行超时 |
 | `ADAPTER_ERROR` | 502 | Agent Adapter 调用失败 |
 | `AGENT_NOT_FOUND` | 404 | 指定的 Agent 不存在，或隐藏 Agent 未授权查看 |
@@ -451,6 +452,187 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - 若智能体本身存在基础 `modelRef`，清除后会回退到基础配置。
 
 成功响应：返回更新后的 agent detail。
+
+## Product Messages and Runs API
+
+Product Messages and Runs API 是 Web 聊天主路径。Web 不再直接用 `/api/runtime/runs*` 创建聊天回复，而是通过 HubServer 持久化消息、Run 和 RunEvent 后再调用 Agent Runtime。完整机制见 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。
+
+### 发送会话消息
+
+**端点**：`POST /api/conversations/:conversationId/messages/send`
+
+请求体：
+
+```json
+{
+  "content": "请帮我改一下这个组件。"
+}
+```
+
+行为：
+
+- HubServer 创建 user `Message` 和 text `MessagePart`，并使用 run-local `firstEventSequence = 0` 固定它排在该 run 的 Runtime 输出之前。
+- HubServer 创建本地 `Run(status="queued")`，并将 `triggerMessageId` 指向 user message。
+- HubServer 从持久化 messages 投影 Runtime `history`，组装 Runtime `RunInput` 后调用 `POST /runtime/runs`。
+- Runtime 返回的 `runId` 写入本地 `Run.runtimeId`。
+- HubServer 启动后台 Runtime SSE consumer，并返回最新消息快照与 `timelineRuns` raw event replay 数据。
+- 同一 conversation 已存在非终态 Run 时返回 `RUN_ALREADY_ACTIVE`。
+
+成功响应：
+
+```ts
+type ConversationMessagesResponse = {
+  messages: PersistedMessage[]
+  activeRun: ActiveRunSnapshot | null
+  latestPlan: RunPlanSnapshot | null
+  runItems: ConversationRunItemsSnapshot
+  timelineRuns: ConversationTimelineRunSnapshot[]
+}
+```
+
+### 查询会话消息快照
+
+**端点**：`GET /api/conversations/:conversationId/messages?limit=&offset=`
+
+成功响应同 `ConversationMessagesResponse`。
+
+```ts
+type PersistedMessage = {
+  id: string
+  conversationId: string
+  runId: string | null
+  runtimeMessageId: string | null
+  runtimeRunId: string | null
+  messageIndex: number | null
+  surface: string
+  role: "user" | "assistant" | "system"
+  senderType: string
+  senderId: string | null
+  agentId: string | null
+  taskId: string | null
+  groupId: string | null
+  status: "created" | "streaming" | "completed" | "failed" | "cancelled"
+  finishReason: string | null
+  firstEventSequence: number | null
+  lastEventSequence: number | null
+  metadataJson: Record<string, unknown>
+  uiMessageJson: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+  parts: PersistedMessagePart[]
+}
+
+type PersistedMessagePart = {
+  id: string
+  messageId: string
+  conversationId: string
+  runId: string | null
+  runtimeEventId: string | null
+  partKey: string
+  partIndex: number
+  entityType: string | null
+  entityId: string | null
+  type: string
+  state: string
+  text: string | null
+  payloadJson: Record<string, unknown>
+  firstEventSequence: number | null
+  lastEventSequence: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+type ActiveRunSnapshot = {
+  id: string
+  runtimeId: string | null
+  status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled"
+  lastEventSequence: number
+  plan: Record<string, unknown> | null
+}
+
+type RunPlanSnapshot = {
+  runId: string
+  status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled"
+  plan: Record<string, unknown>
+  updatedAt: string
+  completedAt: string | null
+}
+
+type ConversationRunItemsSnapshot = {
+  toolCalls: Record<string, unknown>[]
+  reasoningBlocks: Record<string, unknown>[]
+  taskGroups: Record<string, unknown>[]
+  tasks: Record<string, unknown>[]
+  plans: Record<string, unknown>[]
+  planTasks: Record<string, unknown>[]
+  permissionRequests: Record<string, unknown>[]
+}
+
+type ConversationTimelineRunSnapshot = {
+  run: {
+    id: string
+    runtimeId: string | null
+    status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled"
+    triggerMessageId: string
+    createdAt: string
+    lastEventSequence: number
+  }
+  triggerMessage: PersistedMessage | null
+  events: HubRunEventEnvelope[]
+}
+
+type HubRunEventEnvelope = {
+  sequence: number
+  event: RuntimeRunEvent
+}
+```
+
+`activeRun.id` 是 HubServer 本地 Run id。`activeRun.runtimeId` 只用于调试和跨进程关联，Web 产品路径不得用它订阅 Runtime。
+`timelineRuns` 是聊天 UI 恢复的主数据源：Web 先渲染每个 run 的 `triggerMessage`，再按 `events.sequence` 重放 Runtime raw event，并与 live SSE 共用同一套 projection reducer。`messages` 与 `runItems` 保留为查询、history、统计和后续产品能力的数据源。
+
+### 订阅产品 Run 事件
+
+**端点**：`GET /api/runs/:runId/events?afterSequence=`
+
+响应类型：`text/event-stream`
+
+事件格式：
+
+```text
+event: run.event
+data: {"sequence":12,"event":{"id":"evt_xxx","runId":"runtime_run_xxx","type":"message.delta","timestamp":"2026-05-29T00:00:00.000Z","messageId":"msg_runtime_run_xxx_exec_0","messageIndex":0,"data":{"delta":"hello"}}}
+```
+
+行为：
+
+- `runId` 是 HubServer 本地 Run id。
+- HubServer 先发送 `sequence > afterSequence` 的持久化 RunEvent，再推送 live events。
+- `sequence` 是本地 Run 内递增序号。
+- `event` 是 Runtime 原始 RunEvent。
+- `RunEvent.payloadJson` 永久保留 raw 事实；未知 event type 也必须落库，后续只补 projection。
+- Run 到达终态后关闭流。
+
+Web 恢复规则：
+
+- 先加载 messages snapshot 中的 `timelineRuns` 并重放 raw events。
+- 用 `activeRun.lastEventSequence` 作为 `afterSequence` 续订 active run。
+- Web 按 Runtime `event.id` 去重；live SSE 和 replay 都进入同一套 projection reducer，避免重复拼接 `message.delta`。
+
+### 取消产品 Run
+
+**端点**：`POST /api/runs/:runId/cancel`
+
+行为：
+
+- HubServer 查找本地 Run。
+- 若存在 `runtimeId`，转发到 Runtime `POST /runtime/runs/:runtimeId/cancel`。
+- 若 Runtime id 尚未写入，则直接将本地 Run 标记为 `cancelled`。
+- 返回更新后的 `ActiveRunSnapshot`。
+
+### 调试代理
+
+`/api/runtime/runs*` 仍保留为调试和过渡代理接口，但不再是 Web 聊天主路径。产品级消息、恢复、持久化和 sequence 语义只由本节 API 承担。
 
 ## Runtime RunInput 会话入口规则
 

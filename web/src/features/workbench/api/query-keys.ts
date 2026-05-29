@@ -5,6 +5,8 @@ export const workbenchQueryKeys = {
       ["conversations", status] as const,
     detail: (conversationId: string) =>
       ["conversation", conversationId] as const,
+    messages: (conversationId: string) =>
+      ["conversation", conversationId, "messages"] as const,
   },
   agents: {
     all: ["runtime-agents"] as const,

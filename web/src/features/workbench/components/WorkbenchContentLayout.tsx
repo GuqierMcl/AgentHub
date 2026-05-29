@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { usePanelRef } from "react-resizable-panels"
 import { toast } from "sonner"
 
@@ -14,10 +14,12 @@ import type { AgentSummary } from "@/features/agents/types"
 import { agentsApi } from "@/features/agents/api/agents"
 
 import { conversationsApi } from "../api/conversations"
+import {
+  ConversationMessageRequestError,
+  conversationMessagesApi,
+} from "../api/messages"
 import { workbenchQueryKeys } from "../api/query-keys"
-import { RuntimeRunRequestError, runtimeRunsApi } from "../api/runtime-runs"
 import { RightWorkbench } from "../right-workbench/RightWorkbench"
-import { buildRuntimeRunInput } from "../runtime/run-input"
 import { runStreamManager } from "../runtime/run-stream-manager"
 import {
   isTerminalRunStatus,
@@ -43,6 +45,7 @@ export function WorkbenchContentLayout({
   activeConversationId,
   onCreateConversation,
 }: WorkbenchContentLayoutProps) {
+  const queryClient = useQueryClient()
   const workspacePanelRef = usePanelRef()
   const tabs = useTabStore((s) => s.tabs)
   const isWorkspaceCollapsed = useTabStore((s) => s.isWorkspaceCollapsed)
@@ -57,11 +60,9 @@ export function WorkbenchContentLayout({
     activeConversationId ? s.conversations[activeConversationId] : undefined
   )
   const setDraft = useWorkbenchStore((s) => s.setDraft)
-  const addUserMessage = useWorkbenchStore((s) => s.addUserMessage)
+  const hydrateTimelineFromReplay = useWorkbenchStore((s) => s.hydrateTimelineFromReplay)
   const markRunSubmitted = useWorkbenchStore((s) => s.markRunSubmitted)
-  const startRuntimeRun = useWorkbenchStore((s) => s.startRuntimeRun)
   const failRunStart = useWorkbenchStore((s) => s.failRunStart)
-  const getConversationState = useWorkbenchStore((s) => s.getConversationState)
   const setConversationChatSpeakers = useWorkbenchStore((s) => s.setConversationChatSpeakers)
   const hasTabsRef = useRef(false)
 
@@ -76,6 +77,14 @@ export function WorkbenchContentLayout({
   const agentsQuery = useQuery({
     queryKey: workbenchQueryKeys.agents.all,
     queryFn: () => agentsApi.list({ includeHidden: true, enabledOnly: false }),
+    enabled: !!activeConversationId,
+  })
+
+  const messagesQuery = useQuery({
+    queryKey: activeConversationId
+      ? workbenchQueryKeys.conversations.messages(activeConversationId)
+      : workbenchQueryKeys.conversations.messages("__none__"),
+    queryFn: () => conversationMessagesApi.list(activeConversationId ?? ""),
     enabled: !!activeConversationId,
   })
 
@@ -96,6 +105,38 @@ export function WorkbenchContentLayout({
       conversationDetail.agents.map((agent) => agent.agentId)
     )
   }, [conversationDetail, setConversationChatSpeakers])
+
+  useEffect(() => {
+    if (!activeConversationId || !conversationDetail || !messagesQuery.data) return
+
+    setConversationChatSpeakers(
+      activeConversationId,
+      conversationDetail.agents.map((agent) => agent.agentId)
+    )
+
+    hydrateTimelineFromReplay(
+      activeConversationId,
+      messagesQuery.data.timelineRuns,
+      messagesQuery.data.activeRun
+    )
+
+    if (
+      messagesQuery.data.activeRun &&
+      !isTerminalRunStatus(messagesQuery.data.activeRun.status)
+    ) {
+      runStreamManager.connect(
+        activeConversationId,
+        messagesQuery.data.activeRun.id,
+        messagesQuery.data.activeRun.lastEventSequence
+      )
+    }
+  }, [
+    activeConversationId,
+    conversationDetail,
+    hydrateTimelineFromReplay,
+    messagesQuery.data,
+    setConversationChatSpeakers,
+  ])
 
   const activeConversation = useMemo((): Conversation | null => {
     if (!conversationDetail) return null
@@ -131,43 +172,56 @@ export function WorkbenchContentLayout({
     const trimmedContent = content.trim()
     if (!trimmedContent) return
 
-    const current = getConversationState(activeConversationId)
     if (
-      current.activeRuntimeRunId &&
-      !isTerminalRunStatus(current.runStatus)
+      runtimeState?.activeRuntimeRunId &&
+      !isTerminalRunStatus(runtimeState.runStatus)
     ) {
       toast.info("当前会话已有正在运行的回复")
       return
     }
 
-    const previousTimelineItems = current.timelineItems
-    const input = buildRuntimeRunInput(
-      conversationDetail,
-      trimmedContent,
-      previousTimelineItems
-    )
-
-    addUserMessage(activeConversationId, trimmedContent)
+    setDraft(activeConversationId, "")
     markRunSubmitted(activeConversationId)
 
     try {
-      const run = await runtimeRunsApi.create(input)
-      startRuntimeRun(activeConversationId, run.runId, run.status)
-      runStreamManager.connect(activeConversationId, run.runId)
+      const result = await conversationMessagesApi.send(
+        activeConversationId,
+        trimmedContent
+      )
+      queryClient.setQueryData(
+        workbenchQueryKeys.conversations.messages(activeConversationId),
+        result
+      )
+      hydrateTimelineFromReplay(
+        activeConversationId,
+        result.timelineRuns,
+        result.activeRun
+      )
+      if (result.activeRun && !isTerminalRunStatus(result.activeRun.status)) {
+        runStreamManager.connect(
+          activeConversationId,
+          result.activeRun.id,
+          result.activeRun.lastEventSequence
+        )
+      }
+      await queryClient.invalidateQueries({
+        queryKey: workbenchQueryKeys.conversations.all,
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Run 创建失败"
-      const code = err instanceof RuntimeRunRequestError ? err.code : undefined
+      const code = err instanceof ConversationMessageRequestError ? err.code : undefined
       failRunStart(activeConversationId, message, code)
       toast.error(code ? `${code}: ${message}` : message)
     }
   }, [
     activeConversationId,
-    addUserMessage,
     conversationDetail,
     failRunStart,
-    getConversationState,
+    hydrateTimelineFromReplay,
     markRunSubmitted,
-    startRuntimeRun,
+    queryClient,
+    runtimeState,
+    setDraft,
   ])
 
   const handleToggleWorkspaceCollapsed = useCallback(() => {

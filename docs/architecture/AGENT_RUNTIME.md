@@ -211,8 +211,8 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 
 尚未完全闭环的部分：
 
-- HubServer 还未作为产品状态中心消费 Runtime RunEvent，并持久化消息、计划、工具事件、任务事件和 Artifact；当前 smoke 仍可直接访问 Runtime，但产品链路仍应是 `web -> hub-server -> agent-runtime`。
-- 前端还未实现从最后一个成功 `tool.completed(toolName="write_plan")` 投影当前计划，也未展示 `task.*`、`tool.*`、`permission.*` 的完整 UI 状态。
+- HubServer 已开始作为产品状态中心消费 Runtime RunEvent，并持久化 user/assistant text messages、Run 状态、RunEvent 和最新 Plan；task/tool/reasoning/permission 的完整产品级 MessagePart 投影和 Artifact 投影仍未完成。当前 smoke 仍可直接访问 Runtime，但产品链路应使用 `web -> hub-server -> agent-runtime`。
+- 前端已能从 `tool.completed(toolName="write_plan")` 投影当前计划，并在右侧“会话状态”面板展示；`task.*`、`tool.*`、`permission.*`、`reasoning.*` 已有 live timeline UI，但持久化恢复仍主要依赖原始 RunEvent，完整产品级 parts 投影留待后续阶段。
 - HubServer 还未提供面向浏览器的自定义 Agent 管理 API 和配置 UI；当前 CRUD 仍是 Runtime 内部 API。
 - 权限审批已在 Runtime 内闭环；HubServer/前端仍缺少审批 API 代理、用户交互和状态持久化，因此产品链路尚未闭环。
 - 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。

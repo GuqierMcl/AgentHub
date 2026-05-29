@@ -82,4 +82,23 @@ export class RuntimeClient {
 
     throw mapRuntimeError(response.status, errorBody)
   }
+
+  async stream(path: string, init?: RequestInit): Promise<Response> {
+    const url = `${this.baseUrl}${path}`
+
+    try {
+      const response = await fetch(url, init)
+      if (!response.ok) {
+        logger.error({ path, status: response.status }, 'Agent Runtime stream returned error')
+      }
+      return response
+    } catch {
+      logger.error({ path }, 'Agent Runtime stream not available')
+      throw new AppError(
+        503 as ContentfulStatusCode,
+        'RUNTIME_NOT_READY',
+        'Agent Runtime is not available',
+      )
+    }
+  }
 }

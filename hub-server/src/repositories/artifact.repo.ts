@@ -1,5 +1,6 @@
 import { getPrismaClient } from '../lib/db'
 import { generateId } from '../lib/id'
+import { safeJsonParse } from '../lib/utils'
 import type { ArtifactType, ArtifactStatus, MetadataJson, SortOrder } from '../lib/types'
 
 export interface CreateArtifactInput {
@@ -34,7 +35,7 @@ export interface ListArtifactsFilter {
 function toOutput(record: Record<string, unknown>) {
   return {
     ...record,
-    metadataJson: JSON.parse((record.metadataJson as string) || '{}'),
+    metadataJson: safeJsonParse(record.metadataJson as string | undefined, {}),
   }
 }
 

@@ -2,15 +2,97 @@ import { Hono, Context } from 'hono'
 import type { RuntimeClient } from '../lib/runtime'
 import type { Logger } from 'pino'
 import { config } from '../config'
+import type { HubRunEventEnvelope, RunPersistenceService } from '../services/run-persistence.service'
 
 declare module 'hono' {
   interface ContextVariableMap {
     runtimeClient: RuntimeClient
+    runPersistenceService: RunPersistenceService
     logger: Logger
   }
 }
 
 const runs = new Hono()
+
+function encodeHubRunEvent(envelope: HubRunEventEnvelope): Uint8Array {
+  const payload = `event: run.event\ndata: ${JSON.stringify(envelope)}\n\n`
+  return new TextEncoder().encode(payload)
+}
+
+runs.get('/api/runs/:runId/events', async (c: Context) => {
+  const service = c.get('runPersistenceService')
+  const runId = c.req.param('runId')!
+  const afterSequence = Number.parseInt(c.req.query('afterSequence') ?? '0', 10)
+  const replayAfter = Number.isFinite(afterSequence) ? afterSequence : 0
+  await service.getRunStatus(runId)
+
+  let unsubscribe: (() => void) | undefined
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false
+      let replaying = true
+      const seenSequences = new Set<number>()
+      const liveBuffer: HubRunEventEnvelope[] = []
+      const close = () => {
+        if (closed) return
+        closed = true
+        unsubscribe?.()
+        controller.close()
+      }
+      const send = (envelope: HubRunEventEnvelope) => {
+        if (closed) return
+        if (seenSequences.has(envelope.sequence)) return
+        seenSequences.add(envelope.sequence)
+        controller.enqueue(encodeHubRunEvent(envelope))
+        if (service.isTerminalRunStatus(envelope.event.type.replace('run.', ''))) {
+          close()
+        }
+      }
+
+      unsubscribe = service.subscribe(runId, (envelope: HubRunEventEnvelope) => {
+        if (replaying) {
+          liveBuffer.push(envelope)
+          return
+        }
+        send(envelope)
+      })
+
+      const replayEvents = await service.listRunEventsAfter(runId, replayAfter)
+      for (const envelope of replayEvents) {
+        send(envelope)
+      }
+      replaying = false
+
+      liveBuffer
+        .sort((a, b) => a.sequence - b.sequence)
+        .forEach(send)
+
+      const status = await service.getRunStatus(runId)
+      if (closed || service.isTerminalRunStatus(status)) {
+        close()
+        return
+      }
+    },
+    cancel() {
+      unsubscribe?.()
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  })
+})
+
+runs.post('/api/runs/:runId/cancel', async (c: Context) => {
+  const service = c.get('runPersistenceService')
+  const runId = c.req.param('runId')!
+  const result = await service.cancelRun(runId)
+  return c.json(result)
+})
 
 runs.post('/api/runtime/runs', async (c: Context) => {
   const client = c.get('runtimeClient')

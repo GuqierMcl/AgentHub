@@ -56,6 +56,30 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 - API 变化必须同步更新 `docs/contracts/API_CONTRACTS.md`。
 - Hono 路由、Context、中间件、错误响应、流式输出和测试约定应遵循 `docs/reference/HONO.md`。
 
+## Run 持久化与流式恢复
+
+阶段 2 起，HubServer 是聊天产品事实源。Web 聊天主路径不再直接创建 Runtime Run，而是调用 HubServer 产品 API：
+
+- `POST /api/conversations/:conversationId/messages/send`
+- `GET /api/conversations/:conversationId/messages`
+- `GET /api/runs/:runId/events?afterSequence=`
+- `POST /api/runs/:runId/cancel`
+
+HubServer 的职责：
+
+- 创建 user `Message` 和 text `MessagePart`。
+- 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
+- 从持久化 messages 组装 Runtime `history` 和 `RunInput`。
+- 后台消费 Runtime SSE，将每条 Runtime event 以 `RunEvent.id = event.id`、本地递增 `sequence` 的方式持久化；raw payload 永久保留，未知事件也不丢。
+- 将 `message.delta` / `message.completed` 投影到 assistant `Message` 和 text `MessagePart`；结构化投影的 `firstEventSequence` / `lastEventSequence` 用于查询、统计和非聊天 UI 排序。
+- 将 `tool.completed(toolName="write_plan")` 投影到 `Run.planJson`。
+- 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的 raw event envelopes，供 Web 聊天主 UI 恢复。
+- 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。
+
+`GET /api/runs/:runId/events` 使用 HubServer 本地 Run id，并返回 `event: run.event`。data 形如 `{ sequence, event }`，其中 `event` 是 Runtime 原始事件。Web 切回会话时先加载 `timelineRuns` 并用 live SSE 相同 projection reducer 重放 raw events，再用 `activeRun.lastEventSequence` 作为 `afterSequence` 续订。
+
+完整机制见 `docs/architecture/RUN_EVENT_SCHEMA_AND_PROJECTION.md` 与 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。
+
 ## Hono 使用约定
 
 - 浏览器侧 API 统一由 `hub-server` 暴露，建议使用 `/api/*` 作为 API 路径前缀。

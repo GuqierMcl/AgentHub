@@ -180,7 +180,7 @@ Web local message state
 建议入口：
 
 ```text
-POST /api/conversations/:conversationId/messages
+POST /api/conversations/:conversationId/messages/send
 GET /api/conversations/:conversationId/messages
 GET /api/runs/:runId/events
 POST /api/runs/:runId/cancel
@@ -194,10 +194,12 @@ POST /api/runs/:runId/cancel
   - 调用 Runtime 后把 Runtime `runId` 写入 `Run.runtimeId`。
   - 从 conversation agents、metadata、历史 messages 组装 Runtime `RunInput`。
 - HubServer 消费 Runtime SSE：
-  - 按顺序写 `RunEvent`。
+  - 按顺序写 `RunEvent`，并永久保留 raw `payloadJson`。
   - 投影 `message.delta` / `message.completed` 到 assistant `Message` 与 `MessagePart`。
   - 更新 `Run.status`、`startedAt`、`completedAt`、`errorJson`。
   - 更新 `Conversation.lastMessageId`、`lastMessageAt`。
+- 聊天主 UI 恢复必须通过 raw `RunEvent` replay 完成：Web 先插入 trigger user message，再按 run 内 `sequence` 重放 Runtime events，并与 live SSE 共用同一套 projection reducer。
+- `firstEventSequence` 继续保留在结构化投影表中，用于查询、统计、调试和非聊天 UI 排序，不作为聊天流 hydrate 的唯一来源。
 - 持久化 active/recent Run 恢复信息：
   - 保存 Runtime `runId` 到 `Run.runtimeId`。
   - 通过 `conversationId + status` 查询最近非终态 Run，或在 conversation metadata 中记录最近 active run 指针。
@@ -211,9 +213,14 @@ POST /api/runs/:runId/cancel
 
 - 刷新页面后能看到历史用户消息和 assistant 回复。
 - 同一个 Runtime run 的事件可以从 HubServer replay。
-- 切换会话、断开前端 SSE、再切回时，可以从 HubServer/Runtime replay 恢复正在运行或刚完成的 Run。
+- 切换会话、断开前端 SSE、再切回时，可以通过 HubServer `timelineRuns` raw replay + `activeRun.lastEventSequence` + `/api/runs/:runId/events?afterSequence=` 恢复正在运行或刚完成的 Run。
+- 同一对话重开后，消息流、任务、工具、reasoning、权限和右侧计划面板的展示顺序必须与当时的流式渲染一致。
 - Runtime 事件不直接暴露私有 workspace path。
 - HubServer typecheck 通过。
+
+阶段 2 机制文档：
+
+- `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`
 
 ### 阶段 3：会话上下文与消息交互语义
 
@@ -357,6 +364,9 @@ POST /api/runs/:runId/cancel
 - Runtime reasoning/tool/permission 事件已开始复用当前输出上下文的 `messageId/messageIndex`；Web projection 会把同一 `messageId` 的 reasoning、普通工具和审批嵌入对应聊天消息，旧事件才退回独立 timeline item。
 - Orchestrator prompt 已收紧为“协调而不复述”：可见主智能体已经在聊天流中展示的回复不再由 Orchestrator 以最终总结形式重复输出，除非用户明确要求总结或结果来自隐藏子智能体。
 - Plan timeline item 已迁移到产物工作台“会话状态”单例标签页展示；聊天流不再渲染 Plan，当前会话收到 Plan 更新时会自动展开右侧工作台并激活该标签页。
+- 阶段 2 已接入 HubServer 产品级 messages/runs API：Web 发送改为 `POST /api/conversations/:conversationId/messages/send`，HubServer 创建 user Message、本地 Run、调用 Runtime，并后台消费 Runtime SSE。
+- 阶段 2 已实现 RunEvent 持久化与产品 SSE：`RunEvent.id = runtime event.id`，`sequence` 为本地 run 内递增序号，Web 通过 `/api/runs/:runId/events?afterSequence=` 续订。
+- 阶段 2 已实现 raw event replay 恢复：Web 切换或刷新会先按 `timelineRuns` 重放 trigger user message 与 raw RunEvent，再对非终态 active run 续订后续事件。
 
 ## 已完成
 
@@ -372,11 +382,14 @@ POST /api/runs/:runId/cancel
 - 阶段 1.6 补强：完成 Orchestrator prompt 去复述策略；委派给可见主智能体后只补充增量信息或简短确认，不再转述已经显示的主智能体输出。
 - 阶段 1.6 补强：Plan timeline UI 改为使用 ai-elements `Queue`，并强化 Orchestrator / `write_plan` 提示，要求委派任务完成、失败或取消后用相同 `taskId` 更新计划状态。
 - 阶段 1.6 补强：新增产物工作台“会话状态”单例标签页，使用 ai-elements `Queue` 展示当前 Plan；Plan 保留在本地 timeline 但不再出现在聊天消息流，Plan 更新会触发右侧工作台自动聚焦。
+- 阶段 2：新增 HubServer `RunPersistenceService` 和产品级 messages/runs API，完成 user/assistant text messages、RunEvent、Run 状态、latest Plan 的基础持久化与恢复；Web 聊天主路径不再调用 `/api/runtime/runs*` 代理。
+- 阶段 2：新增 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`，记录 HubServer consumer、RunEvent sequence、message projection 和切会话恢复规则。
+- 阶段 2：新增 `timelineRuns` raw replay 响应；Web 聊天 hydrate 与 live SSE 共用 `RuntimeRunEvent -> WorkbenchTimelineItem` projection reducer，不再用 `messages + runItems` 拼聊天流。
 
 ## 待办
 
 - 阶段 0/1：补充更多手动端到端验证记录，覆盖真实模型绑定、缺失模型绑定、群聊 orchestrator、切会话 replay 和 archive/pin/rename/create 回归。
-- 阶段 2：设计并实现 HubServer 产品级 messages/runs API。
+- 阶段 2：补充自动化测试，覆盖 send API、RunEvent 幂等、assistant MessagePart 投影、write_plan 持久化、`timelineRuns` raw replay 和产品 SSE replay/live。
 - 阶段 3：接入上下文、标题、pin、@、停止与重试语义。
 - 阶段 4：接入权限审批。
 - 阶段 5：接入计划、任务、工具事件 UI。
@@ -407,4 +420,6 @@ POST /api/runs/:runId/cancel
 - 2026-05-28：补强阶段 1.6。优化 Orchestrator prompt，禁止复述可见主智能体已经在聊天流中展示的回复，仅在有增量价值时补充状态、下一步或风险。
 - 2026-05-28：补强阶段 1.6。Plan timeline UI 改用 ai-elements `Queue`；强化 Orchestrator / `write_plan` 描述，要求任务批次完成后更新计划状态，并将 projection 自动回填列入后续计划。
 - 2026-05-28：补强阶段 1.6。将 Plan 展示迁移到右侧产物工作台“会话状态”单例标签页，新增 store 管理的工作台折叠状态和 Plan focus request；聊天消息流不再渲染 Plan。
+- 2026-05-29：加强 HubServer schema 和 projection 约束，`RunEvent` raw payload 永久保留，projection 项写入 `firstEventSequence` / `lastEventSequence`，重开会话时顺序必须与流式渲染一致。
+- 2026-05-29：将 Web 聊天恢复切换为 `timelineRuns` raw event replay；replay 与 live SSE 共用同一套 timeline projection，结构化 messages/runItems 退回查询和上下文职责。
 - 2026-05-27：创建路线图，确定先做 Web 未持久化 Runs 聊天闭环，再做 HubServer 持久化与产品级发送入口；记录 Zustand + TanStack Query 状态管理方向。

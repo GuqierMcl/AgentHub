@@ -1,25 +1,54 @@
 import { getPrismaClient } from '../lib/db'
 import { generateId } from '../lib/id'
-import type { MessageRole, SenderType, MessageStatus, FinishReason, MetadataJson, UiMessageJson, SortOrder } from '../lib/types'
+import { safeJsonParse } from '../lib/utils'
+import type {
+  MessageRole,
+  SenderType,
+  MessageStatus,
+  FinishReason,
+  MetadataJson,
+  UiMessageJson,
+  SortOrder,
+  MessageSurface,
+} from '../lib/types'
 
 export interface CreateMessageInput {
+  id?: string
   conversationId: string
-  runId?: string
+  runId?: string | null
+  runtimeMessageId?: string | null
+  runtimeRunId?: string | null
+  messageIndex?: number | null
+  surface?: MessageSurface
   role: MessageRole
   senderType: SenderType
-  senderId?: string
-  agentId?: string
-  parentMessageId?: string
-  regeneratedFromId?: string
+  senderId?: string | null
+  agentId?: string | null
+  taskId?: string | null
+  groupId?: string | null
+  parentMessageId?: string | null
+  regeneratedFromId?: string | null
   status?: MessageStatus
   finishReason?: FinishReason
+  firstEventSequence?: number | null
+  lastEventSequence?: number | null
   metadataJson?: MetadataJson
   uiMessageJson?: UiMessageJson
+  completedAt?: string | null
 }
 
 export interface UpdateMessageInput {
+  runId?: string | null
   status?: MessageStatus
   finishReason?: FinishReason | null
+  runtimeMessageId?: string | null
+  runtimeRunId?: string | null
+  messageIndex?: number | null
+  surface?: MessageSurface
+  taskId?: string | null
+  groupId?: string | null
+  firstEventSequence?: number | null
+  lastEventSequence?: number | null
   metadataJson?: MetadataJson
   uiMessageJson?: UiMessageJson | null
   completedAt?: string | null
@@ -38,14 +67,22 @@ export interface MessageOutput {
   id: string
   conversationId: string
   runId: string | null
+  runtimeMessageId: string | null
+  runtimeRunId: string | null
+  messageIndex: number | null
+  surface: string
   role: string
   senderType: string
   senderId: string | null
   agentId: string | null
+  taskId: string | null
+  groupId: string | null
   parentMessageId: string | null
   regeneratedFromId: string | null
   status: string
   finishReason: string | null
+  firstEventSequence: number | null
+  lastEventSequence: number | null
   metadataJson: MetadataJson
   uiMessageJson: UiMessageJson | null
   createdAt: string
@@ -56,8 +93,8 @@ export interface MessageOutput {
 function toOutput(record: Record<string, unknown>): MessageOutput {
   return {
     ...record,
-    metadataJson: JSON.parse((record.metadataJson as string) || '{}'),
-    uiMessageJson: record.uiMessageJson ? JSON.parse(record.uiMessageJson as string) : null,
+    metadataJson: safeJsonParse(record.metadataJson as string | undefined, {}),
+    uiMessageJson: safeJsonParse(record.uiMessageJson as string | undefined, null),
   } as MessageOutput
 }
 
@@ -66,22 +103,30 @@ export async function createMessage(input: CreateMessageInput): Promise<MessageO
   const db = getPrismaClient()
   const record = await db.message.create({
     data: {
-      id: generateId('msg'),
+      id: input.id ?? generateId('msg'),
       conversationId: input.conversationId,
       runId: input.runId ?? null,
+      runtimeMessageId: input.runtimeMessageId ?? null,
+      runtimeRunId: input.runtimeRunId ?? null,
+      messageIndex: input.messageIndex ?? null,
+      surface: input.surface ?? 'chat',
       role: input.role,
       senderType: input.senderType,
       senderId: input.senderId ?? null,
       agentId: input.agentId ?? null,
+      taskId: input.taskId ?? null,
+      groupId: input.groupId ?? null,
       parentMessageId: input.parentMessageId ?? null,
       regeneratedFromId: input.regeneratedFromId ?? null,
       status: input.status ?? 'created',
       finishReason: input.finishReason ?? null,
+      firstEventSequence: input.firstEventSequence ?? null,
+      lastEventSequence: input.lastEventSequence ?? null,
       metadataJson: JSON.stringify(input.metadataJson ?? {}),
       uiMessageJson: input.uiMessageJson ? JSON.stringify(input.uiMessageJson) : null,
       createdAt: now,
       updatedAt: now,
-      completedAt: null,
+      completedAt: input.completedAt ?? null,
     },
   })
   return toOutput(record as Record<string, unknown>)
@@ -108,7 +153,22 @@ export async function listMessages(filter: ListMessagesFilter): Promise<MessageO
     take: limit,
     skip: offset,
   })
-  return records.map(r => toOutput(r as Record<string, unknown>))
+  return sortMessages(records.map(r => toOutput(r as Record<string, unknown>)))
+}
+
+export async function listMessagesByRun(
+  runId: string,
+  status?: MessageStatus,
+): Promise<MessageOutput[]> {
+  const db = getPrismaClient()
+  const records = await db.message.findMany({
+    where: {
+      runId,
+      ...(status ? { status } : {}),
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+  return sortMessages(records.map(r => toOutput(r as Record<string, unknown>)))
 }
 
 export async function updateMessage(id: string, input: UpdateMessageInput): Promise<MessageOutput> {
@@ -116,8 +176,17 @@ export async function updateMessage(id: string, input: UpdateMessageInput): Prom
   const now = new Date().toISOString()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: Record<string, any> = { updatedAt: now }
+  if (input.runId !== undefined) data.runId = input.runId
   if (input.status !== undefined) data.status = input.status
   if (input.finishReason !== undefined) data.finishReason = input.finishReason
+  if (input.runtimeMessageId !== undefined) data.runtimeMessageId = input.runtimeMessageId
+  if (input.runtimeRunId !== undefined) data.runtimeRunId = input.runtimeRunId
+  if (input.messageIndex !== undefined) data.messageIndex = input.messageIndex
+  if (input.surface !== undefined) data.surface = input.surface
+  if (input.taskId !== undefined) data.taskId = input.taskId
+  if (input.groupId !== undefined) data.groupId = input.groupId
+  if (input.firstEventSequence !== undefined) data.firstEventSequence = input.firstEventSequence
+  if (input.lastEventSequence !== undefined) data.lastEventSequence = input.lastEventSequence
   if (input.metadataJson !== undefined) data.metadataJson = JSON.stringify(input.metadataJson)
   if (input.uiMessageJson !== undefined) data.uiMessageJson = input.uiMessageJson ? JSON.stringify(input.uiMessageJson) : null
   if (input.completedAt !== undefined) data.completedAt = input.completedAt
@@ -147,13 +216,70 @@ export async function findMessageWithParts(id: string) {
   })
 }
 
-export async function listMessagesWithParts(conversationId: string, opts?: { limit?: number; offset?: number }) {
+export async function listMessagesWithParts(
+  conversationId: string,
+  opts?: { limit?: number; offset?: number; order?: SortOrder },
+) {
   const db = getPrismaClient()
-  return db.message.findMany({
+  const records = await db.message.findMany({
     where: { conversationId },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: opts?.order ?? 'asc' },
     include: { parts: { orderBy: { partIndex: 'asc' } } },
     take: opts?.limit ?? 50,
     skip: opts?.offset ?? 0,
   })
+  return sortMessages(records.map((record) => toOutputWithParts(record as Record<string, unknown>)))
+}
+
+export async function findMessageByRunAndRuntimeMessageId(
+  runId: string,
+  runtimeMessageId: string,
+): Promise<MessageOutput | null> {
+  const db = getPrismaClient()
+  const record = await db.message.findFirst({
+    where: {
+      runId,
+      runtimeMessageId,
+    },
+  })
+  if (!record) return null
+  return toOutput(record as Record<string, unknown>)
+}
+
+function toOutputWithParts(record: Record<string, unknown>) {
+  return {
+    ...toOutput(record),
+    parts: ((record.parts as Record<string, unknown>[] | undefined) ?? []).map((part) => ({
+      ...part,
+      payloadJson: safeJsonParse(part.payloadJson as string | undefined, {}),
+    })),
+  }
+}
+
+function sortMessages<T extends Pick<MessageOutput, 'id' | 'runId' | 'role' | 'firstEventSequence' | 'createdAt'>>(messages: T[]): T[] {
+  return [...messages].sort((left, right) => {
+    const leftSeq = getMessageOrderSequence(left)
+    const rightSeq = getMessageOrderSequence(right)
+    if (left.runId && right.runId && left.runId === right.runId && leftSeq !== undefined && rightSeq !== undefined && leftSeq !== rightSeq) {
+      return leftSeq - rightSeq
+    }
+    const leftTime = Date.parse(left.createdAt)
+    const rightTime = Date.parse(right.createdAt)
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+      return leftTime - rightTime
+    }
+    return left.id.localeCompare(right.id)
+  })
+}
+
+function getMessageOrderSequence(
+  message: Pick<MessageOutput, 'role' | 'firstEventSequence'>,
+): number | undefined {
+  if (typeof message.firstEventSequence === 'number') {
+    return message.firstEventSequence
+  }
+  if (message.role === 'user') {
+    return 0
+  }
+  return undefined
 }

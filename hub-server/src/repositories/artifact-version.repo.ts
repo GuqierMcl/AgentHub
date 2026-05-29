@@ -1,5 +1,6 @@
 import { getPrismaClient } from '../lib/db'
 import { generateId } from '../lib/id'
+import { safeJsonParse } from '../lib/utils'
 import type { ArtifactVersionSource, DiffJson } from '../lib/types'
 
 export interface CreateArtifactVersionInput {
@@ -22,7 +23,7 @@ export interface UpdateArtifactVersionInput {
 function toOutput(record: Record<string, unknown>) {
   return {
     ...record,
-    diffJson: record.diffJson ? JSON.parse(record.diffJson as string) : null,
+    diffJson: safeJsonParse(record.diffJson as string | undefined, null),
   }
 }
 

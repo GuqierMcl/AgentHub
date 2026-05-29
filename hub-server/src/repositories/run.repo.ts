@@ -1,5 +1,6 @@
 import { getPrismaClient } from '../lib/db'
 import { generateId } from '../lib/id'
+import { safeJsonParse } from '../lib/utils'
 import type { RunMode, RunStatus, InputJson, PlanJson, ErrorJson, SortOrder } from '../lib/types'
 
 export interface CreateRunInput {
@@ -20,6 +21,7 @@ export interface UpdateRunInput {
   inputJson?: InputJson
   planJson?: PlanJson | null
   errorJson?: ErrorJson | null
+  lastEventSequence?: number
   startedAt?: string | null
   completedAt?: string | null
 }
@@ -32,16 +34,34 @@ export interface ListRunsFilter {
   order?: SortOrder
 }
 
-function toOutput(record: Record<string, unknown>) {
-  return {
-    ...record,
-    inputJson: JSON.parse((record.inputJson as string) || '{}'),
-    planJson: record.planJson ? JSON.parse(record.planJson as string) : null,
-    errorJson: record.errorJson ? JSON.parse(record.errorJson as string) : null,
-  }
+export interface RunOutput {
+  id: string
+  conversationId: string
+  triggerMessageId: string
+  mode: string
+  status: RunStatus
+  runtimeId: string | null
+  orchestratorAgentId: string | null
+  inputJson: InputJson
+  planJson: PlanJson | null
+  errorJson: ErrorJson | null
+  lastEventSequence: number
+  startedAt: string | null
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
-export async function createRun(input: CreateRunInput) {
+function toOutput(record: Record<string, unknown>): RunOutput {
+  return {
+    ...record,
+    inputJson: safeJsonParse(record.inputJson as string | undefined, {}),
+    planJson: safeJsonParse(record.planJson as string | undefined, null),
+    errorJson: safeJsonParse(record.errorJson as string | undefined, null),
+  } as RunOutput
+}
+
+export async function createRun(input: CreateRunInput): Promise<RunOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()
   const record = await db.run.create({
@@ -57,6 +77,7 @@ export async function createRun(input: CreateRunInput) {
       planJson: input.planJson ? JSON.stringify(input.planJson) : null,
       startedAt: null,
       completedAt: null,
+      lastEventSequence: 0,
       createdAt: now,
       updatedAt: now,
     },
@@ -64,14 +85,14 @@ export async function createRun(input: CreateRunInput) {
   return toOutput(record as Record<string, unknown>)
 }
 
-export async function findRunById(id: string) {
+export async function findRunById(id: string): Promise<RunOutput | null> {
   const db = getPrismaClient()
   const record = await db.run.findUnique({ where: { id } })
   if (!record) return null
   return toOutput(record as Record<string, unknown>)
 }
 
-export async function listRuns(filter: ListRunsFilter = {}) {
+export async function listRuns(filter: ListRunsFilter = {}): Promise<RunOutput[]> {
   const db = getPrismaClient()
   const { conversationId, status, limit = 50, offset = 0, order = 'desc' } = filter
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,7 +109,7 @@ export async function listRuns(filter: ListRunsFilter = {}) {
   return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
-export async function updateRun(id: string, input: UpdateRunInput) {
+export async function updateRun(id: string, input: UpdateRunInput): Promise<RunOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,6 +120,7 @@ export async function updateRun(id: string, input: UpdateRunInput) {
   if (input.inputJson !== undefined) data.inputJson = JSON.stringify(input.inputJson)
   if (input.planJson !== undefined) data.planJson = input.planJson ? JSON.stringify(input.planJson) : null
   if (input.errorJson !== undefined) data.errorJson = input.errorJson ? JSON.stringify(input.errorJson) : null
+  if (input.lastEventSequence !== undefined) data.lastEventSequence = input.lastEventSequence
   if (input.startedAt !== undefined) data.startedAt = input.startedAt
   if (input.completedAt !== undefined) data.completedAt = input.completedAt
 
@@ -118,6 +140,19 @@ export async function countRuns(filter: { conversationId?: string; status?: RunS
   if (filter.conversationId) where.conversationId = filter.conversationId
   if (filter.status) where.status = filter.status
   return db.run.count({ where })
+}
+
+export async function findLatestRunWithPlan(conversationId: string): Promise<RunOutput | null> {
+  const db = getPrismaClient()
+  const record = await db.run.findFirst({
+    where: {
+      conversationId,
+      planJson: { not: null },
+    },
+    orderBy: { updatedAt: 'desc' },
+  })
+  if (!record) return null
+  return toOutput(record as Record<string, unknown>)
 }
 
 export async function findRunWithEvents(id: string) {

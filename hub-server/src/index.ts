@@ -5,6 +5,7 @@ import { initDatabase, closeDatabase } from './lib/db'
 import { errorHandler } from './lib/errors'
 import { ConversationService } from './services/conversation.service'
 import { RuntimeClient } from './lib/runtime'
+import { RunPersistenceService } from './services/run-persistence.service'
 import { config } from './config'
 import { logger, requestLogger } from './lib/logger'
 import router from './routers'
@@ -42,10 +43,12 @@ if (config.cors.length > 0) {
 
 const conversationService = new ConversationService()
 const runtimeClient = new RuntimeClient(config.runtimeUrl)
+const runPersistenceService = new RunPersistenceService(runtimeClient)
 
 app.use('*', async (c: Context, next: Next) => {
   c.set('conversationService', conversationService)
   c.set('runtimeClient', runtimeClient)
+  c.set('runPersistenceService', runPersistenceService)
   await next()
 })
 
