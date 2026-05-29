@@ -2,6 +2,8 @@ import { useState } from "react"
 import { PenIcon, PinIcon, ArchiveIcon, MessageSquareTextIcon, UsersIcon, FolderIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { InfiniteLinearProgress } from "@/components/ui/infinite-linear-progress"
+import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -21,7 +23,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 
-import type { ConversationListItem as ConversationListItemType } from "../types"
+import type { ConversationListDisplayItem as ConversationListItemType } from "../types"
 
 type ConversationListItemProps = {
   conversation: ConversationListItemType
@@ -71,6 +73,12 @@ export function ConversationListItemView({
   const isPinned = !!conversation.pinnedAt
   const isArchived = conversation.status === "archived"
   const isGroup = conversation.mode === "group"
+  const isRunning = isActiveRunStatus(conversation.activeRunStatus)
+  const timeLabel = conversation.lastMessageAt
+    ? formatTime(conversation.lastMessageAt)
+    : ""
+  const preview = conversation.lastMessageContent?.trim()
+    || (conversation.lastMessageId ? "暂无文本预览" : "无消息")
 
   return (
     <>
@@ -80,13 +88,14 @@ export function ConversationListItemView({
             role="button"
             tabIndex={0}
             className={cn(
-              "group relative w-full rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent cursor-pointer",
+              "group relative block w-full max-w-full overflow-hidden rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent cursor-pointer",
+              isRunning && "pb-4",
               selected && "border-primary/50 bg-accent"
             )}
             onClick={() => onSelect(conversation.id)}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(conversation.id) } }}
           >
-            <div className="flex gap-3">
+            <div className="flex min-w-0 gap-3">
               <div className="flex size-9 items-center justify-center rounded-lg bg-muted shrink-0">
                 {isGroup ? (
                   <UsersIcon className="size-4 text-muted-foreground" />
@@ -94,24 +103,24 @@ export function ConversationListItemView({
                   <MessageSquareTextIcon className="size-4 text-muted-foreground" />
                 )}
               </div>
-              <span className="flex min-w-0 flex-col gap-1 flex-1">
-                <span className="flex min-w-0 items-center justify-between gap-2">
+              <span className="flex min-w-0 flex-col gap-1 flex-1 pr-14">
+                <span className="flex min-w-0 items-center gap-2 pr-5">
                   <span className="truncate text-sm font-semibold">
                     {conversation.title}
                   </span>
-                  <span className="shrink-0 text-muted-foreground text-xs">
-                    {conversation.lastMessageAt ? formatTime(conversation.lastMessageAt) : ""}
-                  </span>
+                  {isRunning && (
+                    <Spinner className="ml-auto size-3.5 shrink-0 text-primary transition-opacity group-hover:opacity-0" />
+                  )}
                 </span>
-                <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
-                  <span className="line-clamp-1">
-                    {conversation.lastMessageId ? "有消息记录" : "无消息"}
+                <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs">
+                  <span className="block min-w-0 truncate">
+                    {preview}
                   </span>
                 </span>
                 {getWorkspacePath(conversation.metadata) && (
-                  <span className="flex items-center gap-1 truncate text-muted-foreground text-xs">
+                  <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs">
                     <FolderIcon className="size-3 shrink-0" />
-                    <span className="line-clamp-1">
+                    <span className="block min-w-0 truncate">
                       {getWorkspacePath(conversation.metadata)}
                     </span>
                   </span>
@@ -123,6 +132,12 @@ export function ConversationListItemView({
                 </span>
               </span>
             </div>
+
+            {timeLabel && (
+              <span className="absolute right-3 top-9 max-w-16 truncate text-right text-muted-foreground text-xs">
+                {timeLabel}
+              </span>
+            )}
 
             <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
@@ -153,6 +168,10 @@ export function ConversationListItemView({
                 <ArchiveIcon className="size-3.5" />
               </button>
             </div>
+
+            {isRunning && (
+              <InfiniteLinearProgress className="absolute inset-x-3 bottom-1 h-0.5" />
+            )}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -190,4 +209,13 @@ export function ConversationListItemView({
       </AlertDialog>
     </>
   )
+}
+
+function isActiveRunStatus(
+  status: ConversationListItemType["activeRunStatus"]
+): boolean {
+  return status === "submitted" ||
+    status === "queued" ||
+    status === "running" ||
+    status === "waiting_approval"
 }

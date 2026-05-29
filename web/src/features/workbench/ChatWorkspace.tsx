@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useMemo, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
@@ -17,19 +17,46 @@ import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout"
 import { conversationsApi } from "./api/conversations"
 import { workbenchQueryKeys } from "./api/query-keys"
 import { runStreamManager } from "./runtime/run-stream-manager"
-import { useWorkbenchStore } from "./store/workbench-store"
+import { isTerminalRunStatus, useWorkbenchStore } from "./store/workbench-store"
 import type {
   ConversationDetail,
+  ConversationListDisplayItem,
   ConversationListItem,
   CreateConversationBody,
+  WorkbenchTimelineItem,
 } from "./types"
+import type { RuntimeRunStatus } from "./api/runtime-runs"
 
 const EMPTY_CONVERSATIONS: ConversationListItem[] = []
+
+type ConversationRuntimeListOverlay = {
+  runStatus: RuntimeRunStatus | "idle" | "submitted"
+  lastMessageContent?: string
+}
+
+type ConversationRuntimeListOverlayTuple = [
+  conversationId: string,
+  runStatus: ConversationRuntimeListOverlay["runStatus"],
+  lastMessageContent: string | null,
+]
 
 export function ChatWorkspace() {
   const queryClient = useQueryClient()
   const activeConversationId = useWorkbenchStore((s) => s.activeConversationId)
   const setActiveConversationId = useWorkbenchStore((s) => s.setActiveConversationId)
+  const runtimeListOverlaySnapshot = useWorkbenchStore((s) =>
+    JSON.stringify(
+      Object.entries(s.conversations).map(([conversationId, state]) => [
+        conversationId,
+        state.runStatus,
+        getLatestTimelinePreview(state.timelineItems) ?? null,
+      ] satisfies ConversationRuntimeListOverlayTuple)
+    )
+  )
+  const runtimeListOverlays = useMemo(
+    () => parseRuntimeListOverlaySnapshot(runtimeListOverlaySnapshot),
+    [runtimeListOverlaySnapshot]
+  )
   const previousActiveConversationIdRef = useRef<string | null>(null)
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<ConversationListItem | null>(null)
@@ -40,7 +67,31 @@ export function ChatWorkspace() {
     queryFn: () => conversationsApi.list("active"),
   })
 
-  const conversations = conversationsQuery.data ?? EMPTY_CONVERSATIONS
+  const baseConversations = conversationsQuery.data ?? EMPTY_CONVERSATIONS
+  const sidebarConversations = useMemo(
+    () => baseConversations.map((conversation) => {
+      const overlay = runtimeListOverlays[conversation.id]
+      if (!overlay) {
+        return {
+          ...conversation,
+          activeRunStatus: null,
+        }
+      }
+
+      const activeRunStatus =
+        overlay.runStatus === "idle" || isTerminalRunStatus(overlay.runStatus)
+          ? null
+          : overlay.runStatus
+
+      return {
+        ...conversation,
+        lastMessageContent: overlay.lastMessageContent ?? conversation.lastMessageContent,
+        activeRunStatus,
+      }
+    }) satisfies ConversationListDisplayItem[],
+    [baseConversations, runtimeListOverlays]
+  )
+  const conversations = baseConversations
 
   const invalidateConversations = useCallback(async () => {
     await queryClient.invalidateQueries({
@@ -163,7 +214,7 @@ export function ChatWorkspace() {
   return (
     <section className="grid h-full min-h-0 min-w-0 grid-cols-[18rem_minmax(0,1fr)] bg-background">
       <ConversationSidebar
-        conversations={conversations}
+        conversations={sidebarConversations}
         loading={conversationsQuery.isLoading}
         activeConversationId={activeConversationId}
         onSelectConversation={handleSelectConversation}
@@ -211,4 +262,39 @@ export function ChatWorkspace() {
       </Dialog>
     </section>
   )
+}
+
+function getLatestTimelinePreview(
+  items: WorkbenchTimelineItem[]
+): string | undefined {
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index]
+    if (item.kind !== "chat_message") continue
+    const preview = normalizePreviewText(item.text)
+    if (preview) return preview
+  }
+  return undefined
+}
+
+function normalizePreviewText(text: string): string {
+  return Array.from(text.replace(/\s+/g, " ").trim()).slice(0, 50).join("")
+}
+
+function parseRuntimeListOverlaySnapshot(
+  snapshot: string
+): Record<string, ConversationRuntimeListOverlay> {
+  try {
+    const tuples = JSON.parse(snapshot) as ConversationRuntimeListOverlayTuple[]
+    return Object.fromEntries(
+      tuples.map(([conversationId, runStatus, lastMessageContent]) => [
+        conversationId,
+        {
+          runStatus,
+          lastMessageContent: lastMessageContent ?? undefined,
+        },
+      ])
+    )
+  } catch {
+    return {}
+  }
 }

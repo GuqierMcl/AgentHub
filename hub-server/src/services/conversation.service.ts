@@ -30,6 +30,7 @@ export class ConversationService {
       orchestratorAgentId: o.orchestratorAgentId,
       lastMessageId: o.lastMessageId,
       lastMessageAt: o.lastMessageAt,
+      lastMessageContent: o.lastMessageContent ?? '',
       pinnedAt: o.pinnedAt,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,

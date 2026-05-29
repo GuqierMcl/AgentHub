@@ -52,6 +52,7 @@ export interface ConversationListItem {
   orchestratorAgentId: string | null
   lastMessageId: string | null
   lastMessageAt: string | null
+  lastMessageContent: string
   pinnedAt: string | null
   createdAt: string
   updatedAt: string

@@ -67,6 +67,7 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 
 HubServer 的职责：
 
+- 会话列表 API 返回最近一条消息的 `lastMessageContent`，内容来自 `lastMessageId` 对应消息 text parts，最多 50 个字符；列表 API 不承担 Run 运行状态初始化，卡片运行状态由 Web 已打开 conversation 的本地 Zustand 状态展示。
 - 创建 user `Message` 和 text `MessagePart`。
 - 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
 - 从持久化 messages 组装 Runtime `history` 和 `RunInput`。

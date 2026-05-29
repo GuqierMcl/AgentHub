@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
-import type { ConversationListItem as ConversationItem } from "../types"
+import type { ConversationListDisplayItem as ConversationItem } from "../types"
 import { ConversationListItemView } from "./ConversationListItem"
 
 type ConversationSidebarProps = {
@@ -75,8 +75,11 @@ export function ConversationSidebar({
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-1 p-2">
+      <ScrollArea
+        className="min-h-0 min-w-0 flex-1"
+        viewportClassName="min-w-0 [&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full"
+      >
+        <div className="flex w-full min-w-0 max-w-full flex-col gap-1 overflow-hidden p-2">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2Icon className="size-5 animate-spin text-muted-foreground" />

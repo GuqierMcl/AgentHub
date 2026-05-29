@@ -453,6 +453,39 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 成功响应：返回更新后的 agent detail。
 
+## Conversations API
+
+Conversations API 为 Web 聊天列表、会话详情和会话管理提供产品级数据。
+
+### 查询会话列表
+
+**端点**：`GET /api/conversations?status=active|archived`
+
+成功响应：
+
+```ts
+type ConversationListItem = {
+  id: string
+  title: string
+  mode: "single" | "group"
+  status: "active" | "archived"
+  orchestratorAgentId: string | null
+  lastMessageId: string | null
+  lastMessageAt: string | null
+  lastMessageContent: string
+  pinnedAt: string | null
+  createdAt: string
+  updatedAt: string
+  agents: { agentId: string }[]
+  metadata: Record<string, unknown> | null
+}
+```
+
+规则：
+
+- `lastMessageContent` 来自 `lastMessageId` 对应消息的 text parts，HubServer 返回前最多截取 50 个字符。
+- 会话列表 API 不返回 Run 运行状态。Web 只对已经打开过、Zustand 中有本地 Run 状态的 conversation 显示卡片 spinner 和底部进度条。
+
 ## Product Messages and Runs API
 
 Product Messages and Runs API 是 Web 聊天主路径。Web 不再直接用 `/api/runtime/runs*` 创建聊天回复，而是通过 HubServer 持久化消息、Run 和 RunEvent 后再调用 Agent Runtime。完整机制见 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。

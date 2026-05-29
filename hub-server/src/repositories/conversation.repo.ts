@@ -104,6 +104,7 @@ function toListOutput(record: Record<string, unknown>): ConversationListOutput {
     agents: agents.map((a) => ({
       agentId: a.agentId as string,
     })),
+    lastMessageContent: typeof record.lastMessageContent === 'string' ? record.lastMessageContent : '',
   } as ConversationListOutput
 }
 
@@ -121,7 +122,34 @@ export async function listConversationsWithAgents(filter: ListConversationsFilte
     ...(limit !== undefined ? { take: limit, skip: offset } : {}),
     include: { agents: { orderBy: { sortOrder: 'asc' } } },
   })
-  return records.map(r => toListOutput(r as Record<string, unknown>))
+
+  const lastMessageIds = records
+    .map((record) => record.lastMessageId)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+  const lastMessages = lastMessageIds.length > 0
+    ? await db.message.findMany({
+        where: { id: { in: lastMessageIds } },
+        include: { parts: { orderBy: { partIndex: 'asc' } } },
+      })
+    : []
+
+  const contentByMessageId = new Map(
+    lastMessages.map((message) => [
+      message.id,
+      buildMessagePreview(
+        message.parts.map((part) => ({
+          type: part.type,
+          text: part.text,
+        })),
+      ),
+    ]),
+  )
+
+  return records.map((record) => toListOutput({
+    ...(record as Record<string, unknown>),
+    lastMessageContent: record.lastMessageId ? contentByMessageId.get(record.lastMessageId) ?? '' : '',
+  }))
 }
 
 export async function updateConversation(id: string, input: UpdateConversationInput): Promise<ConversationOutput> {
@@ -193,6 +221,7 @@ export interface ConversationListOutput {
   orchestratorAgentId: string | null
   lastMessageId: string | null
   lastMessageAt: string | null
+  lastMessageContent?: string
   pinnedAt: string | null
   archivedAt: string | null
   metadataJson: MetadataJson
@@ -224,4 +253,14 @@ function toConversationDetailOutput(record: Record<string, unknown>): Conversati
       joinedAt: a.joinedAt as string,
     })),
   } as ConversationDetailOutput
+}
+
+function buildMessagePreview(parts: { type: string; text: string | null }[]): string {
+  const content = parts
+    .filter((part) => part.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text ?? '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return Array.from(content).slice(0, 50).join('')
 }

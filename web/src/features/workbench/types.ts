@@ -4,6 +4,7 @@ import type {
   AgentOrigin,
   AgentResolvedModel,
 } from "@/features/agents/types"
+import type { RuntimeRunStatus } from "./api/runtime-runs"
 
 export type AgentStatus = "online" | "busy" | "idle"
 
@@ -238,11 +239,16 @@ export type ConversationListItem = {
   orchestratorAgentId: string | null
   lastMessageId: string | null
   lastMessageAt: string | null
+  lastMessageContent: string
   pinnedAt: string | null
   createdAt: string
   updatedAt: string
   agents: { agentId: string; role: AgentRole }[]
   metadata: Record<string, unknown> | null
+}
+
+export type ConversationListDisplayItem = ConversationListItem & {
+  activeRunStatus: RuntimeRunStatus | "submitted" | null
 }
 
 export type ConversationAgentItem = {
