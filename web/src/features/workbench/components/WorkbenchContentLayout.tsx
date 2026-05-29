@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { usePanelRef } from "react-resizable-panels"
 import { toast } from "sonner"
 
@@ -31,6 +31,8 @@ import type {
   Conversation,
   ConversationAgentItem,
   ConversationAgentProfile,
+  ConversationDetail,
+  ConversationListItem,
   WorkbenchTimelineItem,
 } from "../types"
 
@@ -90,6 +92,12 @@ export function WorkbenchContentLayout({
 
   const conversationDetail = conversationQuery.data
   const agentSummaries = agentsQuery.data?.agents ?? EMPTY_AGENT_SUMMARIES
+
+  useEffect(() => {
+    if (!conversationDetail) return
+    syncConversationListCache(queryClient, conversationDetail)
+  }, [conversationDetail, queryClient])
+
   const resolvedAgents = useMemo((): ConversationAgentProfile[] => {
     if (!conversationDetail) return []
     return resolveConversationAgents(
@@ -406,4 +414,27 @@ function resolveShortName(name: string, id: string): string {
       .toUpperCase()
   }
   return Array.from(source).slice(0, 2).join("").toUpperCase()
+}
+
+function syncConversationListCache(
+  queryClient: QueryClient,
+  detail: ConversationDetail
+): void {
+  for (const status of ["active", "archived"] as const) {
+    queryClient.setQueryData<ConversationListItem[]>(
+      workbenchQueryKeys.conversations.list(status),
+      (items) => items?.map((item) =>
+        item.id === detail.id
+          ? {
+              ...item,
+              title: detail.title,
+              lastMessageId: detail.lastMessageId,
+              lastMessageAt: detail.lastMessageAt,
+              updatedAt: detail.updatedAt,
+              metadata: detail.metadata,
+            }
+          : item
+      )
+    )
+  }
 }

@@ -73,7 +73,10 @@ export class ConversationService {
       title: input.title,
       mode: input.mode,
       orchestratorAgentId: input.orchestratorAgentId,
-      metadataJson: input.metadata as MetadataJson | undefined,
+      metadataJson: withTitleSource(
+        input.metadata as MetadataJson | undefined,
+        'default',
+      ),
     })
 
     if (input.agents && input.agents.length > 0) {
@@ -149,7 +152,10 @@ export class ConversationService {
     const existing = await findConversationById(id)
     if (!existing) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
 
-    await updateConversation(id, { title })
+    await updateConversation(id, {
+      title,
+      metadataJson: withTitleSource(existing.metadataJson, 'manual'),
+    })
 
     const detail = await findConversationWithAgents(id)
     if (!detail) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
@@ -169,6 +175,12 @@ export class ConversationService {
     if (input.status !== undefined) repoInput.status = input.status
     if (input.orchestratorAgentId !== undefined) repoInput.orchestratorAgentId = input.orchestratorAgentId
     if (input.metadata !== undefined) repoInput.metadataJson = input.metadata as MetadataJson
+    if (input.title !== undefined) {
+      repoInput.metadataJson = withTitleSource(
+        repoInput.metadataJson ?? existing.metadataJson,
+        'manual',
+      )
+    }
 
     if (input.status === 'archived') {
       repoInput.archivedAt = new Date().toISOString()
@@ -229,5 +241,15 @@ export class ConversationService {
       deleted++
     }
     return { deleted }
+  }
+}
+
+function withTitleSource(
+  metadata: MetadataJson | undefined,
+  titleSource: 'default' | 'auto' | 'manual',
+): MetadataJson {
+  return {
+    ...(metadata ?? {}),
+    titleSource,
   }
 }

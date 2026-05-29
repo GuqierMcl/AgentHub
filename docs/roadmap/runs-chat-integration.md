@@ -229,7 +229,7 @@ POST /api/runs/:runId/cancel
 任务：
 
 - 使用持久化消息组装多轮 `history`，明确哪些 `MessagePart` 会进入 Runtime 上下文。
-- 消费 `system_agent.completed(systemAgentId="title")`，仅在标题未被用户手动修改时更新 conversation title。
+- 消费 `system_agent.completed(systemAgentId="title")`，仅在标题未被用户手动修改时更新 conversation title。（已在阶段 2 补齐）
 - 接入 pinned message 的查询与上下文注入规则。
 - 接入群聊显式 @ 单个主智能体，将其映射为 `addressedAgentIds`。
 - 接入停止当前生成、失败重试和重新生成的产品语义，明确新 Run 与历史消息的关联。
@@ -367,6 +367,7 @@ POST /api/runs/:runId/cancel
 - 阶段 2 已接入 HubServer 产品级 messages/runs API：Web 发送改为 `POST /api/conversations/:conversationId/messages/send`，HubServer 创建 user Message、本地 Run、调用 Runtime，并后台消费 Runtime SSE。
 - 阶段 2 已实现 RunEvent 持久化与产品 SSE：`RunEvent.id = runtime event.id`，`sequence` 为本地 run 内递增序号，Web 通过 `/api/runs/:runId/events?afterSequence=` 续订。
 - 阶段 2 已实现 raw event replay 恢复：Web 切换或刷新会先按 `timelineRuns` 重放 trigger user message 与 raw RunEvent，再对非终态 active run 续订后续事件。
+- 阶段 2 已补齐自动标题契约：HubServer 消费 `system_agent.completed(systemAgentId="title")` 条件更新 `Conversation.title`，手动重命名写入 `titleSource=manual`，Web live 收到标题事件后刷新 conversation 查询。
 
 ## 已完成
 
@@ -385,12 +386,13 @@ POST /api/runs/:runId/cancel
 - 阶段 2：新增 HubServer `RunPersistenceService` 和产品级 messages/runs API，完成 user/assistant text messages、RunEvent、Run 状态、latest Plan 的基础持久化与恢复；Web 聊天主路径不再调用 `/api/runtime/runs*` 代理。
 - 阶段 2：新增 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`，记录 HubServer consumer、RunEvent sequence、message projection 和切会话恢复规则。
 - 阶段 2：新增 `timelineRuns` raw replay 响应；Web 聊天 hydrate 与 live SSE 共用 `RuntimeRunEvent -> WorkbenchTimelineItem` projection reducer，不再用 `messages + runItems` 拼聊天流。
+- 阶段 2：完成 Runtime `title` 系统智能体事件的 HubServer 消费与 Web 刷新链路，自动标题不会覆盖手动重命名。
 
 ## 待办
 
 - 阶段 0/1：补充更多手动端到端验证记录，覆盖真实模型绑定、缺失模型绑定、群聊 orchestrator、切会话 replay 和 archive/pin/rename/create 回归。
 - 阶段 2：补充自动化测试，覆盖 send API、RunEvent 幂等、assistant MessagePart 投影、write_plan 持久化、`timelineRuns` raw replay 和产品 SSE replay/live。
-- 阶段 3：接入上下文、标题、pin、@、停止与重试语义。
+- 阶段 3：接入上下文、pin、@、停止与重试语义；自动标题主链路已提前在阶段 2 完成，后续只补更细的 UX 与测试。
 - 阶段 4：接入权限审批。
 - 阶段 5：接入计划、任务、工具事件 UI。
 - 阶段 5：如果 Orchestrator 偶发漏调 `write_plan` 更新状态，在 Web/HubServer projection 层按 `taskId` 将 `task.completed` / `task.failed` 自动回填到当前 Plan task status。
@@ -422,4 +424,5 @@ POST /api/runs/:runId/cancel
 - 2026-05-28：补强阶段 1.6。将 Plan 展示迁移到右侧产物工作台“会话状态”单例标签页，新增 store 管理的工作台折叠状态和 Plan focus request；聊天消息流不再渲染 Plan。
 - 2026-05-29：加强 HubServer schema 和 projection 约束，`RunEvent` raw payload 永久保留，projection 项写入 `firstEventSequence` / `lastEventSequence`，重开会话时顺序必须与流式渲染一致。
 - 2026-05-29：将 Web 聊天恢复切换为 `timelineRuns` raw event replay；replay 与 live SSE 共用同一套 timeline projection，结构化 messages/runItems 退回查询和上下文职责。
+- 2026-05-29：跑通会话自动命名契约。HubServer 消费 Runtime `system_agent.completed(systemAgentId="title")` 后条件更新 conversation title，手动重命名标记 `titleSource=manual`，Web 收到 live 标题事件后刷新会话缓存。
 - 2026-05-27：创建路线图，确定先做 Web 未持久化 Runs 聊天闭环，再做 HubServer 持久化与产品级发送入口；记录 Zustand + TanStack Query 状态管理方向。

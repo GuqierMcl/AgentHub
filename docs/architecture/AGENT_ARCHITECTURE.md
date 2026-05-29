@@ -83,7 +83,7 @@ MVP 子智能体建议如下：
 
 首版系统智能体只包含 `title`：当 Runtime 判断当前 Run 是会话第一次对话时，后台异步生成短标题。如果结果在 `run.completed` 前完成，则作为同一条 Run SSE 流中的 `system_agent.completed` 事件输出；如果没有赶上、失败或 Run 被取消，则取消后台标题任务并静默跳过。
 
-系统智能体执行时继承当前 Run 入口主智能体的模型快照。继承只用于模型选择，不继承入口智能体的工具、权限、身份或系统提示词。Runtime 只输出事件，不直接写业务状态；HubServer 链路接入后再消费事件并更新 `Conversation.title` 等业务状态。
+系统智能体执行时继承当前 Run 入口主智能体的模型快照。继承只用于模型选择，不继承入口智能体的工具、权限、身份或系统提示词。Runtime 只输出事件，不直接写业务状态；HubServer 消费 `system_agent.completed(systemAgentId="title")` 后，在标题未被用户手动修改时更新 `Conversation.title`。
 
 ## 3. Orchestrator 的核心位置
 

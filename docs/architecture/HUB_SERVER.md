@@ -73,6 +73,7 @@ HubServer 的职责：
 - 后台消费 Runtime SSE，将每条 Runtime event 以 `RunEvent.id = event.id`、本地递增 `sequence` 的方式持久化；raw payload 永久保留，未知事件也不丢。
 - 将 `message.delta` / `message.completed` 投影到 assistant `Message` 和 text `MessagePart`；结构化投影的 `firstEventSequence` / `lastEventSequence` 用于查询、统计和非聊天 UI 排序。
 - 将 `tool.completed(toolName="write_plan")` 投影到 `Run.planJson`。
+- 消费 `system_agent.completed(systemAgentId="title")`，仅当 `Conversation.metadataJson.titleSource` 不是 `manual` 时更新 `Conversation.title`，并把 `titleSource` 标记为 `auto`。
 - 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的 raw event envelopes，供 Web 聊天主 UI 恢复。
 - 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。
 

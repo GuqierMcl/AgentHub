@@ -642,6 +642,10 @@ export class RunPersistenceService {
       await projectPlanEvent(run, event, sequence)
       return
     }
+    if (event.type === 'system_agent.completed') {
+      await projectSystemAgentCompletedEvent(run, event)
+      return
+    }
     if (event.type === 'reasoning.started' || event.type === 'reasoning.delta' || event.type === 'reasoning.completed') {
       await projectReasoningEvent(run, event, sequence)
       return
@@ -784,6 +788,52 @@ async function projectRuntimeMessageEvent(
       lastMessageAt: event.timestamp,
     })
   }
+}
+
+async function projectSystemAgentCompletedEvent(
+  run: RunOutput,
+  event: RuntimeRunEvent,
+): Promise<void> {
+  const data = getEventDataRecord(event)
+  if (
+    getString(data.systemAgentId) !== 'title' ||
+    getString(data.target) !== 'conversation.title'
+  ) {
+    return
+  }
+
+  const eventConversationId = getString(data.conversationId)
+  if (eventConversationId && eventConversationId !== run.conversationId) {
+    return
+  }
+
+  const result = getRecord(data.result)
+  const title = normalizeConversationTitle(getString(result?.title))
+  if (!title) {
+    return
+  }
+
+  const conversation = await findConversationWithAgents(run.conversationId)
+  if (!conversation) {
+    return
+  }
+  if (getTitleSource(conversation.metadataJson) === 'manual') {
+    return
+  }
+
+  await updateConversation(run.conversationId, {
+    title,
+    metadataJson: {
+      ...conversation.metadataJson,
+      titleSource: 'auto',
+      autoTitle: {
+        runId: run.id,
+        runtimeRunId: event.runId,
+        eventId: event.id,
+        updatedAt: event.timestamp,
+      },
+    },
+  })
 }
 
 async function projectToolEvent(
@@ -1646,6 +1696,21 @@ function getRuntimeWorkspace(metadata: Record<string, unknown>) {
 function getTitleSource(metadata: Record<string, unknown>): 'default' | 'auto' | 'manual' {
   const source = metadata.titleSource
   return source === 'auto' || source === 'manual' ? source : 'default'
+}
+
+function normalizeConversationTitle(value: string | undefined): string | null {
+  const title = value
+    ?.trim()
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[。.!！?？]+$/g, '')
+    .trim()
+
+  if (!title) {
+    return null
+  }
+
+  return title.length > 80 ? title.slice(0, 80).trim() : title
 }
 
 function getEventDataRecord(event: RuntimeRunEvent): Record<string, unknown> {

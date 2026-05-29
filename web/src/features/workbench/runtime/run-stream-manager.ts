@@ -2,6 +2,8 @@ import {
   conversationMessagesApi,
   type HubRunEventEnvelope,
 } from "../api/messages"
+import { queryClient } from "@/lib/query-client"
+import { workbenchQueryKeys } from "../api/query-keys"
 import { isTerminalRunStatus, useWorkbenchStore } from "../store/workbench-store"
 
 const runtimeEventTypes = [
@@ -78,6 +80,7 @@ class RunStreamManager {
       if (this.connections.get(conversationId)?.source !== source) return
       try {
         const envelope = JSON.parse(eventMessage.data) as HubRunEventEnvelope
+        handleConversationTitleEvent(conversationId, envelope)
         this.enqueueEvent(conversationId, envelope)
       } catch {
         useWorkbenchStore.getState().setConnectionStatus(conversationId, "error")
@@ -146,6 +149,38 @@ class RunStreamManager {
       this.disconnect(conversationId, "disconnected")
     }
   }
+}
+
+function handleConversationTitleEvent(
+  conversationId: string,
+  envelope: HubRunEventEnvelope
+): void {
+  const event = envelope.event
+  const data = getRecord(event.data)
+  const result = getRecord(data?.result)
+  if (
+    event.type !== "system_agent.completed" ||
+    event.agentId !== "system:title" ||
+    data?.systemAgentId !== "title" ||
+    data.target !== "conversation.title" ||
+    typeof result?.title !== "string" ||
+    result.title.trim().length === 0
+  ) {
+    return
+  }
+
+  void queryClient.invalidateQueries({
+    queryKey: workbenchQueryKeys.conversations.all,
+  })
+  void queryClient.invalidateQueries({
+    queryKey: workbenchQueryKeys.conversations.detail(conversationId),
+  })
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : undefined
 }
 
 export const runStreamManager = new RunStreamManager()

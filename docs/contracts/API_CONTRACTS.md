@@ -893,6 +893,13 @@ run.cancelled
 }
 ```
 
+HubServer 消费规则：
+
+- 事件先作为 raw `RunEvent` 持久化，再尝试产品投影。
+- 当 `data.systemAgentId = "title"` 且 `data.target = "conversation.title"` 时，HubServer 在 `Conversation.metadataJson.titleSource !== "manual"` 的前提下更新 `Conversation.title`。
+- 成功更新后写入 `metadataJson.titleSource = "auto"`；用户手动重命名必须写入 `titleSource = "manual"`，防止自动标题覆盖。
+- Web live 收到该事件后刷新 conversation list/detail；该事件不渲染为聊天消息。
+
 事件字段：
 
 ```ts

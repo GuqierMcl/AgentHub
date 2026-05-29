@@ -36,6 +36,7 @@ sequenceDiagram
 - HubServer 从已持久化消息投影 Runtime `history`，再调用 Runtime 创建 run。
 - 后台 consumer 消费 Runtime SSE。
 - 每条 Runtime event 先写 `RunEvent.payloadJson`，再尝试结构化投影。
+- `system_agent.completed(systemAgentId="title")` 会在 `Conversation.metadataJson.titleSource !== "manual"` 时更新 `Conversation.title`，并写入 `titleSource = "auto"`。
 - `GET /api/conversations/:conversationId/messages` 返回消息快照、active run 快照、latest plan、runItems 和 `timelineRuns`。
 - `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的 raw event envelopes。
 
