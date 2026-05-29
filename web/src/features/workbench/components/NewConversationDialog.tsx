@@ -125,7 +125,11 @@ export function NewConversationDialog({
 
   const handleCreate = useCallback(async () => {
     if (selectedAgentIds.length === 0) {
-      toast.error("请至少选择一个智能体")
+      toast.warning("请至少选择一个智能体")
+      return
+    }
+    if (selectedAgentIds.length === 1 && selectedAgentIds[0] === "orchestrator") {
+      toast.warning("不能仅选择 Orchestrator，请至少搭配一个其他智能体");
       return
     }
     setSaving(true)
