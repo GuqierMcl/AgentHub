@@ -19,8 +19,11 @@ import type {
   UpdateConversationBody,
 } from '../domains/conversation/types'
 import type { ConversationMode, ConversationStatus, MetadataJson } from '../lib/types'
+import type { HubEventBus } from './hub-event-bus.service'
 
 export class ConversationService {
+  constructor(private hubEventBus?: HubEventBus) {}
+
   private toListItem(o: ConversationListOutput): ConversationListItem {
     return {
       id: o.id,
@@ -92,6 +95,7 @@ export class ConversationService {
 
     const detail = await findConversationWithAgents(conv.id)
     if (!detail) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+    this.publishConversationUpdated(detail.id)
     return this.toDetail(detail)
   }
 
@@ -127,6 +131,7 @@ export class ConversationService {
 
     const detail = await findConversationWithAgents(id)
     if (!detail) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+    this.publishConversationUpdated(id)
     return this.toDetail(detail)
   }
 
@@ -143,6 +148,7 @@ export class ConversationService {
 
     const detail = await findConversationWithAgents(id)
     if (!detail) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+    this.publishConversationUpdated(id)
     return this.toDetail(detail)
   }
 
@@ -160,6 +166,7 @@ export class ConversationService {
 
     const detail = await findConversationWithAgents(id)
     if (!detail) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+    this.publishConversationTitleUpdated(id, detail.title)
     return this.toDetail(detail)
   }
 
@@ -193,6 +200,11 @@ export class ConversationService {
 
     const detail = await findConversationWithAgents(id)
     if (!detail) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+    if (input.title !== undefined) {
+      this.publishConversationTitleUpdated(id, detail.title)
+    } else {
+      this.publishConversationUpdated(id)
+    }
     return this.toDetail(detail)
   }
 
@@ -210,6 +222,7 @@ export class ConversationService {
 
     const updated = await findConversationById(id)
     if (!updated) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+    this.publishConversationUpdated(id)
     return this.toListItem({ ...updated, agents: [] })
   }
 
@@ -223,6 +236,7 @@ export class ConversationService {
 
     const updated = await findConversationById(id)
     if (!updated) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+    this.publishConversationUpdated(id)
     return this.toListItem({ ...updated, agents: [] })
   }
 
@@ -231,6 +245,7 @@ export class ConversationService {
     if (!existing) throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
 
     await deleteConversationById(id)
+    this.publishConversationUpdated(id)
   }
 
   async deleteConversations(ids: string[]): Promise<{ deleted: number }> {
@@ -239,9 +254,21 @@ export class ConversationService {
       const existing = await findConversationById(id)
       if (!existing) continue
       await deleteConversationById(id)
+      this.publishConversationUpdated(id)
       deleted++
     }
     return { deleted }
+  }
+
+  private publishConversationUpdated(conversationId: string): void {
+    this.hubEventBus?.publish('conversation.updated', { conversationId })
+  }
+
+  private publishConversationTitleUpdated(conversationId: string, title: string): void {
+    this.hubEventBus?.publish('conversation.title.updated', {
+      conversationId,
+      title,
+    })
   }
 }
 

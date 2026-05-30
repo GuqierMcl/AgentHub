@@ -367,7 +367,8 @@ POST /api/runs/:runId/cancel
 - 阶段 2 已接入 HubServer 产品级 messages/runs API：Web 发送改为 `POST /api/conversations/:conversationId/messages/send`，HubServer 创建 user Message、本地 Run、调用 Runtime，并后台消费 Runtime SSE。
 - 阶段 2 已实现 RunEvent 持久化与产品 SSE：`RunEvent.id = runtime event.id`，`sequence` 为本地 run 内递增序号，Web 通过 `/api/runs/:runId/events?afterSequence=` 续订。
 - 阶段 2 已实现 raw event replay 恢复：Web 切换或刷新会先按 `timelineRuns` 重放 trigger user message 与 raw RunEvent，再对非终态 active run 续订后续事件。
-- 阶段 2 已补齐自动标题契约：HubServer 消费 `system_agent.completed(systemAgentId="title")` 条件更新 `Conversation.title`，手动重命名写入 `titleSource=manual`，Web live 收到标题事件后刷新 conversation 查询。
+- 阶段 2 已补齐自动标题契约：HubServer 消费 `system_agent.completed(systemAgentId="title")` 条件更新 `Conversation.title`，手动重命名写入 `titleSource=manual`，Web 通过全局 `conversation.title.updated` 事件刷新 conversation 查询。
+- Web 与 HubServer 已新增全局 best-effort SSE 管线 `GET /api/events`，用于 conversation 标题、最近消息和 Run 状态等低频产品状态通知；该通道不持久化、不 replay，不替代 run-level raw SSE。
 
 ## 已完成
 
@@ -387,6 +388,7 @@ POST /api/runs/:runId/cancel
 - 阶段 2：新增 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`，记录 HubServer consumer、RunEvent sequence、message projection 和切会话恢复规则。
 - 阶段 2：新增 `timelineRuns` raw replay 响应；Web 聊天 hydrate 与 live SSE 共用 `RuntimeRunEvent -> WorkbenchTimelineItem` projection reducer，不再用 `messages + runItems` 拼聊天流。
 - 阶段 2：完成 Runtime `title` 系统智能体事件的 HubServer 消费与 Web 刷新链路，自动标题不会覆盖手动重命名。
+- 阶段 2：完成 HubServer -> Web 全局产品状态 SSE v1；Run terminal 后可通知已打开 conversation 停止列表卡片运行进度，conversation title/last message 更新改由全局事件刷新缓存。
 
 ## 待办
 
@@ -424,5 +426,7 @@ POST /api/runs/:runId/cancel
 - 2026-05-28：补强阶段 1.6。将 Plan 展示迁移到右侧产物工作台“会话状态”单例标签页，新增 store 管理的工作台折叠状态和 Plan focus request；聊天消息流不再渲染 Plan。
 - 2026-05-29：加强 HubServer schema 和 projection 约束，`RunEvent` raw payload 永久保留，projection 项写入 `firstEventSequence` / `lastEventSequence`，重开会话时顺序必须与流式渲染一致。
 - 2026-05-29：将 Web 聊天恢复切换为 `timelineRuns` raw event replay；replay 与 live SSE 共用同一套 timeline projection，结构化 messages/runItems 退回查询和上下文职责。
-- 2026-05-29：跑通会话自动命名契约。HubServer 消费 Runtime `system_agent.completed(systemAgentId="title")` 后条件更新 conversation title，手动重命名标记 `titleSource=manual`，Web 收到 live 标题事件后刷新会话缓存。
+- 2026-05-29：跑通会话自动命名契约。HubServer 消费 Runtime `system_agent.completed(systemAgentId="title")` 后条件更新 conversation title，手动重命名标记 `titleSource=manual`，Web 通过全局 `conversation.title.updated` 事件刷新会话缓存。
+- 2026-05-29：新增 HubServer 全局事件流 `GET /api/events`。该通道用于低频产品状态通知，采用内存事件总线、无持久化、无 replay，Web 在 App 根部建立唯一 EventSource 消费 conversation/run 状态事件。
+- 2026-05-30：修复自动标题可靠性问题。Runtime 标题结果 ready 后会在 Run 未结束时立即发送 `system_agent.completed`，主智能体完成时仅保留短 flush 宽限兜底；HubServer 在 `titleSource=default` 时会把会话第一条用户输入作为 `titleSeedUserMessage` 传给 Runtime，允许错过首次事件的会话后续重试自动命名。
 - 2026-05-27：创建路线图，确定先做 Web 未持久化 Runs 聊天闭环，再做 HubServer 持久化与产品级发送入口；记录 Zustand + TanStack Query 状态管理方向。

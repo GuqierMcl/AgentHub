@@ -486,6 +486,51 @@ type ConversationListItem = {
 - `lastMessageContent` 来自 `lastMessageId` 对应消息的 text parts，HubServer 返回前最多截取 50 个字符。
 - 会话列表 API 不返回 Run 运行状态。Web 只对已经打开过、Zustand 中有本地 Run 状态的 conversation 显示卡片 spinner 和底部进度条。
 
+## Hub Global Events API
+
+Hub Global Events API 用于 HubServer 向 Web 推送低频产品状态通知。它不用于聊天内容流式输出，也不用于恢复 Runtime raw events。
+
+### 订阅全局事件
+
+**端点**：`GET /api/events`
+
+响应类型：`text/event-stream`
+
+事件格式：
+
+```text
+event: hub.event
+data: {"id":"evt_xxx","type":"run.status.changed","timestamp":"2026-05-29T00:00:00.000Z","data":{"conversationId":"conv_xxx","runId":"run_xxx","status":"running"}}
+```
+
+契约：
+
+```ts
+type HubGlobalEventType =
+  | "conversation.updated"
+  | "conversation.title.updated"
+  | "conversation.last_message.updated"
+  | "run.status.changed"
+  | "run.completed"
+  | "run.failed"
+  | "run.cancelled"
+
+type HubGlobalEventEnvelope = {
+  id: string
+  type: HubGlobalEventType
+  timestamp: string
+  data: Record<string, unknown>
+}
+```
+
+规则：
+
+- v1 全局事件只保存在 HubServer 进程内，不持久化。
+- 不支持 replay、`Last-Event-ID` 或 `afterSequence`；Web 断线期间错过的事件不会补发。
+- 服务端使用 SSE comment heartbeat 保持连接活跃。
+- Run payload 至少包含 `conversationId`、`runId`、`status`，可包含 `runtimeRunId`。
+- Conversation payload 至少包含 `conversationId`，可包含 `title`、`lastMessageId`、`lastMessageAt`、`lastMessageContent`。
+
 ## Product Messages and Runs API
 
 Product Messages and Runs API 是 Web 聊天主路径。Web 不再直接用 `/api/runtime/runs*` 创建聊天回复，而是通过 HubServer 持久化消息、Run 和 RunEvent 后再调用 Agent Runtime。完整机制见 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。
@@ -686,6 +731,7 @@ type RunInput = {
   conversationState?: {
     messageCountBeforeRun?: number
     titleSource?: "default" | "auto" | "manual"
+    titleSeedUserMessage?: string
   }
   workspace?: {
     workspaceId: string
@@ -707,7 +753,7 @@ type RunInput = {
 | `mode` | `single` 表示单聊，`group` 表示群聊 |
 | `participantAgentIds` | 当前会话包含的主智能体成员，由 HubServer 提供 |
 | `addressedAgentIds` | 当前用户消息显式 @ 的主智能体；为空表示未显式指定 |
-| `conversationState` | HubServer 提供的会话状态快照；首版用于 Runtime 判断是否在第一次对话触发 `title` 系统智能体 |
+| `conversationState` | HubServer 提供的会话状态快照；首版用于 Runtime 判断是否触发 `title` 系统智能体。`titleSeedUserMessage` 固定为会话第一条用户输入，供自动标题重试时使用 |
 | `workspace` | 可选的本次 Run 主工作区 snapshot；首版只支持已存在本地目录 |
 | `diagnostics` | 可选模型流追踪开关；默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk |
 
@@ -904,7 +950,7 @@ run.cancelled
 
 `orchestrator.plan.created` 目前保留为后续可视化和调试的扩展事件；当前 AI SDK orchestrator V1 主路径不强制发送该事件。
 
-`system_agent.completed` 表示 Runtime 内部系统智能体在当前 Run 完成前产出了可消费结果。首版只定义 `title`；如果标题任务没有赶上 `run.completed`，Runtime 会取消该任务且不发送此事件：
+`system_agent.completed` 表示 Runtime 内部系统智能体在当前 Run 完成前产出了可消费结果。首版只定义 `title`；标题只基于会话第一条用户输入生成，不包含第一轮智能体输出。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即发送该事件；主智能体完成时只短暂等待标题任务 flush，如果标题任务仍未赶上，Runtime 会取消该任务且不发送此事件：
 
 ```json
 {

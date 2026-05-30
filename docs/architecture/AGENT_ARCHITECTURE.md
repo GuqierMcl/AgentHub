@@ -81,7 +81,7 @@ MVP 子智能体建议如下：
 
 系统智能体是 Runtime 围绕一次 Run 自动触发的后台维护能力，独立于主智能体和子智能体体系。它们不出现在 Agent 列表，不作为会话成员，不通过 `run_task` 调用，也不写入普通聊天消息。
 
-首版系统智能体只包含 `title`：当 Runtime 判断当前 Run 是会话第一次对话时，后台异步生成短标题。如果结果在 `run.completed` 前完成，则作为同一条 Run SSE 流中的 `system_agent.completed` 事件输出；如果没有赶上、失败或 Run 被取消，则取消后台标题任务并静默跳过。
+首版系统智能体只包含 `title`：当 Runtime 判断当前会话仍需要自动命名时，后台异步生成短标题。标题只使用会话第一条用户输入；如果首次自动标题错过而 `titleSource` 仍为 `default`，HubServer 会在后续 Run 中继续传入第一条用户输入作为 `titleSeedUserMessage` 供 Runtime 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即输出同一条 Run SSE 流中的 `system_agent.completed` 事件；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。如果没有赶上、失败或 Run 被取消，则取消后台标题任务并静默跳过。
 
 系统智能体执行时继承当前 Run 入口主智能体的模型快照。继承只用于模型选择，不继承入口智能体的工具、权限、身份或系统提示词。Runtime 只输出事件，不直接写业务状态；HubServer 消费 `system_agent.completed(systemAgentId="title")` 后，在标题未被用户手动修改时更新 `Conversation.title`。
 

@@ -15,6 +15,7 @@ Hub Server 是 AgentHub 的控制面，负责业务状态管理和前端 API。�
 - 持久化 Run 状态。
 - 持久化 Runtime 事件。
 - 向前端转发 SSE 或其他实时事件。
+- 向前端发布全局 best-effort 产品状态事件。
 - 在生产环境托管 Web 静态资源。
 - 将 AI 执行请求转发给 `agent-runtime`。
 - 将 Runtime 事件转化为消息、Artifact、Diff、部署记录和 Run 状态等业务数据。
@@ -77,10 +78,13 @@ HubServer 的职责：
 - 消费 `system_agent.completed(systemAgentId="title")`，仅当 `Conversation.metadataJson.titleSource` 不是 `manual` 时更新 `Conversation.title`，并把 `titleSource` 标记为 `auto`。
 - 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的 raw event envelopes，供 Web 聊天主 UI 恢复。
 - 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。
+- 通过 `GET /api/events` 发布非持久化、无 replay 的全局产品状态事件，用于会话标题、最近消息和 Run 状态等低频 UI 通知。
 
 `GET /api/runs/:runId/events` 使用 HubServer 本地 Run id，并返回 `event: run.event`。data 形如 `{ sequence, event }`，其中 `event` 是 Runtime 原始事件。Web 切回会话时先加载 `timelineRuns` 并用 live SSE 相同 projection reducer 重放 raw events，再用 `activeRun.lastEventSequence` 作为 `afterSequence` 续订。
 
 完整机制见 `docs/architecture/RUN_EVENT_SCHEMA_AND_PROJECTION.md` 与 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。
+
+全局状态通知机制见 `docs/architecture/HUB_GLOBAL_EVENTS.md`。
 
 ## Hono 使用约定
 

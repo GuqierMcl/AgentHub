@@ -25,6 +25,7 @@ export type RuntimeRunInput = {
   conversationState?: {
     messageCountBeforeRun?: number
     titleSource?: "default" | "auto" | "manual"
+    titleSeedUserMessage?: string
   }
   workspace?: {
     workspaceId: string

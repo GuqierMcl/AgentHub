@@ -162,7 +162,7 @@ function handleConversationTitleEvent(
     event.type !== "system_agent.completed" ||
     event.agentId !== "system:title" ||
     data?.systemAgentId !== "title" ||
-    data.target !== "conversation.title" ||
+    data?.target !== "conversation.title" ||
     typeof result?.title !== "string" ||
     result.title.trim().length === 0
   ) {

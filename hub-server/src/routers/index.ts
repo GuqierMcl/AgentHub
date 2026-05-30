@@ -6,6 +6,7 @@ import runs from './runs'
 import messages from './messages'
 import workspace from './workspace'
 import settings from './settings'
+import events from './events'
 
 const router = new Hono()
 
@@ -25,5 +26,6 @@ router.route('/', messages)
 router.route('/', runs)
 router.route('/', workspace)
 router.route('/', settings)
+router.route('/', events)
 
 export default router

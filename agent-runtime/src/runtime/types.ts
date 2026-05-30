@@ -39,6 +39,7 @@ export type RunDiagnostics = z.infer<typeof RunDiagnosticsSchema>
 export const RunConversationStateSchema = z.object({
   messageCountBeforeRun: z.number().int().min(0).optional(),
   titleSource: z.enum(["default", "auto", "manual"]).optional(),
+  titleSeedUserMessage: z.string().min(1).optional(),
 }).strict()
 export type RunConversationState = z.infer<typeof RunConversationStateSchema>
 

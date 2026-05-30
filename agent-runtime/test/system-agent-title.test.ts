@@ -68,6 +68,27 @@ function installCompletedEntryExecutor(runManager: RunManager): void {
   }
 }
 
+function installSlowEntryExecutor(runManager: RunManager, delayMs: number): void {
+  ;(runManager as any).aiSdkExecutor = {
+    executorType: "ai-sdk",
+    async *execute(context: {
+      runId: string
+      agent: { id: string }
+    }): AsyncIterable<RunEvent> {
+      yield createRunEvent(context.runId, "message.delta", context.agent.id, {
+        delta: "working",
+      })
+      await sleep(delayMs)
+      yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+        content: "working done",
+      })
+      yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+        status: "completed",
+      })
+    },
+  }
+}
+
 describe("title system agent", () => {
   test("emits title result before run.completed when the result is ready", async () => {
     const registry = await createInitializedRegistry()
@@ -102,6 +123,82 @@ describe("title system agent", () => {
     expect(systemAgentIndex).toBeLessThan(runCompletedIndex)
     expect(events[systemAgentIndex].agentId).toBe("system:title")
     expect(events[systemAgentIndex].data).toEqual(createTitleResult("conv_title_ready", "coder"))
+  })
+
+  test("emits title result as soon as it is ready while the entry agent is still running", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    installSlowEntryExecutor(runManager, 200)
+
+    ;(runManager as any).systemAgentRunner = {
+      shouldRunTitle: (input: RunInput) => input.history.length === 0,
+      runTitle: async (options: { input: RunInput; entryAgent: { id: string } }) => {
+        await sleep(50)
+        return createTitleResult(options.input.conversationId, options.entryAgent.id)
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_title_mid_stream",
+      mode: "single",
+      participantAgentIds: ["coder"],
+      userMessage: {
+        role: "user",
+        content: "我想讨论系统智能体层级设计。",
+      },
+      history: [],
+    })
+
+    await sleep(100)
+
+    const midStreamEvents = runManager.getEvents(run.id) ?? []
+    expect(midStreamEvents.some((event) => event.type === "system_agent.completed")).toBe(true)
+    expect(midStreamEvents.some((event) => event.type === "run.completed")).toBe(false)
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const systemAgentIndex = events.findIndex((event) => event.type === "system_agent.completed")
+    const runCompletedIndex = events.findIndex((event) => event.type === "run.completed")
+    expect(systemAgentIndex).toBeGreaterThan(-1)
+    expect(runCompletedIndex).toBeGreaterThan(-1)
+    expect(systemAgentIndex).toBeLessThan(runCompletedIndex)
+  })
+
+  test("waits briefly for a nearly-ready title result before run.completed", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    installCompletedEntryExecutor(runManager)
+
+    ;(runManager as any).systemAgentRunner = {
+      shouldRunTitle: (input: RunInput) => input.history.length === 0,
+      runTitle: async (options: { input: RunInput; entryAgent: { id: string } }) => {
+        await sleep(50)
+        return createTitleResult(options.input.conversationId, options.entryAgent.id)
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_title_nearly_ready",
+      mode: "single",
+      participantAgentIds: ["coder"],
+      userMessage: {
+        role: "user",
+        content: "我想讨论系统智能体层级设计。",
+      },
+      history: [],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const systemAgentIndex = events.findIndex((event) => event.type === "system_agent.completed")
+    const runCompletedIndex = events.findIndex((event) => event.type === "run.completed")
+
+    expect(systemAgentIndex).toBeGreaterThan(-1)
+    expect(runCompletedIndex).toBeGreaterThan(-1)
+    expect(systemAgentIndex).toBeLessThan(runCompletedIndex)
+    expect(events[systemAgentIndex].data).toEqual(createTitleResult("conv_title_nearly_ready", "coder"))
   })
 
   test("skips and cancels title work when the title result is not ready before run.completed", async () => {
@@ -146,14 +243,16 @@ describe("title system agent", () => {
     expect(abortObserved).toBe(true)
   })
 
-  test("does not trigger title after the first conversation turn", async () => {
+  test("does not trigger title when a title already exists", async () => {
     const registry = await createInitializedRegistry()
     const runManager = new RunManager(registry, {} as ProviderService)
     installCompletedEntryExecutor(runManager)
     let titleStarted = false
 
     ;(runManager as any).systemAgentRunner = {
-      shouldRunTitle: (input: RunInput) => input.history.length === 0,
+      shouldRunTitle: (input: RunInput) =>
+        input.conversationState?.titleSource !== "auto" &&
+        input.conversationState?.titleSource !== "manual",
       runTitle: async (options: { input: RunInput; entryAgent: { id: string } }) => {
         titleStarted = true
         return createTitleResult(options.input.conversationId, options.entryAgent.id)
@@ -174,6 +273,10 @@ describe("title system agent", () => {
           content: "第一轮消息。",
         },
       ],
+      conversationState: {
+        messageCountBeforeRun: 1,
+        titleSource: "auto",
+      },
     })
 
     await waitForTerminalRun(runManager, run.id)
@@ -203,6 +306,18 @@ describe("title system agent", () => {
     expect(runner.shouldRunTitle({
       ...input,
       conversationState: { messageCountBeforeRun: 1, titleSource: "default" },
+    })).toBe(true)
+    expect(runner.shouldRunTitle({
+      ...input,
+      conversationState: {
+        messageCountBeforeRun: 1,
+        titleSource: "default",
+        titleSeedUserMessage: "第一轮用户输入。",
+      },
+    })).toBe(true)
+    expect(runner.shouldRunTitle({
+      ...input,
+      conversationState: { messageCountBeforeRun: 1, titleSource: "auto" },
     })).toBe(false)
     expect(runner.shouldRunTitle({
       ...input,

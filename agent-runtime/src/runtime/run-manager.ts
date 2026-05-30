@@ -58,10 +58,13 @@ type RunExecutionState = {
 
 type PendingSystemAgentResult<T> = {
   settled: boolean
+  emitted: boolean
   result: T | null
   wait: Promise<void>
   cancel: () => void
 }
+
+const TITLE_SYSTEM_AGENT_FLUSH_GRACE_MS = 1500
 
 export class RunWorkspaceValidationError extends Error {
   code = "RUN_INVALID_WORKSPACE" as const
@@ -453,6 +456,7 @@ export class RunManager {
 
     const pending: PendingSystemAgentResult<SystemAgentCompletedData> = {
       settled: false,
+      emitted: false,
       result: null,
       wait: Promise.resolve(),
       cancel: cancelSystemAgent,
@@ -466,6 +470,7 @@ export class RunManager {
       }))
       .then((result) => {
         pending.result = result
+        this.emitReadyTitleSystemAgent(run, pending)
       })
       .catch((error) => {
         log.warn(
@@ -493,18 +498,32 @@ export class RunManager {
       return
     }
 
-    await Promise.race([pending.wait, Promise.resolve()])
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      pending.wait,
+      new Promise<void>((resolve) => {
+        timeoutId = setTimeout(resolve, TITLE_SYSTEM_AGENT_FLUSH_GRACE_MS)
+      }),
+    ])
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
   }
 
   private emitReadyTitleSystemAgent(
     run: RunRecord,
     pending: PendingSystemAgentResult<SystemAgentCompletedData> | null
   ): boolean {
-    if (!pending?.settled || !pending.result || isTerminalStatus(run.status)) {
+    if (!pending?.result || isTerminalStatus(run.status)) {
       return false
     }
 
+    if (pending.emitted) {
+      return true
+    }
+
     this.emit(createRunEvent(run.id, "system_agent.completed", "system:title", pending.result))
+    pending.emitted = true
     return true
   }
 

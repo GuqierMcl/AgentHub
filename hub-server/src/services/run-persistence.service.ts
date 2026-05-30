@@ -93,6 +93,7 @@ import {
   updatePermissionRequest,
   type PermissionRequestOutput,
 } from '../repositories/permission-request.repo'
+import type { HubEventBus } from './hub-event-bus.service'
 
 export type RuntimeRunEvent = {
   id: string
@@ -128,6 +129,7 @@ type RuntimeRunInput = {
   conversationState: {
     messageCountBeforeRun: number
     titleSource: 'default' | 'auto' | 'manual'
+    titleSeedUserMessage?: string
   }
   workspace?: {
     workspaceId: string
@@ -231,7 +233,10 @@ export class RunPersistenceService {
   private consumers = new Map<string, AbortController>()
   private listeners = new Map<string, Set<RunListener>>()
 
-  constructor(private runtimeClient: RuntimeClient) {}
+  constructor(
+    private runtimeClient: RuntimeClient,
+    private hubEventBus: HubEventBus,
+  ) {}
 
   async sendMessage(
     conversationId: string,
@@ -283,6 +288,13 @@ export class RunPersistenceService {
       lastMessageId: userMessage.id,
       lastMessageAt: userMessage.createdAt,
     })
+    this.publishConversationLastMessageUpdated({
+      conversationId,
+      runId: null,
+      lastMessageId: userMessage.id,
+      lastMessageAt: userMessage.createdAt,
+      lastMessageContent: trimmed,
+    })
 
     const run = await createRun({
       conversationId,
@@ -291,6 +303,7 @@ export class RunPersistenceService {
       status: 'queued',
       orchestratorAgentId: conversation.orchestratorAgentId ?? undefined,
     })
+    this.publishRunStatusChanged(run, 'queued')
     await updateMessage(userMessage.id, { runId: run.id })
     await updateMessagePart(userMessagePart.id, { runId: run.id })
 
@@ -304,6 +317,8 @@ export class RunPersistenceService {
         errorJson: normalizeRuntimeError(response.data),
         completedAt: new Date().toISOString(),
       })
+      this.publishRunStatusChanged(run, 'failed')
+      this.publishTerminalRunStatus(run, 'failed')
       throw new AppError(response.status as ContentfulStatusCode, 'RUNTIME_RUN_CREATE_FAILED', getRuntimeErrorMessage(response.data))
     }
 
@@ -312,6 +327,10 @@ export class RunPersistenceService {
       runtimeId: runtimeRun.runId,
       status: runtimeRun.status,
     })
+    this.publishRunStatusChanged(
+      { ...run, runtimeId: runtimeRun.runId },
+      runtimeRun.status,
+    )
     this.startRuntimeConsumer(run.id, runtimeRun.runId)
 
     return this.listConversationMessages(conversationId)
@@ -361,6 +380,8 @@ export class RunPersistenceService {
     const runtimeId = run.runtimeId
     if (!runtimeId) {
       await updateRun(runId, { status: 'cancelled', completedAt: new Date().toISOString() })
+      this.publishRunStatusChanged(run, 'cancelled')
+      this.publishTerminalRunStatus(run, 'cancelled')
       const latest = await findRunById(runId)
       return this.toActiveRunSnapshot(latest)
     }
@@ -518,6 +539,11 @@ export class RunPersistenceService {
           errorJson: { message: `Runtime event stream failed (${response.status})` },
           completedAt: new Date().toISOString(),
         })
+        const failedRun = await findRunById(runId)
+        if (failedRun) {
+          this.publishRunStatusChanged(failedRun, 'failed')
+          this.publishTerminalRunStatus(failedRun, 'failed')
+        }
         return
       }
 
@@ -537,6 +563,11 @@ export class RunPersistenceService {
           errorJson: { message: error instanceof Error ? error.message : 'Runtime event consumer failed' },
           completedAt: new Date().toISOString(),
         })
+        const failedRun = await findRunById(runId)
+        if (failedRun) {
+          this.publishRunStatusChanged(failedRun, 'failed')
+          this.publishTerminalRunStatus(failedRun, 'failed')
+        }
       }
     } finally {
       this.consumers.delete(runId)
@@ -588,11 +619,14 @@ export class RunPersistenceService {
 
     if (event.type === 'run.started') {
       await updateRun(runId, { status: 'running', startedAt: timestamp })
+      this.publishRunStatusChanged(run, 'running')
       return
     }
     if (event.type === 'run.completed') {
       await updateRun(runId, { status: 'completed', completedAt: timestamp })
       await finalizeRunProjection(runId, 'completed', timestamp)
+      this.publishRunStatusChanged(run, 'completed')
+      this.publishTerminalRunStatus(run, 'completed')
       return
     }
     if (event.type === 'run.failed') {
@@ -602,15 +636,20 @@ export class RunPersistenceService {
         completedAt: timestamp,
       })
       await finalizeRunProjection(runId, 'failed', timestamp)
+      this.publishRunStatusChanged(run, 'failed')
+      this.publishTerminalRunStatus(run, 'failed')
       return
     }
     if (event.type === 'run.cancelled') {
       await updateRun(runId, { status: 'cancelled', completedAt: timestamp })
       await finalizeRunProjection(runId, 'cancelled', timestamp)
+      this.publishRunStatusChanged(run, 'cancelled')
+      this.publishTerminalRunStatus(run, 'cancelled')
       return
     }
     if (event.type === 'permission.requested') {
       await updateRun(runId, { status: 'waiting_approval' })
+      this.publishRunStatusChanged(run, 'waiting_approval')
       await projectPermissionEvent(run, event, sequence)
       return
     }
@@ -620,6 +659,7 @@ export class RunPersistenceService {
       event.type === 'permission.cancelled'
     ) {
       await updateRun(runId, { status: 'running' })
+      this.publishRunStatusChanged(run, 'running')
       await projectPermissionEvent(run, event, sequence)
       return
     }
@@ -643,7 +683,7 @@ export class RunPersistenceService {
       return
     }
     if (event.type === 'system_agent.completed') {
-      await projectSystemAgentCompletedEvent(run, event)
+      await projectSystemAgentCompletedEvent(run, event, this.hubEventBus)
       return
     }
     if (event.type === 'reasoning.started' || event.type === 'reasoning.delta' || event.type === 'reasoning.completed') {
@@ -651,7 +691,7 @@ export class RunPersistenceService {
       return
     }
     if (event.type === 'message.delta' || event.type === 'message.completed') {
-      await projectRuntimeMessageEvent(run, event, sequence)
+      await projectRuntimeMessageEvent(run, event, sequence, this.hubEventBus)
       return
     }
   }
@@ -669,12 +709,50 @@ export class RunPersistenceService {
       listener(envelope)
     }
   }
+
+  private publishRunStatusChanged(run: RunOutput, status: RunStatus): void {
+    this.hubEventBus.publish('run.status.changed', {
+      conversationId: run.conversationId,
+      runId: run.id,
+      runtimeRunId: run.runtimeId,
+      status,
+    })
+  }
+
+  private publishTerminalRunStatus(
+    run: RunOutput,
+    status: 'completed' | 'failed' | 'cancelled',
+  ): void {
+    this.hubEventBus.publish(`run.${status}`, {
+      conversationId: run.conversationId,
+      runId: run.id,
+      runtimeRunId: run.runtimeId,
+      status,
+    })
+  }
+
+  private publishConversationLastMessageUpdated(input: {
+    conversationId: string
+    runId: string | null
+    lastMessageId: string
+    lastMessageAt: string
+    lastMessageContent: string
+  }): void {
+    this.hubEventBus.publish('conversation.last_message.updated', {
+      conversationId: input.conversationId,
+      runId: input.runId,
+      lastMessageId: input.lastMessageId,
+      lastMessageAt: input.lastMessageAt,
+      lastMessageContent: truncatePreview(input.lastMessageContent),
+    })
+  }
 }
 
 async function projectRuntimeMessageEvent(
   run: RunOutput,
   event: RuntimeRunEvent,
   sequence: number,
+  hubEventBus: HubEventBus,
 ): Promise<void> {
   const runtimeMessageId = resolveRuntimeMessageId(event)
   const messageId = resolveLocalMessageId(run.id, runtimeMessageId)
@@ -728,6 +806,7 @@ async function projectRuntimeMessageEvent(
 
   const currentParts = await listMessagePartsByMessage(message.id)
   let textPart = await findMessagePartByMessageAndKey(message.id, 'text')
+  let persistedText = text ?? ''
   if (!textPart) {
     textPart = await createMessagePart({
       messageId: message.id,
@@ -749,6 +828,7 @@ async function projectRuntimeMessageEvent(
     const nextText = event.type === 'message.completed'
       ? text ?? textPart.text ?? ''
       : `${textPart.text ?? ''}${text ?? ''}`
+    persistedText = nextText
     await updateMessagePart(textPart.id, {
       state: event.type === 'message.completed' ? 'done' : 'streaming',
       text: nextText,
@@ -787,12 +867,22 @@ async function projectRuntimeMessageEvent(
       lastMessageId: message.id,
       lastMessageAt: event.timestamp,
     })
+    if (event.type === 'message.completed') {
+      hubEventBus.publish('conversation.last_message.updated', {
+        conversationId: run.conversationId,
+        runId: run.id,
+        lastMessageId: message.id,
+        lastMessageAt: event.timestamp,
+        lastMessageContent: truncatePreview(persistedText),
+      })
+    }
   }
 }
 
 async function projectSystemAgentCompletedEvent(
   run: RunOutput,
   event: RuntimeRunEvent,
+  hubEventBus: HubEventBus,
 ): Promise<void> {
   const data = getEventDataRecord(event)
   if (
@@ -833,6 +923,12 @@ async function projectSystemAgentCompletedEvent(
         updatedAt: event.timestamp,
       },
     },
+  })
+  hubEventBus.publish('conversation.title.updated', {
+    conversationId: run.conversationId,
+    runId: run.id,
+    runtimeRunId: event.runId,
+    title,
   })
 }
 
@@ -1566,6 +1662,8 @@ function buildRuntimeRunInput(
   history: RuntimeMessage[],
 ): RuntimeRunInput {
   const workspace = getRuntimeWorkspace(conversation.metadataJson)
+  const titleSource = getTitleSource(conversation.metadataJson)
+  const titleSeedUserMessage = resolveTitleSeedUserMessage(history, userContent)
 
   return {
     conversationId: conversation.id,
@@ -1579,7 +1677,10 @@ function buildRuntimeRunInput(
     history,
     conversationState: {
       messageCountBeforeRun: history.length,
-      titleSource: getTitleSource(conversation.metadataJson),
+      titleSource,
+      ...(titleSource === 'default' && titleSeedUserMessage
+        ? { titleSeedUserMessage }
+        : {}),
     },
     diagnostics: {
       includeModelStream: false,
@@ -1608,6 +1709,21 @@ function projectMessagesToRuntimeHistory(records: unknown[]): RuntimeMessage[] {
       content,
     }]
   })
+}
+
+function resolveTitleSeedUserMessage(
+  history: RuntimeMessage[],
+  currentUserContent: string,
+): string | undefined {
+  const firstHistoryUserMessage = history.find((message) =>
+    message.role === 'user' && message.content.trim().length > 0
+  )?.content.trim()
+  if (firstHistoryUserMessage) {
+    return firstHistoryUserMessage
+  }
+
+  const current = currentUserContent.trim()
+  return current || undefined
 }
 
 function safeJsonParse(value: string | undefined, fallback: unknown = {}): unknown {
@@ -1732,6 +1848,11 @@ function extractPlan(event: RuntimeRunEvent): Record<string, unknown> | null {
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+function truncatePreview(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  return Array.from(normalized).slice(0, 50).join('')
 }
 
 function normalizeRuntimeError(data: unknown): Record<string, unknown> {

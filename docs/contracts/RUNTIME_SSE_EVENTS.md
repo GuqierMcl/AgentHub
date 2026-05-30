@@ -105,7 +105,7 @@ run.cancelled
 
 `message.*`、`tool.*`、`task.*`、`permission.*`、`agent.*` 和 `run.*` 是 Runtime 语义事件，优先供 HubServer 持久化与 UI 状态渲染使用。
 
-`system_agent.completed` 是 Runtime 内部系统智能体的结果事件。首版只支持 `agentId = "system:title"`，用于把第一次对话生成的短标题作为同一条 Run SSE 流的一部分交给上游消费方。Runtime 只在该结果赶上 `run.completed` 前输出；否则取消标题任务并静默跳过，不延迟主 Run 完成。该事件不表示 Runtime 已经更新业务状态，HubServer 后续接入时负责条件落库。
+`system_agent.completed` 是 Runtime 内部系统智能体的结果事件。首版只支持 `agentId = "system:title"`，用于把会话第一条用户输入生成的短标题作为同一条 Run SSE 流的一部分交给上游消费方。标题生成不包含第一轮智能体输出；如果首次自动标题错过而 `titleSource` 仍为 `default`，后续 Run 可以使用 `conversationState.titleSeedUserMessage` 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即输出该事件；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。若结果仍未赶上，则取消标题任务并静默跳过。该事件不表示 Runtime 已经更新业务状态，HubServer 后续接入时负责条件落库。
 
 ## 4. Message Identity
 

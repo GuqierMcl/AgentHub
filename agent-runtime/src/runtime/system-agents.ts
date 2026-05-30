@@ -36,8 +36,15 @@ const TITLE_SYSTEM_PROMPT = [
 ].join(" ")
 
 function shouldRunTitleAgent(input: RunInput): boolean {
-  if (input.conversationState?.titleSource === "manual") {
+  if (
+    input.conversationState?.titleSource === "manual" ||
+    input.conversationState?.titleSource === "auto"
+  ) {
     return false
+  }
+
+  if (input.conversationState?.titleSource === "default") {
+    return Boolean(resolveTitleSeedUserMessage(input))
   }
 
   const messageCountBeforeRun = input.conversationState?.messageCountBeforeRun
@@ -49,16 +56,34 @@ function shouldRunTitleAgent(input: RunInput): boolean {
 }
 
 function buildTitleMessages(input: RunInput): ModelMessage[] {
+  const seed = resolveTitleSeedUserMessage(input) ?? input.userMessage.content
   return [
     {
       role: "user",
       content: [
         "请为下面这次首次对话生成一个短标题：",
         "",
-        input.userMessage.content,
+        seed,
       ].join("\n"),
     },
   ]
+}
+
+function resolveTitleSeedUserMessage(input: RunInput): string | null {
+  const explicitSeed = input.conversationState?.titleSeedUserMessage?.trim()
+  if (explicitSeed) {
+    return explicitSeed
+  }
+
+  const firstHistoryUserMessage = input.history.find((message) =>
+    message.role === "user" && message.content.trim().length > 0
+  )?.content.trim()
+  if (firstHistoryUserMessage) {
+    return firstHistoryUserMessage
+  }
+
+  const currentUserMessage = input.userMessage.content.trim()
+  return currentUserMessage || null
 }
 
 function normalizeTitle(rawTitle: string): string | null {

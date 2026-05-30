@@ -217,7 +217,7 @@ Agent Runtime 智能体架构
 - 扩展 `orchestrator` 的更完整计划策略、汇总策略和错误恢复。
 - 后续补充计划持久化、计划任务与 `run_task` 的强校验，以及前端 UI 投影。
 - 补齐 HubServer 对 Runtime RunEvent 的消费、持久化和 SSE 转发，使产品链路从直接 Runtime smoke 测试闭合到 `web -> hub-server -> agent-runtime`。
-- 系统智能体层已开始落地：`title` 由 Runtime 在第一次对话 Run 中自动触发，继承入口智能体模型快照；结果若赶上 `run.completed` 前会作为 `system_agent.completed` 进入同一 Run SSE，没赶上则取消后台标题任务。HubServer 已消费该事件并在标题未被用户手动修改时更新会话标题；`summary` 和 `compaction` 仍为后续扩展。
+- 系统智能体层已开始落地：`title` 由 Runtime 在会话仍需自动命名时触发，继承入口智能体模型快照，只使用会话第一条用户输入；标题结果一旦 ready 且 Run 未结束会立即作为 `system_agent.completed` 进入同一 Run SSE，主智能体完成时仅保留短 flush 宽限兜底，没赶上则取消后台标题任务。HubServer 已消费该事件并在标题未被用户手动修改时更新会话标题；`summary` 和 `compaction` 仍为后续扩展。
 - 补齐 HubServer 面向浏览器的自定义 Agent 管理 API 与前端配置 UI。
 - 在 HubServer 与前端补齐 Runtime 权限审批的代理、用户交互、状态展示与持久化。
 - 补充 AI SDK 工具循环、结构化输出和更完整的 agent 运行参数映射。

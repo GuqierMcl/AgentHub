@@ -51,6 +51,11 @@ type WorkbenchStore = {
   addUserMessage: (conversationId: string, content: string) => WorkbenchTimelineItem[]
   markRunSubmitted: (conversationId: string) => void
   startRuntimeRun: (conversationId: string, runId: string, status: RuntimeRunStatus) => void
+  applyHubRunStatus: (
+    conversationId: string,
+    runId: string,
+    status: RuntimeRunStatus
+  ) => void
   applyRuntimeEvent: (conversationId: string, event: RuntimeRunEvent) => void
   applyRuntimeEvents: (conversationId: string, events: RuntimeRunEvent[]) => void
   applyRuntimeEventEnvelopes: (
@@ -208,6 +213,33 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             connectionStatus: "connecting",
             receivedEventIds: new Set(),
             events: [],
+          },
+        },
+      }
+    })
+  },
+
+  applyHubRunStatus: (conversationId, runId, status) => {
+    set((state) => {
+      const current = state.conversations[conversationId]
+      if (!current) return state
+      if (
+        current.activeRuntimeRunId &&
+        current.activeRuntimeRunId !== runId
+      ) {
+        return state
+      }
+
+      return {
+        conversations: {
+          ...state.conversations,
+          [conversationId]: {
+            ...current,
+            activeRuntimeRunId: current.activeRuntimeRunId ?? runId,
+            runStatus: status,
+            connectionStatus: isTerminalRunStatus(status)
+              ? "disconnected"
+              : current.connectionStatus,
           },
         },
       }
