@@ -145,9 +145,13 @@ Hub Server 使用 Prisma 管理 SQLite 的 Schema、迁移和数据访问。
 使用约定：
 
 - 数据模型定义在 `prisma/schema.prisma` 中，以 Prisma Schema 作为数据建模的唯一来源。
+- Prisma ORM 7 使用 `generator client { provider = "prisma-client" output = "../src/generated/prisma" }`，由 `src/lib/db.ts` 动态加载生成的 client。
+- `prisma.config.ts` 负责 Prisma CLI 配置，包含 `schema`、`migrations.path`、datasource URL 和本地 SQLite 文件初始化。
+- Prisma CLI 命令通过 `bunx --bun prisma ...` 运行，确保在 Bun 运行时执行。
+- SQLite 在 Bun 下通过 `@prisma/adapter-libsql` 适配到 Prisma Client。
 - 通过 `prisma migrate` 管理迁移，不手动编写 SQL DDL。
 - 数据访问统一通过 Prisma Client 进行，不使用原生 SQL 拼接。
-- Prisma 的 `datasources.db.url` 应动态指向数据目录下的 `hub.db`，不硬编码路径。
+- Prisma 的 datasource URL 应动态指向数据目录下的 `hub.db`，不硬编码路径。
 - 新增或修改数据模型时，必须同步更新 `docs/architecture/DATA_MODEL.md`。
 
 #### Zod
@@ -168,14 +172,15 @@ Hub Server 使用 Zod 进行 API 边界的运行时类型校验。
 Hub Server 在启动时必须完成数据库初始化：
 
 1. **解析数据目录**：通过 `getAppDataDir()` 获取数据目录路径。
-2. **确保目录存在**：若数据目录不存在，使用 `fs.mkdir(path, { recursive: true })` 递归创建。
-3. **执行 Prisma 迁移**：运行 `prisma migrate deploy`，确保表结构与应用版本一致。
-4. **初始化 Prisma Client**：创建 Prisma Client 实例并验证连接。
+2. **确保目录和 SQLite 文件存在**：若数据目录不存在，使用 `fs.mkdir(path, { recursive: true })` 递归创建；若 `file:` URL 指向的 SQLite 文件不存在，先创建空文件。
+3. **执行 Prisma 迁移和生成 Prisma Client**：运行 `bunx --bun prisma migrate deploy` 和 `bunx --bun prisma generate`，确保表结构与生成代码都与应用版本一致。
+4. **初始化 Prisma Client**：使用 `@prisma/adapter-libsql` 创建 Prisma Client 实例并验证连接。
 
 初始化顺序约束：
 
 - 数据库初始化必须在 Hono 路由注册之前完成。
 - 若初始化失败，服务应终止启动并输出明确错误信息，不允许在无数据库状态下运行。
+- Prisma 7 的 SQLite migrate/status 流程要求目标数据库文件已存在，Hub Server 启动时必须先 touch 文件再执行迁移。
 - Prisma 迁移应幂等，重复执行不应导致数据丢失或冲突。
 
 ### 数据目录

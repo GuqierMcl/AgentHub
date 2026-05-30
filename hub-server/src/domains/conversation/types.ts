@@ -19,14 +19,14 @@ export const CreateConversationBodySchema = z.object({
       }),
     )
     .optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const UpdateConversationBodySchema = z.object({
   title: z.string().min(1).max(200).optional(),
   status: z.enum(['active', 'archived']).optional(),
   orchestratorAgentId: z.string().nullable().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 export type CreateConversationBody = z.infer<typeof CreateConversationBodySchema>
 export type UpdateConversationBody = z.infer<typeof UpdateConversationBodySchema>

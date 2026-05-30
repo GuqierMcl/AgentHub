@@ -2,21 +2,22 @@
   "name": "hub",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "prisma:generate": "bunx prisma generate",
-    "prisma:migrate:dev": "bunx prisma migrate dev",
-    "prisma:migrate:deploy": "bunx prisma migrate deploy",
-    "prisma:migrate:reset": "bunx prisma migrate reset",
-    "prisma:studio": "bunx prisma studio",
-    "typecheck": "bunx tsc --noEmit",
+    "prisma:generate": "bunx --bun prisma generate",
+    "prisma:migrate:dev": "bunx --bun prisma migrate dev && bunx --bun prisma generate",
+    "prisma:migrate:deploy": "bunx --bun prisma migrate deploy",
+    "prisma:migrate:reset": "bunx --bun prisma migrate reset && bunx --bun prisma generate",
+    "prisma:studio": "bunx --bun prisma studio",
+    "typecheck": "bunx --bun prisma generate && bunx tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
-    "@prisma/client": "5",
-    "hono": "^4.12.21",
+    "@prisma/adapter-libsql": "7.8.0",
+    "@prisma/client": "7.8.0",
+    "hono": "^4.12.23",
     "nanoid": "^5.1.11",
     "pino": "^10.3.1",
-    "prisma": "5",
-    "zod": "3"
+    "prisma": "7.8.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bun": "latest",
