@@ -72,8 +72,10 @@ HubServer 的职责：
 - 创建 user `Message` 和 text `MessagePart`。
 - 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
 - 从持久化 messages 组装 Runtime `history` 和 `RunInput`。
-- 后台消费 Runtime SSE，将每条 Runtime event 以 `RunEvent.id = event.id`、本地递增 `sequence` 的方式持久化；raw payload 永久保留，未知事件也不丢。
-- 将 `message.delta` / `message.completed` 投影到 assistant `Message` 和 text `MessagePart`；结构化投影的 `firstEventSequence` / `lastEventSequence` 用于查询、统计和非聊天 UI 排序。
+- 后台消费 Runtime SSE，将 Runtime events 以 per-run micro-batch 持久化为 `RunEvent.id = event.id`、本地递增 `sequence`；raw payload 永久保留，未知事件也不丢。
+- 持久化成功后才向 run-level SSE 订阅者发布 envelope；默认 batch 延迟约 50ms，terminal event 强制 flush。
+- 将 `message.delta` / `reasoning.delta` 合并投影到 assistant `MessagePart` / `RunReasoningBlock`，减少 SQLite 写入；`message.completed`、`reasoning.completed` 和 terminal event 强制追平。
+- `Run.lastProjectedSequence` 记录结构化投影进度，读取历史消息或组装 Runtime history 前会从 raw `RunEvent` 补投影。
 - 将 `tool.completed(toolName="write_plan")` 投影到 `Run.planJson`。
 - 消费 `system_agent.completed(systemAgentId="title")`，仅当 `Conversation.metadataJson.titleSource` 不是 `manual` 时更新 `Conversation.title`，并把 `titleSource` 标记为 `auto`。
 - 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的 raw event envelopes，供 Web 聊天主 UI 恢复。
@@ -149,7 +151,8 @@ Hub Server 使用 Prisma 管理 SQLite 的 Schema、迁移和数据访问。
 - `prisma.config.ts` 负责 Prisma CLI 配置，包含 `schema`、`migrations.path`、datasource URL 和本地 SQLite 文件初始化。
 - Prisma CLI 命令通过 `bunx --bun prisma ...` 运行，确保在 Bun 运行时执行。
 - SQLite 在 Bun 下通过 `@prisma/adapter-libsql` 适配到 Prisma Client。
-- 通过 `prisma migrate` 管理迁移，不手动编写 SQL DDL。
+- 初始化连接后启用 `journal_mode = WAL`、`synchronous = NORMAL` 和 `busy_timeout = 5000`，降低 Runtime SSE 高频持久化时的写锁阻塞。
+- 通过 `prisma migrate` 管理迁移文件和部署；应用运行时代码不拼接或执行业务 DDL。
 - 数据访问统一通过 Prisma Client 进行，不使用原生 SQL 拼接。
 - Prisma 的 datasource URL 应动态指向数据目录下的 `hub.db`，不硬编码路径。
 - 新增或修改数据模型时，必须同步更新 `docs/architecture/DATA_MODEL.md`。

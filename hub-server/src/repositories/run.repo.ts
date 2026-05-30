@@ -22,6 +22,7 @@ export interface UpdateRunInput {
   planJson?: PlanJson | null
   errorJson?: ErrorJson | null
   lastEventSequence?: number
+  lastProjectedSequence?: number
   startedAt?: string | null
   completedAt?: string | null
 }
@@ -46,6 +47,7 @@ export interface RunOutput {
   planJson: PlanJson | null
   errorJson: ErrorJson | null
   lastEventSequence: number
+  lastProjectedSequence: number
   startedAt: string | null
   completedAt: string | null
   createdAt: string
@@ -78,6 +80,7 @@ export async function createRun(input: CreateRunInput): Promise<RunOutput> {
       startedAt: null,
       completedAt: null,
       lastEventSequence: 0,
+      lastProjectedSequence: 0,
       createdAt: now,
       updatedAt: now,
     },
@@ -121,6 +124,7 @@ export async function updateRun(id: string, input: UpdateRunInput): Promise<RunO
   if (input.planJson !== undefined) data.planJson = input.planJson ? JSON.stringify(input.planJson) : null
   if (input.errorJson !== undefined) data.errorJson = input.errorJson ? JSON.stringify(input.errorJson) : null
   if (input.lastEventSequence !== undefined) data.lastEventSequence = input.lastEventSequence
+  if (input.lastProjectedSequence !== undefined) data.lastProjectedSequence = input.lastProjectedSequence
   if (input.startedAt !== undefined) data.startedAt = input.startedAt
   if (input.completedAt !== undefined) data.completedAt = input.completedAt
 

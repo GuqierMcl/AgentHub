@@ -23,6 +23,19 @@ AgentHub 的 Runtime SSE 采用「raw 事件永久保留 + 结构化投影」的
 - `RunEvent.id` 直接等于 Runtime event id。
 - 未识别的 event type 也必须落库。
 - `Run.lastEventSequence` 记录当前 run 已消费到的最新序号。
+- HubServer 可以按 run 对 raw events 做微批量落库：默认最多约 50ms 或 50 条事件 flush 一次。
+- `RunEvent.sequence` 在 raw batch flush 时按到达顺序连续分配；重复 Runtime event id 在分配 sequence 前跳过，因此不产生 sequence 空洞。
+- run-level live SSE 只在 raw event 成功落库后发布，避免 Web 收到无法 replay 的事件。
+- terminal events 必须强制 flush raw batch。
+
+## Projection Checkpoint
+
+- `Run.lastProjectedSequence` 记录结构化投影已经完整处理到的 raw event sequence。
+- 结构化投影允许短暂落后于 `Run.lastEventSequence`，但 raw event 不允许丢失。
+- 高频 `message.delta` / `reasoning.delta` 可以在内存中合并后再更新 `MessagePart` / `RunReasoningBlock`，降低 SQLite 写入频率。
+- `message.completed`、`reasoning.completed` 和 terminal run events 必须强制 flush pending projections。
+- `listConversationMessages` 与发送消息组装 Runtime history 前，HubServer 必须确保相关 run 的 projection catch-up；若 `lastProjectedSequence < lastEventSequence`，从 `RunEvent` raw payload replay 补投影。
+- 投影函数必须按 `sequence` 幂等：已投影过的 delta 不得重复追加文本。
 
 ## 结构化投影
 

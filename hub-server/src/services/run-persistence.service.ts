@@ -31,8 +31,9 @@ import {
   type RunOutput,
 } from '../repositories/run.repo'
 import {
-  createRunEvent,
-  findRunEventById,
+  createRunEvents,
+  findRunEventsByIds,
+  getLastRunEventSequence,
   listRunEventsByRun,
   listRunEventsByRunAfterSequence,
   type RunEventOutput,
@@ -229,9 +230,120 @@ export type HubRunEventEnvelope = {
 
 type RunListener = (envelope: HubRunEventEnvelope) => void
 
+type SequencedRuntimeEvent = {
+  event: RuntimeRunEvent
+  sequence: number
+}
+
+type RuntimeEventPersistenceState = {
+  run: RunOutput
+  nextSequence: number
+  seenEventIds: Set<string>
+}
+
+type RawBatchFlushResult = {
+  envelopes: HubRunEventEnvelope[]
+  sequencedEvents: SequencedRuntimeEvent[]
+}
+
+type RuntimeEventBatcherOptions<T> = {
+  flushIntervalMs: number
+  maxBatchSize: number
+  maxBufferedItems: number
+  flush: (items: T[]) => Promise<void>
+}
+
+export class RuntimeEventBatcher<T> {
+  private buffer: T[] = []
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private flushPromise: Promise<void> | null = null
+  private flushError: unknown = null
+
+  constructor(private options: RuntimeEventBatcherOptions<T>) {}
+
+  async enqueue(item: T, opts?: { forceFlush?: boolean }): Promise<void> {
+    if (this.flushError) {
+      throw this.flushError
+    }
+
+    this.buffer.push(item)
+
+    if (opts?.forceFlush || this.buffer.length >= this.options.maxBatchSize) {
+      await this.flush()
+      return
+    }
+
+    if (this.buffer.length >= this.options.maxBufferedItems) {
+      await this.flush()
+      return
+    }
+
+    if (!this.timer) {
+      this.timer = setTimeout(() => {
+        void this.flush().catch((error) => {
+          this.flushError = error
+        })
+      }, this.options.flushIntervalMs)
+    }
+  }
+
+  async flush(): Promise<void> {
+    if (this.flushError) {
+      throw this.flushError
+    }
+
+    if (this.flushPromise) {
+      await this.flushPromise
+    }
+
+    if (this.flushError) {
+      throw this.flushError
+    }
+
+    if (!this.buffer.length) {
+      this.clearTimer()
+      return
+    }
+
+    const items = this.buffer
+    this.buffer = []
+    this.clearTimer()
+
+    this.flushPromise = this.options.flush(items)
+      .catch((error) => {
+        this.flushError = error
+        throw error
+      })
+      .finally(() => {
+        this.flushPromise = null
+      })
+
+    await this.flushPromise
+  }
+
+  async close(): Promise<void> {
+    this.clearTimer()
+    await this.flush()
+  }
+
+  private clearTimer(): void {
+    if (!this.timer) return
+    clearTimeout(this.timer)
+    this.timer = null
+  }
+}
+
+const RAW_EVENT_FLUSH_INTERVAL_MS = 50
+const RAW_EVENT_MAX_BATCH_SIZE = 50
+const RAW_EVENT_MAX_BUFFERED_ITEMS = 500
+const PROJECTION_FLUSH_INTERVAL_MS = 150
+const PROJECTION_MAX_BATCH_SIZE = 100
+const PROJECTION_MAX_BUFFERED_ITEMS = 500
+
 export class RunPersistenceService {
   private consumers = new Map<string, AbortController>()
   private listeners = new Map<string, Set<RunListener>>()
+  private projectionBatchers = new Map<string, RuntimeEventBatcher<SequencedRuntimeEvent>>()
 
   constructor(
     private runtimeClient: RuntimeClient,
@@ -251,6 +363,7 @@ export class RunPersistenceService {
     if (!conversation) {
       throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
     }
+    await this.ensureConversationProjectionCaughtUp(conversationId)
 
     const existingActiveRun = await this.findActiveRun(conversationId)
     if (existingActiveRun) {
@@ -344,6 +457,7 @@ export class RunPersistenceService {
     if (!conversation) {
       throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
     }
+    await this.ensureConversationProjectionCaughtUp(conversationId)
 
     const messages = await listMessagesWithParts(conversationId, opts)
     const activeRun = await this.findActiveRun(conversationId)
@@ -403,12 +517,47 @@ export class RunPersistenceService {
     return events.flatMap(toHubEnvelope)
   }
 
+  async ensureConversationProjectionCaughtUp(conversationId: string): Promise<void> {
+    let offset = 0
+    const pageSize = 100
+    while (true) {
+      const runs = await listRuns({ conversationId, limit: pageSize, offset, order: 'asc' })
+      if (!runs.length) return
+      for (const run of runs) {
+        await this.ensureRunProjectionCaughtUp(run.id)
+      }
+      offset += runs.length
+      if (runs.length < pageSize) return
+    }
+  }
+
   async getRunStatus(runId: string): Promise<RunStatus> {
     const run = await findRunById(runId)
     if (!run) {
       throw notFound('RUN_NOT_FOUND', 'Run 不存在')
     }
     return run.status
+  }
+
+  private async ensureRunProjectionCaughtUp(runId: string): Promise<void> {
+    const activeBatcher = this.projectionBatchers.get(runId)
+    if (activeBatcher) {
+      await activeBatcher.flush()
+    }
+
+    const run = await findRunById(runId)
+    if (!run) return
+    const latestEventSequence = Math.max(
+      run.lastEventSequence ?? 0,
+      await getLastRunEventSequence(runId),
+    )
+    if ((run.lastProjectedSequence ?? 0) >= latestEventSequence) {
+      return
+    }
+
+    const events = await listRunEventsByRunAfterSequence(runId, run.lastProjectedSequence ?? 0)
+    const sequencedEvents = events.flatMap(toSequencedRuntimeEvent)
+    await this.projectRuntimeEventsBatch(runId, sequencedEvents)
   }
 
   subscribe(runId: string, listener: RunListener): () => void {
@@ -436,11 +585,15 @@ export class RunPersistenceService {
     if (!run) {
       throw notFound('RUN_NOT_FOUND', 'Run 不存在')
     }
+    const lastEventSequence = Math.max(
+      run.lastEventSequence ?? 0,
+      await getLastRunEventSequence(run.id),
+    )
     return {
       id: run.id,
       runtimeId: run.runtimeId,
       status: run.status,
-      lastEventSequence: run.lastEventSequence ?? 0,
+      lastEventSequence,
       plan: run.planJson,
     }
   }
@@ -502,7 +655,10 @@ export class RunPersistenceService {
             status: run.status,
             triggerMessageId: run.triggerMessageId,
             createdAt: run.createdAt,
-            lastEventSequence: run.lastEventSequence ?? 0,
+            lastEventSequence: Math.max(
+              run.lastEventSequence ?? 0,
+              events[events.length - 1]?.sequence ?? 0,
+            ),
           },
           triggerMessage: triggerMessageRecord
             ? toPersistedMessage(triggerMessageRecord as Record<string, unknown>)
@@ -528,6 +684,40 @@ export class RunPersistenceService {
     runtimeRunId: string,
     abortController: AbortController,
   ): Promise<void> {
+    const run = await findRunById(runId)
+    if (!run) return
+
+    const persistenceState: RuntimeEventPersistenceState = {
+      run,
+      nextSequence: run.lastEventSequence ?? 0,
+      seenEventIds: new Set<string>(),
+    }
+    const projectionBatcher = new RuntimeEventBatcher<SequencedRuntimeEvent>({
+      flushIntervalMs: PROJECTION_FLUSH_INTERVAL_MS,
+      maxBatchSize: PROJECTION_MAX_BATCH_SIZE,
+      maxBufferedItems: PROJECTION_MAX_BUFFERED_ITEMS,
+      flush: async (items) => {
+        await this.projectRuntimeEventsBatch(persistenceState.run.id, items)
+      },
+    })
+    this.projectionBatchers.set(runId, projectionBatcher)
+    const rawBatcher = new RuntimeEventBatcher<RuntimeRunEvent>({
+      flushIntervalMs: RAW_EVENT_FLUSH_INTERVAL_MS,
+      maxBatchSize: RAW_EVENT_MAX_BATCH_SIZE,
+      maxBufferedItems: RAW_EVENT_MAX_BUFFERED_ITEMS,
+      flush: async (items) => {
+        const result = await this.persistRuntimeEventBatch(persistenceState, items)
+        for (const envelope of result.envelopes) {
+          this.publish(runId, envelope)
+        }
+        for (const item of result.sequencedEvents) {
+          await projectionBatcher.enqueue(item, {
+            forceFlush: this.isTerminalRunEvent(item.event),
+          })
+        }
+      },
+    })
+
     try {
       const response = await this.runtimeClient.stream(
         `/runtime/runs/${encodeURIComponent(runtimeRunId)}/events`,
@@ -548,13 +738,15 @@ export class RunPersistenceService {
       }
 
       for await (const event of readSseRuntimeEvents(response.body)) {
-        const envelope = await this.persistAndProjectRuntimeEvent(runId, event)
-        if (!envelope) continue
-        this.publish(runId, envelope)
+        await rawBatcher.enqueue(event, {
+          forceFlush: this.isTerminalRunEvent(event),
+        })
         if (this.isTerminalRunEvent(event)) {
           break
         }
       }
+      await rawBatcher.close()
+      await projectionBatcher.close()
     } catch (error) {
       if (!abortController.signal.aborted) {
         logger.error({ err: error, runId, runtimeRunId }, 'Runtime event consumer failed')
@@ -570,25 +762,57 @@ export class RunPersistenceService {
         }
       }
     } finally {
+      try {
+        await rawBatcher.close()
+        await projectionBatcher.close()
+      } catch (error) {
+        logger.error({ err: error, runId, runtimeRunId }, 'Runtime event consumer flush failed')
+      }
+      this.projectionBatchers.delete(runId)
       this.consumers.delete(runId)
     }
   }
 
-  private async persistAndProjectRuntimeEvent(
-    runId: string,
-    event: RuntimeRunEvent,
-  ): Promise<HubRunEventEnvelope | null> {
-    const existing = await findRunEventById(event.id)
-    if (existing) return null
+  private async persistRuntimeEventBatch(
+    state: RuntimeEventPersistenceState,
+    events: RuntimeRunEvent[],
+  ): Promise<RawBatchFlushResult> {
+    const uniqueEvents: RuntimeRunEvent[] = []
+    const idsInBatch = new Set<string>()
+    for (const event of events) {
+      if (state.seenEventIds.has(event.id) || idsInBatch.has(event.id)) {
+        continue
+      }
+      idsInBatch.add(event.id)
+      uniqueEvents.push(event)
+    }
 
-    const run = await findRunById(runId)
-    if (!run) return null
-    const sequence = (run.lastEventSequence ?? 0) + 1
-    const stored = await createRunEvent({
+    if (!uniqueEvents.length) {
+      return { envelopes: [], sequencedEvents: [] }
+    }
+
+    const existingEvents = await findRunEventsByIds(uniqueEvents.map((event) => event.id))
+    const existingIds = new Set(existingEvents.map((event) => event.id))
+    const newEvents = uniqueEvents.filter((event) => !existingIds.has(event.id))
+
+    for (const event of existingEvents) {
+      state.seenEventIds.add(event.id)
+    }
+
+    if (!newEvents.length) {
+      return { envelopes: [], sequencedEvents: [] }
+    }
+
+    const sequencedEvents = newEvents.map((event) => {
+      state.nextSequence += 1
+      return { event, sequence: state.nextSequence }
+    })
+
+    const stored = await createRunEvents(sequencedEvents.map(({ event, sequence }) => ({
       id: event.id,
-      runId,
+      runId: state.run.id,
       runtimeRunId: event.runId,
-      conversationId: run.conversationId,
+      conversationId: state.run.conversationId,
       agentId: event.agentId,
       parentAgentId: event.parentAgentId,
       parentTaskId: event.parentTaskId,
@@ -602,11 +826,92 @@ export class RunPersistenceService {
       sequence,
       occurredAt: event.timestamp,
       payloadJson: { event },
-    })
+    })))
 
-    await updateRun(runId, { lastEventSequence: sequence })
-    await this.projectRuntimeEvent(run, event, sequence)
-    return toHubEnvelope(stored)[0] ?? null
+    const latestSequence = sequencedEvents[sequencedEvents.length - 1]?.sequence ?? state.run.lastEventSequence
+    state.run = await updateRun(state.run.id, { lastEventSequence: latestSequence })
+    for (const event of newEvents) {
+      state.seenEventIds.add(event.id)
+    }
+
+    return {
+      envelopes: stored.flatMap(toHubEnvelope),
+      sequencedEvents,
+    }
+  }
+
+  private async projectRuntimeEventsBatch(
+    runId: string,
+    items: SequencedRuntimeEvent[],
+  ): Promise<void> {
+    if (!items.length) return
+
+    const run = await findRunById(runId)
+    if (!run) return
+
+    const orderedItems = [...items].sort((left, right) => left.sequence - right.sequence)
+    const pendingMessageDeltas = new Map<string, SequencedRuntimeEvent[]>()
+    const pendingReasoningDeltas = new Map<string, SequencedRuntimeEvent[]>()
+
+    const flushMessageDeltas = async (key?: string): Promise<void> => {
+      const entries = key
+        ? [[key, pendingMessageDeltas.get(key) ?? []] as const]
+        : [...pendingMessageDeltas.entries()]
+      for (const [entryKey, events] of entries) {
+        if (!events.length) continue
+        pendingMessageDeltas.delete(entryKey)
+        await projectRuntimeMessageDeltaEvents(run, events)
+      }
+    }
+
+    const flushReasoningDeltas = async (key?: string): Promise<void> => {
+      const entries = key
+        ? [[key, pendingReasoningDeltas.get(key) ?? []] as const]
+        : [...pendingReasoningDeltas.entries()]
+      for (const [entryKey, events] of entries) {
+        if (!events.length) continue
+        pendingReasoningDeltas.delete(entryKey)
+        await projectReasoningDeltaEvents(run, events)
+      }
+    }
+
+    for (const item of orderedItems) {
+      const { event } = item
+      if (event.type === 'message.delta') {
+        const key = getMessageProjectionKey(event)
+        const existing = pendingMessageDeltas.get(key) ?? []
+        existing.push(item)
+        pendingMessageDeltas.set(key, existing)
+        continue
+      }
+
+      if (event.type === 'reasoning.delta') {
+        const key = getReasoningProjectionKey(event)
+        const existing = pendingReasoningDeltas.get(key) ?? []
+        existing.push(item)
+        pendingReasoningDeltas.set(key, existing)
+        continue
+      }
+
+      if (event.type === 'message.completed') {
+        await flushMessageDeltas(getMessageProjectionKey(event))
+      } else if (event.type === 'reasoning.completed') {
+        await flushReasoningDeltas()
+      } else if (this.isTerminalRunEvent(event)) {
+        await flushMessageDeltas()
+        await flushReasoningDeltas()
+      }
+
+      await this.projectRuntimeEvent(run, event, item.sequence)
+    }
+
+    await flushMessageDeltas()
+    await flushReasoningDeltas()
+
+    const latestSequence = orderedItems[orderedItems.length - 1]?.sequence
+    if (latestSequence !== undefined) {
+      await updateRun(runId, { lastProjectedSequence: latestSequence })
+    }
   }
 
   private async projectRuntimeEvent(
@@ -806,6 +1111,9 @@ async function projectRuntimeMessageEvent(
 
   const currentParts = await listMessagePartsByMessage(message.id)
   let textPart = await findMessagePartByMessageAndKey(message.id, 'text')
+  if (textPart && (textPart.lastEventSequence ?? 0) >= sequence) {
+    return
+  }
   let persistedText = text ?? ''
   if (!textPart) {
     textPart = await createMessagePart({
@@ -877,6 +1185,122 @@ async function projectRuntimeMessageEvent(
       })
     }
   }
+}
+
+async function projectRuntimeMessageDeltaEvents(
+  run: RunOutput,
+  items: SequencedRuntimeEvent[],
+): Promise<void> {
+  if (!items.length) return
+
+  const orderedItems = [...items].sort((left, right) => left.sequence - right.sequence)
+  const firstItem = orderedItems[0]
+  const lastItem = orderedItems[orderedItems.length - 1]
+  const firstEvent = firstItem.event
+  const runtimeMessageId = resolveRuntimeMessageId(firstEvent)
+  const messageId = resolveLocalMessageId(run.id, runtimeMessageId)
+  const surface = resolveMessageSurface(run, firstEvent)
+
+  let message = await findMessageByRunAndRuntimeMessageId(run.id, runtimeMessageId)
+  const textPart = message
+    ? await findMessagePartByMessageAndKey(message.id, 'text')
+    : null
+  const lastProjectedSequence = textPart?.lastEventSequence ?? 0
+  const unprojectedItems = orderedItems.filter((item) => item.sequence > lastProjectedSequence)
+  const text = unprojectedItems
+    .map((item) => getString(getEventDataRecord(item.event).delta) ?? '')
+    .join('')
+  if (!text) return
+
+  if (!message) {
+    message = await createMessage({
+      id: messageId,
+      conversationId: run.conversationId,
+      runId: run.id,
+      runtimeMessageId,
+      runtimeRunId: firstEvent.runId,
+      messageIndex: firstEvent.messageIndex ?? null,
+      surface,
+      role: 'assistant',
+      senderType: surface === 'chat'
+        ? firstEvent.agentId === run.orchestratorAgentId
+          ? 'orchestrator'
+          : 'agent'
+        : 'agent',
+      senderId: firstEvent.agentId,
+      agentId: firstEvent.agentId,
+      taskId: firstEvent.taskId ?? firstEvent.parentTaskId ?? null,
+      groupId: firstEvent.groupId ?? null,
+      status: 'streaming',
+      firstEventSequence: firstItem.sequence,
+      lastEventSequence: lastItem.sequence,
+      metadataJson: {
+        runtime: {
+          messageId: runtimeMessageId,
+          runtimeRunId: firstEvent.runId,
+          messageIndex: firstEvent.messageIndex ?? null,
+          surface,
+          firstEventSequence: firstItem.sequence,
+          lastEventSequence: lastItem.sequence,
+        },
+      },
+    })
+  }
+
+  const firstSequence = textPart?.firstEventSequence ?? unprojectedItems[0].sequence
+  const lastSequence = unprojectedItems[unprojectedItems.length - 1].sequence
+  const lastEvent = unprojectedItems[unprojectedItems.length - 1].event
+  const data = getEventDataRecord(lastEvent)
+
+  if (!textPart) {
+    const currentParts = await listMessagePartsByMessage(message.id)
+    await createMessagePart({
+      messageId: message.id,
+      conversationId: run.conversationId,
+      runId: run.id,
+      runtimeEventId: lastEvent.id,
+      partKey: 'text',
+      partIndex: currentParts.length,
+      entityType: 'runtime_message',
+      entityId: message.id,
+      type: 'text',
+      state: 'streaming',
+      text,
+      payloadJson: data,
+      firstEventSequence: firstSequence,
+      lastEventSequence: lastSequence,
+    })
+  } else {
+    await updateMessagePart(textPart.id, {
+      state: 'streaming',
+      text: `${textPart.text ?? ''}${text}`,
+      payloadJson: data,
+      entityType: 'runtime_message',
+      entityId: message.id,
+      firstEventSequence: firstSequence,
+      lastEventSequence: lastSequence,
+    })
+  }
+
+  await updateMessage(message.id, {
+    runtimeMessageId,
+    runtimeRunId: lastEvent.runId,
+    messageIndex: message.messageIndex ?? lastEvent.messageIndex ?? null,
+    surface,
+    taskId: lastEvent.taskId ?? lastEvent.parentTaskId ?? null,
+    groupId: lastEvent.groupId ?? null,
+    firstEventSequence: message.firstEventSequence ?? firstSequence,
+    lastEventSequence: lastSequence,
+    status: 'streaming',
+    metadataJson: mergeRuntimeMetadata(message.metadataJson, {
+      messageId: runtimeMessageId,
+      runtimeRunId: lastEvent.runId,
+      messageIndex: lastEvent.messageIndex ?? null,
+      surface,
+      firstEventSequence: message.firstEventSequence ?? firstSequence,
+      lastEventSequence: lastSequence,
+    }),
+  })
 }
 
 async function projectSystemAgentCompletedEvent(
@@ -1033,6 +1457,9 @@ async function projectReasoningEvent(
   const content = getString(data.content)
 
   let block = await findRunReasoningBlockByRunAndReasoning(run.id, reasoningId)
+  if (block && (block.lastEventSequence ?? 0) >= sequence) {
+    return
+  }
   if (!block) {
     block = await createRunReasoningBlock({
       runId: run.id,
@@ -1093,6 +1520,100 @@ async function projectReasoningEvent(
     state === 'completed' ? 'done' : 'streaming',
     state === 'completed' ? (content ?? delta ?? '') : delta ?? content ?? '',
     state === 'completed',
+  )
+}
+
+async function projectReasoningDeltaEvents(
+  run: RunOutput,
+  items: SequencedRuntimeEvent[],
+): Promise<void> {
+  if (!items.length) return
+
+  const orderedItems = [...items].sort((left, right) => left.sequence - right.sequence)
+  const firstItem = orderedItems[0]
+  const lastItem = orderedItems[orderedItems.length - 1]
+  const firstEvent = firstItem.event
+  const lastEvent = lastItem.event
+  const firstData = getEventDataRecord(firstEvent)
+  const lastData = getEventDataRecord(lastEvent)
+  const reasoningId = getString(firstData.reasoningId) ?? 'default'
+
+  let block = await findRunReasoningBlockByRunAndReasoning(run.id, reasoningId)
+  const blockLastSequence = block?.lastEventSequence ?? 0
+  const unprojectedBlockItems = orderedItems.filter((item) => item.sequence > blockLastSequence)
+  const blockText = unprojectedBlockItems
+    .map((item) => getString(getEventDataRecord(item.event).delta) ?? '')
+    .join('')
+
+  if (blockText) {
+    const firstSequence = block?.firstEventSequence ?? unprojectedBlockItems[0].sequence
+    const lastSequence = unprojectedBlockItems[unprojectedBlockItems.length - 1].sequence
+    if (!block) {
+      block = await createRunReasoningBlock({
+        runId: run.id,
+        conversationId: run.conversationId,
+        reasoningId,
+        agentId: lastEvent.agentId ?? null,
+        parentAgentId: lastEvent.parentAgentId ?? null,
+        parentTaskId: lastEvent.parentTaskId ?? null,
+        taskId: lastEvent.taskId ?? null,
+        groupId: lastEvent.groupId ?? null,
+        messageId: lastEvent.messageId ?? null,
+        messageIndex: lastEvent.messageIndex ?? null,
+        content: blockText,
+        state: 'streaming',
+        payloadJson: lastData,
+        firstEventSequence: firstSequence,
+        lastEventSequence: lastSequence,
+        startedAt: null,
+        completedAt: null,
+      })
+    } else {
+      block = await updateRunReasoningBlock(block.id, {
+        agentId: lastEvent.agentId ?? block.agentId,
+        parentAgentId: lastEvent.parentAgentId ?? block.parentAgentId,
+        parentTaskId: lastEvent.parentTaskId ?? block.parentTaskId,
+        taskId: lastEvent.taskId ?? block.taskId,
+        groupId: lastEvent.groupId ?? block.groupId,
+        messageId: lastEvent.messageId ?? block.messageId,
+        messageIndex: lastEvent.messageIndex ?? block.messageIndex,
+        content: `${block.content ?? ''}${blockText}`,
+        state: 'streaming',
+        payloadJson: lastData,
+        firstEventSequence: firstSequence,
+        lastEventSequence: lastSequence,
+      })
+    }
+  }
+
+  if (!lastEvent.messageId) {
+    return
+  }
+
+  const message = await findMessageByRunAndRuntimeMessageId(run.id, resolveRuntimeMessageId(lastEvent))
+  if (!message) return
+
+  const existingPart = await findMessagePartByMessageAndKey(message.id, `reasoning:${reasoningId}`)
+  const partLastSequence = existingPart?.lastEventSequence ?? 0
+  const unprojectedPartItems = orderedItems.filter((item) => item.sequence > partLastSequence)
+  const partText = unprojectedPartItems
+    .map((item) => getString(getEventDataRecord(item.event).delta) ?? '')
+    .join('')
+  if (!partText) return
+
+  await upsertMessagePartForRuntimeEvent(
+    run,
+    message,
+    lastEvent,
+    unprojectedPartItems[unprojectedPartItems.length - 1].sequence,
+    'reasoning',
+    `reasoning:${reasoningId}`,
+    'reasoning_block',
+    reasoningId,
+    'streaming',
+    partText,
+    false,
+    existingPart?.firstEventSequence ?? unprojectedPartItems[0].sequence,
   )
 }
 
@@ -1484,9 +2005,13 @@ async function upsertMessagePartForRuntimeEvent(
   state: string,
   text?: string,
   replace = false,
+  firstSequence = sequence,
 ): Promise<void> {
   const data = getEventDataRecord(event)
   const existing = await findMessagePartByMessageAndKey(message.id, partKey)
+  if (existing && (existing.lastEventSequence ?? 0) >= sequence) {
+    return
+  }
   if (!existing) {
     const parts = await listMessagePartsByMessage(message.id)
     await createMessagePart({
@@ -1502,7 +2027,7 @@ async function upsertMessagePartForRuntimeEvent(
       state,
       text: text ?? '',
       payloadJson: data,
-      firstEventSequence: sequence,
+      firstEventSequence: firstSequence,
       lastEventSequence: sequence,
     })
     return
@@ -1519,7 +2044,7 @@ async function upsertMessagePartForRuntimeEvent(
     payloadJson: data,
     entityType,
     entityId,
-    firstEventSequence: existing.firstEventSequence ?? sequence,
+    firstEventSequence: existing.firstEventSequence ?? firstSequence,
     lastEventSequence: sequence,
   })
 }
@@ -1527,6 +2052,16 @@ async function upsertMessagePartForRuntimeEvent(
 function resolveRuntimeMessageId(event: RuntimeRunEvent): string {
   return event.messageId ??
     `msg_${event.runId}_${event.agentId ?? 'assistant'}_${event.taskId ?? 'entry'}`
+}
+
+function getMessageProjectionKey(event: RuntimeRunEvent): string {
+  return resolveRuntimeMessageId(event)
+}
+
+function getReasoningProjectionKey(event: RuntimeRunEvent): string {
+  const data = getEventDataRecord(event)
+  const reasoningId = getString(data.reasoningId) ?? 'default'
+  return `${event.messageId ?? 'no-message'}:${event.agentId ?? 'unknown'}:${reasoningId}`
 }
 
 function resolveLocalMessageId(runId: string, runtimeMessageId: string): string {
@@ -1751,6 +2286,12 @@ function toPersistedMessage(record: Record<string, unknown>): PersistedMessage {
 }
 
 function toHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
+  const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
+  if (!runtimeEvent) return []
+  return [{ sequence: event.sequence, event: runtimeEvent }]
+}
+
+function toSequencedRuntimeEvent(event: RunEventOutput): SequencedRuntimeEvent[] {
   const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
   if (!runtimeEvent) return []
   return [{ sequence: event.sequence, event: runtimeEvent }]

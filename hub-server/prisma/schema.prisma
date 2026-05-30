@@ -151,6 +151,7 @@ model Run {
   planJson             String? @map("plan_json")
   errorJson            String? @map("error_json")
   lastEventSequence    Int     @default(0) @map("last_event_sequence")
+  lastProjectedSequence Int     @default(0) @map("last_projected_sequence")
   startedAt            String? @map("started_at")
   completedAt          String? @map("completed_at")
   createdAt            String  @map("created_at")

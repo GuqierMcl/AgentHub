@@ -16,7 +16,7 @@ sequenceDiagram
   Run-->>Hub: runtime runId
   Hub->>Run: GET /runtime/runs/:runtimeId/events
   Run-->>Hub: raw SSE events
-  Hub->>Hub: persist RunEvent + projection rows
+  Hub->>Hub: micro-batch persist RunEvent + coalesced projection rows
   Hub-->>Web: GET /api/runs/:runId/events?afterSequence=
   Web->>Hub: hydrate timelineRuns raw event replay
   Web->>Hub: resume live replay from lastEventSequence
@@ -36,6 +36,10 @@ sequenceDiagram
 - HubServer 从已持久化消息投影 Runtime `history`，再调用 Runtime 创建 run。
 - 后台 consumer 消费 Runtime SSE。
 - 每条 Runtime event 先写 `RunEvent.payloadJson`，再尝试结构化投影。
+- HubServer 对每个 run 使用 raw event micro-batch，默认最多约 50ms 或 50 条事件落库一次；terminal event 强制 flush。
+- HubServer 在 raw event 成功落库后才向 `/api/runs/:runId/events` 订阅者发布 envelope，因此 live SSE 可能有约 50ms 的可控延迟，但不会发布不可 replay 的事件。
+- 高频 `message.delta` / `reasoning.delta` 的结构化投影合并写入，默认约 150ms flush 一次；`message.completed`、`reasoning.completed` 和 terminal event 会强制追平。
+- `Run.lastProjectedSequence` 记录结构化投影进度。读取会话消息或组装 Runtime history 前，HubServer 会从 raw `RunEvent` 补齐落后的 projection。
 - `system_agent.completed(systemAgentId="title")` 会在 `Conversation.metadataJson.titleSource !== "manual"` 时更新 `Conversation.title`，并写入 `titleSource = "auto"`。
 - `GET /api/conversations/:conversationId/messages` 返回消息快照、active run 快照、latest plan、runItems 和 `timelineRuns`。
 - `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的 raw event envelopes。

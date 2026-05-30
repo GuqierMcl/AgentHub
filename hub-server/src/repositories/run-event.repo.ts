@@ -85,6 +85,16 @@ export async function findRunEventById(id: string): Promise<RunEventOutput | nul
   return toOutput(record as Record<string, unknown>)
 }
 
+export async function findRunEventsByIds(ids: string[]): Promise<RunEventOutput[]> {
+  if (!ids.length) return []
+  const db = getPrismaClient()
+  const records = await db.runEvent.findMany({
+    where: { id: { in: ids } },
+    orderBy: { sequence: 'asc' },
+  })
+  return records.map(r => toOutput(r as Record<string, unknown>))
+}
+
 export async function listRunEventsByRun(runId: string): Promise<RunEventOutput[]> {
   const db = getPrismaClient()
   const records = await db.runEvent.findMany({

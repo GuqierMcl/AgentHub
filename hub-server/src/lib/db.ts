@@ -68,6 +68,9 @@ export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
 
   await prisma.$connect()
   await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON;')
+  await prisma.$executeRawUnsafe('PRAGMA journal_mode = WAL;')
+  await prisma.$executeRawUnsafe('PRAGMA synchronous = NORMAL;')
+  await prisma.$executeRawUnsafe('PRAGMA busy_timeout = 5000;')
 
   return prisma
 }
