@@ -88,6 +88,8 @@ export function WorkbenchContentLayout({
       : workbenchQueryKeys.conversations.messages("__none__"),
     queryFn: () => conversationMessagesApi.list(activeConversationId ?? ""),
     enabled: !!activeConversationId,
+    refetchOnMount: "always",
+    staleTime: 0,
   })
 
   const conversationDetail = conversationQuery.data
@@ -113,6 +115,14 @@ export function WorkbenchContentLayout({
       conversationDetail.agents.map((agent) => agent.agentId)
     )
   }, [conversationDetail, setConversationChatSpeakers])
+
+  useEffect(() => {
+    return () => {
+      if (activeConversationId) {
+        runStreamManager.disconnect(activeConversationId)
+      }
+    }
+  }, [activeConversationId])
 
   useEffect(() => {
     if (!activeConversationId || !conversationDetail || !messagesQuery.data) return

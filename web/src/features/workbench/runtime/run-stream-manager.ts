@@ -48,7 +48,10 @@ class RunStreamManager {
 
   connect(conversationId: string, runId: string, afterSequence = 0): void {
     const current = this.connections.get(conversationId)
-    if (current?.runId === runId) {
+    if (
+      current?.runId === runId &&
+      current.source.readyState !== EventSource.CLOSED
+    ) {
       return
     }
 

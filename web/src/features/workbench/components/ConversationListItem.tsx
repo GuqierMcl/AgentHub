@@ -108,9 +108,6 @@ export function ConversationListItemView({
                   <span className="truncate text-sm font-semibold">
                     {conversation.title}
                   </span>
-                  {isRunning && (
-                    <Spinner className="ml-auto size-3.5 shrink-0 text-primary transition-opacity group-hover:opacity-0" />
-                  )}
                 </span>
                 <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs">
                   <span className="block min-w-0 truncate">
@@ -133,11 +130,15 @@ export function ConversationListItemView({
               </span>
             </div>
 
-            {timeLabel && (
+            {isRunning ? (
+              <span className="absolute right-3 top-9 flex items-center gap-1 text-primary text-xs">
+                <Spinner className="size-3.5 shrink-0" />
+              </span>
+            ) : timeLabel ? (
               <span className="absolute right-3 top-9 max-w-16 truncate text-right text-muted-foreground text-xs">
                 {timeLabel}
               </span>
-            )}
+            ) : null}
 
             <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
               <button

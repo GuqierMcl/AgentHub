@@ -43,8 +43,8 @@ sequenceDiagram
 ## 恢复规则
 
 - 切会话时只关闭前端 EventSource，不 cancel Runtime run。
-- 切回时先加载 `timelineRuns`，Web 先插入每个 run 的 trigger user message，再用与 live SSE 相同的 projection reducer 重放 raw events。
-- 若 active run 非终态，Web 用 `activeRun.lastEventSequence` 续订 `/api/runs/:runId/events?afterSequence=`；HubServer 会 replay sequence 更大的已持久化事件并继续推送 live events。
+- 切回时先强制重新加载 `timelineRuns`，Web 先插入每个 run 的 trigger user message，再用与 live SSE 相同的 projection reducer 重放 raw events。
+- 若 active run 非终态，Web 用 fresh snapshot 中的 `activeRun.lastEventSequence` 续订 `/api/runs/:runId/events?afterSequence=`；HubServer 会 replay sequence 更大的已持久化事件并继续推送 live events。切换会话时 Web 必须关闭旧 EventSource，但不得 cancel Run。
 - 如果 run 在切走期间完成，`timelineRuns` 已包含最终 raw events，前端不再保持连接。
 - 结构化投影行的 `firstEventSequence` 仍用于查询和非聊天 UI 排序；聊天主 UI 恢复顺序以 raw replay 为准。
 

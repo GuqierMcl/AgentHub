@@ -3,6 +3,7 @@ import {
   CheckIcon,
   CircleAlertIcon,
   ClockIcon,
+  Loader2Icon,
   XCircleIcon,
 } from "lucide-react"
 import { CopyIcon } from "@/components/ui/copy"
@@ -170,6 +171,12 @@ function ChatMessageItem({
                 <MessageResponse>
                   {getChatDisplayContent(item, version.content)}
                 </MessageResponse>
+                {item.role !== "user" && item.status === "streaming" ? (
+                  <div className="mt-2 flex items-center gap-2 text-muted-foreground text-xs">
+                    <Loader2Icon className="size-3.5 animate-spin" />
+                    <span>正在生成...</span>
+                  </div>
+                ) : null}
                 {item.artifacts?.length ? (
                   <div className="mt-3 flex flex-col gap-2">
                     {item.artifacts.map((artifact) => (
@@ -443,9 +450,6 @@ function getChatDisplayContent(
   }
   if (item.status === "cancelled" && !content) {
     return "Run cancelled."
-  }
-  if (item.status === "streaming" && !content) {
-    return "正在生成..."
   }
   return content
 }
