@@ -30,3 +30,52 @@ export type DeploymentEvent = {
   detail: string
   state: "done" | "running" | "waiting"
 }
+
+// ── Workspace Browser Types ──
+
+export type WorkspaceTreeEntry = {
+  name: string
+  path: string
+  kind: "file" | "dir"
+  hasChildren?: boolean
+}
+
+export type WorkspaceTreeResponse = {
+  workspace: {
+    workspaceId: string
+    backendType: "local"
+    rootLabel: string
+  }
+  parentPath: string
+  entries: WorkspaceTreeEntry[]
+}
+
+export type WorkspaceFilePreviewResponse =
+  | {
+      kind: "text"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      content: string
+    }
+  | {
+      kind: "image"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      base64: string
+    }
+  | {
+      kind: "unsupported"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      message: string
+    }
+
+export type WorkspaceSearchResponse = {
+  entries: WorkspaceTreeEntry[]
+}

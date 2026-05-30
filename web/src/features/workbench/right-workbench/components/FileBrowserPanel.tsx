@@ -1,145 +1,533 @@
-import { useMemo, useState } from "react"
-import { FileTextIcon, FolderOpenIcon } from "lucide-react"
+import { useState, useCallback, useMemo, useEffect, useRef } from "react"
+import {
+  FileTextIcon,
+  FolderOpenIcon,
+  ImageIcon,
+  Loader2Icon,
+  SearchIcon,
+  XIcon,
+} from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import {
+  Files,
+  FolderItem,
+  FolderTrigger,
+  FolderContent,
+  FileItem,
+  SubFiles,
+} from "@/components/animate-ui/components/radix/files"
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
-import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
-import { defaultSelectedFilePath, workspaceFiles } from "../mock-data"
+import { workspaceBrowserApi } from "../api/workspace-browser"
+import { useWorkbenchStore } from "@/features/workbench/store/workbench-store"
+import { useFileBrowserStore } from "@/features/workbench/store/file-browser-store"
+import type { WorkspaceTreeEntry, WorkspaceFilePreviewResponse } from "../types"
 
-export function FileBrowserPanel() {
-  const [query, setQuery] = useState("")
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [selectedFilePath, setSelectedFilePath] = useState(
-    defaultSelectedFilePath
-  )
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
-  const filteredFiles = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
+// ── Search tree builder ──
 
-    if (!normalizedQuery) {
-      return workspaceFiles
+type SearchTreeNode = {
+  name: string
+  path: string
+  kind: "file" | "dir"
+  isMatch: boolean
+  children: Map<string, SearchTreeNode>
+}
+
+function buildSearchTree(entries: WorkspaceTreeEntry[]): SearchTreeNode {
+  const root: SearchTreeNode = { name: "$root", path: "", kind: "dir", isMatch: false, children: new Map() }
+
+  for (const entry of entries) {
+    const parts = entry.path.split("/")
+    let current = root
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      const fullPath = parts.slice(0, i + 1).join("/")
+      const isLast = i === parts.length - 1
+
+      if (!current.children.has(part)) {
+        current.children.set(part, {
+          name: part,
+          path: fullPath,
+          kind: isLast ? entry.kind : "dir",
+          isMatch: isLast,
+          children: new Map(),
+        })
+      } else if (isLast) {
+        const existing = current.children.get(part)!
+        existing.isMatch = true
+        existing.kind = entry.kind
+      }
+      if (isLast) break
+      current = current.children.get(part)!
     }
+  }
+  return root
+}
 
-    return workspaceFiles.filter((file) =>
-      `${file.path} ${file.group}`.toLowerCase().includes(normalizedQuery)
+function getAllFolderPaths(node: SearchTreeNode): string[] {
+  const paths: string[] = []
+  for (const child of node.children.values()) {
+    if (child.kind === "dir") {
+      paths.push(child.path)
+      paths.push(...getAllFolderPaths(child))
+    }
+  }
+  return paths
+}
+
+// ── Preview panel ──
+
+type PreviewPanelProps = {
+  conversationId: string
+  selectedPath: string | null
+}
+
+function PreviewPanel({ conversationId, selectedPath }: PreviewPanelProps) {
+  const [preview, setPreview] = useState<WorkspaceFilePreviewResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selectedPath) {
+      const timer = window.setTimeout(() => {
+        setPreview(null)
+        setError(null)
+      }, 0)
+      return () => window.clearTimeout(timer)
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setLoading(true)
+      setError(null)
+      workspaceBrowserApi.getFilePreview(conversationId, selectedPath).then((data) => {
+        if (!cancelled) {
+          setPreview(data)
+          setLoading(false)
+        }
+      }).catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "加载失败")
+          setLoading(false)
+        }
+      })
+    }, 0)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [conversationId, selectedPath])
+
+  if (!selectedPath) {
+    return (
+      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+        <div className="text-center space-y-2">
+          <FileTextIcon className="size-8 mx-auto text-muted-foreground/40" />
+          <p>选择文件以预览内容</p>
+        </div>
+      </div>
     )
-  }, [query])
+  }
 
-  const groups = useMemo(
-    () => Array.from(new Set(filteredFiles.map((file) => file.group))),
-    [filteredFiles]
-  )
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
-  const selectedFile =
-    workspaceFiles.find((file) => file.path === selectedFilePath) ??
-    workspaceFiles.find((file) => file.path === defaultSelectedFilePath) ??
-    workspaceFiles[0]
-  const draftValue = drafts[selectedFile.path] ?? selectedFile.preview
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full text-sm text-destructive">
+        {error}
+      </div>
+    )
+  }
+
+  if (!preview) return null
+
+  switch (preview.kind) {
+    case "text":
+      return (
+        <ScrollArea className="h-full">
+          <pre className="p-4 font-mono text-xs leading-5 whitespace-pre-wrap break-all">
+            {preview.content}
+          </pre>
+        </ScrollArea>
+      )
+    case "image":
+      return (
+        <div className="flex items-center justify-center h-full p-4">
+          <img
+            src={preview.base64}
+            alt={preview.name}
+            className="max-w-full max-h-full object-contain rounded"
+          />
+        </div>
+      )
+    case "unsupported":
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-sm text-muted-foreground space-y-2">
+          <ImageIcon className="size-8 text-muted-foreground/40" />
+          <p>{preview.message}</p>
+          <p className="text-xs">
+            {preview.name} · {formatSize(preview.size)}
+          </p>
+        </div>
+      )
+    default:
+      return null
+  }
+}
+
+// ── Recursive Files tree node renderer ──
+
+function RenderTreeNodes({
+  entries,
+  selectedPath,
+  onClickFile,
+  isSearchMode,
+}: {
+  entries: WorkspaceTreeEntry[]
+  selectedPath: string | null
+  onClickFile: (path: string) => void
+  isSearchMode: boolean
+}) {
+  const dirs = entries.filter((e) => e.kind === "dir")
+  const files = entries.filter((e) => e.kind === "file")
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <>
+      {dirs.map((dir) => (
+        <FolderItem key={dir.path} value={dir.path}>
+          <FolderTrigger className="cursor-pointer w-full text-left text-xs">
+            {dir.name}
+          </FolderTrigger>
+          <FolderContent>
+            <SubFiles>
+              <LazyFolderChildren
+                path={dir.path}
+                selectedPath={selectedPath}
+                onClickFile={onClickFile}
+                isSearchMode={isSearchMode}
+              />
+            </SubFiles>
+          </FolderContent>
+        </FolderItem>
+      ))}
+      {files.map((file) => (
+        <FileItem
+          key={file.path}
+          className={cn(
+            "cursor-pointer text-xs",
+            selectedPath === file.path && "bg-accent text-accent-foreground",
+          )}
+          onClick={() => onClickFile(file.path)}
+        >
+          {file.name}
+        </FileItem>
+      ))}
+    </>
+  )
+}
+
+function LazyFolderChildren({
+  path,
+  selectedPath,
+  onClickFile,
+  isSearchMode,
+}: {
+  path: string
+  selectedPath: string | null
+  onClickFile: (path: string) => void
+  isSearchMode: boolean
+}) {
+  const store = useFileBrowserStore()
+  const activeConversationId = useWorkbenchStore((s) => s.activeConversationId)
+  const state = activeConversationId ? store.getState(activeConversationId) : null
+  const entries = state?.treeNodes[path]
+
+  useEffect(() => {
+    if (!activeConversationId || entries) return
+    let cancelled = false
+    workspaceBrowserApi.listTree(activeConversationId, path).then((data) => {
+      if (!cancelled) {
+        store.loadTreeNodes(activeConversationId, path, data.entries)
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [activeConversationId, path, entries, store])
+
+  if (!entries) {
+    return <Loader2Icon className="size-3 animate-spin ml-2 mt-1" />
+  }
+
+  return (
+    <RenderTreeNodes
+      entries={entries}
+      selectedPath={selectedPath}
+      onClickFile={onClickFile}
+      isSearchMode={isSearchMode}
+    />
+  )
+}
+
+// ── Search result tree ──
+
+function SearchResultTree({
+  entries,
+  selectedPath,
+  onClickFile,
+}: {
+  entries: WorkspaceTreeEntry[]
+  selectedPath: string | null
+  onClickFile: (path: string) => void
+}) {
+  const treeRoot = useMemo(() => buildSearchTree(entries), [entries])
+  const allDirs = useMemo(() => getAllFolderPaths(treeRoot), [treeRoot])
+  const [openValues, setOpenValues] = useState<string[]>(allDirs)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setOpenValues(getAllFolderPaths(buildSearchTree(entries)))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [entries])
+
+  function renderNode(node: SearchTreeNode) {
+    const children = Array.from(node.children.values())
+    return children.map((child) => {
+      if (child.kind === "dir") {
+        return (
+          <FolderItem key={child.path} value={child.path}>
+            <FolderTrigger className={cn(
+              "cursor-pointer w-full text-left text-xs",
+              child.isMatch && "font-semibold",
+            )}>
+              {child.name}
+            </FolderTrigger>
+            <FolderContent>
+              <SubFiles>
+                {renderNode(child)}
+              </SubFiles>
+            </FolderContent>
+          </FolderItem>
+        )
+      }
+      return (
+        <FileItem
+          key={child.path}
+          className={cn(
+            "cursor-pointer text-xs font-semibold",
+            selectedPath === child.path && "bg-accent text-accent-foreground",
+          )}
+          onClick={() => onClickFile(child.path)}
+        >
+          {child.name}
+        </FileItem>
+      )
+    })
+  }
+
+  return (
+    <Files open={openValues} onOpenChange={setOpenValues}>
+      {renderNode(treeRoot)}
+    </Files>
+  )
+}
+
+// ── Regular tree ──
+
+function RegularTree({
+  conversationId,
+  selectedPath,
+  onClickFile,
+}: {
+  conversationId: string
+  selectedPath: string | null
+  onClickFile: (path: string) => void
+}) {
+  const store = useFileBrowserStore()
+  const state = store.getState(conversationId)
+  const entries = state.treeNodes["."]
+
+  useEffect(() => {
+    if (entries) return
+    let cancelled = false
+    workspaceBrowserApi.listTree(conversationId, ".").then((data) => {
+      if (!cancelled) {
+        store.loadTreeNodes(conversationId, ".", data.entries)
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [conversationId, entries, store])
+
+  if (!entries) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <Files>
+      <RenderTreeNodes
+        entries={entries}
+        selectedPath={selectedPath}
+        onClickFile={onClickFile}
+        isSearchMode={false}
+      />
+    </Files>
+  )
+}
+
+// ── Main FileBrowserPanel ──
+
+export function FileBrowserPanel() {
+  const activeConversationId = useWorkbenchStore((s) => s.activeConversationId)
+  const fileStore = useFileBrowserStore()
+
+  const state = useMemo(() => {
+    if (!activeConversationId) return null
+    return fileStore.getState(activeConversationId)
+  }, [activeConversationId, fileStore])
+
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<WorkspaceTreeEntry[] | null>(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const isSearchMode = searchQuery.trim().length > 0
+
+  const handleSetQuery = useCallback((query: string) => {
+    setSearchQuery(query)
+    if (!activeConversationId) return
+    if (!query.trim()) {
+      setSearchResults(null)
+      return
+    }
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      setSearchLoading(true)
+      workspaceBrowserApi.search(activeConversationId, query).then((data) => {
+        setSearchResults(data.entries)
+        setSearchLoading(false)
+      }).catch(() => {
+        setSearchResults([])
+        setSearchLoading(false)
+      })
+    }, 300)
+  }, [activeConversationId])
+
+  const handleSelectFile = useCallback((path: string) => {
+    if (!activeConversationId) return
+    fileStore.setSelectedPath(activeConversationId, path)
+  }, [activeConversationId, fileStore])
+
+  if (!activeConversationId) {
+    return (
+      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+        未选择会话
+      </div>
+    )
+  }
+
+  if (!state) {
+    return (
+      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+        加载中...
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background w-full">
       <div className="shrink-0 border-border border-b p-3">
         <div className="flex items-center gap-2">
           <FolderOpenIcon className="size-4 text-primary" />
           <div className="min-w-0">
             <h3 className="truncate font-medium text-sm">文件浏览</h3>
-            <p className="truncate text-muted-foreground text-xs">
-              静态文件树和二次编辑入口
-            </p>
+            <p className="truncate text-muted-foreground text-xs">工作区文件树与预览</p>
           </div>
         </div>
-        <Input
-          className="mt-3 h-8 text-xs"
-          onChange={(event) => setQuery(event.currentTarget.value)}
-          placeholder="搜索文件..."
-          value={query}
-        />
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 p-3">
-          <section className="space-y-2">
-            {groups.map((group) => (
-              <div className="space-y-1" key={group}>
-                <div className="px-1 text-muted-foreground text-xs">
-                  {group}
-                </div>
-                {filteredFiles
-                  .filter((file) => file.group === group)
-                  .map((file) => {
-                    const selected = file.path === selectedFile.path
-
-                    return (
-                      <Button
-                        className={cn(
-                          "h-auto w-full justify-start gap-2 rounded-md px-2 py-2 text-left",
-                          selected && "bg-muted"
-                        )}
-                        key={file.path}
-                        onClick={() => setSelectedFilePath(file.path)}
-                        type="button"
-                        variant="ghost"
-                      >
-                        <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs">{file.name}</div>
-                          <div className="truncate text-muted-foreground text-[11px]">
-                            {file.path}
-                          </div>
-                        </div>
-                        <Badge
-                          className="shrink-0"
-                          variant={file.status === "clean" ? "outline" : "secondary"}
-                        >
-                          {file.status}
-                        </Badge>
-                      </Button>
-                    )
-                  })}
-              </div>
-            ))}
-          </section>
-
-          <Separator />
-
-          <section className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <h3 className="truncate font-medium text-sm">
-                  {selectedFile.name}
-                </h3>
-                <p className="truncate text-muted-foreground text-xs">
-                  {selectedFile.language} · cached draft
-                </p>
-              </div>
-              <Badge variant="outline">{selectedFile.status}</Badge>
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+        <ResizablePanel defaultSize={65} minSize={30}>
+          <div className="h-full border-border border-r">
+            <div className="flex items-center gap-2 p-2 border-border border-b">
+              <span className="text-xs text-muted-foreground truncate">
+                {state.selectedPath ? state.selectedPath : "未选择文件"}
+              </span>
             </div>
-            <Textarea
-              className="min-h-64 resize-none font-mono text-xs leading-5"
-              onChange={(event) =>
-                setDrafts((current) => ({
-                  ...current,
-                  [selectedFile.path]: event.currentTarget.value,
-                }))
-              }
-              spellCheck={false}
-              value={draftValue}
+            <PreviewPanel
+              conversationId={activeConversationId}
+              selectedPath={state.selectedPath}
             />
-          </section>
-        </div>
-      </ScrollArea>
+          </div>
+        </ResizablePanel>
 
-      <div className="flex shrink-0 items-center justify-between gap-2 border-border border-t p-3">
-        <Button size="sm" type="button" variant="outline">
-          保存草稿
-        </Button>
-        <Button size="sm" type="button">打开审查</Button>
-      </div>
+        <ResizableHandle />
+
+        <ResizablePanel defaultSize={35} minSize={20}>
+          <div className="flex h-full flex-col">
+            <div className="p-2 border-border border-b">
+              <div className="relative">
+                <SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="h-7 pl-8 pr-7 text-xs"
+                  placeholder="搜索文件..."
+                  value={searchQuery}
+                  onChange={(e) => handleSetQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => handleSetQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <XIcon className="size-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="py-1 px-1">
+                {isSearchMode ? (
+                  searchLoading ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : searchResults && searchResults.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-4">
+                      无匹配结果
+                    </p>
+                  ) : searchResults ? (
+                    <SearchResultTree
+                      entries={searchResults}
+                      selectedPath={state.selectedPath}
+                      onClickFile={handleSelectFile}
+                    />
+                  ) : null
+                ) : (
+                  <RegularTree
+                    conversationId={activeConversationId}
+                    selectedPath={state.selectedPath}
+                    onClickFile={handleSelectFile}
+                  />
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   )
 }
