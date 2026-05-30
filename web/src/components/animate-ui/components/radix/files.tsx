@@ -29,7 +29,7 @@ type FilesProps = FilesPrimitiveProps;
 
 function Files({ className, children, ...props }: FilesProps) {
   return (
-    <FilesPrimitive className={cn('p-2 w-full', className)} {...props}>
+    <FilesPrimitive className={cn('min-w-0 w-full p-2', className)} {...props}>
       <FilesHighlightPrimitive className="bg-accent rounded-lg pointer-events-none">
         {children}
       </FilesHighlightPrimitive>
@@ -40,7 +40,7 @@ function Files({ className, children, ...props }: FilesProps) {
 type SubFilesProps = FilesProps;
 
 function SubFiles(props: SubFilesProps) {
-  return <FilesPrimitive {...props} />;
+  return <FilesPrimitive className={cn('min-w-0 w-full', props.className)} {...props} />;
 }
 
 type FolderItemProps = FolderItemPrimitiveProps;
@@ -59,25 +59,26 @@ function FolderTrigger({
   gitStatus,
   ...props
 }: FolderTriggerProps) {
-  return (
+    return (
     <FolderHeaderPrimitive>
-      <FolderTriggerPrimitive className="w-full text-start">
+      <FolderTriggerPrimitive className="min-w-0 w-full text-start">
         <FolderHighlightPrimitive>
-          <FolderPrimitive className="flex items-center justify-between gap-2 p-2 pointer-events-none">
+          <FolderPrimitive className="pointer-events-none flex min-w-0 items-center justify-between gap-2 p-2">
             <div
               className={cn(
-                'flex items-center gap-2',
+                'flex min-w-0 flex-1 items-center gap-2',
                 gitStatus === 'untracked' && 'text-green-400',
                 gitStatus === 'modified' && 'text-amber-400',
                 gitStatus === 'deleted' && 'text-red-400',
               )}
             >
               <FolderIconPrimitive
+                className="shrink-0"
                 closeIcon={<FolderIcon className="size-4.5" />}
                 openIcon={<FolderOpenIcon className="size-4.5" />}
               />
               <FileLabelPrimitive
-                className={cn('text-sm', className)}
+                className={cn('min-w-0 flex-1 truncate text-sm', className)}
                 {...props}
               >
                 {children}
@@ -105,7 +106,7 @@ type FolderContentProps = FolderContentPrimitiveProps;
 
 function FolderContent(props: FolderContentProps) {
   return (
-    <div className="relative ml-6 before:absolute before:-left-2 before:inset-y-0 before:w-px before:h-full before:bg-border">
+    <div className="relative ml-6 min-w-0 before:absolute before:-left-2 before:inset-y-0 before:h-full before:w-px before:bg-border">
       <FolderContentPrimitive {...props} />
     </div>
   );
@@ -127,17 +128,19 @@ function FileItem({
     <FileHighlightPrimitive>
       <FilePrimitive
         className={cn(
-          'flex items-center justify-between gap-2 p-2 pointer-events-none',
+          'flex min-w-0 items-center justify-between gap-2 p-2',
+          className,
           gitStatus === 'untracked' && 'text-green-400',
           gitStatus === 'modified' && 'text-amber-400',
           gitStatus === 'deleted' && 'text-red-400',
         )}
+        {...props}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <FileIconPrimitive>
-            <Icon className="size-4.5" />
+            <Icon className="size-4.5 shrink-0" />
           </FileIconPrimitive>
-          <FileLabelPrimitive className={cn('text-sm', className)} {...props}>
+          <FileLabelPrimitive className="min-w-0 flex-1 truncate text-sm">
             {children}
           </FileLabelPrimitive>
         </div>

@@ -1,8 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import {
-  FileTextIcon,
   FolderOpenIcon,
-  ImageIcon,
   Loader2Icon,
   SearchIcon,
   XIcon,
@@ -17,20 +15,14 @@ import {
   SubFiles,
 } from "@/components/animate-ui/components/radix/files"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
 import { workspaceBrowserApi } from "../api/workspace-browser"
 import { useWorkbenchStore } from "@/features/workbench/store/workbench-store"
 import { useFileBrowserStore } from "@/features/workbench/store/file-browser-store"
-import type { WorkspaceTreeEntry, WorkspaceFilePreviewResponse } from "../types"
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
+import type { WorkspaceTreeEntry } from "../types"
+import { WorkspacePreviewPane } from "./WorkspacePreviewPane"
 
 // ── Search tree builder ──
 
@@ -84,108 +76,6 @@ function getAllFolderPaths(node: SearchTreeNode): string[] {
   return paths
 }
 
-// ── Preview panel ──
-
-type PreviewPanelProps = {
-  conversationId: string
-  selectedPath: string | null
-}
-
-function PreviewPanel({ conversationId, selectedPath }: PreviewPanelProps) {
-  const [preview, setPreview] = useState<WorkspaceFilePreviewResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!selectedPath) {
-      const timer = window.setTimeout(() => {
-        setPreview(null)
-        setError(null)
-      }, 0)
-      return () => window.clearTimeout(timer)
-    }
-    let cancelled = false
-    const timer = window.setTimeout(() => {
-      setLoading(true)
-      setError(null)
-      workspaceBrowserApi.getFilePreview(conversationId, selectedPath).then((data) => {
-        if (!cancelled) {
-          setPreview(data)
-          setLoading(false)
-        }
-      }).catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "加载失败")
-          setLoading(false)
-        }
-      })
-    }, 0)
-    return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [conversationId, selectedPath])
-
-  if (!selectedPath) {
-    return (
-      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-        <div className="text-center space-y-2">
-          <FileTextIcon className="size-8 mx-auto text-muted-foreground/40" />
-          <p>选择文件以预览内容</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-full text-sm text-destructive">
-        {error}
-      </div>
-    )
-  }
-
-  if (!preview) return null
-
-  switch (preview.kind) {
-    case "text":
-      return (
-        <ScrollArea className="h-full">
-          <pre className="p-4 font-mono text-xs leading-5 whitespace-pre-wrap break-all">
-            {preview.content}
-          </pre>
-        </ScrollArea>
-      )
-    case "image":
-      return (
-        <div className="flex items-center justify-center h-full p-4">
-          <img
-            src={preview.base64}
-            alt={preview.name}
-            className="max-w-full max-h-full object-contain rounded"
-          />
-        </div>
-      )
-    case "unsupported":
-      return (
-        <div className="flex flex-col items-center justify-center h-full text-sm text-muted-foreground space-y-2">
-          <ImageIcon className="size-8 text-muted-foreground/40" />
-          <p>{preview.message}</p>
-          <p className="text-xs">
-            {preview.name} · {formatSize(preview.size)}
-          </p>
-        </div>
-      )
-    default:
-      return null
-  }
-}
-
 // ── Recursive Files tree node renderer ──
 
 function RenderTreeNodes({
@@ -226,7 +116,7 @@ function RenderTreeNodes({
           key={file.path}
           className={cn(
             "cursor-pointer text-xs",
-            selectedPath === file.path && "bg-accent text-accent-foreground",
+            selectedPath === file.path && "bg-accent rounded-lg",
           )}
           onClick={() => onClickFile(file.path)}
         >
@@ -325,7 +215,7 @@ function SearchResultTree({
           key={child.path}
           className={cn(
             "cursor-pointer text-xs font-semibold",
-            selectedPath === child.path && "bg-accent text-accent-foreground",
+            selectedPath === child.path && "bg-accent rounded-lg",
           )}
           onClick={() => onClickFile(child.path)}
         >
@@ -459,26 +349,29 @@ export function FileBrowserPanel() {
         </div>
       </div>
 
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-        <ResizablePanel defaultSize={65} minSize={30}>
-          <div className="h-full border-border border-r">
-            <div className="flex items-center gap-2 p-2 border-border border-b">
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        <ResizablePanel defaultSize={65} minSize={30} className="min-w-0">
+          <div className="flex h-full min-w-0 flex-col border-border border-r">
+            <div className="shrink-0 flex items-center gap-2 p-2 border-border border-b">
               <span className="text-xs text-muted-foreground truncate">
                 {state.selectedPath ? state.selectedPath : "未选择文件"}
               </span>
             </div>
-            <PreviewPanel
-              conversationId={activeConversationId}
-              selectedPath={state.selectedPath}
-            />
+            <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+              <WorkspacePreviewPane
+                key={state.selectedPath ?? "no-file"}
+                conversationId={activeConversationId}
+                selectedPath={state.selectedPath}
+              />
+            </div>
           </div>
         </ResizablePanel>
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize={35} minSize={20}>
-          <div className="flex h-full flex-col">
-            <div className="p-2 border-border border-b">
+        <ResizablePanel defaultSize={35} minSize={20} className="min-w-0">
+          <div className="flex h-full min-w-0 flex-col">
+            <div className="shrink-0 p-2 border-border border-b">
               <div className="relative">
                 <SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -498,7 +391,7 @@ export function FileBrowserPanel() {
                 )}
               </div>
             </div>
-            <ScrollArea className="flex-1 min-h-0">
+            <div className="min-h-0 min-w-0 flex-1 overflow-auto">
               <div className="py-1 px-1">
                 {isSearchMode ? (
                   searchLoading ? (
@@ -524,7 +417,7 @@ export function FileBrowserPanel() {
                   />
                 )}
               </div>
-            </ScrollArea>
+            </div>
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

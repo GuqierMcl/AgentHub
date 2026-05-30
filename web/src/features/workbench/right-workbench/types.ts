@@ -58,6 +58,8 @@ export type WorkspaceFilePreviewResponse =
       mimeType: string
       size: number
       content: string
+      language?: string
+      truncated?: boolean
     }
   | {
       kind: "image"
@@ -66,6 +68,42 @@ export type WorkspaceFilePreviewResponse =
       mimeType: string
       size: number
       base64: string
+      width?: number
+      height?: number
+    }
+  | {
+      kind: "pdf"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      url: string
+      pageCount?: number
+    }
+  | {
+      kind: "audio"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      url: string
+    }
+  | {
+      kind: "video"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      url: string
+      posterUrl?: string
+    }
+  | {
+      kind: "binary"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      message: string
     }
   | {
       kind: "unsupported"

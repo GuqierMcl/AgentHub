@@ -1,7 +1,8 @@
 import { Hono, Context } from 'hono'
 import { spawnSync, execSync } from 'node:child_process'
 import { platform, tmpdir } from 'node:os'
-import { existsSync, writeFileSync, unlinkSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, writeFileSync, unlinkSync, readFileSync, readdirSync, statSync, createReadStream, openSync, readSync, closeSync } from 'node:fs'
+import { Readable } from 'node:stream'
 import { join, resolve, relative, sep, extname, basename } from 'node:path'
 import { logger } from '../lib/logger'
 import { notFound, badRequest } from '../lib/errors'
@@ -24,6 +25,83 @@ const IMAGE_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico',
 ])
 
+const PDF_EXTENSIONS = new Set(['.pdf'])
+
+const AUDIO_EXTENSIONS = new Set([
+  '.mp3', '.wav', '.ogg', '.aac', '.flac', '.m4a', '.wma',
+])
+
+const VIDEO_EXTENSIONS = new Set([
+  '.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv',
+])
+
+// Extension → language label mapping for text files
+const LANGUAGE_MAP: Record<string, string> = {
+  '.ts': 'TypeScript',
+  '.tsx': 'TypeScript JSX',
+  '.js': 'JavaScript',
+  '.jsx': 'JavaScript JSX',
+  '.mjs': 'JavaScript',
+  '.cjs': 'JavaScript',
+  '.css': 'CSS',
+  '.scss': 'SCSS',
+  '.less': 'Less',
+  '.html': 'HTML',
+  '.htm': 'HTML',
+  '.vue': 'Vue',
+  '.svelte': 'Svelte',
+  '.json': 'JSON',
+  '.xml': 'XML',
+  '.yaml': 'YAML',
+  '.yml': 'YAML',
+  '.toml': 'TOML',
+  '.md': 'Markdown',
+  '.py': 'Python',
+  '.rb': 'Ruby',
+  '.java': 'Java',
+  '.c': 'C',
+  '.cpp': 'C++',
+  '.h': 'C Header',
+  '.hpp': 'C++ Header',
+  '.cs': 'C#',
+  '.go': 'Go',
+  '.rs': 'Rust',
+  '.swift': 'Swift',
+  '.kt': 'Kotlin',
+  '.scala': 'Scala',
+  '.php': 'PHP',
+  '.r': 'R',
+  '.lua': 'Lua',
+  '.dart': 'Dart',
+  '.sql': 'SQL',
+  '.sh': 'Shell',
+  '.bash': 'Bash',
+  '.zsh': 'Zsh',
+  '.ps1': 'PowerShell',
+  '.env': 'Env',
+  '.txt': 'Text',
+  '.log': 'Log',
+  '.csv': 'CSV',
+  '.ini': 'INI',
+  '.cfg': 'Config',
+  '.conf': 'Config',
+  '.prisma': 'Prisma',
+  '.graphql': 'GraphQL',
+  '.gql': 'GraphQL',
+  '.gitignore': 'Git Ignore',
+  '.dockerignore': 'Docker Ignore',
+  '.editorconfig': 'EditorConfig',
+}
+
+function getDetectedKind(ext: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' | 'binary' {
+  if (TEXT_EXTENSIONS.has(ext)) return 'text'
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+  if (PDF_EXTENSIONS.has(ext)) return 'pdf'
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video'
+  return 'binary'
+}
+
 function getMimeType(filePath: string): string {
   const ext = extname(filePath).toLowerCase()
   if (TEXT_EXTENSIONS.has(ext)) return 'text/plain'
@@ -34,6 +112,21 @@ function getMimeType(filePath: string): string {
   if (ext === '.webp') return 'image/webp'
   if (ext === '.bmp') return 'image/bmp'
   if (ext === '.ico') return 'image/x-icon'
+  if (ext === '.pdf') return 'application/pdf'
+  if (ext === '.mp3') return 'audio/mpeg'
+  if (ext === '.wav') return 'audio/wav'
+  if (ext === '.ogg') return 'audio/ogg'
+  if (ext === '.aac') return 'audio/aac'
+  if (ext === '.flac') return 'audio/flac'
+  if (ext === '.m4a') return 'audio/mp4'
+  if (ext === '.wma') return 'audio/x-ms-wma'
+  if (ext === '.mp4') return 'video/mp4'
+  if (ext === '.webm') return 'video/webm'
+  if (ext === '.avi') return 'video/x-msvideo'
+  if (ext === '.mov') return 'video/quicktime'
+  if (ext === '.mkv') return 'video/x-matroska'
+  if (ext === '.wmv') return 'video/x-ms-wmv'
+  if (ext === '.flv') return 'video/x-flv'
   return 'application/octet-stream'
 }
 
@@ -208,6 +301,54 @@ workspace.get('/api/conversations/:id/workspace/tree', async (c: Context) => {
   }
 })
 
+workspace.get('/api/conversations/:id/workspace/file-content', async (c: Context) => {
+  const conversationId = c.req.param('id')!
+  const relativePath = c.req.query('path') ?? ''
+
+  try {
+    const { rootPath } = await resolveWorkspace(conversationId)
+    const resolvedPath = resolveSafePath(rootPath, relativePath)
+
+    const stat = statSync(resolvedPath)
+    if (!stat.isFile()) {
+      throw badRequest('WORKSPACE_INVALID_PATH', '指定的路径不是文件')
+    }
+
+    const mimeType = getMimeType(resolvedPath)
+    const fileSize = stat.size
+    const rangeHeader = c.req.header('Range') || c.req.header('range')
+
+    if (rangeHeader) {
+      const match = rangeHeader.replace(/bytes=\s*/i, '').match(/^(\d+)-(\d*)$/)
+      if (match) {
+        const start = parseInt(match[1], 10)
+        const end = match[2] ? parseInt(match[2], 10) : fileSize - 1
+        const chunkSize = end - start + 1
+        const nodeStream = createReadStream(resolvedPath, { start, end })
+        const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>
+        return c.body(webStream, 206, {
+          'Content-Type': mimeType,
+          'Content-Length': chunkSize.toString(),
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+        })
+      }
+    }
+
+    const nodeStream = createReadStream(resolvedPath)
+    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>
+    return c.body(webStream, 200, {
+      'Content-Type': mimeType,
+      'Content-Length': fileSize.toString(),
+      'Accept-Ranges': 'bytes',
+    })
+  } catch (err) {
+    if (err instanceof Error && 'code' in err) throw err
+    logger.error({ err, conversationId, relativePath }, 'Workspace file-content error')
+    throw err
+  }
+})
+
 workspace.get('/api/conversations/:id/workspace/file', async (c: Context) => {
   const conversationId = c.req.param('id')!
   const relativePath = c.req.query('path') ?? ''
@@ -224,36 +365,12 @@ workspace.get('/api/conversations/:id/workspace/file', async (c: Context) => {
     const mimeType = getMimeType(resolvedPath)
     const size = stat.size
     const name = basename(resolvedPath)
-
-    // Text files
-    if (TEXT_EXTENSIONS.has(extname(resolvedPath).toLowerCase())) {
-      try {
-        const content = readFileSync(resolvedPath, 'utf-8')
-        // Limit text preview to 500KB
-        const truncated = content.length > 512000 ? content.slice(0, 512000) + '\n\n... (文件过大，已截断)' : content
-        return c.json({
-          kind: 'text',
-          path: relativePath,
-          name,
-          mimeType,
-          size,
-          content: truncated,
-        })
-      } catch {
-        return c.json({
-          kind: 'unsupported',
-          path: relativePath,
-          name,
-          mimeType,
-          size,
-          message: '无法读取文件内容',
-        })
-      }
-    }
+    const ext = extname(resolvedPath).toLowerCase()
+    const kind = getDetectedKind(ext)
+    const fileContentUrl = `/api/conversations/${encodeURIComponent(conversationId)}/workspace/file-content?path=${encodeURIComponent(relativePath)}`
 
     // Image files
-    if (IMAGE_EXTENSIONS.has(extname(resolvedPath).toLowerCase())) {
-      // Limit image preview to 5MB
+    if (kind === 'image') {
       if (size > 5 * 1024 * 1024) {
         return c.json({
           kind: 'unsupported',
@@ -287,7 +404,107 @@ workspace.get('/api/conversations/:id/workspace/file', async (c: Context) => {
       }
     }
 
-    // Unsupported files
+    // PDF files
+    if (kind === 'pdf') {
+      return c.json({
+        kind: 'pdf',
+        path: relativePath,
+        name,
+        mimeType,
+        size,
+        url: fileContentUrl,
+      })
+    }
+
+    // Audio files
+    if (kind === 'audio') {
+      return c.json({
+        kind: 'audio',
+        path: relativePath,
+        name,
+        mimeType,
+        size,
+        url: fileContentUrl,
+      })
+    }
+
+    // Video files
+    if (kind === 'video') {
+      return c.json({
+        kind: 'video',
+        path: relativePath,
+        name,
+        mimeType,
+        size,
+        url: fileContentUrl,
+      })
+    }
+
+    // Text files
+    if (kind === 'text') {
+      const textPreviewMaxSize = 1024 * 1024 // 1MB
+      const textTruncateSize = 512000 // 500KB
+      let truncated = false
+
+      if (size > 5 * 1024 * 1024) {
+        return c.json({
+          kind: 'binary',
+          path: relativePath,
+          name,
+          mimeType,
+          size,
+          message: '文件过大，无法预览',
+        })
+      }
+
+      try {
+        let content: string
+        if (size > textPreviewMaxSize) {
+          const fd = openSync(resolvedPath, 'r')
+          const buffer = Buffer.alloc(textTruncateSize)
+          readSync(fd, buffer, 0, textTruncateSize, 0)
+          closeSync(fd)
+          content = buffer.toString('utf-8') + '\n\n... (文件过大，已截断)'
+          truncated = true
+        } else {
+          content = readFileSync(resolvedPath, 'utf-8')
+        }
+
+        return c.json({
+          kind: 'text',
+          path: relativePath,
+          name,
+          mimeType,
+          size,
+          content,
+          language: LANGUAGE_MAP[ext],
+          truncated,
+        })
+      } catch {
+        return c.json({
+          kind: 'unsupported',
+          path: relativePath,
+          name,
+          mimeType,
+          size,
+          message: '无法读取文件内容',
+        })
+      }
+    }
+
+    // Binary files
+    if (kind === 'binary') {
+      return c.json({
+        kind: 'binary',
+        path: relativePath,
+        name,
+        mimeType,
+        size,
+        message: '暂不支持预览此类型文件',
+      })
+    }
+
+    // Fallback
     return c.json({
       kind: 'unsupported',
       path: relativePath,

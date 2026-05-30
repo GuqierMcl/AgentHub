@@ -17,7 +17,15 @@ async function request<T>(path: string): Promise<T> {
   return res.json()
 }
 
+function buildUrl(conversationId: string, path: string): string {
+  return `/api/conversations/${encodeURIComponent(conversationId)}/workspace/file-content?path=${encodeURIComponent(path)}`
+}
+
 export const workspaceBrowserApi = {
+  getFileContentUrl(conversationId: string, path: string): string {
+    return buildUrl(conversationId, path)
+  },
+
   listTree(conversationId: string, path?: string): Promise<WorkspaceTreeResponse> {
     const query = path ? `?path=${encodeURIComponent(path)}` : ""
     return request(`/api/conversations/${encodeURIComponent(conversationId)}/workspace/tree${query}`)
