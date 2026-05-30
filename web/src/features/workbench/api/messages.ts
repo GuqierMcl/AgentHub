@@ -98,6 +98,11 @@ export type ConversationMessagesResponse = {
   timelineRuns: ConversationTimelineRunSnapshot[]
 }
 
+export type PermissionDecisionBody = {
+  approved: boolean
+  reason?: string
+}
+
 type ErrorBody = {
   error?: {
     code?: string
@@ -158,6 +163,20 @@ export const conversationMessagesApi = {
     return request(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
       method: "POST",
     })
+  },
+
+  decidePermission(
+    runId: string,
+    requestId: string,
+    decision: PermissionDecisionBody
+  ): Promise<unknown> {
+    return request(
+      `/api/runs/${encodeURIComponent(runId)}/permissions/${encodeURIComponent(requestId)}/decision`,
+      {
+        method: "POST",
+        body: JSON.stringify(decision),
+      }
+    )
   },
 
   eventsUrl(runId: string, afterSequence = 0): string {

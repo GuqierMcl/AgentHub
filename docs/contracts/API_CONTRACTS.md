@@ -99,6 +99,11 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `TOOL_EXECUTION_DENIED` | 403 | 用户拒绝了该工具审批请求 |
 | `TOOL_EXECUTION_FAILED` | 502 | 工具执行失败 |
 | `TOOL_EXECUTION_ABORTED` | 499 | 工具执行被取消或中止 |
+| `NETWORK_INVALID_URL` | 400 | `web_fetch` URL 无效 |
+| `NETWORK_UNSUPPORTED_PROTOCOL` | 400 | `web_fetch` URL 协议不是 `http:` 或 `https:` |
+| `NETWORK_TIMEOUT` | 504 | `web_fetch` 请求超时 |
+| `NETWORK_REQUEST_FAILED` | 502 | `web_fetch` 网络请求失败 |
+| `NETWORK_RESPONSE_TOO_LARGE` | 413 | `web_fetch` 响应体超过 `maxResponseBytes` |
 | `WORKSPACE_NOT_BOUND` | 400 | 当前 Run 未绑定 workspace，不能执行文件工具 |
 
 ## Runtime Agents API
@@ -213,11 +218,11 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "enabled": true
   },
   "allowedSubagents": ["explore", "general", "file", "deploy"],
-  "allowedTools": ["write_plan", "run_task"],
+  "allowedTools": ["write_plan", "run_task", "web_fetch"],
   "permissionPolicy": {
     "filesystem": "none",
     "shell": "none",
-    "network": "none",
+    "network": "full",
     "deploy": "none"
   }
 }
@@ -366,7 +371,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `id` 只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
 - `allowedTools` 只允许 Tool Catalog 暴露为用户可配置的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。
-- `write_plan`、`run_task` 和高风险工具不能授予用户自定义智能体。
+- `write_plan`、`run_task`、`web_fetch` 和其他高风险工具不能授予用户自定义智能体。
 - `permissionPolicy` 中 `shell` / `network` / `deploy` 必须为 `none`。
 - 若选择了读取工具，`permissionPolicy.filesystem` 至少为 `read`；若选择了写入工具，必须显式为 `write`。Runtime 不自动升级智能体权限。
 - 模型绑定不属于 CRUD 主体流程；创建后继续使用 `PUT /runtime/agents/:agentId/model` 配置模型。
@@ -553,7 +558,7 @@ Product Messages and Runs API 是 Web 聊天主路径。Web 不再直接用 `/ap
 - HubServer 创建本地 `Run(status="queued")`，并将 `triggerMessageId` 指向 user message。
 - HubServer 从持久化 messages 投影 Runtime `history`，组装 Runtime `RunInput` 后调用 `POST /runtime/runs`。
 - Runtime 返回的 `runId` 写入本地 `Run.runtimeId`。
-- HubServer 启动后台 Runtime SSE consumer，并返回最新消息快照与 `timelineRuns` raw event replay 数据。
+- HubServer 启动后台 Runtime SSE consumer，并返回最新消息快照与 `timelineRuns` 产品 event replay 数据。
 - 同一 conversation 已存在非终态 Run 时返回 `RUN_ALREADY_ACTIVE`。
 
 成功响应：
@@ -667,7 +672,7 @@ type HubRunEventEnvelope = {
 ```
 
 `activeRun.id` 是 HubServer 本地 Run id。`activeRun.runtimeId` 只用于调试和跨进程关联，Web 产品路径不得用它订阅 Runtime。
-`timelineRuns` 是聊天 UI 恢复的主数据源：Web 先渲染每个 run 的 `triggerMessage`，再按 `events.sequence` 重放 Runtime raw event，并与 live SSE 共用同一套 projection reducer。`messages` 与 `runItems` 保留为查询、history、统计和后续产品能力的数据源。
+`timelineRuns` 是聊天 UI 恢复的主数据源：Web 先渲染每个 run 的 `triggerMessage`，再按 `events.sequence` 重放产品 event envelope，并与 live SSE 共用同一套 projection reducer。大工具结果可能已被投影为 UI 摘要；完整 raw Runtime event 保存在 `RunEvent.payloadJson`。`messages` 与 `runItems` 保留为查询、history、统计和后续产品能力的数据源。
 
 ### 订阅产品 Run 事件
 
@@ -687,13 +692,14 @@ data: {"sequence":12,"event":{"id":"evt_xxx","runId":"runtime_run_xxx","type":"m
 - `runId` 是 HubServer 本地 Run id。
 - HubServer 先发送 `sequence > afterSequence` 的持久化 RunEvent，再推送 live events。
 - `sequence` 是本地 Run 内递增序号。
-- `event` 是 Runtime 原始 RunEvent。
+- `event` 是面向产品 UI 的 Runtime RunEvent envelope；大工具结果可能已被摘要化。
 - `RunEvent.payloadJson` 永久保留 raw 事实；未知 event type 也必须落库，后续只补 projection。
+- 产品 Run SSE 和 `timelineRuns` 可对大工具结果做 UI 摘要投影以保护浏览器热路径；例如 `tool.completed(toolName="web_fetch")` 的 `event.data.data.body` 不会传给前端，摘要里包含 `bodyCharacters` 与 `bodyOmittedForUi: true`。完整 raw event 仍保存在 `RunEvent.payloadJson`。
 - Run 到达终态后关闭流。
 
 Web 恢复规则：
 
-- 先加载 messages snapshot 中的 `timelineRuns` 并重放 raw events。
+- 先加载 messages snapshot 中的 `timelineRuns` 并重放产品 event envelopes。
 - 用 `activeRun.lastEventSequence` 作为 `afterSequence` 续订 active run。
 - Web 按 Runtime `event.id` 去重；live SSE 和 replay 都进入同一套 projection reducer，避免重复拼接 `message.delta`。
 
@@ -707,6 +713,27 @@ Web 恢复规则：
 - 若存在 `runtimeId`，转发到 Runtime `POST /runtime/runs/:runtimeId/cancel`。
 - 若 Runtime id 尚未写入，则直接将本地 Run 标记为 `cancelled`。
 - 返回更新后的 `ActiveRunSnapshot`。
+
+### 决定产品 Run 权限请求
+
+**端点**：`POST /api/runs/:runId/permissions/:requestId/decision`
+
+请求体：
+
+```json
+{
+  "approved": true,
+  "reason": "User allowed this network request."
+}
+```
+
+行为：
+
+- `runId` 是 HubServer 本地 Run id。
+- HubServer 查找本地 Run，读取 `runtimeId`，再转发到 Runtime `POST /runtime/runs/:runtimeId/permissions/:requestId/decision`。
+- Web 产品链路必须调用本端点，不直接调用 `/api/runtime/runs/*` 调试代理。
+- Runtime 的后续 `permission.approved` / `permission.denied` / `tool.*` 事件仍通过 `/api/runs/:runId/events` 持久化和回放。
+- `runtimeId` 缺失时返回 `PERMISSION_RUN_NOT_ACTIVE`。
 
 ### 调试代理
 
@@ -1147,8 +1174,46 @@ type RunEvent = {
 - `external_write`：沙箱外普通写入或编辑。
 - `sensitive_write`：主 workspace 内敏感文件写入或编辑。
 - `external_sensitive_write`：沙箱外敏感文件写入或编辑；该场景只产生一次 combined approval。
+- `network_request`：`web_fetch` 网络请求审批；`data.permissionType = "network_access"`，并包含脱敏后的 `url`、`host` 与 `method`。
 
 权限 API 响应不返回 workspace root 或授权目标的真实绝对路径。批准后的 read/write grant 若出现在响应中，也只返回 `grantId`、`mountId`、`scope`、`accessMode`、`allowSensitive`、`logicalPath` 等脱敏字段。
+`web_fetch` 权限请求不返回请求 headers 或 body，URL query 会脱敏。
+
+### `web_fetch` Runtime Tool
+
+`web_fetch` 是 Runtime Tool Catalog 中的网络请求工具：
+
+```ts
+type WebFetchInput = {
+  url: string
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"
+  headers?: Record<string, string>
+  body?: string
+  timeoutMs?: number
+  maxResponseBytes?: number
+}
+```
+
+默认值：`method = "GET"`、`timeoutMs = 15000`、`maxResponseBytes = 1048576`。只允许 `http:` / `https:` 协议；第一版不做域名 allowlist、私网拦截、Cookie jar、multipart builder 或二进制响应解析。
+
+成功输出：
+
+```ts
+type WebFetchResult = {
+  url: string
+  finalUrl: string
+  method: string
+  statusCode: number
+  statusText: string
+  headers: Record<string, string>
+  body: string
+  truncated: boolean
+  bytesRead: number
+  durationMs: number
+}
+```
+
+HTTP 4xx/5xx 仍是 `tool.completed`，由 `statusCode` 表达；网络异常、超时、取消、响应体超过 `maxResponseBytes` 才进入 `tool.failed`。响应 headers 会脱敏 `authorization`、`proxy-authorization`、`cookie`、`set-cookie`、`x-api-key`、`x-auth-token` 与 `api-key`。
 
 ### 决定 Run 权限请求
 

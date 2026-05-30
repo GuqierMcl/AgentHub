@@ -14,6 +14,8 @@ import type {
 
 type ChatSpeakerIds = Record<string, true>
 
+const WEB_FETCH_BODY_PREVIEW_CHARS = 12_000
+
 export function formatTimelineTime(date = new Date()): string {
   return date.toLocaleTimeString([], {
     hour: "2-digit",
@@ -335,10 +337,47 @@ function createToolItem(
     time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
     status,
     input: current?.input ?? data.input ?? data.parameters,
-    output: status === "output-available"
-      ? data.data ?? data.result ?? data.summary ?? data
-      : current?.output,
+    output: getToolDisplayOutput(event, data, status, current),
     errorText: errorText ?? current?.errorText,
+  }
+}
+
+function getToolDisplayOutput(
+  event: RuntimeRunEvent,
+  data: Record<string, unknown>,
+  status: WorkbenchTimelineToolItem["status"],
+  current?: WorkbenchTimelineToolItem
+): unknown {
+  if (status !== "output-available") {
+    return current?.output
+  }
+
+  const output = data.data ?? data.result ?? data.summary ?? data
+  if (event.toolName === "web_fetch") {
+    return formatWebFetchDisplayOutput(output)
+  }
+
+  return output
+}
+
+function formatWebFetchDisplayOutput(output: unknown): unknown {
+  const response = getRecord(output)
+  if (!response) return output
+
+  const body = response.body
+  if (typeof body !== "string") return output
+
+  const bodyCharacters = getNumber(response.bodyCharacters) ?? body.length
+  const bodyTruncatedForDisplay =
+    body.length > WEB_FETCH_BODY_PREVIEW_CHARS ||
+    response.bodyTruncatedForTransport === true
+  return {
+    ...response,
+    body: bodyTruncatedForDisplay
+      ? body.slice(0, WEB_FETCH_BODY_PREVIEW_CHARS)
+      : body,
+    bodyCharacters,
+    bodyTruncatedForDisplay,
   }
 }
 
@@ -901,6 +940,12 @@ function getRecord(value: unknown): Record<string, unknown> | undefined {
 
 function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined
 }

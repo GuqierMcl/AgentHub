@@ -83,6 +83,11 @@ export class RuntimePermissionService {
     return this.requests.get(requestId) ?? null
   }
 
+  getRequestForToolCall(runId: string, toolCallId: string): RuntimePermissionRequest | null {
+    const requestId = this.requestsByToolCall.get(`${runId}|${toolCallId}`)
+    return requestId ? this.requests.get(requestId) ?? null : null
+  }
+
   decide(
     requestId: string,
     decision: RuntimePermissionDecision,

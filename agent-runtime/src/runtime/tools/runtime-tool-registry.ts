@@ -11,6 +11,7 @@ import type {
 } from "./types"
 import type { AgentAuthoringToolOption, AgentPermissionPolicy } from "../../agents"
 import { createRunTaskTool } from "./run-task-tool"
+import { createWebFetchTool } from "./web-fetch-tool"
 import { createWorkspaceTools } from "./workspace-tools"
 import { createWritePlanTool } from "./write-plan-tool"
 
@@ -315,5 +316,6 @@ export function createDefaultRuntimeToolRegistry(): RuntimeToolRegistry {
   for (const definition of createWorkspaceTools()) {
     registry.register(definition)
   }
+  registry.register(createWebFetchTool())
   return registry
 }

@@ -2,7 +2,12 @@ import { Hono, Context } from 'hono'
 import type { RuntimeClient } from '../lib/runtime'
 import type { Logger } from 'pino'
 import { config } from '../config'
-import type { HubRunEventEnvelope, RunPersistenceService } from '../services/run-persistence.service'
+import {
+  toProductHubRunEventEnvelope,
+  type HubRunEventEnvelope,
+  type RunPersistenceService,
+} from '../services/run-persistence.service'
+import { z } from 'zod'
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -13,9 +18,13 @@ declare module 'hono' {
 }
 
 const runs = new Hono()
+const PermissionDecisionSchema = z.object({
+  approved: z.boolean(),
+  reason: z.string().trim().min(1).optional(),
+}).strict()
 
-function encodeHubRunEvent(envelope: HubRunEventEnvelope): Uint8Array {
-  const payload = `event: run.event\ndata: ${JSON.stringify(envelope)}\n\n`
+export function encodeHubRunEvent(envelope: HubRunEventEnvelope): Uint8Array {
+  const payload = `event: run.event\ndata: ${JSON.stringify(toProductHubRunEventEnvelope(envelope))}\n\n`
   return new TextEncoder().encode(payload)
 }
 
@@ -91,6 +100,31 @@ runs.post('/api/runs/:runId/cancel', async (c: Context) => {
   const service = c.get('runPersistenceService')
   const runId = c.req.param('runId')!
   const result = await service.cancelRun(runId)
+  return c.json(result)
+})
+
+runs.post('/api/runs/:runId/permissions/:requestId/decision', async (c: Context) => {
+  const service = c.get('runPersistenceService')
+  const runId = c.req.param('runId')!
+  const requestId = c.req.param('requestId')!
+  const body = await c.req.json().catch(() => null)
+  const parsed = PermissionDecisionSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({
+      error: {
+        code: 'PERMISSION_INVALID_INPUT',
+        message: 'Invalid permission decision input',
+        details: parsed.error.issues,
+      },
+    }, 400)
+  }
+
+  const result = await service.decidePermission(
+    runId,
+    requestId,
+    parsed.data.approved,
+    parsed.data.reason,
+  )
   return c.json(result)
 })
 
