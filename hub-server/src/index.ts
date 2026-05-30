@@ -82,4 +82,5 @@ export default {
   port: config.port,
   hostname: config.hostname,
   fetch: app.fetch,
+  idleTimeout: 60,
 }
