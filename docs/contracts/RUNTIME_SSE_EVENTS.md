@@ -244,5 +244,27 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 - 循环引用转为 `"[Circular]"`。
 - 已知主 workspace root 和授权外部路径会被替换为 `[workspace-root]` 或 `[external-path]`。
 - `path` / `file` / `root` 类字段中的未知绝对路径会被泛化为 `[absolute-path]/<basename>`。
+- `web_fetch` 的审批事件不包含请求 headers 或 body；`data.data.url` 会移除用户名、密码、hash，并把 query 脱敏为 `?redacted`，同时保留 `host` 和 `method` 供用户判断。
 
 `raw` part 可能包含 provider 原始内容，默认关闭。需要调试 provider 新特性时，调用方必须显式设置 `includeRawModelChunks=true`。
+
+## 9. Network Permission Payload
+
+`web_fetch` 在 `permissionPolicy.network = "limited"` 时产生标准 `permission.requested`。事件的 `data` 仍是 Runtime permission request 记录，其中 `data.data` 包含网络审批摘要：
+
+```json
+{
+  "requestId": "permission_xxx",
+  "toolName": "web_fetch",
+  "status": "pending",
+  "data": {
+    "permissionType": "network_access",
+    "approvalReason": "network_request",
+    "method": "GET",
+    "url": "https://example.com/search?redacted",
+    "host": "example.com"
+  }
+}
+```
+
+批准后 Runtime 发送 `permission.approved`，并在同一 `runId + toolCallId` 上继续执行 `web_fetch`；拒绝后发送 `permission.denied` 和 `tool.failed(TOOL_EXECUTION_DENIED)`。

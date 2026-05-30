@@ -25,6 +25,7 @@ Runtime Tools 是由 Agent Runtime 统一实现和托管的内部工具，例如
 - `write_plan`
 - 只读上下文检索类工具
 - 文件操作类工具
+- 网络请求类工具
 - 部署类工具
 
 这类工具属于 Runtime 的能力边界，必须由注册表和权限系统统一控制。
@@ -311,6 +312,7 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 `write_plan` 默认不需要审批，因为它只记录计划，不执行外部副作用。
 `ls`、`read_file`、`glob`、`grep` 需要 `filesystem: "read"`，其 `approvalPolicy = "contextual"`：workspace 内普通读取直接执行；显式读取敏感文件、沙箱外读取或沙箱外敏感文件读取会创建权限请求。
 `write_file`、`edit_file` 需要 `filesystem: "write"`，其 `approvalPolicy = "contextual"`：workspace 内普通文件修改直接执行；workspace 内敏感文件写入、沙箱外写入或沙箱外敏感文件写入会创建权限请求和 scoped write grant。
+`web_fetch` 需要 `network: "limited"`，其 `approvalPolicy = "contextual"`：`permissionPolicy.network = "none"` 直接拒绝，`limited` 先产生 `permission.requested`，用户批准后同一 `runId + toolCallId` 不再重复审批并恢复请求，`full` 直接执行。第一版只允许 `http:` / `https:` 协议，不做域名 allowlist、私网拦截、Cookie jar、multipart builder 或二进制响应解析。
 文件系统类工具应通过 `docs/architecture/AGENT_RUNTIME_BACKEND.md` 定义的 Workspace Backend 访问真实存储；本地文件系统只是第一版后端实现。
 
 ### 10.1 审批续跑
@@ -390,4 +392,5 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 沙箱外读取、workspace 内敏感文件显式读取、沙箱外敏感文件显式读取均已支持 `waiting_approval` 与同一 Run 的 AI SDK continuation；`ls` / `glob` 隐藏敏感文件，目录递归 `grep` 跳过敏感文件。
 - 写文件工具已支持 per-run workspace：`write_file` 进行 UTF-8 文本创建/覆盖，`edit_file` 进行精确 search/replace；普通 workspace 内文件修改无需审批，敏感和沙箱外写入通过 write grant 审批续跑。
 - `AiSdkExecutor` 已可接收工具注册表；只有模型支持 tools 且当前 agent 存在可见工具时，才会向 AI SDK 注入工具定义。
-- 当前仍未开放部署、shell、网络等高风险工具，后续新工具必须先补齐命名、风险等级、审批与事件语义。
+- 当前仍未开放部署、shell 等高风险工具，后续新工具必须先补齐命名、风险等级、审批与事件语义。
+- `web_fetch` 已作为首个网络类 Runtime Tool 开放给系统预设主智能体；用户自定义智能体仍不能在 authoring options 中选择网络工具。

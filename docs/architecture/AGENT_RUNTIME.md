@@ -208,6 +208,7 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*`、`model.stream.part`、`reasoning.*` 与完整 `permission.*` 事件。
 - Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取、沙箱外敏感读取、敏感写入和沙箱外写入请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
 - `write_file` / `edit_file` 已开放给 `coder`、`writer` 和 `file` 子智能体；用户自定义智能体也可在显式配置 `filesystem: "write"` 后选择这些工具。
+- `web_fetch` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.network = "full"`，可直接执行 HTTP(S) 请求；`opencode` 的网络策略也为 `full`，但外部适配器不注入 Runtime Tool。用户自定义智能体暂不开放网络工具。
 
 尚未完全闭环的部分：
 
@@ -303,6 +304,8 @@ workspace?: {
 Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。workspace 内 `.env`、`AGENTS.md`、`.npmrc`、密钥文件和 VCS 元数据等敏感路径的显式内容读写也必须审批；`ls` / `glob` 隐藏敏感路径，目录递归 `grep` 跳过敏感文件。workspace 内普通文件写入和 search/replace 编辑在 agent 具备 `filesystem: "write"` 时直接执行，不逐次审批。
 
 Runtime 通过每个 Run 独立的 `RuntimePermissionService` 存储内存态审批请求。AI SDK 的 `needsApproval` 会结束当次生成并返回 approval request；Runtime 将对应执行分支保存为 continuation frame。收到决定后追加 `tool-approval-response` 并再次执行同一分支，保持原始 `runId`、`toolCallId`、`agentId`、`taskId`、`parentAgentId` 和 `groupId`。同一 frame 的多个审批请求全部决定后只恢复一次；其他并行分支不会因单个审批失败而自动取消。
+
+网络权限沿用现有三档 `permissionPolicy.network` 表达三态：`none = deny`、`limited = ask`、`full = allow`。`web_fetch` 在 `limited` 下会创建 `permissionType = "network_access"`、`approvalReason = "network_request"` 的权限请求，并在批准后用同一个 `toolCallId` 继续执行；HTTP 4xx/5xx 是正常工具结果，超时、网络异常、取消、响应体超过 `maxResponseBytes` 才是工具失败。
 
 ### 3.7 事件流输出
 

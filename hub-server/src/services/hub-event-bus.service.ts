@@ -1,4 +1,5 @@
 import { generateId } from '../lib/id'
+import { logger } from '../lib/logger'
 
 export type HubGlobalEventType =
   | 'conversation.updated'
@@ -31,6 +32,8 @@ export class HubEventBus {
       timestamp: new Date().toISOString(),
       data,
     }
+
+    logger.debug({ event: event.id, type: event.type, data: event.data }, 'HubEventBus: event published')
 
     for (const listener of this.listeners) {
       try {

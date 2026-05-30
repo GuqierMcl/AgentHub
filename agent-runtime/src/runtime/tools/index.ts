@@ -1,5 +1,6 @@
 export { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./runtime-tool-registry"
 export { createRunTaskTool } from "./run-task-tool"
+export { createWebFetchTool, WebFetchInputSchema } from "./web-fetch-tool"
 export { createWritePlanTool } from "./write-plan-tool"
 export { createWorkspaceReadOnlyTools, createWorkspaceWriteTools, createWorkspaceTools } from "./workspace-tools"
 export {
@@ -8,6 +9,7 @@ export {
   WritePlanTaskSchema,
 } from "./write-plan-tool"
 export type { WritePlanInput } from "./write-plan-tool"
+export type { WebFetchInput, WebFetchResult } from "./web-fetch-tool"
 export type {
   AiSdkToolSettings,
   RuntimeToolExecuteOptions,

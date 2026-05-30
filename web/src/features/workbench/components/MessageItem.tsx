@@ -48,6 +48,8 @@ import {
 } from "@/components/ai-elements/tool"
 import {
   Confirmation,
+  ConfirmationAction,
+  ConfirmationActions,
   ConfirmationAccepted,
   ConfirmationRejected,
   ConfirmationRequest,
@@ -67,6 +69,7 @@ import type {
   WorkbenchTimelineTaskItem,
   WorkbenchTimelineToolItem,
 } from "../types"
+import { conversationMessagesApi } from "../api/messages"
 import { AgentAvatar } from "./AgentAvatar"
 import { ArtifactPreview } from "./ArtifactPreview"
 
@@ -296,10 +299,32 @@ function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
 }
 
 function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }) {
+  const [submitting, setSubmitting] = useState<"approve" | "deny" | null>(null)
+  const [submitted, setSubmitted] = useState<"approve" | "deny" | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const approval: NonNullable<ConfirmationProps["approval"]> =
     item.approved === undefined
       ? { id: item.requestId }
       : { id: item.requestId, approved: item.approved }
+  const isPending = item.status === "approval-requested" && item.approved === undefined
+  const actionsDisabled = submitting !== null || (isPending && submitted !== null)
+
+  const decidePermission = useCallback(async (approved: boolean) => {
+    setSubmitting(approved ? "approve" : "deny")
+    setError(null)
+    try {
+      await conversationMessagesApi.decidePermission(item.runId, item.requestId, {
+        approved,
+        reason: approved ? "Approved from AgentHub UI." : "Denied from AgentHub UI.",
+      })
+      setSubmitted(approved ? "approve" : "deny")
+    } catch (err) {
+      setSubmitted(null)
+      setError(err instanceof Error ? err.message : "Permission decision failed")
+    } finally {
+      setSubmitting(null)
+    }
+  }, [item.requestId, item.runId])
 
   return (
     <Confirmation
@@ -319,6 +344,36 @@ function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }
           Permission denied for {item.toolName ?? "tool"}.
         </ConfirmationRejected>
       </ConfirmationTitle>
+      <ConfirmationActions>
+        <ConfirmationAction
+          aria-label="Deny permission"
+          disabled={actionsDisabled}
+          onClick={() => void decidePermission(false)}
+          variant="destructive"
+        >
+          {submitting === "deny" ? (
+            <Loader2Icon data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <XCircleIcon data-icon="inline-start" />
+          )}
+          Deny
+        </ConfirmationAction>
+        <ConfirmationAction
+          aria-label="Approve permission"
+          disabled={actionsDisabled}
+          onClick={() => void decidePermission(true)}
+        >
+          {submitting === "approve" ? (
+            <Loader2Icon data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <CheckIcon data-icon="inline-start" />
+          )}
+          Approve
+        </ConfirmationAction>
+      </ConfirmationActions>
+      {error ? (
+        <div className="text-destructive text-xs">{error}</div>
+      ) : null}
     </Confirmation>
   )
 }

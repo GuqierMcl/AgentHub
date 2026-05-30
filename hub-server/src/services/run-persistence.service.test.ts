@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { RuntimeEventBatcher } from './run-persistence.service'
+import {
+  RuntimeEventBatcher,
+  isRetryableRuntimeEventStreamError,
+} from './run-persistence.service'
 
 describe('RuntimeEventBatcher', () => {
   it('flushes items in arrival order when max batch size is reached', async () => {
@@ -50,5 +53,20 @@ describe('RuntimeEventBatcher', () => {
 
     await expect(batcher.enqueue(1)).rejects.toThrow('write failed')
     await expect(batcher.enqueue(2)).rejects.toThrow('write failed')
+  })
+})
+
+describe('isRetryableRuntimeEventStreamError', () => {
+  it('treats socket resets from runtime SSE as retryable', () => {
+    const error = Object.assign(
+      new Error('The socket connection was closed unexpectedly.'),
+      { code: 'ECONNRESET' },
+    )
+
+    expect(isRetryableRuntimeEventStreamError(error)).toBe(true)
+  })
+
+  it('does not retry non-transport parsing errors', () => {
+    expect(isRetryableRuntimeEventStreamError(new SyntaxError('bad json'))).toBe(false)
   })
 })

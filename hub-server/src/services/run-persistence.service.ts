@@ -2,7 +2,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { AppError, notFound } from '../lib/errors'
 import type { RuntimeClient } from '../lib/runtime'
 import { logger } from '../lib/logger'
-import type { RunStatus, MessageSurface } from '../lib/types'
+import type { RunStatus, MessageSurface, PermissionType } from '../lib/types'
 import {
   findConversationWithAgents,
   updateConversation,
@@ -339,6 +339,8 @@ const RAW_EVENT_MAX_BUFFERED_ITEMS = 500
 const PROJECTION_FLUSH_INTERVAL_MS = 150
 const PROJECTION_MAX_BATCH_SIZE = 100
 const PROJECTION_MAX_BUFFERED_ITEMS = 500
+const RUNTIME_EVENT_STREAM_MAX_RETRIES = 2
+const RUNTIME_EVENT_STREAM_RETRY_DELAY_MS = 250
 
 export class RunPersistenceService {
   private consumers = new Map<string, AbortController>()
@@ -505,6 +507,37 @@ export class RunPersistenceService {
     return this.toActiveRunSnapshot(latest)
   }
 
+  async decidePermission(
+    runId: string,
+    requestId: string,
+    approved: boolean,
+    reason?: string,
+  ): Promise<unknown> {
+    const run = await findRunById(runId)
+    if (!run) {
+      throw notFound('RUN_NOT_FOUND', 'Run 不存在')
+    }
+    if (!run.runtimeId) {
+      throw new AppError(409 as ContentfulStatusCode, 'PERMISSION_RUN_NOT_ACTIVE', 'Run 尚未绑定 Runtime 执行实例')
+    }
+
+    const response = await this.runtimeClient.forward(
+      'POST',
+      `/runtime/runs/${encodeURIComponent(run.runtimeId)}/permissions/${encodeURIComponent(requestId)}/decision`,
+      { approved, reason },
+      { raw: true },
+    )
+    if (response.status < 200 || response.status >= 300) {
+      throw new AppError(
+        response.status as ContentfulStatusCode,
+        getRuntimeErrorCode(response.data) ?? 'PERMISSION_DECISION_FAILED',
+        getRuntimeErrorMessage(response.data),
+      )
+    }
+
+    return response.data
+  }
+
   async listRunEventsAfter(
     runId: string,
     afterSequence: number,
@@ -514,7 +547,7 @@ export class RunPersistenceService {
       throw notFound('RUN_NOT_FOUND', 'Run 不存在')
     }
     const events = await listRunEventsByRunAfterSequence(runId, afterSequence)
-    return events.flatMap(toHubEnvelope)
+    return events.flatMap(toProductHubEnvelope)
   }
 
   async ensureConversationProjectionCaughtUp(conversationId: string): Promise<void> {
@@ -663,7 +696,7 @@ export class RunPersistenceService {
           triggerMessage: triggerMessageRecord
             ? toPersistedMessage(triggerMessageRecord as Record<string, unknown>)
             : null,
-          events: events.flatMap(toHubEnvelope),
+          events: events.flatMap(toProductHubEnvelope),
         }
       }),
     )
@@ -719,46 +752,93 @@ export class RunPersistenceService {
     })
 
     try {
-      const response = await this.runtimeClient.stream(
-        `/runtime/runs/${encodeURIComponent(runtimeRunId)}/events`,
-        { signal: abortController.signal },
-      )
-      if (!response.ok || !response.body) {
-        await updateRun(runId, {
-          status: 'failed',
-          errorJson: { message: `Runtime event stream failed (${response.status})` },
-          completedAt: new Date().toISOString(),
-        })
-        const failedRun = await findRunById(runId)
-        if (failedRun) {
-          this.publishRunStatusChanged(failedRun, 'failed')
-          this.publishTerminalRunStatus(failedRun, 'failed')
-        }
-        return
-      }
+      let retryCount = 0
+      let reachedTerminal = false
 
-      for await (const event of readSseRuntimeEvents(response.body)) {
-        await rawBatcher.enqueue(event, {
-          forceFlush: this.isTerminalRunEvent(event),
-        })
-        if (this.isTerminalRunEvent(event)) {
-          break
-        }
-      }
-      await rawBatcher.close()
-      await projectionBatcher.close()
-    } catch (error) {
-      if (!abortController.signal.aborted) {
-        logger.error({ err: error, runId, runtimeRunId }, 'Runtime event consumer failed')
-        await updateRun(runId, {
-          status: 'failed',
-          errorJson: { message: error instanceof Error ? error.message : 'Runtime event consumer failed' },
-          completedAt: new Date().toISOString(),
-        })
-        const failedRun = await findRunById(runId)
-        if (failedRun) {
-          this.publishRunStatusChanged(failedRun, 'failed')
-          this.publishTerminalRunStatus(failedRun, 'failed')
+      while (!reachedTerminal) {
+        try {
+          const response = await this.runtimeClient.stream(
+            `/runtime/runs/${encodeURIComponent(runtimeRunId)}/events`,
+            { signal: abortController.signal },
+          )
+          if (!response.ok || !response.body) {
+            await this.failRuntimeConsumerRun(
+              runId,
+              `Runtime event stream failed (${response.status})`,
+            )
+            return
+          }
+
+          for await (const event of readSseRuntimeEvents(response.body)) {
+            await rawBatcher.enqueue(event, {
+              forceFlush: this.isTerminalRunEvent(event),
+            })
+            if (this.isTerminalRunEvent(event)) {
+              reachedTerminal = true
+              break
+            }
+          }
+
+          await rawBatcher.flush()
+          await projectionBatcher.flush()
+          if (reachedTerminal || await this.isLocalRunTerminal(runId)) {
+            break
+          }
+
+          if (retryCount >= RUNTIME_EVENT_STREAM_MAX_RETRIES) {
+            throw new Error('Runtime event stream ended before terminal event')
+          }
+
+          retryCount += 1
+          logger.warn(
+            { runId, runtimeRunId, retryCount },
+            'Runtime event stream ended before terminal event; retrying',
+          )
+          await delayRuntimeEventStreamRetry(retryCount)
+        } catch (error) {
+          if (abortController.signal.aborted) {
+            break
+          }
+
+          try {
+            await rawBatcher.flush()
+            await projectionBatcher.flush()
+          } catch (flushError) {
+            logger.error({ err: flushError, runId, runtimeRunId }, 'Runtime event consumer flush failed')
+            await this.failRuntimeConsumerRun(
+              runId,
+              flushError instanceof Error ? flushError.message : 'Runtime event consumer flush failed',
+            )
+            return
+          }
+
+          if (await this.isLocalRunTerminal(runId)) {
+            logger.warn(
+              { err: error, runId, runtimeRunId },
+              'Runtime event stream interrupted after terminal event was persisted',
+            )
+            break
+          }
+
+          if (
+            isRetryableRuntimeEventStreamError(error) &&
+            retryCount < RUNTIME_EVENT_STREAM_MAX_RETRIES
+          ) {
+            retryCount += 1
+            logger.warn(
+              { err: error, runId, runtimeRunId, retryCount },
+              'Runtime event stream interrupted; retrying',
+            )
+            await delayRuntimeEventStreamRetry(retryCount)
+            continue
+          }
+
+          logger.error({ err: error, runId, runtimeRunId }, 'Runtime event consumer failed')
+          await this.failRuntimeConsumerRun(
+            runId,
+            error instanceof Error ? error.message : 'Runtime event consumer failed',
+          )
+          return
         }
       }
     } finally {
@@ -771,6 +851,26 @@ export class RunPersistenceService {
       this.projectionBatchers.delete(runId)
       this.consumers.delete(runId)
     }
+  }
+
+  private async isLocalRunTerminal(runId: string): Promise<boolean> {
+    const run = await findRunById(runId)
+    return this.isTerminalRunStatus(run?.status)
+  }
+
+  private async failRuntimeConsumerRun(runId: string, message: string): Promise<void> {
+    const latest = await findRunById(runId)
+    if (!latest || this.isTerminalRunStatus(latest.status)) {
+      return
+    }
+
+    const failedRun = await updateRun(runId, {
+      status: 'failed',
+      errorJson: { message },
+      completedAt: new Date().toISOString(),
+    })
+    this.publishRunStatusChanged(failedRun, 'failed')
+    this.publishTerminalRunStatus(failedRun, 'failed')
   }
 
   private async persistRuntimeEventBatch(
@@ -1623,9 +1723,19 @@ async function projectPermissionEvent(
   sequence: number,
 ): Promise<void> {
   const data = getEventDataRecord(event)
+  const requestData = getRecord(data.data)
   const requestId = getString(data.requestId) ?? event.toolCallId ?? event.id
   const status = mapPermissionStatus(event.type)
   const reason = getString(data.reason) ?? getString(data.message) ?? getString(data.summary) ?? null
+  const permissionType = normalizePermissionType(
+    getString(data.permissionType) ?? getString(requestData?.permissionType)
+  )
+  const target = getString(data.target) ??
+    getString(requestData?.url) ??
+    getString(requestData?.logicalPath) ??
+    getString(requestData?.host) ??
+    event.toolName ??
+    'tool'
 
   let request = await findPermissionRequestByRunAndRuntimeRequestId(run.id, requestId)
   if (!request) {
@@ -1643,14 +1753,14 @@ async function projectPermissionEvent(
       toolCallId: event.toolCallId ?? null,
       toolName: event.toolName ?? null,
       riskLevel: getString(data.riskLevel) ?? null,
-      permissionType: 'command_execute',
-      target: event.toolName ?? 'tool',
+      permissionType,
+      target,
       description: reason ?? 'Runtime permission request',
       status,
       reason,
       decisionReason: getString(data.decisionReason) ?? null,
       grantJson: getRecord(data.grant) ?? null,
-      dataJson: getRecord(data.data) ?? null,
+      dataJson: requestData ?? null,
       payloadJson: data,
       firstEventSequence: sequence,
       lastEventSequence: sequence,
@@ -2125,6 +2235,19 @@ function mapPermissionStatus(eventType: RuntimeRunEvent['type']) {
   }
 }
 
+function normalizePermissionType(value: string | undefined): PermissionType {
+  switch (value) {
+    case 'file_read':
+    case 'file_write':
+    case 'command_execute':
+    case 'network_access':
+    case 'deployment':
+      return value
+    default:
+      return 'command_execute'
+  }
+}
+
 function planToRecord(plan: RunPlanOutput): Record<string, unknown> {
   const payload = getRecord(plan.payloadJson) ?? {}
   return {
@@ -2291,10 +2414,93 @@ function toHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
   return [{ sequence: event.sequence, event: runtimeEvent }]
 }
 
+function toProductHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
+  return toHubEnvelope(event).map(toProductHubRunEventEnvelope)
+}
+
+export function toProductHubRunEventEnvelope(
+  envelope: HubRunEventEnvelope,
+): HubRunEventEnvelope {
+  return {
+    ...envelope,
+    event: toProductRuntimeEvent(envelope.event),
+  }
+}
+
+function toProductRuntimeEvent(event: RuntimeRunEvent): RuntimeRunEvent {
+  if (event.type !== 'tool.completed' || event.toolName !== 'web_fetch') {
+    return event
+  }
+
+  const data = getRecord(event.data)
+  if (!data) return event
+
+  const outputKey = getRecord(data.data) ? 'data' : getRecord(data.result) ? 'result' : null
+  if (!outputKey) return event
+
+  const output = getRecord(data[outputKey])
+  if (!output) return event
+
+  return {
+    ...event,
+    data: {
+      ...data,
+      [outputKey]: toWebFetchUiSummary(output),
+    },
+  }
+}
+
+function toWebFetchUiSummary(output: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(output)) {
+    if (key !== 'body' && key !== 'headers') {
+      summary[key] = value
+    }
+  }
+
+  const body = output.body
+  const headers = getRecord(output.headers)
+  return {
+    ...summary,
+    ...(headers ? { headerCount: Object.keys(headers).length } : {}),
+    ...(typeof body === 'string' ? { bodyCharacters: body.length } : {}),
+    bodyOmittedForUi: true,
+  }
+}
+
 function toSequencedRuntimeEvent(event: RunEventOutput): SequencedRuntimeEvent[] {
   const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
   if (!runtimeEvent) return []
   return [{ sequence: event.sequence, event: runtimeEvent }]
+}
+
+export function isRetryableRuntimeEventStreamError(error: unknown): boolean {
+  if (error instanceof AppError && error.code === 'RUNTIME_NOT_READY') {
+    return true
+  }
+
+  const record = getRecord(error)
+  const code = getString(record?.code)
+  const name = error instanceof Error
+    ? error.name
+    : getString(record?.name)
+  const message = error instanceof Error
+    ? error.message
+    : getString(record?.message) ?? ''
+
+  return code === 'ECONNRESET' ||
+    code === 'EPIPE' ||
+    code === 'ETIMEDOUT' ||
+    name === 'AbortError' ||
+    message.includes('socket connection was closed unexpectedly') ||
+    message.includes('fetch failed') ||
+    message.includes('terminated')
+}
+
+function delayRuntimeEventStreamRetry(retryCount: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, RUNTIME_EVENT_STREAM_RETRY_DELAY_MS * retryCount)
+  })
 }
 
 async function* readSseRuntimeEvents(
@@ -2411,4 +2617,15 @@ function getRuntimeErrorMessage(data: unknown): string {
   }
   if (typeof record.message === 'string') return record.message
   return 'Runtime run creation failed'
+}
+
+function getRuntimeErrorCode(data: unknown): string | undefined {
+  const record = normalizeRuntimeError(data)
+  const nested = record.error
+  if (typeof nested === 'object' && nested !== null) {
+    const code = (nested as Record<string, unknown>).code
+    if (typeof code === 'string') return code
+  }
+  if (typeof record.code === 'string') return record.code
+  return undefined
 }
