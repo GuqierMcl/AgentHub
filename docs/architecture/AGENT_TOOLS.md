@@ -26,6 +26,7 @@ Runtime Tools 是由 Agent Runtime 统一实现和托管的内部工具，例如
 - 只读上下文检索类工具
 - 文件操作类工具
 - 网络请求类工具
+- Shell 命令类工具
 - 部署类工具
 
 这类工具属于 Runtime 的能力边界，必须由注册表和权限系统统一控制。
@@ -49,6 +50,7 @@ Adapter Tools 属于外部智能体平台内部的工具模型，例如 OpenCode
 - 不建议引入复杂命名空间，除非后续出现明确冲突。
 - `run_task` 是保留名，表示内部任务委派原语。
 - `write_plan` 是保留名，表示 Orchestrator 的 UI 可渲染计划写入原语。
+- `bash` 是保留名，表示 Runtime 托管的非交互式平台 shell 命令执行工具；工具名固定为 `bash`，但底层不保证是 GNU Bash。
 
 建议风格：
 
@@ -106,6 +108,7 @@ type ToolDefinition = {
   requiredPermissions: Partial<AgentPermissionPolicy>
   approvalPolicy: "never" | "contextual" | "always"
   configurableByUserAgent: boolean
+  prepareExecution?: (input: unknown, context: ToolExecutionContext) => Promise<ToolPreflightDecision | null>
   prepareApproval?: (input: unknown, context: ToolExecutionContext) => Promise<ToolApprovalDraft | null>
   internal?: boolean
   execute(input: unknown, context: unknown): Promise<unknown>
@@ -313,6 +316,7 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 `ls`、`read_file`、`glob`、`grep` 需要 `filesystem: "read"`，其 `approvalPolicy = "contextual"`：workspace 内普通读取直接执行；显式读取敏感文件、沙箱外读取或沙箱外敏感文件读取会创建权限请求。
 `write_file`、`edit_file` 需要 `filesystem: "write"`，其 `approvalPolicy = "contextual"`：workspace 内普通文件修改直接执行；workspace 内敏感文件写入、沙箱外写入或沙箱外敏感文件写入会创建权限请求和 scoped write grant。
 `web_fetch` 需要 `network: "limited"`，其 `approvalPolicy = "contextual"`：`permissionPolicy.network = "none"` 直接拒绝，`limited` 先产生 `permission.requested`，用户批准后同一 `runId + toolCallId` 不再重复审批并恢复请求，`full` 直接执行。第一版只允许 `http:` / `https:` 协议，不做域名 allowlist、私网拦截、Cookie jar、multipart builder 或二进制响应解析。
+`bash` 需要 `shell: "limited"`，其 `approvalPolicy = "contextual"`：`permissionPolicy.shell = "none"` 直接拒绝，随后由 `AgentDefinition.toolPermissionRules.bash` 的命令级规则决定 `allow | ask | deny`。规则按插入顺序匹配且最后匹配生效，支持 `*` / `?` 简单 wildcard；`ask` 产生 `permissionType = "command_execute"`、`approvalReason = "bash_command"` 的权限请求，批准后同一 `runId + toolCallId` 直接执行，`deny` 在 `tool.started` 前返回 `BASH_COMMAND_DENIED`。完整契约见 `docs/architecture/BASH_TOOL.md`。
 文件系统类工具应通过 `docs/architecture/AGENT_RUNTIME_BACKEND.md` 定义的 Workspace Backend 访问真实存储；本地文件系统只是第一版后端实现。
 
 ### 10.1 审批续跑
@@ -387,10 +391,11 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - `write_plan` 通过 `tool.completed.data.plan` 输出 UI 可渲染计划，只产生 `tool.*` 事件，不产生 `task.*` 事件。
 - 已将 `run_task` 正式封装为 Runtime Tool，且仅 `orchestrator` 可见、可调用。
 - `run_task` 单次只拉起一个目标智能体执行一个任务，返回统一结构化结果。
+- 已将 `bash` 正式封装为 Runtime Tool，开放给内部预设主智能体；命令级规则写入 agent schema，用户自定义智能体暂不开放 shell。
 - `tool.*` 以及 `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 已纳入 RunEvent 协议。
 - 只读文件工具已支持 per-run workspace：未绑定 workspace 的 Run 可继续纯对话，但文件工具返回 `WORKSPACE_NOT_BOUND`。
 - 沙箱外读取、workspace 内敏感文件显式读取、沙箱外敏感文件显式读取均已支持 `waiting_approval` 与同一 Run 的 AI SDK continuation；`ls` / `glob` 隐藏敏感文件，目录递归 `grep` 跳过敏感文件。
 - 写文件工具已支持 per-run workspace：`write_file` 进行 UTF-8 文本创建/覆盖，`edit_file` 进行精确 search/replace；普通 workspace 内文件修改无需审批，敏感和沙箱外写入通过 write grant 审批续跑。
 - `AiSdkExecutor` 已可接收工具注册表；只有模型支持 tools 且当前 agent 存在可见工具时，才会向 AI SDK 注入工具定义。
-- 当前仍未开放部署、shell 等高风险工具，后续新工具必须先补齐命名、风险等级、审批与事件语义。
+- 当前仍未开放部署等高风险工具，后续新工具必须先补齐命名、风险等级、审批与事件语义。
 - `web_fetch` 已作为首个网络类 Runtime Tool 开放给系统预设主智能体；用户自定义智能体仍不能在 authoring options 中选择网络工具。

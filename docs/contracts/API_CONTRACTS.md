@@ -99,6 +99,12 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `TOOL_EXECUTION_DENIED` | 403 | 用户拒绝了该工具审批请求 |
 | `TOOL_EXECUTION_FAILED` | 502 | 工具执行失败 |
 | `TOOL_EXECUTION_ABORTED` | 499 | 工具执行被取消或中止 |
+| `BASH_COMMAND_DENIED` | 403 | `bash` 命令被命令级权限规则拒绝 |
+| `BASH_INVALID_CWD` | 400 | `bash` 的 `cwd` 不是 workspace-relative 路径 |
+| `BASH_TIMEOUT` | 504 | `bash` 命令超时 |
+| `BASH_SPAWN_FAILED` | 502 | `bash` 底层 shell 进程启动失败 |
+| `BASH_OUTPUT_TOO_LARGE` | 413 | `bash` 输出超过内部缓冲保护上限 |
+| `BASH_EXECUTION_FAILED` | 502 | `bash` 执行层发生非预期失败 |
 | `NETWORK_INVALID_URL` | 400 | `web_fetch` URL 无效 |
 | `NETWORK_UNSUPPORTED_PROTOCOL` | 400 | `web_fetch` URL 协议不是 `http:` 或 `https:` |
 | `NETWORK_TIMEOUT` | 504 | `web_fetch` 请求超时 |
@@ -218,12 +224,20 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "enabled": true
   },
   "allowedSubagents": ["explore", "general", "file", "deploy"],
-  "allowedTools": ["write_plan", "run_task", "web_fetch"],
+  "allowedTools": ["write_plan", "run_task", "web_fetch", "bash"],
   "permissionPolicy": {
     "filesystem": "none",
-    "shell": "none",
+    "shell": "limited",
     "network": "full",
     "deploy": "none"
+  },
+  "toolPermissionRules": {
+    "bash": {
+      "*": "ask",
+      "pwd": "allow",
+      "pwd *": "allow",
+      "rm *": "deny"
+    }
   }
 }
 ```
@@ -326,7 +340,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 规则：
 
 - `tools` 从注册工具的 Tool Catalog 投影，只返回 `configurableByUserAgent = true` 且非 internal 的工具；不在路由或 CRUD 中维护重复白名单。
-- `write_plan`、`run_task` 不会出现在 `tools` 中。
+- `write_plan`、`run_task`、`web_fetch`、`bash` 不会出现在 `tools` 中。
 - `approvalPolicy = "contextual"` 表示是否审批取决于运行上下文；读工具在敏感/沙箱外读取时触发审批，写工具在敏感/沙箱外写入时触发审批。
 - `capabilityTags` 是推荐标签字符串数组，不是强枚举；创建和更新自定义智能体时 `capabilities` 仍允许自定义字符串数组，例如 `["Thinking"]`。
 - `subagents` 只返回可配置到 `allowedSubagents` 的启用隐藏子智能体摘要，不改变隐藏子智能体不可直接调用的规则。
@@ -361,7 +375,8 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "network": "none",
     "deploy": "none"
   },
-  "enabled": true
+  "enabled": true,
+  "toolPermissionRules": {}
 }
 ```
 
@@ -371,7 +386,8 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `id` 只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
 - `allowedTools` 只允许 Tool Catalog 暴露为用户可配置的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。
-- `write_plan`、`run_task`、`web_fetch` 和其他高风险工具不能授予用户自定义智能体。
+- `write_plan`、`run_task`、`web_fetch`、`bash` 和其他高风险工具不能授予用户自定义智能体。
+- `toolPermissionRules.bash` 暂不允许用户自定义智能体配置；非空对象返回 `AGENT_INVALID_INPUT`。
 - `permissionPolicy` 中 `shell` / `network` / `deploy` 必须为 `none`。
 - 若选择了读取工具，`permissionPolicy.filesystem` 至少为 `read`；若选择了写入工具，必须显式为 `write`。Runtime 不自动升级智能体权限。
 - 模型绑定不属于 CRUD 主体流程；创建后继续使用 `PUT /runtime/agents/:agentId/model` 配置模型。
@@ -1175,9 +1191,11 @@ type RunEvent = {
 - `sensitive_write`：主 workspace 内敏感文件写入或编辑。
 - `external_sensitive_write`：沙箱外敏感文件写入或编辑；该场景只产生一次 combined approval。
 - `network_request`：`web_fetch` 网络请求审批；`data.permissionType = "network_access"`，并包含脱敏后的 `url`、`host` 与 `method`。
+- `bash_command`：`bash` 命令执行审批；`data.permissionType = "command_execute"`，并包含 `command`、`cwd`、`matchedRule`、`ruleAction` 与 `shell`。
 
 权限 API 响应不返回 workspace root 或授权目标的真实绝对路径。批准后的 read/write grant 若出现在响应中，也只返回 `grantId`、`mountId`、`scope`、`accessMode`、`allowSensitive`、`logicalPath` 等脱敏字段。
 `web_fetch` 权限请求不返回请求 headers 或 body，URL query 会脱敏。
+`bash` 权限请求不返回 workspace root 或宿主机绝对路径；`cwd` 是 workspace-relative 逻辑路径。
 
 ### `web_fetch` Runtime Tool
 
@@ -1214,6 +1232,59 @@ type WebFetchResult = {
 ```
 
 HTTP 4xx/5xx 仍是 `tool.completed`，由 `statusCode` 表达；网络异常、超时、取消、响应体超过 `maxResponseBytes` 才进入 `tool.failed`。响应 headers 会脱敏 `authorization`、`proxy-authorization`、`cookie`、`set-cookie`、`x-api-key`、`x-auth-token` 与 `api-key`。
+
+### `bash` Runtime Tool
+
+`bash` 是 Runtime Tool Catalog 中的非交互式命令执行工具。工具名固定为 `bash`，但底层 shell 由 Runtime 解析：Windows 默认 PowerShell，非 Windows 默认 `/bin/sh`；可通过 Runtime 环境变量覆盖。完整设计见 `docs/architecture/BASH_TOOL.md`。
+
+```ts
+type BashInput = {
+  command: string
+  cwd?: string
+  timeoutMs?: number
+  maxOutputBytes?: number
+  description?: string
+}
+```
+
+默认值：`cwd = "."`、`timeoutMs = 30000`、`maxOutputBytes = 131072`。`maxOutputBytes` 是 stdout + stderr 合计传输上限；`cwd` 必须是绑定 workspace 内的相对路径。
+
+```ts
+type BashResult = {
+  command: string
+  cwd: string
+  shell: string
+  exitCode: number | null
+  signal: string | null
+  stdout: string
+  stderr: string
+  stdoutBytes: number
+  stderrBytes: number
+  truncated: boolean
+  durationMs: number
+}
+```
+
+非零 `exitCode` 仍是 `tool.completed`；spawn 失败、超时、取消、缺少 workspace、非法 cwd、权限拒绝才进入 `tool.failed`。stdout/stderr 只包含截断后的 UTF-8 文本。
+
+`bash` 权限由两层组成：
+
+- `permissionPolicy.shell = "none"`：注册表返回 `TOOL_PERMISSION_DENIED`。
+- `toolPermissionRules.bash`：按规则决定单条命令 `allow | ask | deny`；最后匹配规则生效，支持 `*` / `?` wildcard。
+
+`ask` 产生 `permission.requested`，其 `data.data` 至少包含：
+
+```json
+{
+  "permissionType": "command_execute",
+  "approvalReason": "bash_command",
+  "command": "npm test",
+  "cwd": ".",
+  "matchedRule": "npm *",
+  "ruleAction": "ask",
+  "shell": "powershell.exe"
+}
+```
 
 ### 决定 Run 权限请求
 

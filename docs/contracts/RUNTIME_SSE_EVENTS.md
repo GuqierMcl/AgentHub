@@ -245,6 +245,7 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 - 已知主 workspace root 和授权外部路径会被替换为 `[workspace-root]` 或 `[external-path]`。
 - `path` / `file` / `root` 类字段中的未知绝对路径会被泛化为 `[absolute-path]/<basename>`。
 - `web_fetch` 的审批事件不包含请求 headers 或 body；`data.data.url` 会移除用户名、密码、hash，并把 query 脱敏为 `?redacted`，同时保留 `host` 和 `method` 供用户判断。
+- `bash` 的审批事件不包含 workspace root 或宿主机绝对路径；`data.data.cwd` 是 workspace-relative 逻辑路径。`bash` 工具结果中的 stdout/stderr 已按 `maxOutputBytes` 截断后进入 raw event。
 
 `raw` part 可能包含 provider 原始内容，默认关闭。需要调试 provider 新特性时，调用方必须显式设置 `includeRawModelChunks=true`。
 
@@ -268,3 +269,26 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 ```
 
 批准后 Runtime 发送 `permission.approved`，并在同一 `runId + toolCallId` 上继续执行 `web_fetch`；拒绝后发送 `permission.denied` 和 `tool.failed(TOOL_EXECUTION_DENIED)`。
+
+## 10. Command Permission Payload
+
+`bash` 在命令规则命中 `ask` 时产生标准 `permission.requested`。事件的 `data` 仍是 Runtime permission request 记录，其中 `data.data` 包含命令审批摘要：
+
+```json
+{
+  "requestId": "permission_xxx",
+  "toolName": "bash",
+  "status": "pending",
+  "data": {
+    "permissionType": "command_execute",
+    "approvalReason": "bash_command",
+    "command": "npm test",
+    "cwd": ".",
+    "matchedRule": "npm *",
+    "ruleAction": "ask",
+    "shell": "powershell.exe"
+  }
+}
+```
+
+批准后 Runtime 发送 `permission.approved`，并在同一 `runId + toolCallId` 上继续执行 `bash`；拒绝后发送 `permission.denied` 和 `tool.failed(TOOL_EXECUTION_DENIED)`。命令规则命中 `deny` 时不产生权限请求，也不产生 `tool.started`，直接输出 `tool.failed(BASH_COMMAND_DENIED)`。

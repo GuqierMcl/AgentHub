@@ -39,13 +39,13 @@ sequenceDiagram
 - 每条 Runtime event 先写 `RunEvent.payloadJson`，再尝试结构化投影。
 - HubServer 对每个 run 使用 raw event micro-batch，默认最多约 50ms 或 50 条事件落库一次；terminal event 强制 flush。
 - Runtime SSE 底层连接若发生 `ECONNRESET` 等可重试中断，HubServer 会先 flush 已读事件、确认本地是否已到达终态，再通过 Runtime events replay 重连补齐；只有重试后仍未获得 terminal event 的情况才将本地 Run 标记为 failed。
-- HubServer 在 raw event 成功落库后才向 `/api/runs/:runId/events` 订阅者发布 envelope，因此 live SSE 可能有约 50ms 的可控延迟，但不会发布不可 replay 的事件。产品 Run SSE 与 `timelineRuns` 可对大工具结果做 UI 摘要投影（例如 `web_fetch` 不向前端传输 response body，只保留 URL、状态码、bytes、耗时等摘要字段），以保护浏览器热路径；数据库中的 `RunEvent.payloadJson` 仍保留完整 raw event。
+- HubServer 在 raw event 成功落库后才向 `/api/runs/:runId/events` 订阅者发布 envelope，因此 live SSE 可能有约 50ms 的可控延迟，但不会发布不可 replay 的事件。产品 Run SSE 与 `timelineRuns` 可对大工具结果做 UI 摘要投影（例如 `web_fetch` 不向前端传输 response body，只保留 URL、状态码、bytes、耗时等摘要字段；`bash` 只向前端发送 stdout/stderr 预览、exit code、cwd、耗时和截断状态），以保护浏览器热路径；数据库中的 `RunEvent.payloadJson` 仍保留 Runtime raw event，但 `bash` raw event 本身已经只包含截断后的输出。
 - 高频 `message.delta` / `reasoning.delta` 的结构化投影合并写入，默认约 150ms flush 一次；`message.completed`、`reasoning.completed` 和 terminal event 会强制追平。
 - `Run.lastProjectedSequence` 记录结构化投影进度。读取会话消息或组装 Runtime history 前，HubServer 会从 raw `RunEvent` 补齐落后的 projection。
 - `system_agent.completed(systemAgentId="title")` 会在 `Conversation.metadataJson.titleSource !== "manual"` 时更新 `Conversation.title`，并写入 `titleSource = "auto"`。
 - `GET /api/conversations/:conversationId/messages` 返回消息快照、active run 快照、latest plan、runItems 和 `timelineRuns`。
 - `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes；大工具结果可能已被投影为 UI 摘要，完整 raw event 留在 `RunEvent.payloadJson`。
-- 权限请求先作为 raw Runtime event 落库，再投影到 `PermissionRequest`；投影优先使用事件 payload 中的 `permissionType`，例如 `web_fetch` 的 `network_access`。
+- 权限请求先作为 raw Runtime event 落库，再投影到 `PermissionRequest`；投影优先使用事件 payload 中的 `permissionType`，例如 `web_fetch` 的 `network_access` 和 `bash` 的 `command_execute`。
 
 ## 恢复规则
 

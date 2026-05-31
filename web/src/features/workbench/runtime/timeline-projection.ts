@@ -15,6 +15,7 @@ import type {
 type ChatSpeakerIds = Record<string, true>
 
 const WEB_FETCH_BODY_PREVIEW_CHARS = 12_000
+const BASH_OUTPUT_PREVIEW_CHARS = 12_000
 
 export function formatTimelineTime(date = new Date()): string {
   return date.toLocaleTimeString([], {
@@ -356,6 +357,9 @@ function getToolDisplayOutput(
   if (event.toolName === "web_fetch") {
     return formatWebFetchDisplayOutput(output)
   }
+  if (event.toolName === "bash") {
+    return formatBashDisplayOutput(output)
+  }
 
   return output
 }
@@ -378,6 +382,36 @@ function formatWebFetchDisplayOutput(output: unknown): unknown {
       : body,
     bodyCharacters,
     bodyTruncatedForDisplay,
+  }
+}
+
+function formatBashDisplayOutput(output: unknown): unknown {
+  const response = getRecord(output)
+  if (!response) return output
+
+  const stdout = typeof response.stdout === "string" ? response.stdout : ""
+  const stderr = typeof response.stderr === "string" ? response.stderr : ""
+  const stdoutCharacters = getNumber(response.stdoutCharacters) ?? stdout.length
+  const stderrCharacters = getNumber(response.stderrCharacters) ?? stderr.length
+  const stdoutTruncatedForDisplay =
+    stdout.length > BASH_OUTPUT_PREVIEW_CHARS ||
+    response.stdoutTruncatedForUi === true
+  const stderrTruncatedForDisplay =
+    stderr.length > BASH_OUTPUT_PREVIEW_CHARS ||
+    response.stderrTruncatedForUi === true
+
+  return {
+    ...response,
+    stdout: stdoutTruncatedForDisplay
+      ? stdout.slice(0, BASH_OUTPUT_PREVIEW_CHARS)
+      : stdout,
+    stderr: stderrTruncatedForDisplay
+      ? stderr.slice(0, BASH_OUTPUT_PREVIEW_CHARS)
+      : stderr,
+    stdoutCharacters,
+    stderrCharacters,
+    stdoutTruncatedForDisplay,
+    stderrTruncatedForDisplay,
   }
 }
 

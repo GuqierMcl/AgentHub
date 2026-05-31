@@ -341,6 +341,7 @@ const PROJECTION_MAX_BATCH_SIZE = 100
 const PROJECTION_MAX_BUFFERED_ITEMS = 500
 const RUNTIME_EVENT_STREAM_MAX_RETRIES = 2
 const RUNTIME_EVENT_STREAM_RETRY_DELAY_MS = 250
+const BASH_OUTPUT_UI_PREVIEW_CHARS = 12_000
 
 export class RunPersistenceService {
   private consumers = new Map<string, AbortController>()
@@ -2428,7 +2429,7 @@ export function toProductHubRunEventEnvelope(
 }
 
 function toProductRuntimeEvent(event: RuntimeRunEvent): RuntimeRunEvent {
-  if (event.type !== 'tool.completed' || event.toolName !== 'web_fetch') {
+  if (event.type !== 'tool.completed' && event.type !== 'tool.failed') {
     return event
   }
 
@@ -2441,13 +2442,27 @@ function toProductRuntimeEvent(event: RuntimeRunEvent): RuntimeRunEvent {
   const output = getRecord(data[outputKey])
   if (!output) return event
 
-  return {
-    ...event,
-    data: {
-      ...data,
-      [outputKey]: toWebFetchUiSummary(output),
-    },
+  if (event.toolName === 'web_fetch') {
+    return {
+      ...event,
+      data: {
+        ...data,
+        [outputKey]: toWebFetchUiSummary(output),
+      },
+    }
   }
+
+  if (event.toolName === 'bash') {
+    return {
+      ...event,
+      data: {
+        ...data,
+        [outputKey]: toBashUiSummary(output),
+      },
+    }
+  }
+
+  return event
 }
 
 function toWebFetchUiSummary(output: Record<string, unknown>): Record<string, unknown> {
@@ -2465,6 +2480,30 @@ function toWebFetchUiSummary(output: Record<string, unknown>): Record<string, un
     ...(headers ? { headerCount: Object.keys(headers).length } : {}),
     ...(typeof body === 'string' ? { bodyCharacters: body.length } : {}),
     bodyOmittedForUi: true,
+  }
+}
+
+function toBashUiSummary(output: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(output)) {
+    if (key !== 'stdout' && key !== 'stderr') {
+      summary[key] = value
+    }
+  }
+
+  const stdout = typeof output.stdout === 'string' ? output.stdout : ''
+  const stderr = typeof output.stderr === 'string' ? output.stderr : ''
+  const stdoutTruncatedForUi = stdout.length > BASH_OUTPUT_UI_PREVIEW_CHARS
+  const stderrTruncatedForUi = stderr.length > BASH_OUTPUT_UI_PREVIEW_CHARS
+
+  return {
+    ...summary,
+    stdout: stdoutTruncatedForUi ? stdout.slice(0, BASH_OUTPUT_UI_PREVIEW_CHARS) : stdout,
+    stderr: stderrTruncatedForUi ? stderr.slice(0, BASH_OUTPUT_UI_PREVIEW_CHARS) : stderr,
+    stdoutCharacters: stdout.length,
+    stderrCharacters: stderr.length,
+    stdoutTruncatedForUi,
+    stderrTruncatedForUi,
   }
 }
 

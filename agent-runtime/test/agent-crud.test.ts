@@ -171,6 +171,18 @@ describe("user agent CRUD", () => {
     })
 
     await expect(registry.createUserAgent(createUserAgentPayload({
+      id: "bad_bash_rules",
+      toolPermissionRules: {
+        bash: {
+          "*": "ask",
+        },
+      },
+    }))).rejects.toMatchObject({
+      code: "AGENT_INVALID_INPUT",
+      status: 400,
+    })
+
+    await expect(registry.createUserAgent(createUserAgentPayload({
       id: "bad_policy",
       allowedTools: ["write_file"],
       permissionPolicy: {

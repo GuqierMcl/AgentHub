@@ -292,9 +292,113 @@ function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
       />
       <ToolContent>
         {item.input !== undefined ? <ToolInput input={item.input} /> : null}
-        <ToolOutput errorText={item.errorText} output={item.output} />
+        {item.toolName === "bash" ? (
+          <BashToolOutputView errorText={item.errorText} output={item.output} />
+        ) : (
+          <ToolOutput errorText={item.errorText} output={item.output} />
+        )}
       </ToolContent>
     </Tool>
+  )
+}
+
+function BashToolOutputView({
+  errorText,
+  output,
+}: {
+  output: WorkbenchTimelineToolItem["output"]
+  errorText: WorkbenchTimelineToolItem["errorText"]
+}) {
+  const data = getRecord(output)
+  if (!data) {
+    return <ToolOutput errorText={errorText} output={output} />
+  }
+
+  const stdout = getString(data.stdout) ?? ""
+  const stderr = getString(data.stderr) ?? ""
+  const stdoutCharacters = getNumber(data.stdoutCharacters) ?? stdout.length
+  const stderrCharacters = getNumber(data.stderrCharacters) ?? stderr.length
+  const hasOutput = stdout.length > 0 || stderr.length > 0 || errorText
+
+  if (!hasOutput) {
+    return null
+  }
+
+  return (
+    <div className="space-y-3">
+      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+        {errorText ? "Error" : "Result"}
+      </h4>
+      {errorText ? (
+        <div className="rounded-md bg-destructive/10 px-3 py-2 text-destructive text-xs">
+          {errorText}
+        </div>
+      ) : null}
+      <div className="grid gap-2 rounded-md bg-muted/50 p-3 text-xs sm:grid-cols-2">
+        <BashMeta label="Command" value={getString(data.command)} wide />
+        <BashMeta label="cwd" value={getString(data.cwd) ?? "."} />
+        <BashMeta label="Exit" value={formatUnknown(data.exitCode)} />
+        <BashMeta label="Duration" value={formatDurationMs(data.durationMs)} />
+        <BashMeta label="Truncated" value={data.truncated ? "yes" : "no"} />
+      </div>
+      {stdout ? (
+        <BashStreamBlock
+          characters={stdoutCharacters}
+          label="stdout"
+          text={stdout}
+          truncated={data.stdoutTruncatedForDisplay === true || data.stdoutTruncatedForUi === true}
+        />
+      ) : null}
+      {stderr ? (
+        <BashStreamBlock
+          characters={stderrCharacters}
+          label="stderr"
+          text={stderr}
+          truncated={data.stderrTruncatedForDisplay === true || data.stderrTruncatedForUi === true}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function BashMeta({
+  label,
+  value,
+  wide,
+}: {
+  label: string
+  value?: string
+  wide?: boolean
+}) {
+  return (
+    <div className={wide ? "sm:col-span-2" : undefined}>
+      <div className="text-muted-foreground">{label}</div>
+      <div className="mt-0.5 break-words font-mono text-foreground">{value ?? "-"}</div>
+    </div>
+  )
+}
+
+function BashStreamBlock({
+  characters,
+  label,
+  text,
+  truncated,
+}: {
+  characters: number
+  label: string
+  text: string
+  truncated: boolean
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2 text-muted-foreground text-xs">
+        <span className="font-medium uppercase tracking-wide">{label}</span>
+        <span>{characters} chars{truncated ? " · preview" : ""}</span>
+      </div>
+      <pre className="max-h-72 overflow-auto rounded-md bg-muted/50 p-3 text-xs leading-relaxed">
+        {text}
+      </pre>
+    </div>
   )
 }
 
@@ -507,4 +611,31 @@ function getChatDisplayContent(
     return "Run cancelled."
   }
   return content
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function formatUnknown(value: unknown): string {
+  if (typeof value === "number") return String(value)
+  if (typeof value === "string") return value
+  if (value === null) return "null"
+  return "-"
+}
+
+function formatDurationMs(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${Math.round(value)}ms`
+    : "-"
 }

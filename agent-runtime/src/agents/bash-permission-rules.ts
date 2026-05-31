@@ -1,0 +1,28 @@
+import type { BashPermissionRules } from "./types"
+
+export const DEFAULT_PRESET_BASH_PERMISSION_RULES: BashPermissionRules = {
+  "*": "ask",
+  "pwd": "allow",
+  "pwd *": "allow",
+  "ls": "allow",
+  "ls *": "allow",
+  "dir": "allow",
+  "dir *": "allow",
+  "git status*": "allow",
+  "git diff*": "allow",
+  "git log*": "allow",
+  "git branch*": "allow",
+  "npm *": "ask",
+  "bun *": "ask",
+  "pnpm *": "ask",
+  "yarn *": "ask",
+  "rm *": "deny",
+  "del *": "deny",
+  "rmdir *": "deny",
+  "Remove-Item *": "deny",
+  "git reset*": "deny",
+  "git clean*": "deny",
+  "git push*": "deny",
+  "shutdown*": "deny",
+  "reboot*": "deny",
+}

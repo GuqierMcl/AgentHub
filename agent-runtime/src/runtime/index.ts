@@ -15,7 +15,7 @@ export {
   resolveRunDiagnostics,
   sanitizeModelStreamPart,
 } from "./model-stream-events"
-export { RuntimeToolRegistry, createDefaultRuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "./tools"
+export { RuntimeToolRegistry, createBashTool, createDefaultRuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "./tools"
 export { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 export { createWorkspaceReadOnlyTools, createWorkspaceWriteTools, createWorkspaceTools } from "./tools"
 export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
@@ -60,6 +60,9 @@ export type {
   ToolApprovalPolicy,
   ToolRequiredPermissions,
   ToolApprovalDraft,
+  ToolPreflightDecision,
+  BashInput,
+  BashResult,
 } from "./tools"
 export type {
   RuntimePermissionDecision,

@@ -11,6 +11,7 @@ import type {
   AgentModelRef,
   AgentListOptions,
   AgentPermissionPolicy,
+  AgentToolPermissionRules,
   AgentToolAuthoringCatalog,
   UserAgentCreateRequest,
   UserAgentUpdateRequest,
@@ -125,6 +126,7 @@ export class AgentRegistry {
         allowedSubagents: this.normalizeAllowedSubagents(input.allowedSubagents),
         allowedTools,
         permissionPolicy: this.normalizeUserPermissionPolicy(input.permissionPolicy, allowedTools),
+        toolPermissionRules: this.normalizeUserToolPermissionRules(input.toolPermissionRules),
         enabled: input.enabled,
         readonly: false,
         createdAt: now,
@@ -174,6 +176,9 @@ export class AgentRegistry {
         permissionPolicy: input.permissionPolicy || input.allowedTools
           ? this.normalizeUserPermissionPolicy(input.permissionPolicy, allowedTools)
           : baseAgent.permissionPolicy,
+        toolPermissionRules: input.toolPermissionRules !== undefined
+          ? this.normalizeUserToolPermissionRules(input.toolPermissionRules)
+          : baseAgent.toolPermissionRules,
         enabled: input.enabled ?? baseAgent.enabled,
         updatedAt: new Date().toISOString(),
       }
@@ -426,6 +431,32 @@ export class AgentRegistry {
     return normalized
   }
 
+  private normalizeUserToolPermissionRules(
+    rules: AgentToolPermissionRules | undefined
+  ): AgentToolPermissionRules | undefined {
+    if (!rules) {
+      return undefined
+    }
+
+    const normalized = this.cloneToolPermissionRules(rules)
+    if (normalized.bash && Object.keys(normalized.bash).length > 0) {
+      throw new AgentRegistryMutationError(
+        "AGENT_INVALID_INPUT",
+        "Invalid user agent tool permission rules",
+        400,
+        [{
+          path: ["toolPermissionRules", "bash"],
+          message: "User agents cannot configure bash permission rules in this CRUD version",
+        }]
+      )
+    }
+    if (normalized.bash && Object.keys(normalized.bash).length === 0) {
+      delete normalized.bash
+    }
+
+    return Object.keys(normalized).length > 0 ? normalized : undefined
+  }
+
   private normalizeStringList(values: string[]): string[] {
     const seen = new Set<string>()
     const normalized: string[] = []
@@ -461,6 +492,7 @@ export class AgentRegistry {
         normalized.permissionPolicy,
         normalized.allowedTools
       )
+      normalized.toolPermissionRules = this.normalizeUserToolPermissionRules(normalized.toolPermissionRules)
       return normalized
     } catch (error) {
       console.warn(`Ignoring invalid user agent "${normalized.id}"`, error)
@@ -588,6 +620,10 @@ export class AgentRegistry {
       network: policy.network,
       deploy: policy.deploy,
     }
+  }
+
+  private cloneToolPermissionRules(rules: AgentToolPermissionRules): AgentToolPermissionRules {
+    return structuredClone(rules)
   }
 }
 
