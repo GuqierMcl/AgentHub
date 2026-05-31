@@ -20,12 +20,10 @@ type PreviewViewportLayout = {
 const DESKTOP_VIEWPORT_WIDTH = 1280
 
 type BrowserPanelProps = {
-  uid: string
-  title: string
   initialUrl?: string
 }
 
-export function BrowserPanel({ uid, title, initialUrl }: BrowserPanelProps) {
+export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
   const normalizedInitialUrl = initialUrl ?? ""
   const [prevInitialUrl, setPrevInitialUrl] = useState(normalizedInitialUrl)
   const [navigatedUrl, setNavigatedUrl] = useState(normalizedInitialUrl)
@@ -105,11 +103,6 @@ export function BrowserPanel({ uid, title, initialUrl }: BrowserPanelProps) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
-      <div className="shrink-0 border-border border-b px-3 py-2">
-        <div className="truncate font-medium text-sm">{title}</div>
-        <div className="truncate text-muted-foreground text-sm">{uid}</div>
-      </div>
-
       <WebPreview
         className="flex min-h-0 min-w-0 flex-1 flex-col rounded-none border-none bg-transparent"
         defaultUrl={initialUrl ?? ""}
@@ -131,7 +124,7 @@ export function BrowserPanel({ uid, title, initialUrl }: BrowserPanelProps) {
           ref={viewportRef}
         >
           {status === "idle" ? (
-            <div className="flex h-full min-h-0 min-w-0 items-start justify-center overflow-auto p-3">
+            <div className="flex h-full min-h-0 min-w-0 items-start justify-center overflow-hidden p-3">
               {viewportLayout ? (
                 <div
                   className="relative shrink-0 overflow-hidden rounded-xl border border-border bg-background shadow-sm"
@@ -162,7 +155,7 @@ export function BrowserPanel({ uid, title, initialUrl }: BrowserPanelProps) {
             </div>
           ) : (
             <>
-              <div className="flex h-full min-h-0 min-w-0 items-start justify-center overflow-auto p-3">
+              <div className="flex h-full min-h-0 min-w-0 items-start justify-center overflow-hidden p-3">
                 {viewportLayout ? (
                   <div
                     className="relative shrink-0 overflow-hidden rounded-xl border border-border bg-background shadow-sm"
@@ -204,17 +197,21 @@ export function BrowserPanel({ uid, title, initialUrl }: BrowserPanelProps) {
   )
 }
 
+const INNER_PADDING = 24 // p-3 = 12px each side
+
 function getPreviewViewportLayout(
   containerWidth: number,
   containerHeight: number
 ): PreviewViewportLayout | null {
   if (containerWidth <= 0 || containerHeight <= 0) return null
 
+  const availableHeight = containerHeight - INNER_PADDING
+
   if (containerWidth >= DESKTOP_VIEWPORT_WIDTH) {
     return {
-      frameHeight: containerHeight,
+      frameHeight: availableHeight,
       frameWidth: containerWidth,
-      renderedHeight: containerHeight,
+      renderedHeight: availableHeight,
       renderedWidth: containerWidth,
       scale: 1,
     }
@@ -222,9 +219,9 @@ function getPreviewViewportLayout(
 
   const scale = containerWidth / DESKTOP_VIEWPORT_WIDTH
   return {
-    frameHeight: containerHeight / scale,
+    frameHeight: availableHeight / scale,
     frameWidth: DESKTOP_VIEWPORT_WIDTH,
-    renderedHeight: containerHeight,
+    renderedHeight: availableHeight,
     renderedWidth: containerWidth,
     scale,
   }

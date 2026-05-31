@@ -55,8 +55,6 @@ function renderPanel(
       return (
         <BrowserPanel
           initialUrl={tab.payload?.initialUrl}
-          title={tab.title}
-          uid={tab.uid}
         />
       )
     default:

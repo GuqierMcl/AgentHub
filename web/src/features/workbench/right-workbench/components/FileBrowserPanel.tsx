@@ -462,11 +462,6 @@ export function FileBrowserPanel({ conversation }: FileBrowserPanelProps) {
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 min-w-0 flex-1 overflow-hidden">
         <ResizablePanel defaultSize={65} minSize={30} className="min-w-0">
           <div className="flex h-full min-w-0 flex-col border-border border-r">
-            <div className="shrink-0 flex items-center gap-2 p-2 border-border border-b">
-              <span className="text-xs text-muted-foreground truncate">
-                {state.selectedPath ? state.selectedPath : "未选择文件"}
-              </span>
-            </div>
             <div className="min-h-0 min-w-0 flex-1 overflow-auto">
               <WorkspacePreviewPane
                 key={state.selectedPath ?? "no-file"}
