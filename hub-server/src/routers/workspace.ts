@@ -35,6 +35,12 @@ const VIDEO_EXTENSIONS = new Set([
   '.mp4', '.webm', '.avi', '.mov', '.mkv', '.wmv', '.flv',
 ])
 
+const OFFICE_WORD_EXTENSIONS = new Set(['.docx'])
+const OFFICE_WORD_LEGACY_EXTENSIONS = new Set(['.doc'])
+
+const OFFICE_SHEET_EXTENSIONS = new Set(['.xlsx'])
+const OFFICE_SHEET_LEGACY_EXTENSIONS = new Set(['.xls'])
+
 // Extension → language label mapping for text files
 const LANGUAGE_MAP: Record<string, string> = {
   '.ts': 'TypeScript',
@@ -93,12 +99,14 @@ const LANGUAGE_MAP: Record<string, string> = {
   '.editorconfig': 'EditorConfig',
 }
 
-function getDetectedKind(ext: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' | 'binary' {
+function getDetectedKind(ext: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' | 'office-word' | 'office-sheet' | 'binary' {
   if (TEXT_EXTENSIONS.has(ext)) return 'text'
   if (IMAGE_EXTENSIONS.has(ext)) return 'image'
   if (PDF_EXTENSIONS.has(ext)) return 'pdf'
   if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
   if (VIDEO_EXTENSIONS.has(ext)) return 'video'
+  if (OFFICE_WORD_EXTENSIONS.has(ext)) return 'office-word'
+  if (OFFICE_SHEET_EXTENSIONS.has(ext)) return 'office-sheet'
   return 'binary'
 }
 
@@ -127,6 +135,10 @@ function getMimeType(filePath: string): string {
   if (ext === '.mkv') return 'video/x-matroska'
   if (ext === '.wmv') return 'video/x-ms-wmv'
   if (ext === '.flv') return 'video/x-flv'
+  if (ext === '.docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  if (ext === '.doc') return 'application/msword'
+  if (ext === '.xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  if (ext === '.xls') return 'application/vnd.ms-excel'
   return 'application/octet-stream'
 }
 
@@ -369,6 +381,28 @@ workspace.get('/api/conversations/:id/workspace/file', async (c: Context) => {
     const kind = getDetectedKind(ext)
     const fileContentUrl = `/api/conversations/${encodeURIComponent(conversationId)}/workspace/file-content?path=${encodeURIComponent(relativePath)}`
 
+    // Legacy Office formats - not supported in first version
+    if (OFFICE_WORD_LEGACY_EXTENSIONS.has(ext)) {
+      return c.json({
+        kind: 'unsupported',
+        path: relativePath,
+        name,
+        mimeType,
+        size,
+        message: '暂不支持预览 .doc 格式，建议转换为 .docx',
+      })
+    }
+    if (OFFICE_SHEET_LEGACY_EXTENSIONS.has(ext)) {
+      return c.json({
+        kind: 'unsupported',
+        path: relativePath,
+        name,
+        mimeType,
+        size,
+        message: '暂不支持预览 .xls 格式，建议转换为 .xlsx',
+      })
+    }
+
     // Image files
     if (kind === 'image') {
       if (size > 5 * 1024 * 1024) {
@@ -438,6 +472,45 @@ workspace.get('/api/conversations/:id/workspace/file', async (c: Context) => {
         size,
         url: fileContentUrl,
       })
+    }
+
+    // Office Word files
+    if (kind === 'office-word') {
+      return c.json({
+        kind: 'office-word',
+        path: relativePath,
+        name,
+        mimeType,
+        size,
+        url: fileContentUrl,
+      })
+    }
+
+    // Office Sheet files
+    if (kind === 'office-sheet') {
+      try {
+        const { generateSheetMarkdown } = await import('../services/excel-preview.service')
+        const content = await generateSheetMarkdown(resolvedPath)
+        return c.json({
+          kind: 'text',
+          path: relativePath,
+          name,
+          mimeType: 'text/markdown',
+          size,
+          content,
+          language: 'Markdown',
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Excel 预览解析失败'
+        return c.json({
+          kind: 'unsupported',
+          path: relativePath,
+          name,
+          mimeType,
+          size,
+          message,
+        })
+      }
     }
 
     // Text files
