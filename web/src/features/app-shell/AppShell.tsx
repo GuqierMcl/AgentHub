@@ -58,7 +58,7 @@ export function AppShell() {
   const shell = (
     <main
       className={cn(
-        "grid min-h-0 overflow-hidden bg-muted text-foreground",
+        "grid min-h-0 overflow-hidden bg-muted text-foreground transition-grid-cols",
         isDesktopRuntime ? "h-full" : "h-svh",
         isNavigationCollapsed
           ? "grid-cols-[4.25rem_minmax(0,1fr)]"

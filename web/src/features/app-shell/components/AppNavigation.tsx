@@ -48,7 +48,7 @@ export function AppNavigation({
               </div>
               {collapsed ? null : (
                 <div className="min-w-0">
-                  <div className="truncate text-base font-semibold">AgentHub</div>
+                  <div className="truncate text-base font-semibold animate-fade-in">AgentHub</div>
                 </div>
               )}
             </div>
@@ -116,7 +116,7 @@ export function AppNavigation({
                 size={collapsed ? 22 : 16}
                 className="![&_svg]:size-auto"
               />
-              {collapsed ? null : <span>{module.label}</span>}
+              {collapsed ? null : <span className="animate-fade-in">{module.label}</span>}
             </Button>
           )
 
