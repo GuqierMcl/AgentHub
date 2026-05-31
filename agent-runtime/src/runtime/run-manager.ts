@@ -8,7 +8,11 @@ import { AgentModelResolutionError } from "./model-resolver"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
-import { SystemAgentRunner, type SystemAgentCompletedData } from "./system-agents"
+import {
+  SystemAgentRunner,
+  createFallbackTitleSystemAgentResult,
+  type SystemAgentCompletedData,
+} from "./system-agents"
 import { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./tools"
 import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 import { WorkspaceError, WorkspaceService } from "./workspace"
@@ -393,6 +397,7 @@ export class RunManager {
       await this.flushReadySystemAgent(pendingTitle)
       const emittedTitle = this.emitReadyTitleSystemAgent(run, pendingTitle)
       if (!emittedTitle) {
+        this.emitFallbackTitleSystemAgent(run, agent, pendingTitle)
         this.cancelPendingSystemAgent(pendingTitle)
       }
 
@@ -523,6 +528,25 @@ export class RunManager {
     }
 
     this.emit(createRunEvent(run.id, "system_agent.completed", "system:title", pending.result))
+    pending.emitted = true
+    return true
+  }
+
+  private emitFallbackTitleSystemAgent(
+    run: RunRecord,
+    entryAgent: AgentDefinition,
+    pending: PendingSystemAgentResult<SystemAgentCompletedData> | null
+  ): boolean {
+    if (!pending || pending.emitted || isTerminalStatus(run.status)) {
+      return false
+    }
+
+    const result = createFallbackTitleSystemAgentResult(run.input, entryAgent)
+    if (!result) {
+      return false
+    }
+
+    this.emit(createRunEvent(run.id, "system_agent.completed", "system:title", result))
     pending.emitted = true
     return true
   }

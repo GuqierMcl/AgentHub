@@ -993,7 +993,7 @@ run.cancelled
 
 `orchestrator.plan.created` 目前保留为后续可视化和调试的扩展事件；当前 AI SDK orchestrator V1 主路径不强制发送该事件。
 
-`system_agent.completed` 表示 Runtime 内部系统智能体在当前 Run 完成前产出了可消费结果。首版只定义 `title`；标题只基于会话第一条用户输入生成，不包含第一轮智能体输出。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即发送该事件；主智能体完成时只短暂等待标题任务 flush，如果标题任务仍未赶上，Runtime 会取消该任务且不发送此事件：
+`system_agent.completed` 表示 Runtime 内部系统智能体在当前 Run 完成前产出了可消费结果。首版只定义 `title`；标题只基于会话第一条用户输入生成，不包含第一轮智能体输出。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即发送该事件；主智能体完成时只短暂等待标题任务 flush，如果模型标题仍未赶上或生成失败，Runtime 会在 `run.completed` 前发送一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务：
 
 ```json
 {

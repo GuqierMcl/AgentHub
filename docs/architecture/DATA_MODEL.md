@@ -90,7 +90,7 @@ AI SDK 文档把 `UIMessage` 定义为应用状态的事实来源，适合承载
 
 其中，`Conversation` 与 `Run` 负责业务流程，`UIMessage` 负责消息事实本身。
 
-`Conversation.metadataJson` 可记录由系统智能体派生的轻量状态。首版标题生成使用 `titleSource` 标记标题来源：`default` 或缺省表示前端/系统初始标题，`auto` 表示 Runtime `title` 系统智能体生成后由 HubServer 写入，`manual` 表示用户手动改名。HubServer 消费 `system_agent.completed(systemAgentId="title")` 时，只在标题来源不是 `manual` 的情况下更新 `Conversation.title`；手动重命名必须同步写入 `titleSource = "manual"`，避免后续自动标题覆盖用户选择。若首次自动标题事件未赶上而标题来源仍为 `default`，HubServer 可在后续 Run 中用会话第一条用户消息作为 `titleSeedUserMessage` 触发重试。
+`Conversation.metadataJson` 可记录由系统智能体派生的轻量状态。首版标题生成使用 `titleSource` 标记标题来源：`default` 或缺省表示前端/系统初始标题，`auto` 表示 Runtime `title` 系统智能体生成后由 HubServer 写入，`manual` 表示用户手动改名。HubServer 消费 `system_agent.completed(systemAgentId="title")` 时，只在标题来源不是 `manual` 的情况下更新 `Conversation.title`；手动重命名必须同步写入 `titleSource = "manual"`，避免后续自动标题覆盖用户选择。若模型标题没有赶上或生成失败，Runtime 会在 terminal event 前输出基于首条用户消息的 fallback 标题事件；若整个标题事件仍因 Run 取消等原因缺失且标题来源仍为 `default`，HubServer 可在后续 Run 中用会话第一条用户消息作为 `titleSeedUserMessage` 触发重试。
 
 阶段 2 的持久化聊天链路已经开始使用这些实体：
 
