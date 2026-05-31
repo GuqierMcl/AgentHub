@@ -88,7 +88,7 @@ describe("user agent CRUD", () => {
       readonly: false,
       systemPrompt: "You are a careful custom writing agent.",
       allowedSubagents: ["general"],
-      allowedTools: ["ls"],
+      allowedTools: ["ls", "question"],
     })
 
     expect(await readPersistedAgents(dataDir)).toMatchObject([
@@ -100,7 +100,7 @@ describe("user agent CRUD", () => {
 
     const updated = await registry.updateUserAgent("custom_writer", {
       name: "Custom Editor",
-      allowedTools: [],
+      allowedTools: ["question"],
       enabled: false,
       permissionPolicy: {
         filesystem: "none",
@@ -113,7 +113,7 @@ describe("user agent CRUD", () => {
     expect(updated).toMatchObject({
       id: "custom_writer",
       name: "Custom Editor",
-      allowedTools: [],
+      allowedTools: ["question"],
       enabled: false,
       permissionPolicy: {
         filesystem: "none",
@@ -132,11 +132,11 @@ describe("user agent CRUD", () => {
 
     await expect(registry.createUserAgent(createUserAgentPayload({
       id: "tool_enabled_agent",
-      allowedTools: [...EXPECTED_AUTHORING_TOOL_IDS],
+      allowedTools: [...EXPECTED_AUTHORING_TOOL_IDS, "question"],
       permissionPolicy: writePolicy,
     }))).resolves.toMatchObject({
       id: "tool_enabled_agent",
-      allowedTools: [...EXPECTED_AUTHORING_TOOL_IDS],
+      allowedTools: [...EXPECTED_AUTHORING_TOOL_IDS, "question"],
       permissionPolicy: {
         filesystem: "write",
       },
@@ -258,6 +258,7 @@ describe("user agent CRUD", () => {
 
     expect(response.status).toBe(200)
     expect(options.tools.map((tool: { id: string }) => tool.id)).toEqual([...EXPECTED_AUTHORING_TOOL_IDS])
+    expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("question")
     expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("run_task")
     expect(options.tools.map((tool: { id: string }) => tool.id)).not.toContain("write_plan")
     expect(options.tools.every((tool: { category: string; approvalPolicy: string }) =>

@@ -108,6 +108,7 @@ function getRunStatus(value: unknown): RuntimeRunStatus | undefined {
   return value === "queued" ||
     value === "running" ||
     value === "waiting_approval" ||
+    value === "waiting_input" ||
     value === "completed" ||
     value === "failed" ||
     value === "cancelled"

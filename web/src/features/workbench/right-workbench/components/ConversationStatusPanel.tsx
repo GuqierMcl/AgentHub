@@ -367,6 +367,8 @@ function runStatusLabel(status: ConversationStatusPanelProps["runStatus"]) {
       return "运行中"
     case "waiting_approval":
       return "等待审批"
+    case "waiting_input":
+      return "等待输入"
     case "completed":
       return "已完成"
     case "failed":

@@ -4,6 +4,7 @@ export type RuntimeRunStatus =
   | "queued"
   | "running"
   | "waiting_approval"
+  | "waiting_input"
   | "completed"
   | "failed"
   | "cancelled"

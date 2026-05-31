@@ -103,6 +103,15 @@ export type PermissionDecisionBody = {
   reason?: string
 }
 
+export type QuestionAnswerBody = {
+  answers: Array<{
+    questionId: string
+    optionId?: string
+    answer?: string
+    custom?: boolean
+  }>
+}
+
 type ErrorBody = {
   error?: {
     code?: string
@@ -175,6 +184,20 @@ export const conversationMessagesApi = {
       {
         method: "POST",
         body: JSON.stringify(decision),
+      }
+    )
+  },
+
+  answerQuestion(
+    runId: string,
+    requestId: string,
+    body: QuestionAnswerBody
+  ): Promise<unknown> {
+    return request(
+      `/api/runs/${encodeURIComponent(runId)}/questions/${encodeURIComponent(requestId)}/answer`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
       }
     )
   },

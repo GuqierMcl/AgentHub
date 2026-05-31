@@ -15,7 +15,7 @@ export {
   resolveRunDiagnostics,
   sanitizeModelStreamPart,
 } from "./model-stream-events"
-export { RuntimeToolRegistry, createBashTool, createDefaultRuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "./tools"
+export { RuntimeToolRegistry, createBashTool, createDefaultRuntimeToolRegistry, createQuestionTool, createRunTaskTool, createWritePlanTool } from "./tools"
 export { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 export { createWorkspaceReadOnlyTools, createWorkspaceWriteTools, createWorkspaceTools } from "./tools"
 export {
@@ -28,6 +28,11 @@ export {
   createShellCommand,
   resolveRuntimeShell,
 } from "./shell-resolver"
+export {
+  QuestionAnswerRequestSchema,
+  QuestionToolInputSchema,
+  RuntimeQuestionError,
+} from "./question"
 export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
 export type {
   RuntimeConversationMode,
@@ -73,7 +78,17 @@ export type {
   ToolPreflightDecision,
   BashInput,
   BashResult,
+  QuestionToolInput,
 } from "./tools"
+export type {
+  NormalizedQuestionAnswer,
+  NormalizedQuestionItem,
+  NormalizedQuestionOption,
+  PendingQuestionToolCall,
+  QuestionAnswer,
+  QuestionAnswerRequest,
+  QuestionContinuationRequest,
+} from "./question"
 export type {
   RuntimePermissionDecision,
   RuntimePermissionGrant,

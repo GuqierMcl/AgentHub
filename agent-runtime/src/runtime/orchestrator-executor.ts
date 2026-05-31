@@ -7,6 +7,7 @@ import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapsho
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { createRunEvent } from "./run-events"
+import type { PendingQuestionToolCall } from "./question"
 import type {
   AgentExecutionContext,
   AgentExecutor,
@@ -154,6 +155,7 @@ export class OrchestratorExecutor implements AgentExecutor {
     })
 
     let approvalPending = false
+    const pendingQuestionCalls: PendingQuestionToolCall[] = []
     const messageBlockEvents = new MessageBlockEventBuilder(streamContext, messageIdentity)
     const modelStreamEvents = new ModelStreamEventBuilder(streamContext, messageIdentity)
 
@@ -172,6 +174,14 @@ export class OrchestratorExecutor implements AgentExecutor {
           approvalPending = true
           context.permissionService?.bindAiSdkApproval(runId, chunk.toolCall.toolCallId, chunk.approvalId)
           continue
+        }
+
+        if (chunk.type === "tool-call" && chunk.toolName === "question") {
+          pendingQuestionCalls.push({
+            toolCallId: chunk.toolCallId,
+            input: chunk.input,
+            messageId: messageIdentity.getOrCreateCurrentMessageId(),
+          })
         }
 
         for (const event of messageBlockEvents.createEvents(chunk)) {
@@ -195,6 +205,24 @@ export class OrchestratorExecutor implements AgentExecutor {
           ...(response.messages as ModelMessage[]),
         ])
         return
+      }
+
+      if (pendingQuestionCalls.length > 0) {
+        for (const event of messageBlockEvents.flushOpenBlocks()) {
+          yield event
+        }
+
+        const response = await result.response
+        const accepted = context.onQuestionPending?.({
+          calls: pendingQuestionCalls,
+          resumeMessages: [
+            ...normalizeHistoryMessages(context),
+            ...(response.messages as ModelMessage[]),
+          ],
+        }) ?? false
+        if (accepted) {
+          return
+        }
       }
 
       const [finishReason, usage] = await Promise.all([

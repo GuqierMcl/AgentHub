@@ -85,6 +85,7 @@ export type WorkbenchTimelineChatMessageItem = {
   reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
   toolItems?: WorkbenchTimelineToolItem[]
   permissionItems?: WorkbenchTimelinePermissionItem[]
+  questionItems?: WorkbenchTimelineQuestionItem[]
   versions?: MessageVersion[]
   sources?: MessageSource[]
   artifacts?: Artifact[]
@@ -107,6 +108,7 @@ export type WorkbenchTimelineTaskItem = {
   reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
   toolItems?: WorkbenchTimelineToolItem[]
   permissionItems?: WorkbenchTimelinePermissionItem[]
+  questionItems?: WorkbenchTimelineQuestionItem[]
 }
 
 export type WorkbenchTimelineTaskTranscriptMessage = {
@@ -143,6 +145,46 @@ export type WorkbenchTimelinePermissionItem = {
   time: string
   status: ToolUIPart["state"]
   approved?: boolean
+}
+
+export type WorkbenchTimelineQuestionOption = {
+  id: string
+  label: string
+  value?: string
+  description?: string
+}
+
+export type WorkbenchTimelineQuestion = {
+  id: string
+  title: string
+  body: string
+  options: WorkbenchTimelineQuestionOption[]
+  allowCustom: boolean
+  required: boolean
+}
+
+export type WorkbenchTimelineQuestionAnswer = {
+  questionId: string
+  optionId?: string
+  answer?: string
+  custom?: boolean
+}
+
+export type WorkbenchTimelineQuestionItem = {
+  kind: "question"
+  id: string
+  runId: string
+  requestId: string
+  agentId?: string
+  toolCallId?: string
+  toolName?: string
+  messageId?: string
+  messageIndex?: number
+  title: string
+  questions: WorkbenchTimelineQuestion[]
+  answers?: WorkbenchTimelineQuestionAnswer[]
+  time: string
+  status: "pending" | "answered" | "cancelled"
 }
 
 export type WorkbenchTimelineReasoningItem = {
@@ -193,6 +235,7 @@ export type WorkbenchTimelineItem =
   | WorkbenchTimelineTaskItem
   | WorkbenchTimelineToolItem
   | WorkbenchTimelinePermissionItem
+  | WorkbenchTimelineQuestionItem
   | WorkbenchTimelineReasoningItem
   | WorkbenchTimelinePlanItem
   | WorkbenchTimelineRunStatusItem

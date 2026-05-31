@@ -78,6 +78,7 @@ export type ToolDefinition<TInput = unknown, TData = unknown, TRuntime = unknown
   requiredPermissions: ToolRequiredPermissions
   approvalPolicy: ToolApprovalPolicy
   configurableByUserAgent: boolean
+  deferred?: boolean
   prepareExecution?: (input: TInput, context: ToolExecutionContext) => Promise<ToolPreflightDecision<TData, TRuntime> | null>
   prepareApproval?: (input: TInput, context: ToolExecutionContext) => Promise<ToolApprovalDraft | null>
   internal?: boolean

@@ -23,6 +23,8 @@ const FILESYSTEM_PERMISSION_RANK = {
   write: 2,
 } as const
 
+const IMPLICIT_AI_SDK_TOOLS = ["question"] as const
+
 export class AgentRegistryMutationError extends Error {
   constructor(
     public code:
@@ -290,7 +292,7 @@ export class AgentRegistry {
     for (const agent of [...presetAgents, ...presetSubagents]) {
       const clonedAgent = this.cloneAgent(agent)
       this.baseAgents.set(agent.id, clonedAgent)
-      this.agents.set(agent.id, this.cloneAgent(clonedAgent))
+      this.agents.set(agent.id, this.applyModelBinding(clonedAgent))
       this.systemAgentIds.add(agent.id)
     }
 
@@ -352,7 +354,9 @@ export class AgentRegistry {
   }
 
   private normalizeAllowedTools(toolNames: string[]): string[] {
+    const implicitToolSet = new Set<string>(IMPLICIT_AI_SDK_TOOLS)
     const normalized = this.normalizeStringList(toolNames)
+      .filter((toolName) => !implicitToolSet.has(toolName))
     const configurableTools = this.toolCatalog.listUserConfigurableTools()
     const allowedToolSet = new Set(configurableTools.map((tool) => tool.id))
 
@@ -567,7 +571,7 @@ export class AgentRegistry {
   }
 
   private applyModelBinding(agent: AgentDefinition, modelRef?: AgentModelRef): AgentDefinition {
-    const cloned = this.cloneAgent(agent)
+    const cloned = this.applyImplicitRuntimeTools(this.cloneAgent(agent))
     if (modelRef) {
       cloned.modelRef = this.cloneModelRef(modelRef)
     } else if (cloned.id in this.modelBindings) {
@@ -582,6 +586,22 @@ export class AgentRegistry {
     }
 
     return cloned
+  }
+
+  private applyImplicitRuntimeTools(agent: AgentDefinition): AgentDefinition {
+    if (
+      agent.origin === "external" ||
+      (agent.executorType !== "ai-sdk" && agent.executorType !== "orchestrator")
+    ) {
+      return agent
+    }
+
+    const allowedTools = new Set(agent.allowedTools)
+    for (const toolName of IMPLICIT_AI_SDK_TOOLS) {
+      allowedTools.add(toolName)
+    }
+    agent.allowedTools = Array.from(allowedTools)
+    return agent
   }
 
   private canBindModel(agent: AgentDefinition): boolean {

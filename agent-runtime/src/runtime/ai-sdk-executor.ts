@@ -5,6 +5,7 @@ import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
 import { createRunEvent } from "./run-events"
+import type { PendingQuestionToolCall } from "./question"
 import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
 import type { RuntimeToolRegistry } from "./tools"
 import type { ProviderService } from "../provider"
@@ -176,6 +177,7 @@ export class AiSdkExecutor implements AgentExecutor {
     })
 
     let approvalPending = false
+    const pendingQuestionCalls: PendingQuestionToolCall[] = []
     const messageBlockEvents = new MessageBlockEventBuilder(streamContext, messageIdentity)
     const modelStreamEvents = new ModelStreamEventBuilder(streamContext, messageIdentity)
 
@@ -194,6 +196,14 @@ export class AiSdkExecutor implements AgentExecutor {
           approvalPending = true
           context.permissionService?.bindAiSdkApproval(runId, chunk.toolCall.toolCallId, chunk.approvalId)
           continue
+        }
+
+        if (chunk.type === "tool-call" && chunk.toolName === "question") {
+          pendingQuestionCalls.push({
+            toolCallId: chunk.toolCallId,
+            input: chunk.input,
+            messageId: messageIdentity.getOrCreateCurrentMessageId(),
+          })
         }
 
         for (const event of messageBlockEvents.createEvents(chunk)) {
@@ -217,6 +227,24 @@ export class AiSdkExecutor implements AgentExecutor {
           ...(response.messages as ModelMessage[]),
         ])
         return
+      }
+
+      if (pendingQuestionCalls.length > 0) {
+        for (const event of messageBlockEvents.flushOpenBlocks()) {
+          yield event
+        }
+
+        const response = await result.response
+        const accepted = context.onQuestionPending?.({
+          calls: pendingQuestionCalls,
+          resumeMessages: [
+            ...(context.resumeMessages ?? normalizeHistoryMessages(context)),
+            ...(response.messages as ModelMessage[]),
+          ],
+        }) ?? false
+        if (accepted) {
+          return
+        }
       }
 
       const [finishReason, usage] = await Promise.all([

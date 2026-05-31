@@ -84,6 +84,9 @@ const timelineEventTypes = new Set([
   "permission.approved",
   "permission.denied",
   "permission.cancelled",
+  "question.requested",
+  "question.answered",
+  "question.cancelled",
   "reasoning.started",
   "reasoning.delta",
   "reasoning.completed",
@@ -98,6 +101,9 @@ const runStatusByEventType: Partial<Record<string, RuntimeRunStatus>> = {
   "run.completed": "completed",
   "run.cancelled": "cancelled",
   "run.failed": "failed",
+  "question.requested": "waiting_input",
+  "question.answered": "running",
+  "question.cancelled": "running",
 }
 
 function createEmptyConversationState(): ConversationRuntimeState {

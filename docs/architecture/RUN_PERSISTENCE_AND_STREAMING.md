@@ -29,6 +29,7 @@ sequenceDiagram
 - `GET /api/runs/:runId/events?afterSequence=`
 - `POST /api/runs/:runId/cancel`
 - `POST /api/runs/:runId/permissions/:requestId/decision`
+- `POST /api/runs/:runId/questions/:requestId/answer`
 
 ## 运行时持久化
 
@@ -46,6 +47,7 @@ sequenceDiagram
 - `GET /api/conversations/:conversationId/messages` 返回消息快照、active run 快照、latest plan、runItems 和 `timelineRuns`。
 - `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes；大工具结果可能已被投影为 UI 摘要，完整 raw event 留在 `RunEvent.payloadJson`。
 - 权限请求先作为 raw Runtime event 落库，再投影到 `PermissionRequest`；投影优先使用事件 payload 中的 `permissionType`，例如 `web_fetch` 的 `network_access` 和 `bash` 的 `command_execute`。
+- 用户问答请求不新增 Prisma 表；`question.requested`、`question.answered`、`question.cancelled` 原样作为 raw event 落库，并由 Web 通过 `timelineRuns` replay 恢复 pending/answered/cancelled 状态。HubServer 在 `question.requested` 时将本地 Run 投影为 `waiting_input`，在 `question.answered` / `question.cancelled` 后按 Runtime 后续事件恢复运行态或终态。
 
 ## 恢复规则
 
@@ -62,3 +64,7 @@ sequenceDiagram
 ## 产品级权限决定
 
 Web 对 pending permission 卡片的批准/拒绝操作调用 `POST /api/runs/:runId/permissions/:requestId/decision`。HubServer 使用本地 Run 记录找到 `runtimeId` 后转发 Runtime decision API，随后继续依赖 Runtime SSE 事件更新本地 `PermissionRequest`、消息 part 和时间线状态。浏览器不直接调用 Runtime 调试代理。
+
+## 产品级问题回答
+
+Web 从 `timelineRuns` 或 live product SSE 中投影 pending question；存在 pending question 时，聊天输入框替换为 Question 回答组件。提交答案时调用 `POST /api/runs/:runId/questions/:requestId/answer`，HubServer 使用本地 Run 记录找到 `runtimeId` 后转发 Runtime answer API。Runtime 继续通过 `question.answered`、`tool.completed` 和后续 `message.*` 事件恢复同一执行分支，浏览器不直接调用 Runtime 调试代理。

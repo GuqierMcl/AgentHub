@@ -222,5 +222,6 @@ function isActiveRunStatus(
   return status === "submitted" ||
     status === "queued" ||
     status === "running" ||
-    status === "waiting_approval"
+    status === "waiting_approval" ||
+    status === "waiting_input"
 }

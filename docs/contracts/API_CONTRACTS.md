@@ -112,6 +112,10 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `NETWORK_TIMEOUT` | 504 | `web_fetch` 请求超时 |
 | `NETWORK_REQUEST_FAILED` | 502 | `web_fetch` 网络请求失败 |
 | `NETWORK_RESPONSE_TOO_LARGE` | 413 | `web_fetch` 响应体超过 `maxResponseBytes` |
+| `QUESTION_INVALID_INPUT` | 400 | `question` 输入或答案未通过校验 |
+| `QUESTION_NOT_FOUND` | 404 | 指定的 question request 或 Run 不存在 |
+| `QUESTION_RUN_NOT_ACTIVE` | 409 | Run 当前没有可续跑的 question continuation |
+| `QUESTION_ALREADY_ANSWERED` | 409 | 指定 question request 已经回答或取消 |
 | `WORKSPACE_NOT_BOUND` | 400 | 当前 Run 未绑定 workspace，不能执行文件工具 |
 
 ## Runtime Agents API
@@ -226,7 +230,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "enabled": true
   },
   "allowedSubagents": ["explore", "general", "file", "deploy"],
-  "allowedTools": ["write_plan", "run_task", "web_fetch", "bash"],
+  "allowedTools": ["write_plan", "run_task", "web_fetch", "bash", "question"],
   "permissionPolicy": {
     "filesystem": "none",
     "shell": "limited",
@@ -342,7 +346,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 规则：
 
 - `tools` 从注册工具的 Tool Catalog 投影，只返回 `configurableByUserAgent = true` 且非 internal 的工具；不在路由或 CRUD 中维护重复白名单。
-- `write_plan`、`run_task`、`web_fetch`、`bash` 不会出现在 `tools` 中。
+- `write_plan`、`run_task`、`web_fetch`、`bash`、`question` 不会出现在 `tools` 中；其中 `question` 会对内部 AI SDK 智能体隐式可见。
 - `approvalPolicy = "contextual"` 表示是否审批取决于运行上下文；读工具在敏感/沙箱外读取时触发审批，写工具在敏感/沙箱外写入时触发审批。
 - `capabilityTags` 是推荐标签字符串数组，不是强枚举；创建和更新自定义智能体时 `capabilities` 仍允许自定义字符串数组，例如 `["Thinking"]`。
 - `subagents` 只返回可配置到 `allowedSubagents` 的启用隐藏子智能体摘要，不改变隐藏子智能体不可直接调用的规则。
@@ -387,8 +391,8 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `id` 可省略；省略时 Runtime 生成 `agent_<uuid>`。
 - `id` 只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
-- `allowedTools` 只允许 Tool Catalog 暴露为用户可配置的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。
-- `write_plan`、`run_task`、`web_fetch`、`bash` 和其他高风险工具不能授予用户自定义智能体。
+- `allowedTools` 只允许 Tool Catalog 暴露为用户可配置的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。如果客户端 round-trip 了 detail response 中的隐式 `question`，Runtime 会忽略该输入项并在响应中重新注入。
+- `write_plan`、`run_task`、`web_fetch`、`bash` 和其他高风险工具不能授予用户自定义智能体；`question` 是隐式 interaction tool，不通过 CRUD 授权。
 - `toolPermissionRules.bash` 暂不允许用户自定义智能体配置；非空对象返回 `AGENT_INVALID_INPUT`。
 - `permissionPolicy` 中 `shell` / `network` / `deploy` 必须为 `none`。
 - 若选择了读取工具，`permissionPolicy.filesystem` 至少为 `read`；若选择了写入工具，必须显式为 `write`。Runtime 不自动升级智能体权限。
@@ -647,14 +651,14 @@ type PersistedMessagePart = {
 type ActiveRunSnapshot = {
   id: string
   runtimeId: string | null
-  status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled"
+  status: "queued" | "running" | "waiting_approval" | "waiting_input" | "completed" | "failed" | "cancelled"
   lastEventSequence: number
   plan: Record<string, unknown> | null
 }
 
 type RunPlanSnapshot = {
   runId: string
-  status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled"
+  status: "queued" | "running" | "waiting_approval" | "waiting_input" | "completed" | "failed" | "cancelled"
   plan: Record<string, unknown>
   updatedAt: string
   completedAt: string | null
@@ -674,7 +678,7 @@ type ConversationTimelineRunSnapshot = {
   run: {
     id: string
     runtimeId: string | null
-    status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled"
+    status: "queued" | "running" | "waiting_approval" | "waiting_input" | "completed" | "failed" | "cancelled"
     triggerMessageId: string
     createdAt: string
     lastEventSequence: number
@@ -752,6 +756,33 @@ Web 恢复规则：
 - Web 产品链路必须调用本端点，不直接调用 `/api/runtime/runs/*` 调试代理。
 - Runtime 的后续 `permission.approved` / `permission.denied` / `tool.*` 事件仍通过 `/api/runs/:runId/events` 持久化和回放。
 - `runtimeId` 缺失时返回 `PERMISSION_RUN_NOT_ACTIVE`。
+
+### 回答产品 Run 问题请求
+
+**端点**：`POST /api/runs/:runId/questions/:requestId/answer`
+
+请求体：
+
+```json
+{
+  "answers": [
+    {
+      "questionId": "question_1",
+      "optionId": "option_1",
+      "answer": "Option label or custom text",
+      "custom": false
+    }
+  ]
+}
+```
+
+行为：
+
+- `runId` 是 HubServer 本地 Run id。
+- HubServer 查找本地 Run，读取 `runtimeId`，再转发到 Runtime `POST /runtime/runs/:runtimeId/questions/:requestId/answer`。
+- 一次请求提交同一个 question request 内全部 required 问题的答案；可选问题可以省略。
+- Runtime 的后续 `question.answered` / `tool.completed` / `message.*` 事件仍通过 `/api/runs/:runId/events` 持久化和回放。
+- `runtimeId` 缺失时返回 `QUESTION_RUN_NOT_ACTIVE`。
 
 ### 调试代理
 
@@ -937,7 +968,7 @@ workspace 规则：
 
 不存在时返回 `RUN_NOT_FOUND`。
 
-`status` 可为 `queued`、`running`、`waiting_approval`、`completed`、`failed` 或 `cancelled`。`waiting_approval` 表示 Runtime 已收到 AI SDK tool approval request，正在等待权限决定并保留同一 Run 的 continuation state。若仍有其他并行任务分支在运行，Run 可以保持 `running`；当所有未完成分支都在等待审批时才转为 `waiting_approval`。
+`status` 可为 `queued`、`running`、`waiting_approval`、`waiting_input`、`completed`、`failed` 或 `cancelled`。`waiting_approval` 表示 Runtime 已收到 AI SDK tool approval request，正在等待权限决定并保留同一 Run 的 continuation state。`waiting_input` 表示 Runtime 已收到 `question` request，正在等待用户回答。若仍有其他并行任务分支在运行，Run 可以保持 `running`；当所有未完成分支都在等待审批或用户输入时才转为等待状态。
 
 ### 订阅 Run 事件
 
@@ -980,6 +1011,9 @@ permission.requested
 permission.approved
 permission.denied
 permission.cancelled
+question.requested
+question.answered
+question.cancelled
 model.stream.part
 reasoning.started
 reasoning.delta
@@ -1060,6 +1094,7 @@ type RunEvent = {
 - `tool.failed` 的 `data` 应尽量包含结构化错误码、错误消息和可调试细节。
 - `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 携带 `toolCallId`、`toolName`，其 `data` 为权限请求记录，包含 `requestId`、`riskLevel`、`status` 与可选 grant 信息；当权限请求来自某个模型输出上下文时，还应携带对应 `messageId/messageIndex`。
 - 工具进入审批时先产生 `permission.requested` 而不产生 `tool.started`；批准后恢复工具并发送正常工具事件，拒绝后发送 `tool.failed`，错误码为 `TOOL_EXECUTION_DENIED`。
+- `question.requested`、`question.answered`、`question.cancelled` 携带 `requestId`、`toolCallId`、`toolName = "question"`、`questions` 或 `answers/status`，并在来自模型输出上下文时携带同一 `messageId/messageIndex`。
 - `model.stream.part` 通过 `data.partType` 和 `data.part` 薄封装 AI SDK `fullStream` part；默认过滤 `raw`，除非 RunInput 设置 `diagnostics.includeRawModelChunks = true`。
 - `reasoning.started`、`reasoning.delta`、`reasoning.completed` 仅表示 provider/AI SDK 显式暴露的 reasoning/thinking 内容；默认开启，可通过 `diagnostics.includeReasoning = false` 关闭；当 reasoning 属于当前智能体输出时，应携带同一条消息的 `messageId/messageIndex`。
 - `write_plan` 的成功结果通过 `tool.completed.data.data.plan` 承载；HubServer/UI 应选择最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。
@@ -1199,6 +1234,42 @@ type RunEvent = {
 `web_fetch` 权限请求不返回请求 headers 或 body，URL query 会脱敏。
 `bash` 权限请求不返回 workspace root 或宿主机绝对路径；`cwd` 是 workspace-relative 逻辑路径。
 
+### `question` Runtime Tool
+
+`question` 是 Runtime Tool Catalog 中的用户问答工具，`category = "interaction"`、`riskLevel = "low"`、`requiredPermissions = {}`、`approvalPolicy = "never"`、`deferred = true`。它对所有内部 AI SDK 智能体隐式可见，但不出现在用户 authoring options 中；外部 adapter 不注入。
+
+```ts
+type QuestionInput = {
+  questions: Array<{
+    id?: string
+    title: string
+    body: string
+    options: Array<{
+      id?: string
+      label: string
+      value?: string
+      description?: string
+    }>
+    allowCustom?: boolean
+    required?: boolean
+  }>
+}
+```
+
+Runtime 会补齐缺失的 question/option id，默认 `allowCustom = true`、`required = true`。模型调用后先产生 `question.requested`，等待用户答案；用户答案通过 answer API 回写后，模型看到的合成工具结果形如：
+
+```ts
+type QuestionToolResult = {
+  requestId: string
+  answers: Array<{
+    questionId: string
+    optionId?: string
+    answer?: string
+    custom: boolean
+  }>
+}
+```
+
 ### `web_fetch` Runtime Tool
 
 `web_fetch` 是 Runtime Tool Catalog 中的网络请求工具：
@@ -1305,14 +1376,36 @@ type BashResult = {
 
 AI SDK 续跑采用新的生成调用：Runtime 保存原始 response messages，追加 `tool-approval-response` 后再次运行原执行分支，而不是保持原始 HTTP/模型 stream 挂起。若同一 continuation frame 包含多个审批请求，全部决定后只恢复一次。
 
+### 回答 Run 问题请求
+
+**端点**：`POST /runtime/runs/:runId/questions/:requestId/answer`
+
+请求体：
+
+```json
+{
+  "answers": [
+    {
+      "questionId": "question_1",
+      "optionId": "option_1",
+      "answer": "Optional custom text",
+      "custom": false
+    }
+  ]
+}
+```
+
+成功响应返回更新后的 question request record。Runtime 随后产生 `question.answered` 与 `tool.completed(toolName="question")`，追加合成 `tool-result` message 后恢复原执行分支。若同一 continuation frame 包含多个 question request，全部回答后只恢复一次。
+
 ### 取消 Run
 
 **端点**：`POST /runtime/runs/:runId/cancel`
 
 行为：
 
-- `queued` / `running` / `waiting_approval` Run 会转为 `cancelled` 并输出 `run.cancelled`。
+- `queued` / `running` / `waiting_approval` / `waiting_input` Run 会转为 `cancelled` 并输出 `run.cancelled`。
 - 等待审批的 Run 被取消时，pending 请求先输出 `permission.cancelled`，之后不再接受决定。
+- 等待用户回答的 Run 被取消时，pending question 先输出 `question.cancelled` 与对应 `tool.failed(QUESTION_CANCELLED)`，之后不再接受答案。
 - 已经是 `completed`、`failed`、`cancelled` 的 Run 保持原状态。
 - 不存在时返回 `RUN_NOT_FOUND`。
 
@@ -1325,5 +1418,6 @@ AI SDK 续跑采用新的生成调用：Runtime 保存原始 response messages�
 - Runtime 流式事件。
 - Artifact 元数据。
 - 权限请求与审批。
+- 用户问答请求与续跑。
 
 具体端点、事件名称和载荷结构应随着 API 实现逐步补充。

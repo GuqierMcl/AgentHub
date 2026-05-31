@@ -54,6 +54,58 @@ describe('runs router', () => {
     expect(body.error?.code).toBe('PERMISSION_INVALID_INPUT')
   })
 
+  it('forwards product question answers through RunPersistenceService', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      answerQuestion: async (...args: unknown[]) => {
+        calls.push(args)
+        return {
+          requestId: 'question_1',
+          status: 'answered',
+        }
+      },
+    })
+
+    const response = await app.request('/api/runs/run_1/questions/question_1/answer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        answers: [{
+          questionId: 'question_1',
+          optionId: 'option_1',
+        }],
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      requestId: 'question_1',
+      status: 'answered',
+    })
+    expect(calls).toEqual([[
+      'run_1',
+      'question_1',
+      [{
+        questionId: 'question_1',
+        optionId: 'option_1',
+      }],
+    ]])
+  })
+
+  it('validates product question answer input', async () => {
+    const app = createApp({})
+
+    const response = await app.request('/api/runs/run_1/questions/question_1/answer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ answers: [] }),
+    })
+    const body = await response.json() as { error?: { code?: string } }
+
+    expect(response.status).toBe(400)
+    expect(body.error?.code).toBe('QUESTION_INVALID_INPUT')
+  })
+
   it('omits web_fetch response bodies in product run SSE envelopes', () => {
     const body = 'x'.repeat(20_000)
     const envelope = {

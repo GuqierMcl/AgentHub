@@ -22,6 +22,15 @@ const PermissionDecisionSchema = z.object({
   approved: z.boolean(),
   reason: z.string().trim().min(1).optional(),
 }).strict()
+const QuestionAnswerSchema = z.object({
+  questionId: z.string().trim().min(1),
+  optionId: z.string().trim().min(1).optional(),
+  answer: z.string().trim().min(1).optional(),
+  custom: z.boolean().optional(),
+}).strict()
+const QuestionAnswerRequestSchema = z.object({
+  answers: z.array(QuestionAnswerSchema).min(1),
+}).strict()
 
 export function encodeHubRunEvent(envelope: HubRunEventEnvelope): Uint8Array {
   const payload = `event: run.event\ndata: ${JSON.stringify(toProductHubRunEventEnvelope(envelope))}\n\n`
@@ -128,6 +137,30 @@ runs.post('/api/runs/:runId/permissions/:requestId/decision', async (c: Context)
   return c.json(result)
 })
 
+runs.post('/api/runs/:runId/questions/:requestId/answer', async (c: Context) => {
+  const service = c.get('runPersistenceService')
+  const runId = c.req.param('runId')!
+  const requestId = c.req.param('requestId')!
+  const body = await c.req.json().catch(() => null)
+  const parsed = QuestionAnswerRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({
+      error: {
+        code: 'QUESTION_INVALID_INPUT',
+        message: 'Invalid question answer input',
+        details: parsed.error.issues,
+      },
+    }, 400)
+  }
+
+  const result = await service.answerQuestion(
+    runId,
+    requestId,
+    parsed.data.answers,
+  )
+  return c.json(result)
+})
+
 runs.post('/api/runtime/runs', async (c: Context) => {
   const client = c.get('runtimeClient')
   const body = await c.req.json()
@@ -169,6 +202,15 @@ runs.post('/api/runtime/runs/:runId/permissions/:requestId/decision', async (c: 
   const requestId = c.req.param('requestId')!
   const body = await c.req.json()
   const { data, status } = await client.forward('POST', `/runtime/runs/${encodeURIComponent(runId)}/permissions/${encodeURIComponent(requestId)}/decision`, body, { raw: true })
+  return c.json(data, status as 200)
+})
+
+runs.post('/api/runtime/runs/:runId/questions/:requestId/answer', async (c: Context) => {
+  const client = c.get('runtimeClient')
+  const runId = c.req.param('runId')!
+  const requestId = c.req.param('requestId')!
+  const body = await c.req.json()
+  const { data, status } = await client.forward('POST', `/runtime/runs/${encodeURIComponent(runId)}/questions/${encodeURIComponent(requestId)}/answer`, body, { raw: true })
   return c.json(data, status as 200)
 })
 

@@ -195,6 +195,8 @@ Runtime 还支持独立的系统智能体层，用于自动执行不属于用户
 
 每个 Runtime Run 创建后会生成一次 `RuntimeEnvironmentSnapshot`，并追加进 AI SDK 执行器的 system prompt。该快照只用于模型上下文，不进入 Runtime HTTP API、HubServer API 或前端 SSE/消息投影。
 
+`question` 是 AI SDK 智能体的 deferred interaction tool。Runtime 在 AI SDK tool set 中只注入 schema，不提供 `execute`；当模型产生 `question` tool call 时，执行器捕获该调用并交给 `RunManager` 创建 question continuation frame。用户提交答案后，Runtime 追加合成 `tool-result` message 并二次执行同一分支。
+
 AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄封装进入 RunEvent 流；provider/AI SDK 显式暴露的 reasoning/thinking 会同步提升为 `reasoning.started`、`reasoning.delta`、`reasoning.completed`。RunInput 可通过 `diagnostics` 关闭模型流透传、关闭 reasoning 输出或显式开启 `raw` chunk。默认开启 `includeModelStream` 和 `includeReasoning`，默认关闭 `includeRawModelChunks`。完整 SSE 契约见 `docs/contracts/RUNTIME_SSE_EVENTS.md`。
 
 ### 3.3.1 当前对话链路闭环状态
@@ -207,18 +209,20 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - `POST /runtime/runs` 可以接收单聊或群聊 RunInput，并通过 `EntryResolver` 实现单聊入口、群聊默认 `orchestrator`、群聊显式 @ 单个主智能体。
 - `coder`、`reviewer`、`writer`、`planner` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和非内部 Runtime Tools。
 - `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派当前 Run participants 中的其他主智能体或自身 `allowedSubagents` 中的子智能体。
-- `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*`、`model.stream.part`、`reasoning.*` 与完整 `permission.*` 事件。
+- `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*`、`model.stream.part`、`reasoning.*`、完整 `permission.*` 与 `question.*` 事件。
 - Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取、沙箱外敏感读取、敏感写入和沙箱外写入请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
+- Runtime 已支持 `waiting_input`：AI SDK 智能体调用 `question` 后，Runtime 保存 continuation frame；用户通过 question answer API 回答后，同一 Run 恢复原执行分支。
 - `write_file` / `edit_file` 已开放给 `coder`、`writer` 和 `file` 子智能体；用户自定义智能体也可在显式配置 `filesystem: "write"` 后选择这些工具。
 - `web_fetch` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.network = "full"`，可直接执行 HTTP(S) 请求；`opencode` 的网络策略也为 `full`，但外部适配器不注入 Runtime Tool。用户自定义智能体暂不开放网络工具。
 - `bash` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.shell = "limited"`，通过 `toolPermissionRules.bash` 做命令级 `allow | ask | deny` 控制；`opencode` 仍不注入 Runtime Tool。用户自定义智能体暂不开放 shell 工具和 bash 规则。
+- `question` 隐式开放给所有内部 AI SDK 智能体，包括预设主智能体、隐藏子智能体和用户自定义智能体；它不进入用户自定义智能体 authoring options，外部 adapter 不注入。
 
 尚未完全闭环的部分：
 
 - HubServer 已开始作为产品状态中心消费 Runtime RunEvent，并持久化 user/assistant text messages、Run 状态、RunEvent 和最新 Plan；task/tool/reasoning/permission 的完整产品级 MessagePart 投影和 Artifact 投影仍未完成。当前 smoke 仍可直接访问 Runtime，但产品链路应使用 `web -> hub-server -> agent-runtime`。
 - 前端已能从 `tool.completed(toolName="write_plan")` 投影当前计划，并在右侧“会话状态”面板展示；`task.*`、`tool.*`、`permission.*`、`reasoning.*` 已有 live timeline UI，但持久化恢复仍主要依赖原始 RunEvent，完整产品级 parts 投影留待后续阶段。
 - HubServer 还未提供面向浏览器的自定义 Agent 管理 API 和配置 UI；当前 CRUD 仍是 Runtime 内部 API。
-- 权限审批已在 Runtime 内闭环；HubServer/前端仍缺少审批 API 代理、用户交互和状态持久化，因此产品链路尚未闭环。
+- 权限审批和用户问答已具备产品级 API 代理、事件持久化和前端交互；更完整的产品级 MessagePart/Artifact 投影仍在后续阶段。
 - 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。
 - 外部智能体 `opencode` 仍是 `external-adapter` 占位，当前运行时会退回 `MockExecutor`，还没有真实 Adapter 进程管理和事件映射。
 - 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Patch、Diff artifact / apply、deploy 仍未开放。
@@ -376,6 +380,8 @@ Runtime 通过每个 Run 独立的 `RuntimePermissionService` 存储内存态审
 网络权限沿用现有三档 `permissionPolicy.network` 表达三态：`none = deny`、`limited = ask`、`full = allow`。`web_fetch` 在 `limited` 下会创建 `permissionType = "network_access"`、`approvalReason = "network_request"` 的权限请求，并在批准后用同一个 `toolCallId` 继续执行；HTTP 4xx/5xx 是正常工具结果，超时、网络异常、取消、响应体超过 `maxResponseBytes` 才是工具失败。
 
 Shell 权限先由 `permissionPolicy.shell` 做粗粒度门禁：`none` 直接拒绝，`limited` / `full` 允许进入命令级规则。`bash` 使用 `AgentDefinition.toolPermissionRules.bash` 控制单条命令，规则值为 `allow | ask | deny`；`ask` 创建 `permissionType = "command_execute"`、`approvalReason = "bash_command"` 的审批请求，`deny` 在工具启动前失败。`bash` 不提供 OS/container sandbox，真实进程仍以 Runtime 所在用户权限运行；当前边界是命令规则、审批、workspace-relative `cwd`、环境变量白名单、超时和输出截断。完整设计见 `docs/architecture/BASH_TOOL.md`。
+
+用户问答不走权限审批链路。`question` 会创建 `question.requested`，并在没有其他 active task 时将 Run 标记为 `waiting_input`；用户回答后发送 `question.answered` 和 `tool.completed(toolName="question")`，再以合成 `tool-result` message 恢复同一 execution branch。同一 frame 的多个 question request 全部回答后只恢复一次；取消 Run 时发送 `question.cancelled` 与对应 `tool.failed`。
 
 ### 3.7 事件流输出
 

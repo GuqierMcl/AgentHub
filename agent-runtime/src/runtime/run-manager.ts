@@ -8,6 +8,16 @@ import { AgentModelResolutionError } from "./model-resolver"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
 import { buildRuntimeEnvironmentSnapshot, type RuntimeEnvironmentSnapshot } from "./environment-snapshot"
+import {
+  normalizeQuestionAnswers,
+  normalizeQuestionToolInput,
+  QuestionToolInputSchema,
+  RuntimeQuestionError,
+  type NormalizedQuestionAnswer,
+  type NormalizedQuestionItem,
+  type PendingQuestionToolCall,
+  type QuestionAnswer,
+} from "./question"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
 import {
   SystemAgentRunner,
@@ -33,8 +43,9 @@ const log = createChildLogger("run-manager")
 
 type RunSubscription = (event: RunEvent) => void
 
-type ApprovalContinuationFrame = {
+type RunContinuationFrame = {
   frameId: string
+  kind: "approval" | "question"
   runId: string
   executionId: string
   agentId: string
@@ -45,8 +56,29 @@ type ApprovalContinuationFrame = {
   requestIds: string[]
   resumeMessages: ModelMessage[]
   status: "waiting" | "resuming" | "completed" | "cancelled"
-  waitForDecision: Promise<ModelMessage[] | null>
-  resolveDecision: (messages: ModelMessage[] | null) => void
+  waitForResume: Promise<ModelMessage[] | null>
+  resolveResume: (messages: ModelMessage[] | null) => void
+}
+
+type QuestionRequestRecord = {
+  requestId: string
+  runId: string
+  frameId: string
+  executionId: string
+  agentId: string
+  toolCallId: string
+  toolName: "question"
+  messageId?: string
+  taskId?: string
+  parentAgentId?: string
+  groupId?: string
+  parentTaskId?: string
+  questions: NormalizedQuestionItem[]
+  status: "pending" | "answered" | "cancelled"
+  answers?: NormalizedQuestionAnswer[]
+  createdAt: string
+  answeredAt?: string
+  cancelledAt?: string
 }
 
 type RunExecutionState = {
@@ -56,7 +88,8 @@ type RunExecutionState = {
   environmentSnapshot?: RuntimeEnvironmentSnapshot
   environmentSnapshotPromise: Promise<RuntimeEnvironmentSnapshot>
   permissionService: RuntimePermissionService
-  continuations: Map<string, ApprovalContinuationFrame>
+  continuations: Map<string, RunContinuationFrame>
+  questionRequests: Map<string, QuestionRequestRecord>
   activeTaskExecutions: Set<string>
   messageBlockCounters: Map<string, number>
   messageIndexById: Map<string, number>
@@ -177,6 +210,7 @@ export class RunManager {
       environmentSnapshotPromise,
       permissionService,
       continuations: new Map(),
+      questionRequests: new Map(),
       activeTaskExecutions: new Set(),
       messageBlockCounters: new Map(),
       messageIndexById: new Map(),
@@ -246,7 +280,9 @@ export class RunManager {
       throw new RuntimePermissionError("PERMISSION_NOT_FOUND", `Permission request ${requestId} not found`, 404)
     }
     const frame = Array.from(state.continuations.values()).find((candidate) =>
-      candidate.status === "waiting" && candidate.requestIds.includes(requestId)
+      candidate.kind === "approval" &&
+      candidate.status === "waiting" &&
+      candidate.requestIds.includes(requestId)
     )
     if (!currentRequest.approvalId || !frame) {
       throw new RuntimePermissionError(
@@ -289,7 +325,7 @@ export class RunManager {
         state.activeTaskExecutions.add(frame.executionId)
       }
       this.updateRunStatus(run, "running")
-      frame.resolveDecision([
+      frame.resolveResume([
         ...frame.resumeMessages,
         {
           role: "tool",
@@ -297,8 +333,94 @@ export class RunManager {
         } as ModelMessage,
       ])
     } else {
-      this.updateApprovalWaitStatus(run, state)
+      this.updateContinuationWaitStatus(run, state)
     }
+    return request
+  }
+
+  answerQuestion(runId: string, requestId: string, answers: QuestionAnswer[]) {
+    const run = this.runs.get(runId)
+    const state = this.executionState.get(runId)
+    if (!run) {
+      throw new RuntimeQuestionError("QUESTION_NOT_FOUND", `Run ${runId} not found`, 404)
+    }
+    if (!state || isTerminalStatus(run.status)) {
+      throw new RuntimeQuestionError(
+        "QUESTION_RUN_NOT_ACTIVE",
+        `Run ${runId} is not waiting for user input`,
+        409
+      )
+    }
+
+    const request = state.questionRequests.get(requestId)
+    if (!request || request.runId !== runId) {
+      throw new RuntimeQuestionError("QUESTION_NOT_FOUND", `Question request ${requestId} not found`, 404)
+    }
+    if (request.status !== "pending") {
+      throw new RuntimeQuestionError(
+        "QUESTION_ALREADY_ANSWERED",
+        `Question request ${requestId} has already been resolved`,
+        409
+      )
+    }
+
+    const frame = state.continuations.get(request.frameId)
+    if (!frame || frame.kind !== "question" || frame.status !== "waiting") {
+      throw new RuntimeQuestionError(
+        "QUESTION_RUN_NOT_ACTIVE",
+        `Run ${runId} has no resumable question continuation`,
+        409
+      )
+    }
+
+    const normalizedAnswers = normalizeQuestionAnswers(request.questions, answers)
+    request.status = "answered"
+    request.answers = normalizedAnswers
+    request.answeredAt = new Date().toISOString()
+
+    this.emit(this.createQuestionEvent(request, "question.answered", {
+      status: "answered",
+      answers: normalizedAnswers,
+    }))
+    this.emit(this.createQuestionToolTerminalEvent(request, "tool.completed", {
+      status: "completed",
+      summary: "User answered the question request",
+      data: {
+        requestId: request.requestId,
+        answers: normalizedAnswers,
+      },
+    }))
+
+    const requests = frame.requestIds.map((id) => state.questionRequests.get(id))
+    if (requests.every((candidate) => candidate && candidate.status === "answered")) {
+      const responseParts = requests.map((candidate) => ({
+        type: "tool-result" as const,
+        toolCallId: candidate!.toolCallId,
+        toolName: "question",
+        output: {
+          type: "json" as const,
+          value: {
+            requestId: candidate!.requestId,
+            answers: candidate!.answers ?? [],
+          },
+        },
+      }))
+      frame.status = "resuming"
+      if (frame.taskId) {
+        state.activeTaskExecutions.add(frame.executionId)
+      }
+      this.updateRunStatus(run, "running")
+      frame.resolveResume([
+        ...frame.resumeMessages,
+        {
+          role: "tool",
+          content: responseParts,
+        } as ModelMessage,
+      ])
+    } else {
+      this.updateContinuationWaitStatus(run, state)
+    }
+
     return request
   }
 
@@ -331,10 +453,13 @@ export class RunManager {
     const state = this.executionState.get(runId)
     state?.abortController.abort()
     state?.permissionService.cancelPendingForRun(runId, (event) => this.emit(event))
+    if (state) {
+      this.cancelPendingQuestionsForRun(run, state)
+    }
     for (const frame of state?.continuations.values() ?? []) {
       if (frame.status === "waiting") {
         frame.status = "cancelled"
-        frame.resolveDecision(null)
+        frame.resolveResume(null)
       }
     }
     state?.workspaceService?.close()
@@ -599,10 +724,10 @@ export class RunManager {
     const executor = this.resolveExecutor(agent)
     const environmentSnapshot = await this.resolveEnvironmentSnapshot(run.id, state)
     const events: RunEvent[] = []
-    let pendingFrame: ApprovalContinuationFrame | undefined
+    let pendingFrame: RunContinuationFrame | undefined
     if (task) {
       state.activeTaskExecutions.add(executionId)
-      this.updateApprovalWaitStatus(run, state)
+      this.updateContinuationWaitStatus(run, state)
     }
 
     const emitExecutionEvent = (event: RunEvent): void => {
@@ -643,6 +768,7 @@ export class RunManager {
           return
         }
         pendingFrame = this.createContinuationFrame({
+          kind: "approval",
           runId: run.id,
           executionId,
           agentId: agent.id,
@@ -655,7 +781,29 @@ export class RunManager {
         })
         state.continuations.set(pendingFrame.frameId, pendingFrame)
         state.activeTaskExecutions.delete(executionId)
-        this.updateApprovalWaitStatus(run, state)
+        this.updateContinuationWaitStatus(run, state)
+      },
+      onQuestionPending: (request) => {
+        const frame = this.createQuestionContinuationFrame({
+          run,
+          state,
+          executionId,
+          agent,
+          task,
+          parentAgentId,
+          groupId,
+          parentTaskId,
+          calls: request.calls,
+          resumeMessages: request.resumeMessages,
+        })
+        if (!frame) {
+          return false
+        }
+        pendingFrame = frame
+        state.continuations.set(frame.frameId, frame)
+        state.activeTaskExecutions.delete(executionId)
+        this.updateContinuationWaitStatus(run, state)
+        return true
       },
       createMessageId: () => this.createExecutionMessageId(run.id, state, executionId),
     }
@@ -718,7 +866,7 @@ export class RunManager {
       }
 
       if (pendingFrame) {
-        const nextMessages = await pendingFrame.waitForDecision
+        const nextMessages = await pendingFrame.waitForResume
         if (!nextMessages || abortController.signal.aborted || run.status === "cancelled") {
           return events
         }
@@ -733,7 +881,7 @@ export class RunManager {
     } finally {
       if (task) {
         state.activeTaskExecutions.delete(executionId)
-        this.updateApprovalWaitStatus(run, state)
+        this.updateContinuationWaitStatus(run, state)
       }
     }
 
@@ -1135,6 +1283,8 @@ export class RunManager {
   }
 
   private createContinuationFrame(options: {
+    frameId?: string
+    kind: RunContinuationFrame["kind"]
     runId: string
     executionId: string
     agentId: string
@@ -1144,30 +1294,267 @@ export class RunManager {
     parentTaskId?: string
     requestIds: string[]
     resumeMessages: ModelMessage[]
-  }): ApprovalContinuationFrame {
-    let resolveDecision!: (messages: ModelMessage[] | null) => void
-    const waitForDecision = new Promise<ModelMessage[] | null>((resolve) => {
-      resolveDecision = resolve
+  }): RunContinuationFrame {
+    let resolveResume!: (messages: ModelMessage[] | null) => void
+    const waitForResume = new Promise<ModelMessage[] | null>((resolve) => {
+      resolveResume = resolve
     })
     return {
-      frameId: `frame_${crypto.randomUUID()}`,
+      frameId: options.frameId ?? `frame_${crypto.randomUUID()}`,
       ...options,
       status: "waiting",
-      waitForDecision,
-      resolveDecision,
+      waitForResume,
+      resolveResume,
     }
   }
 
-  private updateApprovalWaitStatus(run: RunRecord, state: RunExecutionState): void {
+  private createQuestionContinuationFrame(options: {
+    run: RunRecord
+    state: RunExecutionState
+    executionId: string
+    agent: AgentDefinition
+    task?: OrchestratorTask
+    parentAgentId?: string
+    groupId?: string
+    parentTaskId?: string
+    calls: PendingQuestionToolCall[]
+    resumeMessages: ModelMessage[]
+  }): RunContinuationFrame | undefined {
+    const {
+      run,
+      state,
+      executionId,
+      agent,
+      task,
+      parentAgentId,
+      groupId,
+      parentTaskId,
+      calls,
+      resumeMessages,
+    } = options
+    const validRequests: QuestionRequestRecord[] = []
+    const frameId = `frame_${crypto.randomUUID()}`
+
+    for (const call of calls) {
+      const parsed = QuestionToolInputSchema.safeParse(call.input)
+      if (!parsed.success) {
+        this.emit(this.createQuestionToolStartedEvent({
+          runId: run.id,
+          agentId: agent.id,
+          toolCallId: call.toolCallId,
+          messageId: call.messageId,
+          taskId: task?.taskId,
+          parentAgentId,
+          groupId,
+          parentTaskId,
+        }))
+        this.emit(this.createQuestionToolFailedEvent({
+          runId: run.id,
+          agentId: agent.id,
+          toolCallId: call.toolCallId,
+          messageId: call.messageId,
+          taskId: task?.taskId,
+          parentAgentId,
+          groupId,
+          parentTaskId,
+          summary: "Invalid input for question",
+          error: {
+            code: "TOOL_INVALID_INPUT",
+            message: "Invalid input for question",
+            details: parsed.error.issues,
+          },
+        }))
+        continue
+      }
+
+      const request: QuestionRequestRecord = {
+        requestId: `question_${crypto.randomUUID()}`,
+        runId: run.id,
+        frameId,
+        executionId,
+        agentId: agent.id,
+        toolCallId: call.toolCallId,
+        toolName: "question",
+        messageId: call.messageId,
+        taskId: task?.taskId,
+        parentAgentId,
+        groupId,
+        parentTaskId,
+        questions: normalizeQuestionToolInput(parsed.data),
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      }
+      validRequests.push(request)
+    }
+
+    if (validRequests.length === 0) {
+      return undefined
+    }
+
+    for (const request of validRequests) {
+      state.questionRequests.set(request.requestId, request)
+      this.emit(this.createQuestionToolStartedEvent({
+        runId: run.id,
+        agentId: agent.id,
+        toolCallId: request.toolCallId,
+        messageId: request.messageId,
+        taskId: request.taskId,
+        parentAgentId: request.parentAgentId,
+        groupId: request.groupId,
+        parentTaskId: request.parentTaskId,
+      }))
+      this.emit(this.createQuestionEvent(request, "question.requested", {
+        status: "pending",
+        questions: request.questions,
+      }))
+    }
+
+    return this.createContinuationFrame({
+      kind: "question",
+      frameId,
+      runId: run.id,
+      executionId,
+      agentId: agent.id,
+      taskId: task?.taskId,
+      parentAgentId,
+      groupId,
+      parentTaskId,
+      requestIds: validRequests.map((request) => request.requestId),
+      resumeMessages,
+    })
+  }
+
+  private updateContinuationWaitStatus(run: RunRecord, state: RunExecutionState): void {
     if (isTerminalStatus(run.status)) {
       return
     }
-    const hasWaitingFrame = Array.from(state.continuations.values())
-      .some((frame) => frame.status === "waiting")
-    if (!hasWaitingFrame) {
+    const waitingFrames = Array.from(state.continuations.values())
+      .filter((frame) => frame.status === "waiting")
+    if (waitingFrames.length === 0) {
       return
     }
-    this.updateRunStatus(run, state.activeTaskExecutions.size > 0 ? "running" : "waiting_approval")
+    if (state.activeTaskExecutions.size > 0) {
+      this.updateRunStatus(run, "running")
+      return
+    }
+
+    const hasWaitingApproval = waitingFrames.some((frame) => frame.kind === "approval")
+    this.updateRunStatus(run, hasWaitingApproval ? "waiting_approval" : "waiting_input")
+  }
+
+  private cancelPendingQuestionsForRun(run: RunRecord, state: RunExecutionState): void {
+    for (const request of state.questionRequests.values()) {
+      if (request.runId !== run.id || request.status !== "pending") {
+        continue
+      }
+
+      request.status = "cancelled"
+      request.cancelledAt = new Date().toISOString()
+      this.emit(this.createQuestionEvent(request, "question.cancelled", {
+        status: "cancelled",
+      }))
+      this.emit(this.createQuestionToolTerminalEvent(request, "tool.failed", {
+        status: "cancelled",
+        summary: "Question request was cancelled",
+        error: {
+          code: "QUESTION_CANCELLED",
+          message: "Question request was cancelled",
+        },
+      }))
+    }
+  }
+
+  private createQuestionEvent(
+    request: QuestionRequestRecord,
+    type: "question.requested" | "question.answered" | "question.cancelled",
+    data: Record<string, unknown>
+  ): RunEvent {
+    const event = createRunEvent(request.runId, type, request.agentId, {
+      requestId: request.requestId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      messageId: request.messageId,
+      taskId: request.taskId,
+      parentAgentId: request.parentAgentId,
+      parentTaskId: request.parentTaskId,
+      groupId: request.groupId,
+      ...data,
+    })
+    event.toolCallId = request.toolCallId
+    event.toolName = request.toolName
+    event.messageId = request.messageId
+    event.taskId = request.taskId
+    event.parentAgentId = request.parentAgentId ?? request.agentId
+    event.parentTaskId = request.parentTaskId
+    event.groupId = request.groupId
+    return event
+  }
+
+  private createQuestionToolStartedEvent(options: {
+    runId: string
+    agentId: string
+    toolCallId: string
+    messageId?: string
+    taskId?: string
+    parentAgentId?: string
+    groupId?: string
+    parentTaskId?: string
+  }): RunEvent {
+    const event = createRunEvent(options.runId, "tool.started", options.agentId, {
+      riskLevel: "low",
+      summary: "Question requested",
+    })
+    event.toolCallId = options.toolCallId
+    event.toolName = "question"
+    event.messageId = options.messageId
+    event.taskId = options.taskId
+    event.parentAgentId = options.parentAgentId ?? options.agentId
+    event.parentTaskId = options.parentTaskId
+    event.groupId = options.groupId
+    return event
+  }
+
+  private createQuestionToolFailedEvent(options: {
+    runId: string
+    agentId: string
+    toolCallId: string
+    messageId?: string
+    taskId?: string
+    parentAgentId?: string
+    groupId?: string
+    parentTaskId?: string
+    summary: string
+    error: { code: string; message: string; details?: unknown }
+  }): RunEvent {
+    const event = createRunEvent(options.runId, "tool.failed", options.agentId, {
+      status: "failed",
+      summary: options.summary,
+      error: options.error,
+    })
+    event.toolCallId = options.toolCallId
+    event.toolName = "question"
+    event.messageId = options.messageId
+    event.taskId = options.taskId
+    event.parentAgentId = options.parentAgentId ?? options.agentId
+    event.parentTaskId = options.parentTaskId
+    event.groupId = options.groupId
+    return event
+  }
+
+  private createQuestionToolTerminalEvent(
+    request: QuestionRequestRecord,
+    type: "tool.completed" | "tool.failed",
+    data: Record<string, unknown>
+  ): RunEvent {
+    const event = createRunEvent(request.runId, type, request.agentId, data)
+    event.toolCallId = request.toolCallId
+    event.toolName = request.toolName
+    event.messageId = request.messageId
+    event.taskId = request.taskId
+    event.parentAgentId = request.parentAgentId ?? request.agentId
+    event.parentTaskId = request.parentTaskId
+    event.groupId = request.groupId
+    return event
   }
 
   private updateRunStatus(run: RunRecord, status: RunStatus): void {

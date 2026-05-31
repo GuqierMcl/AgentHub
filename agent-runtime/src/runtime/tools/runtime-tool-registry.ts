@@ -13,6 +13,7 @@ import type {
 } from "./types"
 import type { AgentAuthoringToolOption, AgentPermissionPolicy } from "../../agents"
 import { createBashTool } from "./bash-tool"
+import { createQuestionTool } from "./question-tool"
 import { createRunTaskTool } from "./run-task-tool"
 import { createWebFetchTool } from "./web-fetch-tool"
 import { createWorkspaceTools } from "./workspace-tools"
@@ -194,6 +195,14 @@ export class RuntimeToolRegistry {
 
     const tools: ToolSet = {}
     for (const definition of visibleTools) {
+      if (definition.deferred) {
+        tools[definition.name] = tool({
+          description: definition.description,
+          inputSchema: definition.inputSchema,
+        })
+        continue
+      }
+
       tools[definition.name] = tool({
         description: definition.description,
         inputSchema: definition.inputSchema,
@@ -376,5 +385,6 @@ export function createDefaultRuntimeToolRegistry(): RuntimeToolRegistry {
   }
   registry.register(createWebFetchTool())
   registry.register(createBashTool())
+  registry.register(createQuestionTool())
   return registry
 }

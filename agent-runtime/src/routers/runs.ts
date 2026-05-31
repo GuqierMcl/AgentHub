@@ -10,6 +10,8 @@ import {
   isTerminalStatus,
   type RunEvent,
   RuntimePermissionError,
+  RuntimeQuestionError,
+  QuestionAnswerRequestSchema,
 } from "../runtime"
 import { z } from "zod"
 
@@ -243,6 +245,41 @@ runs.post("/runtime/runs/:runId/permissions/:requestId/decision", async (c: Cont
         error: {
           code: error.code,
           message: error.message,
+        },
+      }, error.status)
+    }
+    throw error
+  }
+})
+
+runs.post("/runtime/runs/:runId/questions/:requestId/answer", async (c: Context) => {
+  const runId = c.req.param("runId")
+  const requestId = c.req.param("requestId")
+  const body = await c.req.json().catch(() => null)
+  const parsed = QuestionAnswerRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json({
+      error: {
+        code: "QUESTION_INVALID_INPUT",
+        message: "Invalid question answer input",
+        details: parsed.error.issues,
+      },
+    }, 400)
+  }
+
+  try {
+    return c.json(c.get("runManager").answerQuestion(
+      runId,
+      requestId,
+      parsed.data.answers
+    ))
+  } catch (error) {
+    if (error instanceof RuntimeQuestionError) {
+      return c.json({
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
         },
       }, error.status)
     }

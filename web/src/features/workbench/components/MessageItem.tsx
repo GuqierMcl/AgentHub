@@ -57,6 +57,14 @@ import {
   type ConfirmationProps,
 } from "@/components/ai-elements/confirmation"
 import { Badge } from "@/components/ui/badge"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Separator } from "@/components/ui/separator"
 import type { ToolUIPart } from "ai"
 
 import type {
@@ -64,6 +72,7 @@ import type {
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
   WorkbenchTimelinePermissionItem,
+  WorkbenchTimelineQuestionItem,
   WorkbenchTimelineReasoningItem,
   WorkbenchTimelineRunStatusItem,
   WorkbenchTimelineTaskItem,
@@ -91,6 +100,8 @@ export const TimelineItem = memo(function TimelineItem({
       return <ToolTimelineItem item={item} />
     case "permission":
       return <PermissionTimelineItem item={item} />
+    case "question":
+      return <QuestionTimelineItem item={item} />
     case "reasoning":
       return <ReasoningTimelineItem item={item} />
     case "plan":
@@ -164,6 +175,10 @@ function ChatMessageItem({
 
               {item.permissionItems?.map((permission) => (
                 <PermissionBlockView item={permission} key={permission.id} />
+              ))}
+
+              {item.questionItems?.map((question) => (
+                <QuestionBlockView item={question} key={question.id} />
               ))}
 
               {item.toolItems?.map((tool) => (
@@ -244,6 +259,11 @@ function TaskTimelineItem({ item }: { item: WorkbenchTimelineTaskItem }) {
               <PermissionBlockView item={permission} />
             </TaskItem>
           ))}
+          {item.questionItems?.map((question) => (
+            <TaskItem key={question.id}>
+              <QuestionBlockView item={question} />
+            </TaskItem>
+          ))}
           {item.toolItems?.map((tool) => (
             <TaskItem key={tool.id}>
               <ToolBlockView item={tool} />
@@ -299,6 +319,18 @@ function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
         )}
       </ToolContent>
     </Tool>
+  )
+}
+
+function QuestionTimelineItem({
+  item,
+}: {
+  item: WorkbenchTimelineQuestionItem
+}) {
+  return (
+    <TimelineCard>
+      <QuestionBlockView item={item} />
+    </TimelineCard>
   )
 }
 
@@ -480,6 +512,93 @@ function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }
       ) : null}
     </Confirmation>
   )
+}
+
+function QuestionBlockView({ item }: { item: WorkbenchTimelineQuestionItem }) {
+  const answered = item.status === "answered"
+  const cancelled = item.status === "cancelled"
+
+  return (
+    <Card className="max-w-[min(720px,100%)] border bg-muted/20" size="sm">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="truncate">{item.title}</CardTitle>
+            <CardDescription>
+              {item.questions.length} question{item.questions.length === 1 ? "" : "s"} from {item.agentId ?? "agent"}
+            </CardDescription>
+          </div>
+          <QuestionStatusBadge status={item.status} />
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {item.questions.map((question, index) => {
+          const answer = item.answers?.find((candidate) => candidate.questionId === question.id)
+          return (
+            <div className="flex flex-col gap-2" key={question.id}>
+              {index > 0 ? <Separator /> : null}
+              <div>
+                <div className="text-sm font-medium">{question.title}</div>
+                <div className="text-muted-foreground text-sm">{question.body}</div>
+              </div>
+              {answer ? (
+                <div className="rounded-md bg-background px-3 py-2 text-sm">
+                  {formatQuestionAnswer(question, answer)}
+                </div>
+              ) : (
+                <div className="text-muted-foreground text-xs">
+                  {cancelled ? "No answer submitted." : "Waiting for your answer below."}
+                </div>
+              )}
+            </div>
+          )
+        })}
+        {answered ? (
+          <div className="text-muted-foreground text-xs">Answered at {item.time}</div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function QuestionStatusBadge({
+  status,
+}: {
+  status: WorkbenchTimelineQuestionItem["status"]
+}) {
+  if (status === "answered") {
+    return (
+      <Badge className="gap-1" variant="secondary">
+        <CheckCircleIcon data-icon="inline-start" />
+        Answered
+      </Badge>
+    )
+  }
+  if (status === "cancelled") {
+    return (
+      <Badge className="gap-1" variant="outline">
+        <XCircleIcon data-icon="inline-start" />
+        Cancelled
+      </Badge>
+    )
+  }
+  return (
+    <Badge className="gap-1" variant="secondary">
+      <ClockIcon data-icon="inline-start" />
+      Waiting
+    </Badge>
+  )
+}
+
+function formatQuestionAnswer(
+  question: WorkbenchTimelineQuestionItem["questions"][number],
+  answer: NonNullable<WorkbenchTimelineQuestionItem["answers"]>[number]
+): string {
+  if (answer.custom) {
+    return answer.answer ?? "Custom answer"
+  }
+  const option = question.options.find((candidate) => candidate.id === answer.optionId)
+  return answer.answer ?? option?.label ?? answer.optionId ?? "Selected option"
 }
 
 function ReasoningBlockView({

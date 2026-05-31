@@ -1,5 +1,6 @@
 export { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./runtime-tool-registry"
 export { createBashTool, BashInputSchema } from "./bash-tool"
+export { createQuestionTool } from "./question-tool"
 export { createRunTaskTool } from "./run-task-tool"
 export { createWebFetchTool, WebFetchInputSchema } from "./web-fetch-tool"
 export { createWritePlanTool } from "./write-plan-tool"
@@ -11,6 +12,7 @@ export {
 } from "./write-plan-tool"
 export type { WritePlanInput } from "./write-plan-tool"
 export type { BashInput, BashResult } from "./bash-tool"
+export type { QuestionToolInput } from "../question"
 export type { WebFetchInput, WebFetchResult } from "./web-fetch-tool"
 export type {
   AiSdkToolSettings,
