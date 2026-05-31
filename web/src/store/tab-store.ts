@@ -13,11 +13,17 @@ export type SingletonTabId = "conversation-status" | "review" | "files" | "deplo
 export type MultiTabId = "terminal" | "preview"
 export type TabType = SingletonTabId | MultiTabId
 
+export type PreviewTabPayload = {
+  source: "manual" | "artifact" | "deploy"
+  initialUrl?: string
+}
+
 export type TabInstance = {
   uid: string
   type: TabType
   title: string
   icon: LucideIcon
+  payload?: PreviewTabPayload
 }
 
 export type WorkspaceFocusRequest = {
@@ -54,7 +60,7 @@ type TabStore = {
   workspaceFocusRequest: WorkspaceFocusRequest | null
   workspaceFocusRequestSeq: number
 
-  openTab: (type: TabType, title?: string) => string
+  openTab: (type: TabType, title?: string, payload?: PreviewTabPayload) => string
   closeTab: (uid: string) => void
   activateTab: (uid: string) => void
   closeAllTabs: () => void
@@ -75,7 +81,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
   workspaceFocusRequest: null,
   workspaceFocusRequestSeq: 0,
 
-  openTab: (type, title) => {
+  openTab: (type, title, payload) => {
     const state = get()
     const meta = tabMeta[type]
 
@@ -111,6 +117,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
       type,
       title: title ?? `${meta.label}${counter + 1}`,
       icon: meta.icon,
+      payload,
     }
     set((s) => ({
       tabs: [...s.tabs, tab],

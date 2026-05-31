@@ -1,48 +1,231 @@
-import { GlobeIcon } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { RotateCwIcon } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  WebPreview,
+  WebPreviewNavigation,
+  WebPreviewNavigationButton,
+  WebPreviewUrl,
+} from "@/components/ai-elements/web-preview"
+
+type BrowserPanelStatus = "idle" | "loading" | "ready" | "error"
+type PreviewViewportLayout = {
+  frameHeight: number
+  frameWidth: number
+  renderedHeight: number
+  renderedWidth: number
+  scale: number
+}
+
+const DESKTOP_VIEWPORT_WIDTH = 1280
 
 type BrowserPanelProps = {
   uid: string
   title: string
+  initialUrl?: string
 }
 
-export function BrowserPanel({ uid, title }: BrowserPanelProps) {
+export function BrowserPanel({ uid, title, initialUrl }: BrowserPanelProps) {
+  const normalizedInitialUrl = initialUrl ?? ""
+  const [prevInitialUrl, setPrevInitialUrl] = useState(normalizedInitialUrl)
+  const [navigatedUrl, setNavigatedUrl] = useState(normalizedInitialUrl)
+  const [status, setStatus] = useState<BrowserPanelStatus>(
+    initialUrl ? "loading" : "idle"
+  )
+  const [iframeKey, setIframeKey] = useState(0)
+  const [viewportLayout, setViewportLayout] =
+    useState<PreviewViewportLayout | null>(null)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+
+  if (normalizedInitialUrl !== prevInitialUrl) {
+    setPrevInitialUrl(normalizedInitialUrl)
+    setNavigatedUrl(normalizedInitialUrl)
+    setStatus(normalizedInitialUrl ? "loading" : "idle")
+  }
+
+  useEffect(() => {
+    const element = viewportRef.current
+    if (!element) return
+
+    const updateLayout = () => {
+      const nextLayout = getPreviewViewportLayout(
+        element.clientWidth,
+        element.clientHeight
+      )
+      setViewportLayout(nextLayout)
+    }
+
+    updateLayout()
+
+    const observer = new ResizeObserver(() => {
+      window.requestAnimationFrame(updateLayout)
+    })
+    observer.observe(element)
+
+    return () => observer.disconnect()
+  }, [])
+
+  const handleUrlChange = useCallback((url: string) => {
+    if (!url) return
+    setNavigatedUrl(url)
+    setStatus("loading")
+  }, [])
+
+  const handleIframeLoad = useCallback(() => {
+    setStatus("ready")
+  }, [])
+
+  const handleIframeError = useCallback(() => {
+    setStatus("error")
+  }, [])
+
+  const handleRefresh = useCallback(() => {
+    if (!navigatedUrl) return
+    setIframeKey((k) => k + 1)
+    setStatus("loading")
+  }, [navigatedUrl])
+
+  const iframeStyle = useMemo(() => {
+    if (!viewportLayout) return undefined
+    return {
+      height: `${viewportLayout.frameHeight}px`,
+      transform: `scale(${viewportLayout.scale})`,
+      transformOrigin: "top left",
+      width: `${viewportLayout.frameWidth}px`,
+    }
+  }, [viewportLayout])
+
+  const frameContainerStyle = useMemo(() => {
+    if (!viewportLayout) return undefined
+    return {
+      height: `${viewportLayout.renderedHeight}px`,
+      width: `${viewportLayout.renderedWidth}px`,
+    }
+  }, [viewportLayout])
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
       <div className="shrink-0 border-border border-b px-3 py-2">
         <div className="truncate font-medium text-sm">{title}</div>
-        <div className="truncate text-muted-foreground text-sm">
-          {uid}
-        </div>
+        <div className="truncate text-muted-foreground text-sm">{uid}</div>
       </div>
-      <div className="flex shrink-0 items-center gap-2 border-border border-b p-2">
-        <Button size="sm" type="button" variant="ghost">
-          <GlobeIcon />
-        </Button>
-        <Input
-          className="h-7 flex-1"
-          defaultValue="https://localhost:4173"
-          readOnly
-        />
-        <Badge variant="secondary">preview</Badge>
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex h-full items-center justify-center p-8">
-          <div className="text-center">
-            <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <GlobeIcon className="size-6" />
+
+      <WebPreview
+        className="flex min-h-0 min-w-0 flex-1 flex-col rounded-none border-none bg-transparent"
+        defaultUrl={initialUrl ?? ""}
+        onUrlChange={handleUrlChange}
+      >
+        <WebPreviewNavigation>
+          <WebPreviewNavigationButton
+            disabled={!navigatedUrl}
+            onClick={handleRefresh}
+            tooltip="刷新"
+          >
+            <RotateCwIcon className="size-4" />
+          </WebPreviewNavigationButton>
+          <WebPreviewUrl placeholder="输入网址后按回车访问" />
+        </WebPreviewNavigation>
+
+        <div
+          className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-muted/20"
+          ref={viewportRef}
+        >
+          {status === "idle" ? (
+            <div className="flex h-full min-h-0 min-w-0 items-start justify-center overflow-auto p-3">
+              {viewportLayout ? (
+                <div
+                  className="relative shrink-0 overflow-hidden rounded-xl border border-border bg-background shadow-sm"
+                  style={frameContainerStyle}
+                >
+                  <div
+                    className="flex flex-col bg-background"
+                    style={iframeStyle}
+                  >
+                    <div className="flex min-h-0 flex-1 items-center justify-center bg-linear-to-b from-background to-muted/20 p-10">
+                      <div className="w-full max-w-md text-center">
+                        <div className="mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl border border-border bg-background shadow-xs">
+                          <RotateCwIcon className="size-7 text-muted-foreground" />
+                        </div>
+                        <div className="font-medium text-foreground text-xl">
+                          准备开始网页预览
+                        </div>
+                        <div className="mt-3 text-muted-foreground text-sm leading-6">
+                          输入网址后按 Enter 开始预览
+                          <br />
+                          拖拽右侧面板时，此预览视口也会跟随自适应缩放
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
-            <div className="mt-3 font-medium text-sm">网页预览</div>
-            <div className="mt-1 text-muted-foreground text-sm">
-              iframe / 静态网页预览占位，后续可挂载真实 URL
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="flex h-full min-h-0 min-w-0 items-start justify-center overflow-auto p-3">
+                {viewportLayout ? (
+                  <div
+                    className="relative shrink-0 overflow-hidden rounded-xl border border-border bg-background shadow-sm"
+                    style={frameContainerStyle}
+                  >
+                    <iframe
+                      key={iframeKey}
+                      className="block border-0"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-top-navigation"
+                      src={navigatedUrl}
+                      style={iframeStyle}
+                      title="Preview"
+                      onError={handleIframeError}
+                      onLoad={handleIframeLoad}
+                    />
+                  </div>
+                ) : null}
+              </div>
+              {status === "loading" ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
+                  <div className="text-muted-foreground text-sm">加载中...</div>
+                </div>
+              ) : null}
+              {status === "error" ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
+                  <div className="text-center">
+                    <div className="text-destructive text-sm">无法加载该页面</div>
+                    <div className="mt-1 text-muted-foreground text-xs">
+                      可能是目标页面设置了 X-Frame-Options 或 CSP 限制
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
-      </ScrollArea>
+      </WebPreview>
     </div>
   )
+}
+
+function getPreviewViewportLayout(
+  containerWidth: number,
+  containerHeight: number
+): PreviewViewportLayout | null {
+  if (containerWidth <= 0 || containerHeight <= 0) return null
+
+  if (containerWidth >= DESKTOP_VIEWPORT_WIDTH) {
+    return {
+      frameHeight: containerHeight,
+      frameWidth: containerWidth,
+      renderedHeight: containerHeight,
+      renderedWidth: containerWidth,
+      scale: 1,
+    }
+  }
+
+  const scale = containerWidth / DESKTOP_VIEWPORT_WIDTH
+  return {
+    frameHeight: containerHeight / scale,
+    frameWidth: DESKTOP_VIEWPORT_WIDTH,
+    renderedHeight: containerHeight,
+    renderedWidth: containerWidth,
+    scale,
+  }
 }

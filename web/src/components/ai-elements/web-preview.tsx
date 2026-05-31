@@ -78,7 +78,7 @@ export const WebPreview = ({
     <WebPreviewContext.Provider value={contextValue}>
       <div
         className={cn(
-          "flex size-full flex-col rounded-lg border bg-card",
+          "flex size-full min-h-0 min-w-0 flex-col rounded-lg border bg-card",
           className
         )}
         {...props}
@@ -195,7 +195,7 @@ export const WebPreviewBody = ({
   const { url } = useWebPreview();
 
   return (
-    <div className="flex-1">
+    <div className="min-h-0 min-w-0 flex-1">
       <iframe
         className={cn("size-full", className)}
         // oxlint-disable-next-line eslint-plugin-react(iframe-missing-sandbox)

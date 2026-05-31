@@ -52,7 +52,13 @@ function renderPanel(
     case "terminal":
       return <TerminalPanel title={tab.title} uid={tab.uid} />
     case "preview":
-      return <BrowserPanel title={tab.title} uid={tab.uid} />
+      return (
+        <BrowserPanel
+          initialUrl={tab.payload?.initialUrl}
+          title={tab.title}
+          uid={tab.uid}
+        />
+      )
     default:
       return null
   }
@@ -85,7 +91,7 @@ export function RightWorkbenchTabView({
             <div
               aria-hidden={!isActive}
               className={cn(
-                "absolute inset-0 min-h-0",
+                "absolute inset-0 min-h-0 min-w-0 overflow-hidden",
                 isActive ? "flex" : "hidden"
               )}
               data-tab-uid={tab.uid}
