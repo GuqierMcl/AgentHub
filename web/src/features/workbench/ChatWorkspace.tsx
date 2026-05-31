@@ -212,7 +212,7 @@ export function ChatWorkspace() {
   }, [renameMutation, renameTarget, renameTitle])
 
   return (
-    <section className="grid h-full min-h-0 min-w-0 grid-cols-[18rem_minmax(0,1fr)] bg-background">
+    <section className="grid h-full min-h-0 min-w-0 grid-cols-[22rem_minmax(0,1fr)] bg-background">
       <ConversationSidebar
         conversations={sidebarConversations}
         loading={conversationsQuery.isLoading}
