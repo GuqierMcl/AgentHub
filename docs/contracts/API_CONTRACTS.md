@@ -1265,7 +1265,7 @@ type BashResult = {
 }
 ```
 
-非零 `exitCode` 仍是 `tool.completed`；spawn 失败、超时、取消、缺少 workspace、非法 cwd、权限拒绝才进入 `tool.failed`。stdout/stderr 只包含截断后的 UTF-8 文本。
+非零 `exitCode` 仍是 `tool.completed`；spawn 失败、超时、取消、缺少 workspace、非法 cwd、权限拒绝才进入 `tool.failed`。stdout/stderr 只包含截断后的文本。Runtime 优先按 UTF-8 解码命令输出；Windows 下若输出不是合法 UTF-8，会按本机 ANSI code page 兜底，例如 936 映射为 `gb18030`，也可通过 `AGENTHUB_BASH_OUTPUT_ENCODING` 显式覆盖。
 
 `bash` 权限由两层组成：
 

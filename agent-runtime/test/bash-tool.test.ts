@@ -187,6 +187,22 @@ describe("bash tool", () => {
     expect(events.map((event) => event.type)).toEqual(["tool.started", "tool.completed"])
   })
 
+  test("decodes non-ASCII stdout without mojibake", async () => {
+    const registry = createRegistry()
+    const { context } = await createContext()
+    const text = "2026年5月31日"
+
+    const output = await registry.executeTool(
+      "bash",
+      { command: echoCommand(text) },
+      context,
+      { toolCallId: "tool_bash_unicode_stdout" }
+    )
+
+    expect(output.status).toBe("completed")
+    expect((output.data as { stdout: string }).stdout).toContain(text)
+  })
+
   test("ask rule requests approval and resumes the same toolCallId after approval", async () => {
     const registry = createRegistry()
     const { context, events, permissionService } = await createContext({

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { stat, realpath } from "node:fs/promises"
 import { basename, isAbsolute, relative, resolve } from "node:path"
 import { execa } from "execa"
@@ -78,20 +79,12 @@ type ResolvedShell = {
   executable: string
   commandArgs: string[]
   displayName: string
+  commandPrefix?: string
 }
 
 type RuleMatch = {
   pattern: string
   action: BashPermissionAction
-}
-
-type OutputCapture = {
-  bytes: number
-  truncated: boolean
-}
-
-type OutputBudget = {
-  remainingBytes: number
 }
 
 function createFailure<TData = unknown>(
@@ -240,6 +233,15 @@ function defaultShellArgs(): string[] {
     : ["-lc"]
 }
 
+function defaultPowerShellCommandPrefix(): string {
+  return [
+    "$agentHubUtf8 = New-Object System.Text.UTF8Encoding $false",
+    "[Console]::InputEncoding = $agentHubUtf8",
+    "[Console]::OutputEncoding = $agentHubUtf8",
+    "$OutputEncoding = $agentHubUtf8",
+  ].join("; ")
+}
+
 function resolveShell(): ResolvedShell {
   const override = process.env.AGENTHUB_BASH_SHELL?.trim()
   if (override) {
@@ -255,6 +257,7 @@ function resolveShell(): ResolvedShell {
       executable: "powershell.exe",
       commandArgs: defaultShellArgs(),
       displayName: "powershell.exe",
+      commandPrefix: defaultPowerShellCommandPrefix(),
     }
   }
 
@@ -263,6 +266,10 @@ function resolveShell(): ResolvedShell {
     commandArgs: defaultShellArgs(),
     displayName: "/bin/sh",
   }
+}
+
+function createShellCommand(shell: ResolvedShell, command: string): string {
+  return shell.commandPrefix ? `${shell.commandPrefix}; ${command}` : command
 }
 
 function createShellEnv(): Record<string, string> {
@@ -338,82 +345,144 @@ function describeCommand(command: string): string {
   return normalized.length > 160 ? `${normalized.slice(0, 157)}...` : normalized
 }
 
-function truncateUtf8(value: string, maxBytes: number): string {
-  if (maxBytes <= 0) {
+function toOutputBuffer(value: unknown): Buffer {
+  if (typeof value === "string") {
+    return Buffer.from(value, "latin1")
+  }
+  if (Array.isArray(value)) {
+    return Buffer.concat(value.map(toOutputBuffer))
+  }
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value)
+  }
+  return value === undefined || value === null ? Buffer.alloc(0) : Buffer.from(String(value), "utf8")
+}
+
+function decodeStrict(buffer: Buffer, encoding: string): string | null {
+  try {
+    return new TextDecoder(encoding, { fatal: true }).decode(buffer)
+  } catch {
+    return null
+  }
+}
+
+function decodeLenient(buffer: Buffer, encoding: string): string | null {
+  try {
+    return new TextDecoder(encoding).decode(buffer)
+  } catch {
+    return null
+  }
+}
+
+let cachedWindowsAnsiEncoding: string | null | undefined
+
+function getWindowsAnsiEncoding(): string | null {
+  if (process.platform !== "win32") {
+    return null
+  }
+  if (cachedWindowsAnsiEncoding !== undefined) {
+    return cachedWindowsAnsiEncoding
+  }
+
+  const configuredCodePage = process.env.AGENTHUB_BASH_WINDOWS_CODE_PAGE?.trim()
+  const codePage = configuredCodePage && /^\d+$/.test(configuredCodePage)
+    ? Number.parseInt(configuredCodePage, 10)
+    : detectWindowsAnsiCodePage()
+  cachedWindowsAnsiEncoding = codePage ? mapWindowsCodePageEncoding(codePage) : fallbackWindowsLocaleEncoding()
+  return cachedWindowsAnsiEncoding
+}
+
+function detectWindowsAnsiCodePage(): number | null {
+  try {
+    const output = execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", "[System.Text.Encoding]::Default.CodePage"],
+      {
+        encoding: "buffer",
+        timeout: 1_000,
+        windowsHide: true,
+      }
+    )
+    const match = Buffer.from(output).toString("ascii").match(/\d+/)
+    return match ? Number.parseInt(match[0], 10) : null
+  } catch {
+    return null
+  }
+}
+
+function mapWindowsCodePageEncoding(codePage: number): string | null {
+  const explicit = new Map<number, string>([
+    [65001, "utf-8"],
+    [936, "gb18030"],
+    [54936, "gb18030"],
+    [950, "big5"],
+    [932, "shift_jis"],
+    [949, "euc-kr"],
+    [1252, "windows-1252"],
+  ])
+  const mapped = explicit.get(codePage)
+  if (mapped) {
+    return mapped
+  }
+  if (codePage >= 1250 && codePage <= 1258) {
+    return `windows-${codePage}`
+  }
+  return null
+}
+
+function fallbackWindowsLocaleEncoding(): string | null {
+  const locale = Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase()
+  if (locale.startsWith("zh")) return "gb18030"
+  if (locale.startsWith("ja")) return "shift_jis"
+  if (locale.startsWith("ko")) return "euc-kr"
+  return "windows-1252"
+}
+
+function outputEncodingCandidates(): string[] {
+  const candidates = [
+    process.env.AGENTHUB_BASH_OUTPUT_ENCODING?.trim(),
+    "utf-8",
+    getWindowsAnsiEncoding(),
+  ].filter((encoding): encoding is string => Boolean(encoding))
+  return [...new Set(candidates.map((encoding) => encoding.toLowerCase()))]
+}
+
+function decodeOutputBuffer(buffer: Buffer): string {
+  if (buffer.byteLength === 0) {
     return ""
   }
 
-  let bytes = 0
-  let output = ""
-  for (const char of value) {
-    const nextBytes = Buffer.byteLength(char, "utf8")
-    if (bytes + nextBytes > maxBytes) {
-      break
+  const candidates = outputEncodingCandidates()
+  for (const encoding of candidates) {
+    const decoded = decodeStrict(buffer, encoding)
+    if (decoded !== null) {
+      return decoded
     }
-    bytes += nextBytes
-    output += char
   }
-  return output
+
+  for (const encoding of candidates) {
+    const decoded = decodeLenient(buffer, encoding)
+    if (decoded !== null) {
+      return decoded
+    }
+  }
+
+  return buffer.toString("utf8")
 }
 
-function createOutputTransform(
-  capture: OutputCapture,
-  budget: OutputBudget
-): (chunk: unknown) => Generator<unknown, void, void> {
-  return function* captureChunk(chunk: unknown): Generator<unknown, void, void> {
-    const text = typeof chunk === "string" ? chunk : String(chunk)
-    if (budget.remainingBytes <= 0) {
-      capture.truncated = true
-      return
-    }
-
-    const chunkBytes = Buffer.byteLength(text, "utf8")
-    const availableBytes = budget.remainingBytes
-    if (chunkBytes <= availableBytes) {
-      capture.bytes += chunkBytes
-      budget.remainingBytes -= chunkBytes
-      yield text
-      return
-    }
-
-    const truncatedText = truncateUtf8(text, availableBytes)
-    const truncatedBytes = Buffer.byteLength(truncatedText, "utf8")
-    capture.bytes += truncatedBytes
-    budget.remainingBytes -= truncatedBytes
-    capture.truncated = true
-    if (truncatedText) {
-      yield truncatedText
-    }
-  }
-}
-
-function toOutputString(value: unknown): string {
-  if (typeof value === "string") {
-    return value
-  }
-  if (Array.isArray(value)) {
-    return value.map(toOutputString).join("")
-  }
-  if (value instanceof Uint8Array) {
-    return new TextDecoder("utf-8").decode(value)
-  }
-  return value === undefined || value === null ? "" : String(value)
-}
-
-function capOutputText(value: string, maxBytes: number): { text: string; bytes: number; truncated: boolean } {
-  const bytes = Buffer.byteLength(value, "utf8")
-  if (bytes <= maxBytes) {
+function capOutputBuffer(value: Buffer, maxBytes: number): { text: string; bytes: number; truncated: boolean } {
+  if (value.byteLength <= maxBytes) {
     return {
-      text: value,
-      bytes,
+      text: decodeOutputBuffer(value),
+      bytes: value.byteLength,
       truncated: false,
     }
   }
 
-  const text = truncateUtf8(value, maxBytes)
+  const capped = value.subarray(0, Math.max(0, maxBytes))
   return {
-    text,
-    bytes: Buffer.byteLength(text, "utf8"),
+    text: decodeOutputBuffer(capped),
+    bytes: capped.byteLength,
     truncated: true,
   }
 }
@@ -489,21 +558,17 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
       }
 
       const startedAt = Date.now()
-      const stdoutCapture: OutputCapture = { bytes: 0, truncated: false }
-      const stderrCapture: OutputCapture = { bytes: 0, truncated: false }
-      const outputBudget: OutputBudget = { remainingBytes: input.maxOutputBytes }
 
       try {
-        const result = await execa(shell.executable, [...shell.commandArgs, input.command], {
+        const result = await execa(shell.executable, [...shell.commandArgs, createShellCommand(shell, input.command)], {
           cwd: cwdResolution.actualCwd,
           env: createShellEnv(),
           extendEnv: false,
+          encoding: "latin1",
           reject: false,
           timeout: input.timeoutMs,
           cancelSignal: context.signal,
           stdin: "ignore",
-          stdout: createOutputTransform(stdoutCapture, outputBudget),
-          stderr: createOutputTransform(stderrCapture, outputBudget),
           stripFinalNewline: false,
           windowsHide: true,
           maxBuffer: MAX_OUTPUT_BYTES + 16_384,
@@ -511,9 +576,9 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
 
         const durationMs = Date.now() - startedAt
         let remainingBytes = input.maxOutputBytes
-        const stdoutOutput = capOutputText(toOutputString(result.stdout), remainingBytes)
+        const stdoutOutput = capOutputBuffer(toOutputBuffer(result.stdout), remainingBytes)
         remainingBytes -= stdoutOutput.bytes
-        const stderrOutput = capOutputText(toOutputString(result.stderr), Math.max(0, remainingBytes))
+        const stderrOutput = capOutputBuffer(toOutputBuffer(result.stderr), Math.max(0, remainingBytes))
         const data = createResultData(input, cwdResolution.logicalCwd, shell.displayName, {
           exitCode: typeof result.exitCode === "number" ? result.exitCode : null,
           signal: result.signal ?? null,
@@ -521,7 +586,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
           stderr: stderrOutput.text,
           stdoutBytes: stdoutOutput.bytes,
           stderrBytes: stderrOutput.bytes,
-          truncated: stdoutCapture.truncated || stderrCapture.truncated || stdoutOutput.truncated || stderrOutput.truncated,
+          truncated: stdoutOutput.truncated || stderrOutput.truncated,
           durationMs,
         })
 
@@ -590,7 +655,6 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
         const durationMs = Date.now() - startedAt
         const partial = createResultData(input, cwdResolution.logicalCwd, shell.displayName, {
           durationMs,
-          truncated: stdoutCapture.truncated || stderrCapture.truncated,
         })
         if (context.signal.aborted) {
           return createFailure<BashResult>(

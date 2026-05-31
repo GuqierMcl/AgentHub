@@ -36,7 +36,7 @@ type BashResult = {
 }
 ```
 
-非零退出码是正常工具完成，结果通过 `exitCode` 表达。spawn 失败、超时、取消、缺少 workspace、非法 `cwd`、权限拒绝才是工具失败。stdout/stderr 只保存截断后的 UTF-8 文本；Runtime raw event 和产品 event 都不得保存无限输出。
+非零退出码是正常工具完成，结果通过 `exitCode` 表达。spawn 失败、超时、取消、缺少 workspace、非法 `cwd`、权限拒绝才是工具失败。stdout/stderr 只保存截断后的文本；Runtime raw event 和产品 event 都不得保存无限输出。
 
 ## Shell 解析
 
@@ -46,6 +46,8 @@ type BashResult = {
 2. `AGENTHUB_BASH_SHELL_ARGS` 可选 JSON 字符串数组，用作命令前置参数。
 3. 未配置时，Windows 使用 `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command <command>`。
 4. 未配置时，非 Windows 使用 `/bin/sh -lc <command>`。
+
+默认 Windows PowerShell 执行前会把 `[Console]::InputEncoding`、`[Console]::OutputEncoding` 和 `$OutputEncoding` 设为 UTF-8，降低中文等非 ASCII 输出乱码概率。Runtime 捕获 stdout/stderr 时保留原始字节语义，优先按 UTF-8 解码；若不是合法 UTF-8，则按 Windows ANSI code page 兜底，例如中文系统常见的 936 会映射为 `gb18030`。可用 `AGENTHUB_BASH_OUTPUT_ENCODING` 强制指定输出解码，或用 `AGENTHUB_BASH_WINDOWS_CODE_PAGE` 覆盖 Windows code page 检测。
 
 子进程使用环境变量白名单，不继承完整 Runtime 进程环境。`cwd` 必须是 workspace-relative 路径，Runtime 会解析真实路径并拒绝越过 workspace root 的路径。
 
