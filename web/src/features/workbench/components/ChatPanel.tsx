@@ -3,6 +3,7 @@ import { useMemo } from "react"
 
 import { ChatComposer } from "./ChatComposer"
 import { ChatHeader } from "./ChatHeader"
+import { EmptyConversationState } from "./EmptyConversationState"
 import { QuestionAnswerComposer } from "./QuestionAnswerComposer"
 import { TimelineList } from "./MessageList"
 import type {
@@ -50,6 +51,10 @@ export function ChatPanel({
     [conversation.timelineItems]
   )
   const hasPendingQuestions = pendingQuestions.length > 0
+  const showEmptyConversationState =
+    conversation.timelineItems.length === 0 &&
+    !hasPendingQuestions &&
+    runStatus === "idle"
   const composerDisabled =
     runStatus === "submitted" ||
     runStatus === "queued" ||
@@ -67,10 +72,17 @@ export function ChatPanel({
         onToggleWorkspace={onToggleWorkspace}
         runStatus={runStatus}
       />
-      <TimelineList
-        agentProfiles={conversation.agents ?? []}
-        timelineItems={conversation.timelineItems}
-      />
+      {showEmptyConversationState ? (
+        <EmptyConversationState
+          conversation={conversation}
+          key={conversation.id}
+        />
+      ) : (
+        <TimelineList
+          agentProfiles={conversation.agents ?? []}
+          timelineItems={conversation.timelineItems}
+        />
+      )}
       {hasPendingQuestions ? (
         <QuestionAnswerComposer
           agentProfiles={conversation.agents ?? []}

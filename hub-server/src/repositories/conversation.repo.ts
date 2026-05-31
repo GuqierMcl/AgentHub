@@ -85,13 +85,11 @@ export async function listConversations(filter: ListConversationsFilter = {}): P
   if (status) where.status = status
   if (pinnedOnly) where.pinnedAt = { not: null }
 
-  const records = await db.conversation.findMany({
-    where,
-    orderBy: [{ pinnedAt: 'desc' }, { lastMessageAt: order }, { createdAt: order }],
-    take: limit,
-    skip: offset,
-  })
-  return records.map(r => toOutput(r as Record<string, unknown>))
+  const records = await db.conversation.findMany({ where })
+  return paginateRecords(
+    sortConversationListRecords(records, order),
+    { limit, offset },
+  ).map(r => toOutput(r as Record<string, unknown>))
 }
 
 function toListOutput(record: Record<string, unknown>): ConversationListOutput {
@@ -118,12 +116,14 @@ export async function listConversationsWithAgents(filter: ListConversationsFilte
 
   const records = await db.conversation.findMany({
     where,
-    orderBy: [{ pinnedAt: 'desc' }, { lastMessageAt: order }, { createdAt: order }],
-    ...(limit !== undefined ? { take: limit, skip: offset } : {}),
     include: { agents: { orderBy: { sortOrder: 'asc' } } },
   })
+  const visibleRecords = paginateRecords(
+    sortConversationListRecords(records, order),
+    { limit, offset },
+  )
 
-  const lastMessageIds = records
+  const lastMessageIds = visibleRecords
     .map((record) => record.lastMessageId)
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
 
@@ -146,10 +146,79 @@ export async function listConversationsWithAgents(filter: ListConversationsFilte
     ]),
   )
 
-  return records.map((record) => toListOutput({
+  return visibleRecords.map((record) => toListOutput({
     ...(record as Record<string, unknown>),
     lastMessageContent: record.lastMessageId ? contentByMessageId.get(record.lastMessageId) ?? '' : '',
   }))
+}
+
+type ConversationListSortableRecord = {
+  id: string
+  pinnedAt: string | null
+  lastMessageAt: string | null
+  createdAt: string | null
+}
+
+export function sortConversationListRecords<T extends ConversationListSortableRecord>(
+  records: T[],
+  order: SortOrder = 'desc',
+): T[] {
+  return [...records].sort((left, right) => {
+    const leftPinned = Boolean(left.pinnedAt)
+    const rightPinned = Boolean(right.pinnedAt)
+    if (leftPinned !== rightPinned) {
+      return leftPinned ? -1 : 1
+    }
+
+    if (leftPinned && rightPinned) {
+      const pinnedCompare = compareIsoTimestamp(left.pinnedAt, right.pinnedAt, 'desc')
+      if (pinnedCompare !== 0) return pinnedCompare
+    }
+
+    const activityCompare = compareIsoTimestamp(
+      getConversationActivityAt(left),
+      getConversationActivityAt(right),
+      order,
+    )
+    if (activityCompare !== 0) return activityCompare
+
+    const createdCompare = compareIsoTimestamp(left.createdAt, right.createdAt, order)
+    if (createdCompare !== 0) return createdCompare
+
+    return left.id.localeCompare(right.id)
+  })
+}
+
+function getConversationActivityAt(record: ConversationListSortableRecord): string | null {
+  return record.lastMessageAt ?? record.createdAt
+}
+
+function compareIsoTimestamp(
+  left: string | null,
+  right: string | null,
+  order: SortOrder,
+): number {
+  const leftTime = parseIsoTimestamp(left)
+  const rightTime = parseIsoTimestamp(right)
+  if (leftTime === rightTime) return 0
+  return order === 'desc'
+    ? rightTime - leftTime
+    : leftTime - rightTime
+}
+
+function parseIsoTimestamp(value: string | null): number {
+  if (!value) return Number.NEGATIVE_INFINITY
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY
+}
+
+function paginateRecords<T>(
+  records: T[],
+  opts: { limit?: number; offset?: number },
+): T[] {
+  const offset = opts.offset ?? 0
+  const end = opts.limit === undefined ? undefined : offset + opts.limit
+  return records.slice(offset, end)
 }
 
 export async function updateConversation(id: string, input: UpdateConversationInput): Promise<ConversationOutput> {

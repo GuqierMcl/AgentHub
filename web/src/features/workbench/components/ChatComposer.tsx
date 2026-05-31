@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
 } from "react"
 import type { ChatStatus } from "ai"
-import { CheckIcon, GlobeIcon, SquareIcon, XIcon } from "lucide-react"
+import { SquareIcon, XIcon } from "lucide-react"
 
 import {
   Attachment,
@@ -18,26 +18,12 @@ import {
   type AttachmentData,
 } from "@/components/ai-elements/attachments"
 import {
-  ModelSelector,
-  ModelSelectorContent,
-  ModelSelectorEmpty,
-  ModelSelectorGroup,
-  ModelSelectorInput,
-  ModelSelectorItem,
-  ModelSelectorList,
-  ModelSelectorLogo,
-  ModelSelectorLogoGroup,
-  ModelSelectorName,
-  ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector"
-import {
   PromptInput,
   PromptInputActionAddAttachments,
   PromptInputActionMenu,
   PromptInputActionMenuContent,
   PromptInputActionMenuTrigger,
   PromptInputBody,
-  PromptInputButton,
   PromptInputFooter,
   PromptInputHeader,
   PromptInputSubmit,
@@ -47,6 +33,7 @@ import {
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input"
 import { SpeechInput } from "@/components/ai-elements/speech-input"
+import { ArrowUpIcon } from "@/components/ui/arrow-up"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -62,9 +49,6 @@ import {
   PopoverContent,
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-
-
-import { modelChefs, modelOptions } from "../mock-data"
 import type {
   ChatSubmitInput,
   Conversation,
@@ -118,8 +102,6 @@ function PromptInputAttachmentsDisplay() {
   )
 }
 
-type ModelOption = (typeof modelOptions)[number]
-
 type MentionTrigger = {
   start: number
   end: number
@@ -167,37 +149,6 @@ function matchesMentionTarget(target: MentionTarget, query: string): boolean {
   ].some((value) => value.toLowerCase().includes(normalized))
 }
 
-function ModelItem({
-  isSelected,
-  model,
-  onSelect,
-}: {
-  isSelected: boolean
-  model: ModelOption
-  onSelect: (modelId: string) => void
-}) {
-  const handleSelect = useCallback(() => {
-    onSelect(model.id)
-  }, [model.id, onSelect])
-
-  return (
-    <ModelSelectorItem onSelect={handleSelect} value={model.id}>
-      <ModelSelectorLogo provider={model.chefSlug} onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
-      <ModelSelectorName>{model.name}</ModelSelectorName>
-      <ModelSelectorLogoGroup>
-        {model.providers.map((provider) => (
-          <ModelSelectorLogo key={provider} provider={provider} onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
-        ))}
-      </ModelSelectorLogoGroup>
-      {isSelected ? (
-        <CheckIcon className="ml-auto size-4" />
-      ) : (
-        <div className="ml-auto size-4" />
-      )}
-    </ModelSelectorItem>
-  )
-}
-
 type ChatComposerProps = {
   agentProfiles: ConversationAgentProfile[]
   conversationId: string
@@ -223,19 +174,12 @@ export function ChatComposer({
   status,
   value,
 }: ChatComposerProps) {
-  const [useWebSearch, setUseWebSearch] = useState(false)
-  const [model, setModel] = useState(modelOptions[0].id)
-  const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
   const [mentionOpen, setMentionOpen] = useState(false)
   const [mentionTrigger, setMentionTrigger] = useState<MentionTrigger | null>(null)
   const [activeMentionIndex, setActiveMentionIndex] = useState(0)
   const [mentionTarget, setMentionTarget] = useState<MentionTarget | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
-  const selectedModel = useMemo(
-    () => modelOptions.find((option) => option.id === model),
-    [model]
-  )
   const mentionTargets = useMemo(() => {
     if (conversationMode !== "group") {
       return []
@@ -343,11 +287,6 @@ export function ChatComposer({
     onValueChange(value ? `${value} ${transcript}` : transcript)
   }, [onValueChange, value])
 
-  const handleModelSelect = useCallback((modelId: string) => {
-    setModel(modelId)
-    setModelSelectorOpen(false)
-  }, [])
-
   const handleMentionOpenChange = useCallback((open: boolean) => {
     if (!open) {
       closeMentionMenu()
@@ -414,11 +353,14 @@ export function ChatComposer({
         <PromptInputHeader>
           <PromptInputAttachmentsDisplay />
           {mentionTarget ? (
-            <Badge className="max-w-full gap-1" variant="secondary">
-              <span className="truncate">To: {mentionTarget.label}</span>
+            <Badge className="h-6 max-w-full gap-1 px-1.5" variant="default">
+              <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15 text-[10px]">
+                @
+              </span>
+              <span className="truncate">{mentionTarget.label}</span>
               <Button
                 aria-label="清除 @ 目标"
-                className="-mr-1 size-4"
+                className="-mr-1 size-4 text-primary-foreground hover:bg-primary-foreground/20 hover:text-primary-foreground"
                 onClick={handleClearMentionTarget}
                 size="icon-xs"
                 type="button"
@@ -525,62 +467,18 @@ export function ChatComposer({
               size="icon-sm"
               variant="ghost"
             />
-            <PromptInputButton
-              disabled={disabled}
-              onClick={() => setUseWebSearch((value) => !value)}
-              variant={useWebSearch ? "default" : "ghost"}
-            >
-              <GlobeIcon />
-              <span>Search</span>
-            </PromptInputButton>
-            <ModelSelector
-              onOpenChange={setModelSelectorOpen}
-              open={modelSelectorOpen}
-            >
-              <ModelSelectorTrigger asChild>
-                <PromptInputButton disabled={disabled}>
-                  {selectedModel?.chefSlug ? (
-                    <ModelSelectorLogo provider={selectedModel.chefSlug} onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
-                  ) : null}
-                  {selectedModel?.name ? (
-                    <ModelSelectorName>{selectedModel.name}</ModelSelectorName>
-                  ) : null}
-                </PromptInputButton>
-              </ModelSelectorTrigger>
-              <ModelSelectorContent>
-                <ModelSelectorInput placeholder="Search models..." />
-                <ModelSelectorList>
-                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                  {modelChefs.map((chef) => (
-                    <ModelSelectorGroup heading={chef} key={chef}>
-                      {modelOptions
-                        .filter((option) => option.chef === chef)
-                        .map((option) => (
-                          <ModelItem
-                            isSelected={model === option.id}
-                            key={option.id}
-                            model={option}
-                            onSelect={handleModelSelect}
-                          />
-                        ))}
-                    </ModelSelectorGroup>
-                  ))}
-                </ModelSelectorList>
-              </ModelSelectorContent>
-            </ModelSelector>
           </PromptInputTools>
           <PromptInputSubmit
             disabled={submitDisabled}
             onStop={handleCancelRun}
-            size={isGenerating ? "sm" : "icon-sm"}
+            size="icon-sm"
             status={status}
           >
             {isGenerating ? (
-              <>
-                <SquareIcon data-icon="inline-start" />
-                停止回答
-              </>
-            ) : undefined}
+              <SquareIcon />
+            ) : (
+              <ArrowUpIcon className="![&_svg]:size-4" size={16} />
+            )}
           </PromptInputSubmit>
         </PromptInputFooter>
       </PromptInput>

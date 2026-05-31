@@ -511,6 +511,7 @@ type ConversationListItem = {
 规则：
 
 - `lastMessageContent` 来自 `lastMessageId` 对应消息的 text parts，HubServer 返回前最多截取 50 个字符。
+- 会话列表按置顶优先排序；置顶会话按 `pinnedAt desc`，未置顶会话按活跃时间 `lastMessageAt ?? createdAt desc` 排序，因此新建空会话会默认出现在置顶会话之后、其他未置顶会话之前。
 - 会话列表 API 不返回 Run 运行状态。Web 只对已经打开过、Zustand 中有本地 Run 状态的 conversation 显示卡片 spinner 和底部进度条。
 
 ## Hub Global Events API
