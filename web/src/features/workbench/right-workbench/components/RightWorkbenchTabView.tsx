@@ -46,7 +46,7 @@ function renderPanel(
     case "review":
       return <CodeReviewPanel />
     case "files":
-      return <FileBrowserPanel />
+      return <FileBrowserPanel conversation={conversation} />
     case "deploy":
       return <DeployPreviewPanel />
     case "terminal":

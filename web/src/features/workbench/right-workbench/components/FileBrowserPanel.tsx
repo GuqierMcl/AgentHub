@@ -280,7 +280,11 @@ function RegularTree({
 
 // ── Main FileBrowserPanel ──
 
-export function FileBrowserPanel() {
+type FileBrowserPanelProps = {
+  conversation?: import("@/features/workbench/types").Conversation | null
+}
+
+export function FileBrowserPanel({ conversation }: FileBrowserPanelProps) {
   const activeConversationId = useWorkbenchStore((s) => s.activeConversationId)
   const fileStore = useFileBrowserStore()
 
@@ -333,6 +337,33 @@ export function FileBrowserPanel() {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
         加载中...
+      </div>
+    )
+  }
+
+  if (!conversation?.workspace) {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-background w-full">
+        <div className="shrink-0 border-border border-b p-3">
+          <div className="flex items-center gap-2">
+            <FolderOpenIcon className="size-4 text-primary" />
+            <div className="min-w-0">
+              <h3 className="truncate font-medium text-sm">文件浏览</h3>
+              <p className="truncate text-muted-foreground text-xs">工作区文件树与预览</p>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-center px-6">
+            <FolderOpenIcon className="mx-auto size-8 text-muted-foreground/40" />
+            <p className="mt-3 font-medium text-sm text-muted-foreground">
+              当前会话未设置工作区
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground/60">
+              请先为此会话配置工作区路径以浏览文件
+            </p>
+          </div>
+        </div>
       </div>
     )
   }
