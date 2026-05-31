@@ -53,6 +53,7 @@ export type RuntimeRunCreateResponse = {
 export type RuntimeRunEvent = {
   id: string
   runId: string
+  runtimeRunId?: string | null
   type: string
   timestamp: string
   agentId?: string

@@ -26,6 +26,7 @@ import {
 import {
   createRun,
   findRunById,
+  findRunByRuntimeId,
   listRuns,
   updateRun,
   type RunOutput,
@@ -99,6 +100,7 @@ import type { HubEventBus } from './hub-event-bus.service'
 export type RuntimeRunEvent = {
   id: string
   runId: string
+  runtimeRunId?: string | null
   type: string
   timestamp: string
   agentId?: string
@@ -490,21 +492,21 @@ export class RunPersistenceService {
   }
 
   async cancelRun(runId: string): Promise<ActiveRunSnapshot> {
-    const run = await findRunById(runId)
+    const run = await findRunById(runId) ?? await findRunByRuntimeId(runId)
     if (!run) {
       throw notFound('RUN_NOT_FOUND', 'Run 不存在')
     }
     const runtimeId = run.runtimeId
     if (!runtimeId) {
-      await updateRun(runId, { status: 'cancelled', completedAt: new Date().toISOString() })
+      await updateRun(run.id, { status: 'cancelled', completedAt: new Date().toISOString() })
       this.publishRunStatusChanged(run, 'cancelled')
       this.publishTerminalRunStatus(run, 'cancelled')
-      const latest = await findRunById(runId)
+      const latest = await findRunById(run.id)
       return this.toActiveRunSnapshot(latest)
     }
 
     await this.runtimeClient.forward('POST', `/runtime/runs/${encodeURIComponent(runtimeId)}/cancel`, undefined, { raw: true })
-    const latest = await findRunById(runId)
+    const latest = await findRunById(run.id)
     return this.toActiveRunSnapshot(latest)
   }
 
@@ -514,7 +516,7 @@ export class RunPersistenceService {
     approved: boolean,
     reason?: string,
   ): Promise<unknown> {
-    const run = await findRunById(runId)
+    const run = await findRunById(runId) ?? await findRunByRuntimeId(runId)
     if (!run) {
       throw notFound('RUN_NOT_FOUND', 'Run 不存在')
     }
@@ -2412,7 +2414,14 @@ function toPersistedMessage(record: Record<string, unknown>): PersistedMessage {
 function toHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
   const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
   if (!runtimeEvent) return []
-  return [{ sequence: event.sequence, event: runtimeEvent }]
+  return [{
+    sequence: event.sequence,
+    event: {
+      ...runtimeEvent,
+      runId: event.runId,
+      runtimeRunId: event.runtimeRunId ?? runtimeEvent.runId,
+    },
+  }]
 }
 
 function toProductHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {

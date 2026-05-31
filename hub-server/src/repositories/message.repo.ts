@@ -153,7 +153,7 @@ export async function listMessages(filter: ListMessagesFilter): Promise<MessageO
     take: limit,
     skip: offset,
   })
-  return sortMessages(records.map(r => toOutput(r as Record<string, unknown>)))
+  return sortMessages(records.map(r => toOutput(r as Record<string, unknown>)), order)
 }
 
 export async function listMessagesByRun(
@@ -228,7 +228,10 @@ export async function listMessagesWithParts(
     take: opts?.limit ?? 50,
     skip: opts?.offset ?? 0,
   })
-  return sortMessages(records.map((record) => toOutputWithParts(record as Record<string, unknown>)))
+  return sortMessages(
+    records.map((record) => toOutputWithParts(record as Record<string, unknown>)),
+    opts?.order ?? 'asc',
+  )
 }
 
 export async function findMessageByRunAndRuntimeMessageId(
@@ -256,8 +259,11 @@ function toOutputWithParts(record: Record<string, unknown>) {
   }
 }
 
-function sortMessages<T extends Pick<MessageOutput, 'id' | 'runId' | 'role' | 'firstEventSequence' | 'createdAt'>>(messages: T[]): T[] {
-  return [...messages].sort((left, right) => {
+function sortMessages<T extends Pick<MessageOutput, 'id' | 'runId' | 'role' | 'firstEventSequence' | 'createdAt'>>(
+  messages: T[],
+  order: SortOrder = 'asc',
+): T[] {
+  const sorted = [...messages].sort((left, right) => {
     const leftSeq = getMessageOrderSequence(left)
     const rightSeq = getMessageOrderSequence(right)
     if (left.runId && right.runId && left.runId === right.runId && leftSeq !== undefined && rightSeq !== undefined && leftSeq !== rightSeq) {
@@ -270,6 +276,7 @@ function sortMessages<T extends Pick<MessageOutput, 'id' | 'runId' | 'role' | 'f
     }
     return left.id.localeCompare(right.id)
   })
+  return order === 'desc' ? sorted.reverse() : sorted
 }
 
 function getMessageOrderSequence(

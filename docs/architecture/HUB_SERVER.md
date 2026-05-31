@@ -78,11 +78,11 @@ HubServer 的职责：
 - `Run.lastProjectedSequence` 记录结构化投影进度，读取历史消息或组装 Runtime history 前会从 raw `RunEvent` 补投影。
 - 将 `tool.completed(toolName="write_plan")` 投影到 `Run.planJson`。
 - 消费 `system_agent.completed(systemAgentId="title")`，仅当 `Conversation.metadataJson.titleSource` 不是 `manual` 时更新 `Conversation.title`，并把 `titleSource` 标记为 `auto`。
-- 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的 raw event envelopes，供 Web 聊天主 UI 恢复。
+- 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes，供 Web 聊天主 UI 恢复；完整 raw Runtime event 留在 `RunEvent.payloadJson`。
 - 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。
 - 通过 `GET /api/events` 发布非持久化、无 replay 的全局产品状态事件，用于会话标题、最近消息和 Run 状态等低频 UI 通知。
 
-`GET /api/runs/:runId/events` 使用 HubServer 本地 Run id，并返回 `event: run.event`。data 形如 `{ sequence, event }`，其中 `event` 是 Runtime 原始事件。Web 切回会话时先加载 `timelineRuns` 并用 live SSE 相同 projection reducer 重放 raw events，再用 `activeRun.lastEventSequence` 作为 `afterSequence` 续订。
+`GET /api/runs/:runId/events` 使用 HubServer 本地 Run id，并返回 `event: run.event`。data 形如 `{ sequence, event }`，其中 `event.runId` 是 HubServer 本地 Run id，`event.runtimeRunId` 保留 Agent Runtime run id；完整 Runtime 原始事件仍保存在 `RunEvent.payloadJson`。Web 切回会话时先加载 `timelineRuns` 并用 live SSE 相同 projection reducer 重放产品 event envelopes，再用 `activeRun.lastEventSequence` 作为 `afterSequence` 续订。
 
 完整机制见 `docs/architecture/RUN_EVENT_SCHEMA_AND_PROJECTION.md` 与 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。
 

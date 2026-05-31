@@ -688,7 +688,7 @@ type HubRunEventEnvelope = {
 ```
 
 `activeRun.id` 是 HubServer 本地 Run id。`activeRun.runtimeId` 只用于调试和跨进程关联，Web 产品路径不得用它订阅 Runtime。
-`timelineRuns` 是聊天 UI 恢复的主数据源：Web 先渲染每个 run 的 `triggerMessage`，再按 `events.sequence` 重放产品 event envelope，并与 live SSE 共用同一套 projection reducer。大工具结果可能已被投影为 UI 摘要；完整 raw Runtime event 保存在 `RunEvent.payloadJson`。`messages` 与 `runItems` 保留为查询、history、统计和后续产品能力的数据源。
+`timelineRuns` 是聊天 UI 恢复的主数据源：Web 先渲染每个 run 的 `triggerMessage`，再按 `events.sequence` 重放产品 event envelope，并与 live SSE 共用同一套 projection reducer。产品 event envelope 中 `event.runId` 是 HubServer 本地 Run id，`event.runtimeRunId` 保留 Agent Runtime run id；大工具结果可能已被投影为 UI 摘要；完整 raw Runtime event 保存在 `RunEvent.payloadJson`。`messages` 与 `runItems` 保留为查询、history、统计和后续产品能力的数据源。
 
 ### 订阅产品 Run 事件
 
@@ -700,7 +700,7 @@ type HubRunEventEnvelope = {
 
 ```text
 event: run.event
-data: {"sequence":12,"event":{"id":"evt_xxx","runId":"runtime_run_xxx","type":"message.delta","timestamp":"2026-05-29T00:00:00.000Z","messageId":"msg_runtime_run_xxx_exec_0","messageIndex":0,"data":{"delta":"hello"}}}
+data: {"sequence":12,"event":{"id":"evt_xxx","runId":"run_hub_xxx","runtimeRunId":"runtime_run_xxx","type":"message.delta","timestamp":"2026-05-29T00:00:00.000Z","messageId":"msg_runtime_run_xxx_exec_0","messageIndex":0,"data":{"delta":"hello"}}}
 ```
 
 行为：
@@ -708,7 +708,7 @@ data: {"sequence":12,"event":{"id":"evt_xxx","runId":"runtime_run_xxx","type":"m
 - `runId` 是 HubServer 本地 Run id。
 - HubServer 先发送 `sequence > afterSequence` 的持久化 RunEvent，再推送 live events。
 - `sequence` 是本地 Run 内递增序号。
-- `event` 是面向产品 UI 的 Runtime RunEvent envelope；大工具结果可能已被摘要化。
+- `event` 是面向产品 UI 的 Runtime RunEvent envelope；`event.runId` 是 HubServer 本地 Run id，`event.runtimeRunId` 是 Runtime run id，大工具结果可能已被摘要化。
 - `RunEvent.payloadJson` 永久保留 raw 事实；未知 event type 也必须落库，后续只补 projection。
 - 产品 Run SSE 和 `timelineRuns` 可对大工具结果做 UI 摘要投影以保护浏览器热路径；例如 `tool.completed(toolName="web_fetch")` 的 `event.data.data.body` 不会传给前端，摘要里包含 `bodyCharacters` 与 `bodyOmittedForUi: true`。完整 raw event 仍保存在 `RunEvent.payloadJson`。
 - Run 到达终态后关闭流。
