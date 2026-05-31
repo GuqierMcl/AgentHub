@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, lazy, Suspense } from "react"
 import { FileTextIcon } from "lucide-react"
 
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 import { workspaceBrowserApi } from "../api/workspace-browser"
 import type { WorkspaceFilePreviewResponse } from "../types"
+import { shouldUseMonaco } from "../utils/code-preview"
 import { TextPreview } from "./preview-renderers/TextPreview"
 import { MarkdownPreview } from "./preview-renderers/MarkdownPreview"
 import { ImagePreview } from "./preview-renderers/ImagePreview"
@@ -15,6 +16,8 @@ import { AudioPreview } from "./preview-renderers/AudioPreview"
 import { VideoPreview } from "./preview-renderers/VideoPreview"
 import { BinaryPreview } from "./preview-renderers/BinaryPreview"
 import { UnsupportedPreview } from "./preview-renderers/UnsupportedPreview"
+
+const CodePreview = lazy(() => import("./preview-renderers/CodePreview").then((m) => ({ default: m.CodePreview })))
 
 type WorkspacePreviewPaneProps = {
   conversationId: string
@@ -85,6 +88,20 @@ function PreviewRenderer({ preview }: PreviewRendererProps) {
     case "text":
       if (preview.language === "Markdown") {
         return <MarkdownPreview content={preview.content} />
+      }
+      if (shouldUseMonaco({ path: preview.path, size: preview.size, truncated: preview.truncated, content: preview.content })) {
+        return (
+          <Suspense fallback={<div className="flex h-full flex-col gap-3 p-4"><Skeleton className="h-5 w-48" /><Skeleton className="min-h-0 flex-1 rounded" /></div>}>
+            <CodePreview
+              path={preview.path}
+              name={preview.name}
+              content={preview.content}
+              size={preview.size}
+              language={preview.language}
+              truncated={preview.truncated}
+            />
+          </Suspense>
+        )
       }
       return (
         <TextPreview

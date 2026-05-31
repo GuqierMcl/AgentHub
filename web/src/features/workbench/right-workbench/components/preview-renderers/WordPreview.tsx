@@ -14,9 +14,11 @@ export function WordPreview({ url, name }: WordPreviewProps) {
   const scrollAreaHostRef = useRef<HTMLDivElement | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const observerRef = useRef<ResizeObserver | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [resizeTick, setResizeTick] = useState(0)
+  const loadedUrlRef = useRef<string | null>(null)
+  const loading = url !== loadedUrl
 
   const scrollAreaHostRefCallback = useCallback((node: HTMLDivElement | null) => {
     observerRef.current?.disconnect()
@@ -78,11 +80,9 @@ export function WordPreview({ url, name }: WordPreviewProps) {
   }, [])
 
   useEffect(() => {
+    if (url === loadedUrlRef.current && !error) return
     let cancelled = false
     const container = containerRef.current
-
-    setLoading(true)
-    setError(null)
 
     async function loadDocx() {
       try {
@@ -107,7 +107,9 @@ export function WordPreview({ url, name }: WordPreviewProps) {
           renderAltChunks: false,
         })
         if (!cancelled) {
-          setLoading(false)
+          loadedUrlRef.current = url
+          setLoadedUrl(url)
+          setError(null)
           window.requestAnimationFrame(() => {
             if (!cancelled) {
               updateResponsiveScale()
@@ -117,7 +119,6 @@ export function WordPreview({ url, name }: WordPreviewProps) {
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Word 预览加载失败")
-          setLoading(false)
         }
       }
     }
@@ -131,7 +132,9 @@ export function WordPreview({ url, name }: WordPreviewProps) {
         container.innerHTML = ""
       }
     }
-  }, [url, name, updateResponsiveScale])
+    // error intentionally omitted: adding it to deps would cause the cleanup to
+    // fire after setError/setLoadedUrl, clearing the rendered container content
+  }, [url, name, updateResponsiveScale]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading || error) return

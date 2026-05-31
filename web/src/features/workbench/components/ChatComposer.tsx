@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -162,10 +161,11 @@ type ChatComposerProps = {
   onSubmit: (input: ChatSubmitInput) => Promise<void> | void
 }
 
-export function ChatComposer({
+type ChatComposerInnerProps = Omit<ChatComposerProps, "conversationId">
+
+function ChatComposerInner({
   agentProfiles,
   canCancelRun = false,
-  conversationId,
   conversationMode,
   disabled = false,
   onCancelRun,
@@ -173,7 +173,7 @@ export function ChatComposer({
   onValueChange,
   status,
   value,
-}: ChatComposerProps) {
+}: ChatComposerInnerProps) {
   const [mentionOpen, setMentionOpen] = useState(false)
   const [mentionTrigger, setMentionTrigger] = useState<MentionTrigger | null>(null)
   const [activeMentionIndex, setActiveMentionIndex] = useState(0)
@@ -198,8 +198,12 @@ export function ChatComposer({
     () => mentionTargets.filter((target) => matchesMentionTarget(target, mentionQuery)),
     [mentionQuery, mentionTargets]
   )
+  const clampedMentionIndex = Math.min(
+    activeMentionIndex,
+    Math.max(filteredMentionTargets.length - 1, 0)
+  )
   const activeMentionTarget =
-    filteredMentionTargets[activeMentionIndex] ?? filteredMentionTargets[0]
+    filteredMentionTargets[clampedMentionIndex] ?? filteredMentionTargets[0]
   const mentionMenuOpen = mentionOpen && !disabled
   const mentionEmptyText = conversationMode === "group"
     ? mentionQuery
@@ -211,27 +215,7 @@ export function ChatComposer({
     ? !canCancelRun
     : disabled || !value.trim()
 
-  useEffect(() => {
-    setMentionTarget(null)
-    setMentionOpen(false)
-    setMentionTrigger(null)
-  }, [conversationId])
-
-  useEffect(() => {
-    setActiveMentionIndex(0)
-  }, [mentionQuery, mentionTargets])
-
-  useEffect(() => {
-    if (activeMentionIndex < filteredMentionTargets.length) return
-    setActiveMentionIndex(Math.max(filteredMentionTargets.length - 1, 0))
-  }, [activeMentionIndex, filteredMentionTargets.length])
-
-  useEffect(() => {
-    if (value.trim()) return
-    setMentionTarget(null)
-    setMentionOpen(false)
-    setMentionTrigger(null)
-  }, [value])
+  const queryRef = useRef(mentionQuery)
 
   const closeMentionMenu = useCallback(() => {
     setMentionOpen(false)
@@ -239,12 +223,17 @@ export function ChatComposer({
   }, [])
 
   const updateMentionTrigger = useCallback((nextValue: string, caretIndex: number | null) => {
-    if (caretIndex === null || disabled) {
+    if (!nextValue.trim() || caretIndex === null || disabled) {
       closeMentionMenu()
       return
     }
 
     const trigger = findMentionTrigger(nextValue, caretIndex)
+    const nextQuery = trigger?.query ?? ""
+    if (nextQuery !== queryRef.current) {
+      queryRef.current = nextQuery
+      setActiveMentionIndex(0)
+    }
     setMentionTrigger(trigger)
     setMentionOpen(Boolean(trigger))
   }, [closeMentionMenu, disabled])
@@ -402,7 +391,7 @@ export function ChatComposer({
                   ) : (
                     <CommandGroup heading="智能体">
                       {filteredMentionTargets.map((target, index) => {
-                        const isActive = activeMentionIndex === index
+                        const isActive = clampedMentionIndex === index
                         return (
                           <CommandItem
                             aria-selected={isActive}
@@ -484,4 +473,8 @@ export function ChatComposer({
       </PromptInput>
     </div>
   )
+}
+
+export function ChatComposer({ conversationId, ...rest }: ChatComposerProps) {
+  return <ChatComposerInner key={conversationId} {...rest} />
 }
