@@ -47,6 +47,14 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import {
+  Terminal,
+  TerminalActions,
+  TerminalContent,
+  TerminalCopyButton,
+  TerminalHeader,
+  TerminalTitle,
+} from "@/components/ai-elements/terminal"
+import {
   Confirmation,
   ConfirmationAction,
   ConfirmationActions,
@@ -303,6 +311,10 @@ function ReasoningTimelineItem({
 }
 
 function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
+  if (item.toolName === "bash") {
+    return <BashToolTerminalView item={item} />
+  }
+
   return (
     <Tool className="mb-0 max-w-[min(720px,100%)]" defaultOpen={false} >
       <ToolHeader
@@ -312,11 +324,7 @@ function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
       />
       <ToolContent>
         {item.input !== undefined ? <ToolInput input={item.input} /> : null}
-        {item.toolName === "bash" ? (
-          <BashToolOutputView errorText={item.errorText} output={item.output} />
-        ) : (
-          <ToolOutput errorText={item.errorText} output={item.output} />
-        )}
+        <ToolOutput errorText={item.errorText} output={item.output} />
       </ToolContent>
     </Tool>
   )
@@ -334,104 +342,185 @@ function QuestionTimelineItem({
   )
 }
 
-function BashToolOutputView({
-  errorText,
-  output,
-}: {
-  output: WorkbenchTimelineToolItem["output"]
-  errorText: WorkbenchTimelineToolItem["errorText"]
-}) {
-  const data = getRecord(output)
+function BashToolTerminalView({ item }: { item: WorkbenchTimelineToolItem }) {
+  const data = getRecord(item.output)
+  const isStreaming = item.status === "input-available" || item.status === "input-streaming"
+
   if (!data) {
-    return <ToolOutput errorText={errorText} output={output} />
+    const fallbackOutput = formatBashFallbackTerminalOutput(item)
+    return (
+      <Terminal
+        autoScroll={isStreaming}
+        className="not-prose mb-0 w-full max-w-[min(720px,100%)] rounded-md border-zinc-800"
+        isStreaming={isStreaming}
+        output={fallbackOutput}
+      >
+        <TerminalHeader className="gap-3 px-3 py-2">
+          <TerminalTitle className="min-w-0 flex-1">
+            <span className="truncate">{item.title || "bash"}</span>
+          </TerminalTitle>
+          <BashTerminalHeaderActions
+            metaItems={[formatToolStatusLabel(item.status)]}
+          />
+        </TerminalHeader>
+        <TerminalContent className="max-h-80 p-3 text-xs" />
+      </Terminal>
+    )
   }
 
   const stdout = getString(data.stdout) ?? ""
   const stderr = getString(data.stderr) ?? ""
   const stdoutCharacters = getNumber(data.stdoutCharacters) ?? stdout.length
   const stderrCharacters = getNumber(data.stderrCharacters) ?? stderr.length
-  const hasOutput = stdout.length > 0 || stderr.length > 0 || errorText
+  const stdoutTruncated = data.stdoutTruncatedForDisplay === true || data.stdoutTruncatedForUi === true
+  const stderrTruncated = data.stderrTruncatedForDisplay === true || data.stderrTruncatedForUi === true
+  const command = getString(data.command)
+  const cwd = getString(data.cwd) ?? "."
+  const exitCode = formatUnknown(data.exitCode)
+  const duration = formatDurationMs(data.durationMs)
+  const shell = getString(data.shell)
+  const hasContent = command || stdout || stderr || item.errorText || isStreaming
 
-  if (!hasOutput) {
+  if (!hasContent) {
     return null
   }
 
+  const terminalOutput = formatBashTerminalOutput({
+    command,
+    cwd,
+    errorText: item.errorText,
+    stderr,
+    stderrCharacters,
+    stderrTruncated,
+    stdout,
+    stdoutCharacters,
+    stdoutTruncated,
+  })
+  const metaItems = [
+    formatToolStatusLabel(item.status),
+    shell,
+    `cwd ${cwd}`,
+    `exit ${exitCode}`,
+    duration !== "-" ? duration : undefined,
+    data.truncated === true || stdoutTruncated || stderrTruncated ? "preview" : undefined,
+  ].filter((metaItem): metaItem is string => Boolean(metaItem))
+
   return (
-    <div className="space-y-3">
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {errorText ? "Error" : "Result"}
-      </h4>
-      {errorText ? (
-        <div className="rounded-md bg-destructive/10 px-3 py-2 text-destructive text-xs">
-          {errorText}
-        </div>
-      ) : null}
-      <div className="grid gap-2 rounded-md bg-muted/50 p-3 text-xs sm:grid-cols-2">
-        <BashMeta label="Command" value={getString(data.command)} wide />
-        <BashMeta label="cwd" value={getString(data.cwd) ?? "."} />
-        <BashMeta label="Exit" value={formatUnknown(data.exitCode)} />
-        <BashMeta label="Duration" value={formatDurationMs(data.durationMs)} />
-        <BashMeta label="Truncated" value={data.truncated ? "yes" : "no"} />
+    <Terminal
+      autoScroll={isStreaming}
+      className="not-prose mb-0 w-full max-w-[min(720px,100%)] rounded-md border-zinc-800"
+      isStreaming={isStreaming}
+      output={terminalOutput}
+    >
+      <TerminalHeader className="gap-3 px-3 py-2">
+        <TerminalTitle className="min-w-0 flex-1">
+          <span className="truncate">{command ?? item.title ?? "bash"}</span>
+        </TerminalTitle>
+        <BashTerminalHeaderActions metaItems={metaItems} />
+      </TerminalHeader>
+      <TerminalContent className="max-h-80 p-3 text-xs" />
+    </Terminal>
+  )
+}
+
+function BashTerminalHeaderActions({ metaItems }: { metaItems: string[] }) {
+  return (
+    <div className="flex min-w-0 shrink-0 items-center gap-2">
+      <div className="hidden max-w-80 truncate text-zinc-500 text-xs sm:block">
+        {metaItems.join(" / ")}
       </div>
-      {stdout ? (
-        <BashStreamBlock
-          characters={stdoutCharacters}
-          label="stdout"
-          text={stdout}
-          truncated={data.stdoutTruncatedForDisplay === true || data.stdoutTruncatedForUi === true}
-        />
-      ) : null}
-      {stderr ? (
-        <BashStreamBlock
-          characters={stderrCharacters}
-          label="stderr"
-          text={stderr}
-          truncated={data.stderrTruncatedForDisplay === true || data.stderrTruncatedForUi === true}
-        />
-      ) : null}
+      <TerminalActions>
+        <TerminalCopyButton />
+      </TerminalActions>
     </div>
   )
 }
 
-function BashMeta({
-  label,
-  value,
-  wide,
-}: {
-  label: string
-  value?: string
-  wide?: boolean
-}) {
-  return (
-    <div className={wide ? "sm:col-span-2" : undefined}>
-      <div className="text-muted-foreground">{label}</div>
-      <div className="mt-0.5 break-words font-mono text-foreground">{value ?? "-"}</div>
-    </div>
-  )
+function formatBashFallbackTerminalOutput(item: WorkbenchTimelineToolItem): string {
+  if (item.errorText) return `error: ${item.errorText}`
+  if (typeof item.output === "string") return item.output
+  if (item.output !== undefined && item.output !== null) return String(item.output)
+  return ""
 }
 
-function BashStreamBlock({
-  characters,
-  label,
-  text,
-  truncated,
+function formatToolStatusLabel(status: WorkbenchTimelineToolItem["status"]): string {
+  switch (status) {
+    case "input-streaming":
+      return "pending"
+    case "input-available":
+      return "running"
+    case "approval-requested":
+      return "awaiting approval"
+    case "approval-responded":
+      return "responded"
+    case "output-available":
+      return "completed"
+    case "output-error":
+      return "error"
+    case "output-denied":
+      return "denied"
+  }
+}
+
+function formatBashTerminalOutput({
+  command,
+  cwd,
+  errorText,
+  stderr,
+  stderrCharacters,
+  stderrTruncated,
+  stdout,
+  stdoutCharacters,
+  stdoutTruncated,
 }: {
-  characters: number
-  label: string
-  text: string
-  truncated: boolean
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between gap-2 text-muted-foreground text-xs">
-        <span className="font-medium uppercase tracking-wide">{label}</span>
-        <span>{characters} chars{truncated ? " · preview" : ""}</span>
-      </div>
-      <pre className="max-h-72 overflow-auto rounded-md bg-muted/50 p-3 text-xs leading-relaxed">
-        {text}
-      </pre>
-    </div>
-  )
+  command?: string
+  cwd: string
+  errorText?: string
+  stderr: string
+  stderrCharacters: number
+  stderrTruncated: boolean
+  stdout: string
+  stdoutCharacters: number
+  stdoutTruncated: boolean
+}): string {
+  const sections: string[] = []
+
+  if (command) {
+    sections.push(`${cwd} $ ${command}`)
+  }
+  if (errorText) {
+    sections.push(`error: ${errorText}`)
+  }
+  if (stdout) {
+    sections.push(trimTrailingLineBreaks(stdout))
+  }
+  if (stderr) {
+    sections.push(
+      [
+        `[stderr${formatOutputPreviewLabel(stderrCharacters, stderrTruncated)}]`,
+        trimTrailingLineBreaks(stderr),
+      ].join("\n")
+    )
+  }
+  if (stdoutTruncated || stderrTruncated) {
+    sections.push(
+      [
+        "[preview truncated]",
+        `stdout: ${stdoutCharacters} chars${stdoutTruncated ? ", preview" : ""}`,
+        `stderr: ${stderrCharacters} chars${stderrTruncated ? ", preview" : ""}`,
+      ].join("\n")
+    )
+  }
+
+  return sections.filter(Boolean).join("\n\n")
+}
+
+function formatOutputPreviewLabel(characters: number, truncated: boolean): string {
+  return `, ${characters} chars${truncated ? ", preview" : ""}`
+}
+
+function trimTrailingLineBreaks(text: string): string {
+  return text.replace(/(?:\r?\n)+$/, "")
 }
 
 function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }) {

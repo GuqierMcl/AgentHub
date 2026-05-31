@@ -2,9 +2,9 @@
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import Ansi from "ansi-to-react";
+import AnsiImport from "ansi-to-react";
 import { CheckIcon, CopyIcon, TerminalIcon, Trash2Icon } from "lucide-react";
-import type { ComponentProps, HTMLAttributes } from "react";
+import type { ComponentProps, ComponentType, HTMLAttributes } from "react";
 import {
   createContext,
   useCallback,
@@ -14,6 +14,14 @@ import {
   useRef,
   useState,
 } from "react";
+
+type AnsiComponent = ComponentType<{ children?: string }>;
+
+const Ansi = (
+  typeof AnsiImport === "function"
+    ? AnsiImport
+    : (AnsiImport as unknown as { default: AnsiComponent }).default
+) as AnsiComponent;
 
 interface TerminalContextType {
   output: string;

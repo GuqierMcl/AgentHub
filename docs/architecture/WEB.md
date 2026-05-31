@@ -59,7 +59,7 @@
 - `toolName = "run_task"` 的 `tool.*` 事件保留在原始 event log 中，但不投影为 `ToolTimelineItem`，避免与 `task.*`、子智能体输出和 task summary 重复展示。普通工具仍渲染为 tool 卡片；Tool 卡片只渲染适合 UI 展示的轻量输出，`web_fetch` 等大响应体由 HubServer 产品 envelope 投影为摘要，完整事实保留在 HubServer `RunEvent.payloadJson`。
 - Task 卡片标题只来自任务 title / instruction 的短摘要兜底，不得使用 `task.completed.data.summary` 作为标题；`summary` 可能包含子智能体完整输出，应保留为运行结果/上下文数据，而不是 UI 标题。
 - SSE 事件进入 Web 后按 animation frame 批量写入 Zustand；`receivedEventIds` 使用 per-conversation `Set` 去重，轻量 event log 只保留最近一段 UI 相关事件，避免子智能体和工具调用产生大量诊断事件时触发每事件一次的全量重渲染。
-- Timeline 渲染层复用本仓库 `ai-elements` 组件：chat message 使用 `Message`，tool 使用 `Tool`，task 使用 `Task`，permission 使用 `Confirmation`，reasoning 使用 `Reasoning`。Plan 不作为聊天流 item 渲染，而是在产物工作台“会话状态”标签页使用 `Queue` 展示。Timeline 渲染不得再依赖 workbench mock agent 数据，智能体头像与名称来自 conversation detail + runtime agents 查询结果。
+- Timeline 渲染层复用本仓库 `ai-elements` 组件：chat message 使用 `Message`，普通 tool 使用 `Tool`，`bash` tool 直接使用 `Terminal` 展示命令状态和 stdout/stderr 结果，task 使用 `Task`，permission 使用 `Confirmation`，reasoning 使用 `Reasoning`。Plan 不作为聊天流 item 渲染，而是在产物工作台“会话状态”标签页使用 `Queue` 展示。Timeline 渲染不得再依赖 workbench mock agent 数据，智能体头像与名称来自 conversation detail + runtime agents 查询结果。
 
 ## Activity 生命周期约束
 
