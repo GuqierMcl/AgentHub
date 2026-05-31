@@ -1,7 +1,10 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react"
+import { toast } from "sonner"
+
 import {
   FolderOpenIcon,
   Loader2Icon,
+  PencilLineIcon,
   SearchIcon,
   XIcon,
 } from "lucide-react"
@@ -22,7 +25,9 @@ import { workspaceBrowserApi } from "../api/workspace-browser"
 import { useWorkbenchStore } from "@/features/workbench/store/workbench-store"
 import { useFileBrowserStore } from "@/features/workbench/store/file-browser-store"
 import type { WorkspaceTreeEntry } from "../types"
+import { isEditableFile } from "../utils/editable-file"
 import { WorkspacePreviewPane } from "./WorkspacePreviewPane"
+import { WorkspaceFileEditDialog } from "./WorkspaceFileEditDialog"
 
 // ── Search tree builder ──
 
@@ -82,11 +87,13 @@ function RenderTreeNodes({
   entries,
   selectedPath,
   onClickFile,
+  onOpenEditor,
   isSearchMode,
 }: {
   entries: WorkspaceTreeEntry[]
   selectedPath: string | null
   onClickFile: (path: string) => void
+  onOpenEditor: (path: string) => void
   isSearchMode: boolean
 }) {
   const dirs = entries.filter((e) => e.kind === "dir")
@@ -105,24 +112,50 @@ function RenderTreeNodes({
                 path={dir.path}
                 selectedPath={selectedPath}
                 onClickFile={onClickFile}
+                onOpenEditor={onOpenEditor}
                 isSearchMode={isSearchMode}
               />
             </SubFiles>
           </FolderContent>
         </FolderItem>
       ))}
-      {files.map((file) => (
-        <FileItem
-          key={file.path}
-          className={cn(
-            "cursor-pointer text-xs",
-            selectedPath === file.path && "bg-accent rounded-lg",
-          )}
-          onClick={() => onClickFile(file.path)}
-        >
-          {file.name}
-        </FileItem>
-      ))}
+      {files.map((file) => {
+        const editable = isEditableFile(file.path)
+        return (
+          <FileItem
+            key={file.path}
+            className={cn(
+              "group cursor-pointer text-xs",
+              selectedPath === file.path && "bg-accent rounded-lg",
+            )}
+            onClick={() => onClickFile(file.path)}
+            onDoubleClick={() => {
+              if (editable) {
+                onOpenEditor(file.path)
+              } else {
+                toast.info("当前文件类型暂不支持编辑")
+              }
+            }}
+          >
+            <div className="flex items-center gap-1 min-w-0 w-full">
+              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              {editable && (
+                <button
+                  type="button"
+                  className="shrink-0 flex size-6 items-center justify-center rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity hover:bg-accent hover:text-foreground text-muted-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenEditor(file.path)
+                  }}
+                  title="编辑文件"
+                >
+                  <PencilLineIcon className="size-3.5" />
+                </button>
+              )}
+            </div>
+          </FileItem>
+        )
+      })}
     </>
   )
 }
@@ -131,11 +164,13 @@ function LazyFolderChildren({
   path,
   selectedPath,
   onClickFile,
+  onOpenEditor,
   isSearchMode,
 }: {
   path: string
   selectedPath: string | null
   onClickFile: (path: string) => void
+  onOpenEditor: (path: string) => void
   isSearchMode: boolean
 }) {
   const store = useFileBrowserStore()
@@ -163,6 +198,7 @@ function LazyFolderChildren({
       entries={entries}
       selectedPath={selectedPath}
       onClickFile={onClickFile}
+      onOpenEditor={onOpenEditor}
       isSearchMode={isSearchMode}
     />
   )
@@ -174,10 +210,12 @@ function SearchResultTree({
   entries,
   selectedPath,
   onClickFile,
+  onOpenEditor,
 }: {
   entries: WorkspaceTreeEntry[]
   selectedPath: string | null
   onClickFile: (path: string) => void
+  onOpenEditor: (path: string) => void
 }) {
   const treeRoot = useMemo(() => buildSearchTree(entries), [entries])
   const allDirs = useMemo(() => getAllFolderPaths(treeRoot), [treeRoot])
@@ -210,16 +248,39 @@ function SearchResultTree({
           </FolderItem>
         )
       }
+      const editable = isEditableFile(child.path)
       return (
         <FileItem
           key={child.path}
           className={cn(
-            "cursor-pointer text-xs font-semibold",
+            "group cursor-pointer text-xs font-semibold",
             selectedPath === child.path && "bg-accent rounded-lg",
           )}
           onClick={() => onClickFile(child.path)}
+          onDoubleClick={() => {
+            if (editable) {
+              onOpenEditor(child.path)
+            } else {
+              toast.info("当前文件类型暂不支持编辑")
+            }
+          }}
         >
-          {child.name}
+          <div className="flex items-center gap-1 min-w-0 w-full">
+            <span className="min-w-0 flex-1 truncate">{child.name}</span>
+            {editable && (
+              <button
+                type="button"
+                className="shrink-0 flex size-6 items-center justify-center rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity hover:bg-accent hover:text-foreground text-muted-foreground"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenEditor(child.path)
+                }}
+                title="编辑文件"
+              >
+                <PencilLineIcon className="size-3.5" />
+              </button>
+            )}
+          </div>
         </FileItem>
       )
     })
@@ -238,10 +299,12 @@ function RegularTree({
   conversationId,
   selectedPath,
   onClickFile,
+  onOpenEditor,
 }: {
   conversationId: string
   selectedPath: string | null
   onClickFile: (path: string) => void
+  onOpenEditor: (path: string) => void
 }) {
   const store = useFileBrowserStore()
   const state = store.getState(conversationId)
@@ -272,6 +335,7 @@ function RegularTree({
         entries={entries}
         selectedPath={selectedPath}
         onClickFile={onClickFile}
+        onOpenEditor={onOpenEditor}
         isSearchMode={false}
       />
     </Files>
@@ -297,6 +361,11 @@ export function FileBrowserPanel({ conversation }: FileBrowserPanelProps) {
   const [searchResults, setSearchResults] = useState<WorkspaceTreeEntry[] | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ── Editor state & preview refresh ──
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editingPath, setEditingPath] = useState<string | null>(null)
+  const [refreshCounter, setRefreshCounter] = useState(0)
 
   const isSearchMode = searchQuery.trim().length > 0
 
@@ -324,6 +393,16 @@ export function FileBrowserPanel({ conversation }: FileBrowserPanelProps) {
     if (!activeConversationId) return
     fileStore.setSelectedPath(activeConversationId, path)
   }, [activeConversationId, fileStore])
+
+  const handleOpenEditor = useCallback((path: string) => {
+    setEditingPath(path)
+    setEditorOpen(true)
+  }, [])
+
+  const handleCloseEditor = useCallback(() => {
+    setEditorOpen(false)
+    setRefreshCounter((c) => c + 1)
+  }, [])
 
   if (!activeConversationId) {
     return (
@@ -393,6 +472,7 @@ export function FileBrowserPanel({ conversation }: FileBrowserPanelProps) {
                 key={state.selectedPath ?? "no-file"}
                 conversationId={activeConversationId}
                 selectedPath={state.selectedPath}
+                refreshTrigger={refreshCounter}
               />
             </div>
           </div>
@@ -438,6 +518,7 @@ export function FileBrowserPanel({ conversation }: FileBrowserPanelProps) {
                       entries={searchResults}
                       selectedPath={state.selectedPath}
                       onClickFile={handleSelectFile}
+                      onOpenEditor={handleOpenEditor}
                     />
                   ) : null
                 ) : (
@@ -445,6 +526,7 @@ export function FileBrowserPanel({ conversation }: FileBrowserPanelProps) {
                     conversationId={activeConversationId}
                     selectedPath={state.selectedPath}
                     onClickFile={handleSelectFile}
+                    onOpenEditor={handleOpenEditor}
                   />
                 )}
               </div>
@@ -452,6 +534,17 @@ export function FileBrowserPanel({ conversation }: FileBrowserPanelProps) {
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {activeConversationId && (
+        <WorkspaceFileEditDialog
+          open={editorOpen}
+          onOpenChange={(open) => {
+            if (!open) handleCloseEditor()
+          }}
+          conversationId={activeConversationId}
+          path={editingPath ?? ""}
+        />
+      )}
     </div>
   )
 }

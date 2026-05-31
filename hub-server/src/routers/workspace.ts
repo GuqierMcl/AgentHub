@@ -5,7 +5,7 @@ import { existsSync, writeFileSync, unlinkSync, readFileSync, readdirSync, statS
 import { Readable } from 'node:stream'
 import { join, resolve, relative, sep, extname, basename } from 'node:path'
 import { logger } from '../lib/logger'
-import { notFound, badRequest } from '../lib/errors'
+import { AppError, notFound, badRequest, forbidden, conflict } from '../lib/errors'
 import { findConversationById } from '../repositories/conversation.repo'
 
 const workspace = new Hono()
@@ -19,6 +19,16 @@ const TEXT_EXTENSIONS = new Set([
   '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.go', '.rs', '.swift', '.kt', '.scala',
   '.r', '.lua', '.php', '.dart', '.env', '.gitignore', '.dockerignore', '.editorconfig',
   '.prisma', '.graphql', '.gql',
+])
+
+const EDITABLE_TEXT_EXTENSIONS = new Set([
+  '.txt', '.md', '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+  '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.css', '.scss', '.less', '.html',
+  '.htm', '.sql', '.sh', '.bash', '.zsh', '.ps1', '.py',
+  '.java', '.go', '.rs',
+  '.env', '.gitignore', '.dockerignore', '.editorconfig',
+  '.prisma', '.graphql', '.gql',
+  '.log', '.csv',
 ])
 
 const IMAGE_EXTENSIONS = new Set([
@@ -640,6 +650,120 @@ workspace.get('/api/conversations/:id/workspace/search', async (c: Context) => {
   } catch (err) {
     if (err instanceof Error && 'code' in err) throw err
     logger.error({ err, conversationId, query }, 'Workspace search error')
+    throw err
+  }
+})
+
+// ── Workspace File Edit Routes ──
+
+const EDITABLE_MAX_SIZE = 1024 * 1024 // 1MB
+
+function getFileRevision(resolvedPath: string): string {
+  const stat = statSync(resolvedPath)
+  return `${stat.mtimeMs}-${stat.size}`
+}
+
+workspace.get('/api/conversations/:id/workspace/file-edit', async (c: Context) => {
+  const conversationId = c.req.param('id')!
+  const relativePath = c.req.query('path') ?? ''
+
+  try {
+    const { rootPath } = await resolveWorkspace(conversationId)
+    const resolvedPath = resolveSafePath(rootPath, relativePath)
+
+    const stat = statSync(resolvedPath)
+    if (!stat.isFile()) {
+      throw badRequest('WORKSPACE_INVALID_PATH', '指定的路径不是文件')
+    }
+
+    const ext = extname(resolvedPath).toLowerCase()
+    if (!EDITABLE_TEXT_EXTENSIONS.has(ext)) {
+      throw forbidden('WORKSPACE_FILE_NOT_EDITABLE', '当前文件类型不支持编辑')
+    }
+
+    if (stat.size > EDITABLE_MAX_SIZE) {
+      throw new AppError(413, 'WORKSPACE_FILE_TOO_LARGE', '文件过大，无法编辑（上限 1MB）')
+    }
+
+    const content = readFileSync(resolvedPath, 'utf-8')
+    const name = basename(resolvedPath)
+    const mimeType = getMimeType(resolvedPath)
+    const revision = getFileRevision(resolvedPath)
+
+    return c.json({
+      path: relativePath,
+      name,
+      mimeType,
+      size: stat.size,
+      content,
+      language: LANGUAGE_MAP[ext],
+      encoding: 'utf-8' as const,
+      revision,
+      editable: true,
+    })
+  } catch (err) {
+    if (err instanceof Error && 'code' in err) throw err
+    logger.error({ err, conversationId, relativePath }, 'Workspace file-edit error')
+    throw err
+  }
+})
+
+workspace.put('/api/conversations/:id/workspace/file', async (c: Context) => {
+  const conversationId = c.req.param('id')!
+  const body = await c.req.json<{ path: string; content: string; revision: string }>()
+
+  const relativePath = body.path
+  const newContent = body.content
+  const clientRevision = body.revision
+
+  if (!relativePath || typeof newContent !== 'string' || typeof clientRevision !== 'string') {
+    throw badRequest('WORKSPACE_INVALID_INPUT', '请求参数缺失或类型不正确')
+  }
+
+  try {
+    const { rootPath } = await resolveWorkspace(conversationId)
+    const resolvedPath = resolveSafePath(rootPath, relativePath)
+
+    const stat = statSync(resolvedPath)
+    if (!stat.isFile()) {
+      throw badRequest('WORKSPACE_INVALID_PATH', '指定的路径不是文件')
+    }
+
+    const ext = extname(resolvedPath).toLowerCase()
+    if (!EDITABLE_TEXT_EXTENSIONS.has(ext)) {
+      throw forbidden('WORKSPACE_FILE_NOT_EDITABLE', '当前文件类型不支持编辑')
+    }
+
+    if (stat.size > EDITABLE_MAX_SIZE) {
+      throw new AppError(413, 'WORKSPACE_FILE_TOO_LARGE', '文件过大，无法编辑（上限 1MB）')
+    }
+
+    // Revision conflict detection
+    const currentRevision = getFileRevision(resolvedPath)
+    if (currentRevision !== clientRevision) {
+      throw conflict('WORKSPACE_FILE_CONFLICT', '文件已被外部修改，请重新加载后重试')
+    }
+
+    // Write file
+    try {
+      writeFileSync(resolvedPath, newContent, 'utf-8')
+    } catch {
+      throw new AppError(500, 'WORKSPACE_FILE_WRITE_FAILED', '文件写入失败')
+    }
+
+    const newStat = statSync(resolvedPath)
+    const newRevision = getFileRevision(resolvedPath)
+    const savedAt = new Date().toISOString()
+
+    return c.json({
+      path: relativePath,
+      size: newStat.size,
+      revision: newRevision,
+      savedAt,
+    })
+  } catch (err) {
+    if (err instanceof Error && 'code' in err) throw err
+    logger.error({ err, conversationId, relativePath }, 'Workspace file write error')
     throw err
   }
 })

@@ -1,4 +1,4 @@
-import type { WorkspaceTreeResponse, WorkspaceFilePreviewResponse, WorkspaceSearchResponse } from "../types"
+import type { WorkspaceTreeResponse, WorkspaceFilePreviewResponse, WorkspaceSearchResponse, WorkspaceEditableFileResponse, UpdateWorkspaceFileRequest, UpdateWorkspaceFileResponse } from "../types"
 
 async function request<T>(path: string): Promise<T> {
   const res = await fetch(path)
@@ -12,6 +12,20 @@ async function request<T>(path: string): Promise<T> {
         throw new Error(detailMessages.join("；"))
       }
     }
+    throw new Error(errMsg)
+  }
+  return res.json()
+}
+
+async function requestWithBody<T>(path: string, method: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const bodyData = await res.json().catch(() => ({}))
+    const errMsg = bodyData?.error?.message || `请求失败 (${res.status})`
     throw new Error(errMsg)
   }
   return res.json()
@@ -37,5 +51,13 @@ export const workspaceBrowserApi = {
 
   search(conversationId: string, query: string): Promise<WorkspaceSearchResponse> {
     return request(`/api/conversations/${encodeURIComponent(conversationId)}/workspace/search?q=${encodeURIComponent(query)}`)
+  },
+
+  getEditableFile(conversationId: string, path: string): Promise<WorkspaceEditableFileResponse> {
+    return request(`/api/conversations/${encodeURIComponent(conversationId)}/workspace/file-edit?path=${encodeURIComponent(path)}`)
+  },
+
+  saveFile(conversationId: string, req: UpdateWorkspaceFileRequest): Promise<UpdateWorkspaceFileResponse> {
+    return requestWithBody(`/api/conversations/${encodeURIComponent(conversationId)}/workspace/file`, "PUT", req)
   },
 }

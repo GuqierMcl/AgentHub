@@ -1415,6 +1415,80 @@ AI SDK 续跑采用新的生成调用：Runtime 保存原始 response messages�
 - 已经是 `completed`、`failed`、`cancelled` 的 Run 保持原状态。
 - 不存在时返回 `RUN_NOT_FOUND`。
 
+## Workspace File Edit API
+
+Workspace File Edit API 用于 Web 前端用户在文件预览模式下直接编辑并保存工作区文本文件。
+
+### 获取可编辑文件内容
+
+**端点**：`GET /api/conversations/:conversationId/workspace/file-edit?path=<relative-path>`
+
+成功响应 (200 OK)：
+
+```ts
+type WorkspaceEditableFileResponse = {
+  path: string
+  name: string
+  mimeType: string
+  size: number
+  content: string
+  language?: string
+  encoding: "utf-8"
+  revision: string
+  editable: true
+}
+```
+
+错误响应：
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `WORKSPACE_FILE_NOT_EDITABLE` | 403 | 文件类型不在可编辑白名单中 |
+| `WORKSPACE_FILE_TOO_LARGE` | 413 | 文件超过编辑上限（1MB） |
+| `WORKSPACE_FILE_ENCODING_UNSUPPORTED` | 415 | 文件编码不是 UTF-8 |
+
+### 保存文件内容
+
+**端点**：`PUT /api/conversations/:conversationId/workspace/file`
+
+请求体：
+
+```ts
+type UpdateWorkspaceFileRequest = {
+  path: string
+  content: string
+  revision: string
+}
+```
+
+成功响应 (200 OK)：
+
+```ts
+type UpdateWorkspaceFileResponse = {
+  path: string
+  size: number
+  revision: string
+  savedAt: string
+}
+```
+
+错误响应：
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `WORKSPACE_FILE_NOT_EDITABLE` | 403 | 文件类型不在可编辑白名单中 |
+| `WORKSPACE_FILE_TOO_LARGE` | 413 | 文件超过编辑上限（1MB） |
+| `WORKSPACE_FILE_CONFLICT` | 409 | revision 不一致，文件已被外部修改 |
+| `WORKSPACE_FILE_ENCODING_UNSUPPORTED` | 415 | 内容编码不是 UTF-8 |
+
+规则：
+
+- 只允许编辑白名单中的文本文件（代码文件、配置文件、普通文本）。
+- 文件大小上限 1MB。
+- `revision` 基于 `mtimeMs + size` 或内容 hash，用于并发冲突检测。
+- 保存时不自动格式化，保持原始换行风格（LF/CRLF）。
+- 只接受 UTF-8 文本内容。
+
 ## 初始契约范围
 
 - 会话。
@@ -1425,5 +1499,6 @@ AI SDK 续跑采用新的生成调用：Runtime 保存原始 response messages�
 - Artifact 元数据。
 - 权限请求与审批。
 - 用户问答请求与续跑。
+- 工作区文件编辑。
 
 具体端点、事件名称和载荷结构应随着 API 实现逐步补充。

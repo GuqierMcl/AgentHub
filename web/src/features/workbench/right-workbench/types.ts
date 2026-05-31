@@ -125,3 +125,30 @@ export type WorkspaceFilePreviewResponse =
 export type WorkspaceSearchResponse = {
   entries: WorkspaceTreeEntry[]
 }
+
+// ── Workspace Edit Types ──
+
+export type WorkspaceEditableFileResponse = {
+  path: string
+  name: string
+  mimeType: string
+  size: number
+  content: string
+  language?: string
+  encoding: "utf-8"
+  revision: string
+  editable: true
+}
+
+export type UpdateWorkspaceFileRequest = {
+  path: string
+  content: string
+  revision: string
+}
+
+export type UpdateWorkspaceFileResponse = {
+  path: string
+  size: number
+  revision: string
+  savedAt: string
+}

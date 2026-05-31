@@ -50,3 +50,11 @@ export function runtimeNotReady(message?: string): AppError {
 export function badGateway(code: string, message: string): AppError {
   return new AppError(502, code, message)
 }
+
+export function forbidden(code: string, message: string): AppError {
+  return new AppError(403, code, message)
+}
+
+export function conflict(code: string, message: string): AppError {
+  return new AppError(409, code, message)
+}

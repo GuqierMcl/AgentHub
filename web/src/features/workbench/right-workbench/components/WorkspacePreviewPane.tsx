@@ -22,9 +22,10 @@ const CodePreview = lazy(() => import("./preview-renderers/CodePreview").then((m
 type WorkspacePreviewPaneProps = {
   conversationId: string
   selectedPath: string | null
+  refreshTrigger?: number
 }
 
-export function WorkspacePreviewPane({ conversationId, selectedPath }: WorkspacePreviewPaneProps) {
+export function WorkspacePreviewPane({ conversationId, selectedPath, refreshTrigger }: WorkspacePreviewPaneProps) {
   const [preview, setPreview] = useState<WorkspaceFilePreviewResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const loading = preview === null && error === null
@@ -44,7 +45,7 @@ export function WorkspacePreviewPane({ conversationId, selectedPath }: Workspace
     })
 
     return () => { cancelled = true }
-  }, [conversationId, selectedPath])
+  }, [conversationId, selectedPath, refreshTrigger])
 
   const containerClass = selectedPath && !loading && !error && preview
     ? "h-full w-full min-h-0 min-w-0"
