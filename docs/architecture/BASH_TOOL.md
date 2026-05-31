@@ -40,6 +40,8 @@ type BashResult = {
 
 ## Shell 解析
 
+`bash` 工具和 Runtime environment snapshot 共用同一个 shell resolver（`agent-runtime/src/runtime/shell-resolver.ts`）。因此模型在 prompt 中看到的 `shell.displayName` / `shell.commandSyntax` 与工具实际执行命令时使用的 shell 保持一致。
+
 解析顺序：
 
 1. `AGENTHUB_BASH_SHELL` 指定可执行文件时使用该 shell。

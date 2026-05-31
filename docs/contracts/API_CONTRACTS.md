@@ -24,6 +24,8 @@ web -> hub-server -> agent-runtime (Sidecar)
 - `hub-server` 负责消费 Runtime 事件，并持久化为消息、Artifact、Diff、部署记录和 Run 状态。
 - Hono 相关通用约定见 `docs/reference/HONO.md`。
 
+Runtime 会在每个 Run 开始时捕获一份 `RuntimeEnvironmentSnapshot`，并注入 AI SDK 智能体的 system prompt。该能力是 Runtime 内部模型上下文增强，不改变 `POST /runtime/runs` 请求体、Run 查询响应、SSE RunEvent、HubServer 产品 API 或前端消息协议；快照内容不会作为独立事件发送给前端。
+
 ## Sidecar 通信契约
 
 ### 启动参数

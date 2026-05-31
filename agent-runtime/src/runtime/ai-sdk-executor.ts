@@ -3,6 +3,7 @@ import { createChildLogger } from "../logger"
 import { resolveAgentLanguageModel } from "./model-resolver"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
+import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
 import { createRunEvent } from "./run-events"
 import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
 import type { RuntimeToolRegistry } from "./tools"
@@ -18,7 +19,7 @@ type AiSdkExecutionSettings = {
   temperature?: number
 }
 
-function buildSystemPrompt(context: AgentExecutionContext): string {
+export function buildSystemPrompt(context: AgentExecutionContext): string {
   const systemNotes: string[] = []
 
   if (context.agent.systemPrompt) {
@@ -47,6 +48,10 @@ function buildSystemPrompt(context: AgentExecutionContext): string {
 
   if (context.parentAgentId) {
     systemNotes.push(`This execution was delegated by agent: ${context.parentAgentId}`)
+  }
+
+  if (context.environmentSnapshot) {
+    systemNotes.push(formatRuntimeEnvironmentSnapshotForPrompt(context.environmentSnapshot))
   }
 
   return systemNotes.join("\n\n")

@@ -3,6 +3,7 @@ import type { ModelMessage } from "ai"
 import { AgentDefinitionSchema, type AgentDefinition } from "../agents"
 import type { WorkspaceService } from "./workspace"
 import type { RuntimePermissionService } from "./permissions"
+import type { RuntimeEnvironmentSnapshot } from "./environment-snapshot"
 
 export const RuntimeConversationModeSchema = z.enum(["single", "group"])
 export type RuntimeConversationMode = z.infer<typeof RuntimeConversationModeSchema>
@@ -207,6 +208,7 @@ export type AgentExecutionContext = {
   emitEvent?: (event: RunEvent) => void
   workspaceService?: WorkspaceService
   permissionService?: RuntimePermissionService
+  environmentSnapshot?: RuntimeEnvironmentSnapshot
   executionId?: string
   resumeMessages?: ModelMessage[]
   onApprovalPending?: (messages: ModelMessage[]) => void

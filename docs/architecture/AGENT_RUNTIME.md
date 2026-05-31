@@ -193,6 +193,8 @@ Runtime 还支持独立的系统智能体层，用于自动执行不属于用户
 
 系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`。`AiSdkExecutor` 和 `OrchestratorExecutor` 都从 `AgentDefinition.systemPrompt` 读取提示词，再追加运行态上下文、任务信息、可用工具和会话参与者等执行说明。普通主智能体不会看到 `internal` 工具；`orchestrator` 通过专用执行路径显式开启 `includeInternal=true`，因此只它能看到 `write_plan` 和 `run_task`。
 
+每个 Runtime Run 创建后会生成一次 `RuntimeEnvironmentSnapshot`，并追加进 AI SDK 执行器的 system prompt。该快照只用于模型上下文，不进入 Runtime HTTP API、HubServer API 或前端 SSE/消息投影。
+
 AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄封装进入 RunEvent 流；provider/AI SDK 显式暴露的 reasoning/thinking 会同步提升为 `reasoning.started`、`reasoning.delta`、`reasoning.completed`。RunInput 可通过 `diagnostics` 关闭模型流透传、关闭 reasoning 输出或显式开启 `raw` chunk。默认开启 `includeModelStream` 和 `includeReasoning`，默认关闭 `includeRawModelChunks`。完整 SSE 契约见 `docs/contracts/RUNTIME_SSE_EVENTS.md`。
 
 ### 3.3.1 当前对话链路闭环状态
@@ -241,6 +243,7 @@ Runtime 需要将这些上下文整理成 Agent 可理解的输入。
 - 当前会话中的 Agent 列表。
 - Agent 的能力标签。
 - Agent 的 System Prompt。
+- Run 开始时捕获的 Runtime environment snapshot。
 - 历史 Artifact。
 - 当前正在编辑的产物。
 - 用户选中的代码片段。
@@ -250,6 +253,70 @@ Runtime 需要将这些上下文整理成 Agent 可理解的输入。
 课题要求每个对话保持完整聊天历史，Agent 能基于历史消息理解上下文，并支持手动 pin 关键消息作为长期上下文。
 
 因此，Agent Runtime 不只是简单把用户输入转发给模型，而是要承担“执行上下文编排”的职责。
+
+### 3.5.1 Runtime Environment Snapshot
+
+Runtime 在 `POST /runtime/runs` 创建 Run 后，基于当前 `WorkspaceService` 捕获一次环境快照，并保存在 `RunExecutionState`。同一个 Run 中的入口主智能体、隐藏子智能体、`run_task` delegated task、以及审批恢复后的 continuation frame 都复用同一份快照，避免一次任务内出现时间、cwd、shell 描述不一致。
+
+快照字段：
+
+```ts
+type RuntimeEnvironmentSnapshot = {
+  capturedAtIso: string
+  timezone: string
+  os: {
+    platform: NodeJS.Platform
+    release: string
+    arch: string
+  }
+  workspace:
+    | {
+        bound: true
+        cwd: "."
+        workspaceId: string
+        backendType: string
+        rootLabel: string
+        absolutePath: string
+      }
+    | {
+        bound: false
+        cwd: "."
+      }
+  shell: {
+    toolName: "bash"
+    displayName: string
+    commandSyntax: "PowerShell" | "POSIX sh" | "Bash" | "cmd.exe" | "custom"
+  }
+  git:
+    | {
+        repository: true
+        branch?: string
+        dirty: boolean
+        ahead?: number
+        behind?: number
+        changes: {
+          modified: number
+          added: number
+          deleted: number
+          renamed: number
+          untracked: number
+          conflicted: number
+        }
+      }
+    | { repository: false; unavailableReason?: string }
+    | { repository: "unknown"; unavailableReason: string }
+}
+```
+
+注入范围：
+
+- AI SDK 内部主智能体、用户自定义主智能体和隐藏子智能体都会收到该 system prompt 区块。
+- `OrchestratorExecutor` 也会收到同一格式的区块，并把它传递给自身的任务拆解上下文。
+- 外部 `external-adapter` 智能体不受该机制影响；它们仍由各自 adapter 负责上下文注入。
+
+Git 状态只注入摘要。Runtime 使用非 shell 方式执行 `git -C <workspace> status --porcelain=v1 --branch`，超时为 800ms；失败不会阻塞 Run，而是写入 `repository: false` 或 `repository: "unknown"` 与 `unavailableReason`。摘要只包含 branch、dirty、ahead/behind 与变更计数，不包含文件列表、diff 或完整 `git status` 输出。
+
+Prompt 中会明确 `bash` 工具名固定为 `bash`，但命令语法应按 `shell.commandSyntax` 编写；workspace cwd 固定写作 `"."`。快照会包含 workspace 绝对路径，便于模型在用户询问或任务确实需要时给出准确上下文；同时提示模型不要主动复述本机绝对路径。
 
 ### 3.6 产物生成与执行环境管理
 

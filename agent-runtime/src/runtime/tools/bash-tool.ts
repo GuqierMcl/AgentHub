@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process"
 import { stat, realpath } from "node:fs/promises"
-import { basename, isAbsolute, relative, resolve } from "node:path"
+import { isAbsolute, relative, resolve } from "node:path"
 import { execa } from "execa"
 import { z } from "zod"
 import type { BashPermissionAction, BashPermissionRules } from "../../agents"
+import { createShellCommand, resolveRuntimeShell, type ResolvedRuntimeShell } from "../shell-resolver"
 import type { ToolDefinition, ToolExecutionContext, ToolExecutionResult } from "./types"
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -73,13 +74,6 @@ export type BashResult = {
 type ResolvedCwd = {
   actualCwd: string
   logicalCwd: string
-}
-
-type ResolvedShell = {
-  executable: string
-  commandArgs: string[]
-  displayName: string
-  commandPrefix?: string
 }
 
 type RuleMatch = {
@@ -210,68 +204,6 @@ async function resolveWorkspaceCwd(
   }
 }
 
-function parseJsonStringArray(value: string | undefined): string[] | null {
-  if (!value?.trim()) {
-    return null
-  }
-
-  try {
-    const parsed = JSON.parse(value)
-    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
-      return parsed
-    }
-  } catch {
-    return null
-  }
-
-  return null
-}
-
-function defaultShellArgs(): string[] {
-  return process.platform === "win32"
-    ? ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"]
-    : ["-lc"]
-}
-
-function defaultPowerShellCommandPrefix(): string {
-  return [
-    "$agentHubUtf8 = New-Object System.Text.UTF8Encoding $false",
-    "[Console]::InputEncoding = $agentHubUtf8",
-    "[Console]::OutputEncoding = $agentHubUtf8",
-    "$OutputEncoding = $agentHubUtf8",
-  ].join("; ")
-}
-
-function resolveShell(): ResolvedShell {
-  const override = process.env.AGENTHUB_BASH_SHELL?.trim()
-  if (override) {
-    return {
-      executable: override,
-      commandArgs: parseJsonStringArray(process.env.AGENTHUB_BASH_SHELL_ARGS) ?? defaultShellArgs(),
-      displayName: basename(override) || override,
-    }
-  }
-
-  if (process.platform === "win32") {
-    return {
-      executable: "powershell.exe",
-      commandArgs: defaultShellArgs(),
-      displayName: "powershell.exe",
-      commandPrefix: defaultPowerShellCommandPrefix(),
-    }
-  }
-
-  return {
-    executable: "/bin/sh",
-    commandArgs: defaultShellArgs(),
-    displayName: "/bin/sh",
-  }
-}
-
-function createShellCommand(shell: ResolvedShell, command: string): string {
-  return shell.commandPrefix ? `${shell.commandPrefix}; ${command}` : command
-}
-
 function createShellEnv(): Record<string, string> {
   const allowlist = process.platform === "win32"
     ? WINDOWS_ENV_ALLOWLIST
@@ -326,7 +258,7 @@ function isApprovedToolCall(context: ToolExecutionContext): boolean {
   return request?.status === "approved"
 }
 
-function createDeniedResult(input: BashInput, match: RuleMatch, shell: ResolvedShell): ToolExecutionResult<BashResult> {
+function createDeniedResult(input: BashInput, match: RuleMatch, shell: ResolvedRuntimeShell): ToolExecutionResult<BashResult> {
   return createFailure<BashResult>(
     "BASH_COMMAND_DENIED",
     `bash command denied by rule "${match.pattern}"`,
@@ -518,7 +450,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
     approvalPolicy: "contextual",
     configurableByUserAgent: false,
     prepareExecution: async (input, context) => {
-      const shell = resolveShell()
+      const shell = resolveRuntimeShell()
       const match = matchBashRule(context.agent.toolPermissionRules?.bash, input.command)
 
       if (match.action === "deny") {
@@ -551,7 +483,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
       }
     },
     async execute(input, context) {
-      const shell = resolveShell()
+      const shell = resolveRuntimeShell()
       const cwdResolution = await resolveWorkspaceCwd(context, input.cwd)
       if (!("actualCwd" in cwdResolution)) {
         return cwdResolution

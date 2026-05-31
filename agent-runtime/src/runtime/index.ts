@@ -18,6 +18,16 @@ export {
 export { RuntimeToolRegistry, createBashTool, createDefaultRuntimeToolRegistry, createRunTaskTool, createWritePlanTool } from "./tools"
 export { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 export { createWorkspaceReadOnlyTools, createWorkspaceWriteTools, createWorkspaceTools } from "./tools"
+export {
+  buildRuntimeEnvironmentSnapshot,
+  formatRuntimeEnvironmentSnapshotForPrompt,
+  inspectGitStatus,
+  parseGitStatus,
+} from "./environment-snapshot"
+export {
+  createShellCommand,
+  resolveRuntimeShell,
+} from "./shell-resolver"
 export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
 export type {
   RuntimeConversationMode,
@@ -70,6 +80,15 @@ export type {
   RuntimePermissionRequest,
   RuntimePermissionStatus,
 } from "./permissions"
+export type {
+  RuntimeEnvironmentGitChanges,
+  RuntimeEnvironmentGitSnapshot,
+  RuntimeEnvironmentSnapshot,
+} from "./environment-snapshot"
+export type {
+  ResolvedRuntimeShell,
+  ShellCommandSyntax,
+} from "./shell-resolver"
 export {
   PlanTaskStatusSchema,
   WritePlanInputSchema,

@@ -7,6 +7,7 @@ import { AiSdkExecutor } from "./ai-sdk-executor"
 import { AgentModelResolutionError } from "./model-resolver"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
+import { buildRuntimeEnvironmentSnapshot, type RuntimeEnvironmentSnapshot } from "./environment-snapshot"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
 import {
   SystemAgentRunner,
@@ -52,6 +53,8 @@ type RunExecutionState = {
   abortController: AbortController
   entryAgent: AgentDefinition
   workspaceService?: WorkspaceService
+  environmentSnapshot?: RuntimeEnvironmentSnapshot
+  environmentSnapshotPromise: Promise<RuntimeEnvironmentSnapshot>
   permissionService: RuntimePermissionService
   continuations: Map<string, ApprovalContinuationFrame>
   activeTaskExecutions: Set<string>
@@ -162,6 +165,7 @@ export class RunManager {
 
     const abortController = new AbortController()
     const workspaceService = this.createWorkspaceSession(run.id, input)
+    const environmentSnapshotPromise = buildRuntimeEnvironmentSnapshot({ workspaceService })
     const permissionService = new RuntimePermissionService(workspaceService)
 
     this.runs.set(run.id, run)
@@ -170,6 +174,7 @@ export class RunManager {
       abortController,
       entryAgent: resolution.entryAgents[0],
       workspaceService,
+      environmentSnapshotPromise,
       permissionService,
       continuations: new Map(),
       activeTaskExecutions: new Set(),
@@ -592,6 +597,7 @@ export class RunManager {
       return []
     }
     const executor = this.resolveExecutor(agent)
+    const environmentSnapshot = await this.resolveEnvironmentSnapshot(run.id, state)
     const events: RunEvent[] = []
     let pendingFrame: ApprovalContinuationFrame | undefined
     if (task) {
@@ -626,6 +632,7 @@ export class RunManager {
       emitEvent: emitExecutionEvent,
       workspaceService: state.workspaceService,
       permissionService: state.permissionService,
+      environmentSnapshot,
       executionId,
       resumeMessages,
       onApprovalPending: (messages) => {
@@ -1079,6 +1086,29 @@ export class RunManager {
     state.messageIndexById.set(event.messageId, nextIndex)
     event.messageIndex = nextIndex
     return event
+  }
+
+  private async resolveEnvironmentSnapshot(
+    runId: string,
+    state: RunExecutionState
+  ): Promise<RuntimeEnvironmentSnapshot | undefined> {
+    if (state.environmentSnapshot) {
+      return state.environmentSnapshot
+    }
+
+    try {
+      state.environmentSnapshot = await state.environmentSnapshotPromise
+      return state.environmentSnapshot
+    } catch (error) {
+      log.warn(
+        {
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Runtime environment snapshot failed"
+      )
+      return undefined
+    }
   }
 
   private createWorkspaceSession(runId: string, input: RunInput): WorkspaceService | undefined {

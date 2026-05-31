@@ -3,6 +3,7 @@ import type { AgentDefinition, AgentRegistry } from "../agents"
 import { createChildLogger } from "../logger"
 import type { ProviderService } from "../provider"
 import { AgentModelResolutionError, resolveAgentLanguageModel } from "./model-resolver"
+import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { createRunEvent } from "./run-events"
@@ -251,7 +252,7 @@ export class OrchestratorExecutor implements AgentExecutor {
     }
   }
 
-  private buildSystemPrompt(context: AgentExecutionContext): string {
+  buildSystemPrompt(context: AgentExecutionContext): string {
     const agent = context.agent
     const availableTargets = this.listAvailableTargets(context)
     const participants = context.input.participantAgentIds.join(", ")
@@ -266,6 +267,9 @@ export class OrchestratorExecutor implements AgentExecutor {
         `Current primary participants: ${participants}`,
         `Your capabilities: ${formatCapabilities(agent)}`,
       ].join("\n"),
+      context.environmentSnapshot
+        ? formatRuntimeEnvironmentSnapshotForPrompt(context.environmentSnapshot)
+        : "",
       [
         "Available run_task targets:",
         availableTargets.length > 0 ? availableTargets.join("\n") : "- none",
