@@ -101,6 +101,60 @@ function normalizeTitle(rawTitle: string): string | null {
   return title.length > 80 ? title.slice(0, 80).trim() : title
 }
 
+function createFallbackTitle(seed: string): string | null {
+  const firstLine = seed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+
+  if (!firstLine) {
+    return null
+  }
+
+  const normalized = normalizeTitle(
+    firstLine
+      .replace(/[`*_>#\[\](){}]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/[：:，,；;]+$/g, "")
+  )
+  if (!normalized) {
+    return null
+  }
+
+  if (/[\u3400-\u9fff]/.test(normalized)) {
+    return normalized.length > 18 ? normalized.slice(0, 18).trim() : normalized
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean)
+  return words.length > 8 ? words.slice(0, 8).join(" ") : normalized
+}
+
+export function createFallbackTitleSystemAgentResult(
+  input: RunInput,
+  entryAgent: AgentDefinition
+): SystemAgentCompletedData | null {
+  const seed = resolveTitleSeedUserMessage(input)
+  if (!seed) {
+    return null
+  }
+
+  const title = createFallbackTitle(seed)
+  if (!title) {
+    return null
+  }
+
+  return {
+    systemAgentId: "title",
+    conversationId: input.conversationId,
+    target: "conversation.title",
+    trigger: "first_user_message",
+    inheritedModelFromAgentId: entryAgent.id,
+    result: {
+      title,
+    },
+  }
+}
+
 export class SystemAgentRunner {
   constructor(private providerService: ProviderService) {}
 

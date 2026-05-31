@@ -90,6 +90,9 @@ permission.requested
 permission.approved
 permission.denied
 permission.cancelled
+question.requested
+question.answered
+question.cancelled
 model.stream.part
 reasoning.started
 reasoning.delta
@@ -103,13 +106,13 @@ run.failed
 run.cancelled
 ```
 
-`message.*`、`tool.*`、`task.*`、`permission.*`、`agent.*` 和 `run.*` 是 Runtime 语义事件，优先供 HubServer 持久化与 UI 状态渲染使用。
+`message.*`、`tool.*`、`task.*`、`permission.*`、`question.*`、`agent.*` 和 `run.*` 是 Runtime 语义事件，优先供 HubServer 持久化与 UI 状态渲染使用。
 
-`system_agent.completed` 是 Runtime 内部系统智能体的结果事件。首版只支持 `agentId = "system:title"`，用于把会话第一条用户输入生成的短标题作为同一条 Run SSE 流的一部分交给上游消费方。标题生成不包含第一轮智能体输出；如果首次自动标题错过而 `titleSource` 仍为 `default`，后续 Run 可以使用 `conversationState.titleSeedUserMessage` 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即输出该事件；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。若结果仍未赶上，则取消标题任务并静默跳过。该事件不表示 Runtime 已经更新业务状态，HubServer 后续接入时负责条件落库。
+`system_agent.completed` 是 Runtime 内部系统智能体的结果事件。首版只支持 `agentId = "system:title"`，用于把会话第一条用户输入生成的短标题作为同一条 Run SSE 流的一部分交给上游消费方。标题生成不包含第一轮智能体输出；如果首次自动标题错过而 `titleSource` 仍为 `default`，后续 Run 可以使用 `conversationState.titleSeedUserMessage` 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即输出该事件；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。若模型标题没有赶上或生成失败，Runtime 会在 `run.completed` 前输出一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务；Run 被取消时仍静默跳过。该事件不表示 Runtime 已经更新业务状态，HubServer 后续接入时负责条件落库。
 
 ## 4. Message Identity
 
-Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`message.delta` 与 `message.completed` 仍以模型文本块作为文本边界；`reasoning.*`、`tool.*` 与 `permission.*` 在能归属到当前模型输出时也会携带同一个 `messageId`，供 UI 和后续 HubServer 持久化把同一智能体的思考、工具、审批和文本聚合到同一条产品消息。
+Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`message.delta` 与 `message.completed` 仍以模型文本块作为文本边界；`reasoning.*`、`tool.*`、`permission.*` 与 `question.*` 在能归属到当前模型输出时也会携带同一个 `messageId`，供 UI 和后续 HubServer 持久化把同一智能体的思考、工具、审批、问答和文本聚合到同一条产品消息。
 
 规则：
 
@@ -119,7 +122,7 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 - 若 provider 或旧路径缺少 `text-start/text-end`，Runtime 在第一条 `text-delta` 时创建 fallback block，并在 execution 暂停或结束时补 `message.completed`。
 - `messageId` 是 run 内稳定 id，当前形态为 `msg_${runId}_${executionId}_${blockIndex}`。
 - `reasoning-start` 可在 `text-start` 之前预留当前消息的 `messageId`；随后同一输出中的文本块复用该 `messageId`。
-- 工具或权限事件如果发生在当前模型输出上下文中，也复用当前 `messageId`；缺少明确当前消息时 Runtime 会为该工具/权限上下文创建新的 `messageId`。
+- 工具、权限或问答事件如果发生在当前模型输出上下文中，也复用当前 `messageId`；缺少明确当前消息时 Runtime 会为该工具/权限/问答上下文创建新的 `messageId`。
 - `messageIndex` 由 RunManager 在首次看到新 `messageId` 时按实际 emit 顺序分配，是 run-local 递增序号；同一 `messageId` 下的 reasoning、tool、permission 和 message 事件共享同一个 `messageIndex`。
 - `agent.completed` 仍表示一次 agent execution 完成；`usage`、`finishReason`、`resolvedModel` 以 `agent.completed.data` 为准。`message.completed.data` 只保证包含最终 `content`。
 
@@ -143,7 +146,7 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 持久化兼容：
 
 - HubServer 后续消费 Runtime SSE 时，应把 `RunEvent.messageId` 保存为 `event.messageId`。
-- 同一 `messageId` 的 `reasoning.*`、`tool.*`、`permission.*`、`message.delta/completed` 投影到同一 assistant `Message`；文本进入 text `MessagePart`，reasoning/tool/permission 可进入对应 message parts 或 metadata。
+- 同一 `messageId` 的 `reasoning.*`、`tool.*`、`permission.*`、`question.*`、`message.delta/completed` 投影到同一 assistant `Message`；文本进入 text `MessagePart`，reasoning/tool/permission/question 可进入对应 message parts 或 metadata。
 - `messageIndex` 可先落入 `Message.metadataJson.runtime.messageIndex`；若后续需要强排序字段，可以再做破坏性迁移。
 
 ## 5. AI SDK Part Passthrough
@@ -231,7 +234,7 @@ reasoning.started | reasoning.delta | reasoning.completed
 
 - 对于 `text-start/text-delta/text-end`，Runtime 先输出 `model.stream.part`，再按文本块输出 `message.delta` 或 `message.completed`。
 - 对于 reasoning part，Runtime 先输出 `model.stream.part`，再输出对应 `reasoning.*`。
-- 工具调用仍以 `tool.*`、`permission.*` 和 `task.*` 作为稳定语义事件；`model.stream.part` 中的 tool part 只作为模型流追踪。
+- 工具调用仍以 `tool.*`、`permission.*`、`question.*` 和 `task.*` 作为稳定语义事件；`model.stream.part` 中的 tool part 只作为模型流追踪。
 - 后续如果需要把 `source`、`file`、`tool-input-*` 等提升为独立 RunEvent，应从 `model.stream.part` 增量投影，不改变现有高层事件语义。
 
 ## 8. Redaction And Serialization
@@ -245,6 +248,7 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 - 已知主 workspace root 和授权外部路径会被替换为 `[workspace-root]` 或 `[external-path]`。
 - `path` / `file` / `root` 类字段中的未知绝对路径会被泛化为 `[absolute-path]/<basename>`。
 - `web_fetch` 的审批事件不包含请求 headers 或 body；`data.data.url` 会移除用户名、密码、hash，并把 query 脱敏为 `?redacted`，同时保留 `host` 和 `method` 供用户判断。
+- `bash` 的审批事件不包含 workspace root 或宿主机绝对路径；`data.data.cwd` 是 workspace-relative 逻辑路径。`bash` 工具结果中的 stdout/stderr 已按 `maxOutputBytes` 截断后进入 raw event，并会优先按 UTF-8 解码；Windows 本地代码页输出会按检测到的 ANSI code page 兜底解码。
 
 `raw` part 可能包含 provider 原始内容，默认关闭。需要调试 provider 新特性时，调用方必须显式设置 `includeRawModelChunks=true`。
 
@@ -268,3 +272,63 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 ```
 
 批准后 Runtime 发送 `permission.approved`，并在同一 `runId + toolCallId` 上继续执行 `web_fetch`；拒绝后发送 `permission.denied` 和 `tool.failed(TOOL_EXECUTION_DENIED)`。
+
+## 10. Command Permission Payload
+
+`bash` 在命令规则命中 `ask` 时产生标准 `permission.requested`。事件的 `data` 仍是 Runtime permission request 记录，其中 `data.data` 包含命令审批摘要：
+
+```json
+{
+  "requestId": "permission_xxx",
+  "toolName": "bash",
+  "status": "pending",
+  "data": {
+    "permissionType": "command_execute",
+    "approvalReason": "bash_command",
+    "command": "npm test",
+    "cwd": ".",
+    "matchedRule": "npm *",
+    "ruleAction": "ask",
+    "shell": "powershell.exe"
+  }
+}
+```
+
+批准后 Runtime 发送 `permission.approved`，并在同一 `runId + toolCallId` 上继续执行 `bash`；拒绝后发送 `permission.denied` 和 `tool.failed(TOOL_EXECUTION_DENIED)`。命令规则命中 `deny` 时不产生权限请求，也不产生 `tool.started`，直接输出 `tool.failed(BASH_COMMAND_DENIED)`。
+
+## 11. Question Payload
+
+`question` 是 interaction tool，不是 permission。模型调用后 Runtime 发送 `tool.started`，随后发送 `question.requested`：
+
+```json
+{
+  "id": "evt_xxx",
+  "runId": "run_xxx",
+  "type": "question.requested",
+  "agentId": "coder",
+  "toolCallId": "toolu_xxx",
+  "toolName": "question",
+  "messageId": "msg_run_xxx_execution_xxx_0",
+  "messageIndex": 0,
+  "data": {
+    "requestId": "question_xxx",
+    "toolCallId": "toolu_xxx",
+    "toolName": "question",
+    "status": "pending",
+    "questions": [
+      {
+        "id": "question_1",
+        "title": "Choose an approach",
+        "body": "Which implementation direction should I use?",
+        "options": [
+          { "id": "option_1", "label": "Minimal change" }
+        ],
+        "allowCustom": true,
+        "required": true
+      }
+    ]
+  }
+}
+```
+
+用户提交答案后 Runtime 发送 `question.answered`，`data.answers` 包含 `{ questionId, optionId?, answer?, custom }`，并发送 `tool.completed(toolName="question")`。取消 Run 时 Runtime 发送 `question.cancelled` 和 `tool.failed`，错误码为 `QUESTION_CANCELLED`。当没有其他 active task 时，pending question 会使 Run 进入 `waiting_input`。

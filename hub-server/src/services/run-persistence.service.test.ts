@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   RuntimeEventBatcher,
   isRetryableRuntimeEventStreamError,
+  toProductHubRunEventEnvelope,
 } from './run-persistence.service'
 
 describe('RuntimeEventBatcher', () => {
@@ -68,5 +69,49 @@ describe('isRetryableRuntimeEventStreamError', () => {
 
   it('does not retry non-transport parsing errors', () => {
     expect(isRetryableRuntimeEventStreamError(new SyntaxError('bad json'))).toBe(false)
+  })
+})
+
+describe('toProductHubRunEventEnvelope', () => {
+  it('projects bash tool output to a bounded UI preview', () => {
+    const stdout = 'x'.repeat(13_000)
+    const stderr = 'error'.repeat(3_000)
+    const envelope = toProductHubRunEventEnvelope({
+      sequence: 1,
+      event: {
+        id: 'event_bash_completed',
+        runId: 'run_bash',
+        type: 'tool.completed',
+        timestamp: new Date().toISOString(),
+        agentId: 'coder',
+        toolCallId: 'tool_bash',
+        toolName: 'bash',
+        data: {
+          status: 'completed',
+          summary: 'bash exited with code 0',
+          data: {
+            command: 'npm test',
+            cwd: '.',
+            shell: 'powershell.exe',
+            exitCode: 0,
+            signal: null,
+            stdout,
+            stderr,
+            stdoutBytes: stdout.length,
+            stderrBytes: stderr.length,
+            truncated: false,
+            durationMs: 42,
+          },
+        },
+      },
+    })
+
+    const eventData = envelope.event.data as { data: Record<string, unknown> }
+    expect((eventData.data.stdout as string).length).toBe(12_000)
+    expect((eventData.data.stderr as string).length).toBe(12_000)
+    expect(eventData.data.stdoutCharacters).toBe(stdout.length)
+    expect(eventData.data.stderrCharacters).toBe(stderr.length)
+    expect(eventData.data.stdoutTruncatedForUi).toBe(true)
+    expect(eventData.data.stderrTruncatedForUi).toBe(true)
   })
 })

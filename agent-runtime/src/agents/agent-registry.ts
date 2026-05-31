@@ -11,6 +11,7 @@ import type {
   AgentModelRef,
   AgentListOptions,
   AgentPermissionPolicy,
+  AgentToolPermissionRules,
   AgentToolAuthoringCatalog,
   UserAgentCreateRequest,
   UserAgentUpdateRequest,
@@ -21,6 +22,8 @@ const FILESYSTEM_PERMISSION_RANK = {
   read: 1,
   write: 2,
 } as const
+
+const IMPLICIT_AI_SDK_TOOLS = ["question"] as const
 
 export class AgentRegistryMutationError extends Error {
   constructor(
@@ -125,6 +128,7 @@ export class AgentRegistry {
         allowedSubagents: this.normalizeAllowedSubagents(input.allowedSubagents),
         allowedTools,
         permissionPolicy: this.normalizeUserPermissionPolicy(input.permissionPolicy, allowedTools),
+        toolPermissionRules: this.normalizeUserToolPermissionRules(input.toolPermissionRules),
         enabled: input.enabled,
         readonly: false,
         createdAt: now,
@@ -174,6 +178,9 @@ export class AgentRegistry {
         permissionPolicy: input.permissionPolicy || input.allowedTools
           ? this.normalizeUserPermissionPolicy(input.permissionPolicy, allowedTools)
           : baseAgent.permissionPolicy,
+        toolPermissionRules: input.toolPermissionRules !== undefined
+          ? this.normalizeUserToolPermissionRules(input.toolPermissionRules)
+          : baseAgent.toolPermissionRules,
         enabled: input.enabled ?? baseAgent.enabled,
         updatedAt: new Date().toISOString(),
       }
@@ -285,7 +292,7 @@ export class AgentRegistry {
     for (const agent of [...presetAgents, ...presetSubagents]) {
       const clonedAgent = this.cloneAgent(agent)
       this.baseAgents.set(agent.id, clonedAgent)
-      this.agents.set(agent.id, this.cloneAgent(clonedAgent))
+      this.agents.set(agent.id, this.applyModelBinding(clonedAgent))
       this.systemAgentIds.add(agent.id)
     }
 
@@ -347,7 +354,9 @@ export class AgentRegistry {
   }
 
   private normalizeAllowedTools(toolNames: string[]): string[] {
+    const implicitToolSet = new Set<string>(IMPLICIT_AI_SDK_TOOLS)
     const normalized = this.normalizeStringList(toolNames)
+      .filter((toolName) => !implicitToolSet.has(toolName))
     const configurableTools = this.toolCatalog.listUserConfigurableTools()
     const allowedToolSet = new Set(configurableTools.map((tool) => tool.id))
 
@@ -426,6 +435,32 @@ export class AgentRegistry {
     return normalized
   }
 
+  private normalizeUserToolPermissionRules(
+    rules: AgentToolPermissionRules | undefined
+  ): AgentToolPermissionRules | undefined {
+    if (!rules) {
+      return undefined
+    }
+
+    const normalized = this.cloneToolPermissionRules(rules)
+    if (normalized.bash && Object.keys(normalized.bash).length > 0) {
+      throw new AgentRegistryMutationError(
+        "AGENT_INVALID_INPUT",
+        "Invalid user agent tool permission rules",
+        400,
+        [{
+          path: ["toolPermissionRules", "bash"],
+          message: "User agents cannot configure bash permission rules in this CRUD version",
+        }]
+      )
+    }
+    if (normalized.bash && Object.keys(normalized.bash).length === 0) {
+      delete normalized.bash
+    }
+
+    return Object.keys(normalized).length > 0 ? normalized : undefined
+  }
+
   private normalizeStringList(values: string[]): string[] {
     const seen = new Set<string>()
     const normalized: string[] = []
@@ -461,6 +496,7 @@ export class AgentRegistry {
         normalized.permissionPolicy,
         normalized.allowedTools
       )
+      normalized.toolPermissionRules = this.normalizeUserToolPermissionRules(normalized.toolPermissionRules)
       return normalized
     } catch (error) {
       console.warn(`Ignoring invalid user agent "${normalized.id}"`, error)
@@ -535,7 +571,7 @@ export class AgentRegistry {
   }
 
   private applyModelBinding(agent: AgentDefinition, modelRef?: AgentModelRef): AgentDefinition {
-    const cloned = this.cloneAgent(agent)
+    const cloned = this.applyImplicitRuntimeTools(this.cloneAgent(agent))
     if (modelRef) {
       cloned.modelRef = this.cloneModelRef(modelRef)
     } else if (cloned.id in this.modelBindings) {
@@ -550,6 +586,22 @@ export class AgentRegistry {
     }
 
     return cloned
+  }
+
+  private applyImplicitRuntimeTools(agent: AgentDefinition): AgentDefinition {
+    if (
+      agent.origin === "external" ||
+      (agent.executorType !== "ai-sdk" && agent.executorType !== "orchestrator")
+    ) {
+      return agent
+    }
+
+    const allowedTools = new Set(agent.allowedTools)
+    for (const toolName of IMPLICIT_AI_SDK_TOOLS) {
+      allowedTools.add(toolName)
+    }
+    agent.allowedTools = Array.from(allowedTools)
+    return agent
   }
 
   private canBindModel(agent: AgentDefinition): boolean {
@@ -588,6 +640,10 @@ export class AgentRegistry {
       network: policy.network,
       deploy: policy.deploy,
     }
+  }
+
+  private cloneToolPermissionRules(rules: AgentToolPermissionRules): AgentToolPermissionRules {
+    return structuredClone(rules)
   }
 }
 

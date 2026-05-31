@@ -90,7 +90,8 @@ export function ConversationListItemView({
             className={cn(
               "group relative block w-full max-w-full overflow-hidden rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:bg-accent cursor-pointer",
               isRunning && "pb-4",
-              selected && "border-primary/50 bg-accent"
+              selected && "border-primary/50 bg-accent",
+              isPinned && "border-l-2 border-primary bg-primary/5"
             )}
             onClick={() => onSelect(conversation.id)}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(conversation.id) } }}
@@ -105,6 +106,9 @@ export function ConversationListItemView({
               </div>
               <span className="flex min-w-0 flex-col gap-1 flex-1 pr-14">
                 <span className="flex min-w-0 items-center gap-2 pr-5">
+                  {isPinned && (
+                    <PinIcon className="size-3.5 shrink-0 text-primary fill-current" />
+                  )}
                   <span className="truncate text-sm font-semibold">
                     {conversation.title}
                   </span>
@@ -218,5 +222,6 @@ function isActiveRunStatus(
   return status === "submitted" ||
     status === "queued" ||
     status === "running" ||
-    status === "waiting_approval"
+    status === "waiting_approval" ||
+    status === "waiting_input"
 }

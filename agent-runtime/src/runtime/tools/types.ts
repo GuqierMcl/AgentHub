@@ -63,6 +63,11 @@ export type ToolApprovalDraft = {
   data?: Record<string, unknown>
 }
 
+export type ToolPreflightDecision<TData = unknown, TRuntime = unknown> =
+  | { type: "allow" }
+  | { type: "ask"; approval: ToolApprovalDraft }
+  | { type: "deny"; result: ToolExecutionResult<TData, TRuntime> }
+
 export type ToolDefinition<TInput = unknown, TData = unknown, TRuntime = unknown> = {
   name: string
   displayName: string
@@ -73,6 +78,8 @@ export type ToolDefinition<TInput = unknown, TData = unknown, TRuntime = unknown
   requiredPermissions: ToolRequiredPermissions
   approvalPolicy: ToolApprovalPolicy
   configurableByUserAgent: boolean
+  deferred?: boolean
+  prepareExecution?: (input: TInput, context: ToolExecutionContext) => Promise<ToolPreflightDecision<TData, TRuntime> | null>
   prepareApproval?: (input: TInput, context: ToolExecutionContext) => Promise<ToolApprovalDraft | null>
   internal?: boolean
   execute(input: TInput, context: ToolExecutionContext): Promise<ToolExecutionResult<TData, TRuntime>>

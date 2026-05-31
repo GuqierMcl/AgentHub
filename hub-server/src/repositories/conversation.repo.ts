@@ -87,7 +87,7 @@ export async function listConversations(filter: ListConversationsFilter = {}): P
 
   const records = await db.conversation.findMany({
     where,
-    orderBy: [{ pinnedAt: 'desc' }, { lastMessageAt: order }],
+    orderBy: [{ pinnedAt: 'desc' }, { lastMessageAt: order }, { createdAt: order }],
     take: limit,
     skip: offset,
   })
@@ -118,7 +118,7 @@ export async function listConversationsWithAgents(filter: ListConversationsFilte
 
   const records = await db.conversation.findMany({
     where,
-    orderBy: [{ pinnedAt: 'desc' }, { lastMessageAt: order }],
+    orderBy: [{ pinnedAt: 'desc' }, { lastMessageAt: order }, { createdAt: order }],
     ...(limit !== undefined ? { take: limit, skip: offset } : {}),
     include: { agents: { orderBy: { sortOrder: 'asc' } } },
   })

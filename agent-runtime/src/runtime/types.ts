@@ -3,6 +3,8 @@ import type { ModelMessage } from "ai"
 import { AgentDefinitionSchema, type AgentDefinition } from "../agents"
 import type { WorkspaceService } from "./workspace"
 import type { RuntimePermissionService } from "./permissions"
+import type { RuntimeEnvironmentSnapshot } from "./environment-snapshot"
+import type { QuestionContinuationRequest } from "./question"
 
 export const RuntimeConversationModeSchema = z.enum(["single", "group"])
 export type RuntimeConversationMode = z.infer<typeof RuntimeConversationModeSchema>
@@ -62,6 +64,7 @@ export const RunStatusSchema = z.enum([
   "queued",
   "running",
   "waiting_approval",
+  "waiting_input",
   "completed",
   "failed",
   "cancelled",
@@ -92,6 +95,9 @@ export const RunEventTypeSchema = z.enum([
   "permission.approved",
   "permission.denied",
   "permission.cancelled",
+  "question.requested",
+  "question.answered",
+  "question.cancelled",
   "model.stream.part",
   "reasoning.started",
   "reasoning.delta",
@@ -207,9 +213,11 @@ export type AgentExecutionContext = {
   emitEvent?: (event: RunEvent) => void
   workspaceService?: WorkspaceService
   permissionService?: RuntimePermissionService
+  environmentSnapshot?: RuntimeEnvironmentSnapshot
   executionId?: string
   resumeMessages?: ModelMessage[]
   onApprovalPending?: (messages: ModelMessage[]) => void
+  onQuestionPending?: (request: QuestionContinuationRequest) => boolean
   executeTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string

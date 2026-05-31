@@ -4,6 +4,7 @@ export { AgentRegistry, AgentRegistryMutationError } from "./agent-registry"
 export { presetAgentSystemPrompts } from "./preset-agent-prompts"
 export { presetAgents } from "./preset-agents"
 export { presetSubagents } from "./preset-subagents"
+export { DEFAULT_PRESET_BASH_PERMISSION_RULES } from "./bash-permission-rules"
 export type { PresetAgentSystemPromptName } from "./preset-agent-prompts"
 export type {
   AgentTier,
@@ -16,6 +17,9 @@ export type {
   AgentDelegationPolicy,
   AgentExecutorType,
   AgentPermissionPolicy,
+  BashPermissionAction,
+  BashPermissionRules,
+  AgentToolPermissionRules,
   ExternalAgentConfig,
   AgentDefinition,
   AgentListQuery,
@@ -47,6 +51,9 @@ export {
   AgentDelegationPolicySchema,
   AgentExecutorTypeSchema,
   AgentPermissionPolicySchema,
+  BashPermissionActionSchema,
+  BashPermissionRulesSchema,
+  AgentToolPermissionRulesSchema,
   ExternalAgentConfigSchema,
   AgentDefinitionSchema,
   AgentDefinitionListSchema,

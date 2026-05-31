@@ -1,9 +1,15 @@
 import type { ChatStatus } from "ai"
+import { useMemo } from "react"
 
 import { ChatComposer } from "./ChatComposer"
 import { ChatHeader } from "./ChatHeader"
+import { QuestionAnswerComposer } from "./QuestionAnswerComposer"
 import { TimelineList } from "./MessageList"
-import type { Conversation } from "../types"
+import type {
+  Conversation,
+  WorkbenchTimelineItem,
+  WorkbenchTimelineQuestionItem,
+} from "../types"
 import type { RuntimeRunStatus } from "../api/runtime-runs"
 import type { RunConnectionStatus } from "../store/workbench-store"
 
@@ -31,11 +37,17 @@ export function ChatPanel({
   runStatus,
 }: ChatPanelProps) {
   const submitStatus = getSubmitStatus(runStatus, connectionStatus)
+  const pendingQuestions = useMemo(
+    () => getPendingQuestionItems(conversation.timelineItems),
+    [conversation.timelineItems]
+  )
+  const hasPendingQuestions = pendingQuestions.length > 0
   const composerDisabled =
     runStatus === "submitted" ||
     runStatus === "queued" ||
     runStatus === "running" ||
-    runStatus === "waiting_approval"
+    runStatus === "waiting_approval" ||
+    runStatus === "waiting_input"
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -51,13 +63,20 @@ export function ChatPanel({
         agentProfiles={conversation.agents ?? []}
         timelineItems={conversation.timelineItems}
       />
-      <ChatComposer
-        disabled={composerDisabled}
-        onSubmit={onSubmit}
-        onValueChange={onDraftChange}
-        status={submitStatus}
-        value={draft}
-      />
+      {hasPendingQuestions ? (
+        <QuestionAnswerComposer
+          agentProfiles={conversation.agents ?? []}
+          requests={pendingQuestions}
+        />
+      ) : (
+        <ChatComposer
+          disabled={composerDisabled}
+          onSubmit={onSubmit}
+          onValueChange={onDraftChange}
+          status={submitStatus}
+          value={draft}
+        />
+      )}
     </section>
   )
 }
@@ -67,7 +86,25 @@ function getSubmitStatus(
   connectionStatus: RunConnectionStatus
 ): ChatStatus {
   if (runStatus === "submitted" || runStatus === "queued") return "submitted"
-  if (runStatus === "running" || runStatus === "waiting_approval") return "streaming"
+  if (runStatus === "running" || runStatus === "waiting_approval" || runStatus === "waiting_input") return "streaming"
   if (runStatus === "failed" || connectionStatus === "error") return "error"
   return "ready"
+}
+
+function getPendingQuestionItems(
+  items: WorkbenchTimelineItem[]
+): WorkbenchTimelineQuestionItem[] {
+  const pending: WorkbenchTimelineQuestionItem[] = []
+  for (const item of items) {
+    if (item.kind === "question" && item.status === "pending") {
+      pending.push(item)
+    }
+    if (item.kind === "chat_message") {
+      pending.push(...(item.questionItems ?? []).filter((question) => question.status === "pending"))
+    }
+    if (item.kind === "task") {
+      pending.push(...(item.questionItems ?? []).filter((question) => question.status === "pending"))
+    }
+  }
+  return pending
 }

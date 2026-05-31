@@ -5,11 +5,15 @@ import type {
   AiSdkToolSettings,
   RuntimeToolExecuteOptions,
   RuntimeToolListOptions,
+  ToolApprovalDraft,
   ToolDefinition,
   ToolExecutionContext,
   ToolExecutionResult,
+  ToolPreflightDecision,
 } from "./types"
 import type { AgentAuthoringToolOption, AgentPermissionPolicy } from "../../agents"
+import { createBashTool } from "./bash-tool"
+import { createQuestionTool } from "./question-tool"
 import { createRunTaskTool } from "./run-task-tool"
 import { createWebFetchTool } from "./web-fetch-tool"
 import { createWorkspaceTools } from "./workspace-tools"
@@ -126,6 +130,14 @@ export class RuntimeToolRegistry {
       )
     }
 
+    const preflight = await this.prepareToolExecution(definition, parsed.data, context)
+    if (preflight?.type === "deny") {
+      return this.failWithResultBeforeStart(context, name, preflight.result)
+    }
+    if (preflight?.type === "ask") {
+      return this.requestToolApproval(context, definition.name, preflight.approval)
+    }
+
     if (
       definition.approvalPolicy === "contextual" &&
       definition.prepareApproval &&
@@ -133,15 +145,7 @@ export class RuntimeToolRegistry {
     ) {
       const draft = await definition.prepareApproval(parsed.data, context)
       if (draft) {
-        context.permissionService.stageToolApproval(context, definition.name, draft)
-        return {
-          status: "failed",
-          summary: `${definition.name} is waiting for approval`,
-          error: {
-            code: "TOOL_APPROVAL_REQUIRED",
-            message: `Tool ${definition.name} requires approval before execution`,
-          },
-        }
+        return this.requestToolApproval(context, definition.name, draft)
       }
     }
 
@@ -191,6 +195,14 @@ export class RuntimeToolRegistry {
 
     const tools: ToolSet = {}
     for (const definition of visibleTools) {
+      if (definition.deferred) {
+        tools[definition.name] = tool({
+          description: definition.description,
+          inputSchema: definition.inputSchema,
+        })
+        continue
+      }
+
       tools[definition.name] = tool({
         description: definition.description,
         inputSchema: definition.inputSchema,
@@ -208,6 +220,16 @@ export class RuntimeToolRegistry {
               riskLevel: definition.riskLevel,
             })
             return true
+          }
+
+          const parsed = definition.inputSchema.safeParse(input)
+          if (parsed.success && definition.prepareExecution) {
+            const preflight = await definition.prepareExecution(parsed.data, context)
+            if (preflight?.type === "ask") {
+              context.permissionService?.stageToolApproval(context, definition.name, preflight.approval)
+              return true
+            }
+            return false
           }
 
           const draft = definition.prepareApproval
@@ -291,6 +313,51 @@ export class RuntimeToolRegistry {
     return result
   }
 
+  private failWithResultBeforeStart(
+    context: ToolExecutionContext,
+    toolName: string,
+    result: ToolExecutionResult
+  ): ToolExecutionResult {
+    this.emitToolEvent(context, "tool.failed", toolName, {
+      status: result.status,
+      summary: result.summary,
+      data: result.data,
+      error: result.error,
+    })
+    return result
+  }
+
+  private requestToolApproval(
+    context: ToolExecutionContext,
+    toolName: string,
+    draft: ToolApprovalDraft
+  ): ToolExecutionResult {
+    context.permissionService?.stageToolApproval(context, toolName, draft)
+    return {
+      status: "failed",
+      summary: `${toolName} is waiting for approval`,
+      error: {
+        code: "TOOL_APPROVAL_REQUIRED",
+        message: `Tool ${toolName} requires approval before execution`,
+      },
+    }
+  }
+
+  private async prepareToolExecution<TInput, TData, TRuntime>(
+    definition: ToolDefinition<TInput, TData, TRuntime>,
+    input: TInput,
+    context: ToolExecutionContext
+  ): Promise<ToolPreflightDecision<TData, TRuntime> | null> {
+    if (
+      definition.approvalPolicy !== "contextual" ||
+      !definition.prepareExecution
+    ) {
+      return null
+    }
+
+    return definition.prepareExecution(input, context)
+  }
+
   private emitToolEvent(
     context: ToolExecutionContext,
     type: "tool.started" | "tool.completed" | "tool.failed",
@@ -317,5 +384,7 @@ export function createDefaultRuntimeToolRegistry(): RuntimeToolRegistry {
     registry.register(definition)
   }
   registry.register(createWebFetchTool())
+  registry.register(createBashTool())
+  registry.register(createQuestionTool())
   return registry
 }

@@ -53,6 +53,20 @@ export const AgentPermissionPolicySchema = z.object({
 }).strip()
 export type AgentPermissionPolicy = z.infer<typeof AgentPermissionPolicySchema>
 
+export const BashPermissionActionSchema = z.enum(["allow", "ask", "deny"])
+export type BashPermissionAction = z.infer<typeof BashPermissionActionSchema>
+
+export const BashPermissionRulesSchema = z.record(
+  z.string().min(1).max(256),
+  BashPermissionActionSchema
+)
+export type BashPermissionRules = z.infer<typeof BashPermissionRulesSchema>
+
+export const AgentToolPermissionRulesSchema = z.object({
+  bash: BashPermissionRulesSchema.optional(),
+}).strip()
+export type AgentToolPermissionRules = z.infer<typeof AgentToolPermissionRulesSchema>
+
 export const DEFAULT_USER_AGENT_PERMISSION_POLICY: AgentPermissionPolicy = {
   filesystem: "none",
   shell: "none",
@@ -86,6 +100,7 @@ export const AgentDefinitionSchema = z.object({
   allowedSubagents: z.array(z.string()).default([]),
   allowedTools: z.array(z.string()).default([]),
   permissionPolicy: AgentPermissionPolicySchema,
+  toolPermissionRules: AgentToolPermissionRulesSchema.optional(),
   external: ExternalAgentConfigSchema.optional(),
   enabled: z.boolean().default(true),
   readonly: z.boolean().default(false),
@@ -105,6 +120,7 @@ export const UserAgentCreateRequestSchema = z.object({
   allowedSubagents: z.array(z.string().trim().min(1)).default([]),
   allowedTools: z.array(z.string().trim().min(1)).default([]),
   permissionPolicy: AgentPermissionPolicySchema.optional(),
+  toolPermissionRules: AgentToolPermissionRulesSchema.optional(),
   enabled: z.boolean().default(true),
 }).strict()
 export type UserAgentCreateRequest = z.infer<typeof UserAgentCreateRequestSchema>
@@ -117,6 +133,7 @@ export const UserAgentUpdateRequestSchema = z.object({
   allowedSubagents: z.array(z.string().trim().min(1)).optional(),
   allowedTools: z.array(z.string().trim().min(1)).optional(),
   permissionPolicy: AgentPermissionPolicySchema.optional(),
+  toolPermissionRules: AgentToolPermissionRulesSchema.optional(),
   enabled: z.boolean().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, {
   message: "At least one field must be provided",
@@ -165,6 +182,7 @@ export type AgentDetailResponse = AgentSummaryResponse & {
   allowedSubagents: string[]
   allowedTools: string[]
   permissionPolicy: AgentPermissionPolicy
+  toolPermissionRules?: AgentToolPermissionRules
   modelRef?: AgentModelRef
   resolvedModel?: AgentResolvedModelResponse
   external?: {

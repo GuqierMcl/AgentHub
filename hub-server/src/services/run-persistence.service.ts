@@ -26,6 +26,7 @@ import {
 import {
   createRun,
   findRunById,
+  findRunByRuntimeId,
   listRuns,
   updateRun,
   type RunOutput,
@@ -99,6 +100,7 @@ import type { HubEventBus } from './hub-event-bus.service'
 export type RuntimeRunEvent = {
   id: string
   runId: string
+  runtimeRunId?: string | null
   type: string
   timestamp: string
   agentId?: string
@@ -341,6 +343,7 @@ const PROJECTION_MAX_BATCH_SIZE = 100
 const PROJECTION_MAX_BUFFERED_ITEMS = 500
 const RUNTIME_EVENT_STREAM_MAX_RETRIES = 2
 const RUNTIME_EVENT_STREAM_RETRY_DELAY_MS = 250
+const BASH_OUTPUT_UI_PREVIEW_CHARS = 12_000
 
 export class RunPersistenceService {
   private consumers = new Map<string, AbortController>()
@@ -489,21 +492,21 @@ export class RunPersistenceService {
   }
 
   async cancelRun(runId: string): Promise<ActiveRunSnapshot> {
-    const run = await findRunById(runId)
+    const run = await findRunById(runId) ?? await findRunByRuntimeId(runId)
     if (!run) {
       throw notFound('RUN_NOT_FOUND', 'Run 不存在')
     }
     const runtimeId = run.runtimeId
     if (!runtimeId) {
-      await updateRun(runId, { status: 'cancelled', completedAt: new Date().toISOString() })
+      await updateRun(run.id, { status: 'cancelled', completedAt: new Date().toISOString() })
       this.publishRunStatusChanged(run, 'cancelled')
       this.publishTerminalRunStatus(run, 'cancelled')
-      const latest = await findRunById(runId)
+      const latest = await findRunById(run.id)
       return this.toActiveRunSnapshot(latest)
     }
 
     await this.runtimeClient.forward('POST', `/runtime/runs/${encodeURIComponent(runtimeId)}/cancel`, undefined, { raw: true })
-    const latest = await findRunById(runId)
+    const latest = await findRunById(run.id)
     return this.toActiveRunSnapshot(latest)
   }
 
@@ -513,7 +516,7 @@ export class RunPersistenceService {
     approved: boolean,
     reason?: string,
   ): Promise<unknown> {
-    const run = await findRunById(runId)
+    const run = await findRunById(runId) ?? await findRunByRuntimeId(runId)
     if (!run) {
       throw notFound('RUN_NOT_FOUND', 'Run 不存在')
     }
@@ -531,6 +534,41 @@ export class RunPersistenceService {
       throw new AppError(
         response.status as ContentfulStatusCode,
         getRuntimeErrorCode(response.data) ?? 'PERMISSION_DECISION_FAILED',
+        getRuntimeErrorMessage(response.data),
+      )
+    }
+
+    return response.data
+  }
+
+  async answerQuestion(
+    runId: string,
+    requestId: string,
+    answers: Array<{
+      questionId: string
+      optionId?: string
+      answer?: string
+      custom?: boolean
+    }>,
+  ): Promise<unknown> {
+    const run = await findRunById(runId) ?? await findRunByRuntimeId(runId)
+    if (!run) {
+      throw notFound('RUN_NOT_FOUND', 'Run 不存在')
+    }
+    if (!run.runtimeId) {
+      throw new AppError(409 as ContentfulStatusCode, 'QUESTION_RUN_NOT_ACTIVE', 'Run 尚未绑定 Runtime 执行实例')
+    }
+
+    const response = await this.runtimeClient.forward(
+      'POST',
+      `/runtime/runs/${encodeURIComponent(run.runtimeId)}/questions/${encodeURIComponent(requestId)}/answer`,
+      { answers },
+      { raw: true },
+    )
+    if (response.status < 200 || response.status >= 300) {
+      throw new AppError(
+        response.status as ContentfulStatusCode,
+        getRuntimeErrorCode(response.data) ?? 'QUESTION_ANSWER_FAILED',
         getRuntimeErrorMessage(response.data),
       )
     }
@@ -1066,6 +1104,16 @@ export class RunPersistenceService {
       await updateRun(runId, { status: 'running' })
       this.publishRunStatusChanged(run, 'running')
       await projectPermissionEvent(run, event, sequence)
+      return
+    }
+    if (event.type === 'question.requested') {
+      await updateRun(runId, { status: 'waiting_input' })
+      this.publishRunStatusChanged(run, 'waiting_input')
+      return
+    }
+    if (event.type === 'question.answered' || event.type === 'question.cancelled') {
+      await updateRun(runId, { status: 'running' })
+      this.publishRunStatusChanged(run, 'running')
       return
     }
     if (event.type === 'task.group.started' || event.type === 'task.group.completed') {
@@ -2411,7 +2459,14 @@ function toPersistedMessage(record: Record<string, unknown>): PersistedMessage {
 function toHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
   const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
   if (!runtimeEvent) return []
-  return [{ sequence: event.sequence, event: runtimeEvent }]
+  return [{
+    sequence: event.sequence,
+    event: {
+      ...runtimeEvent,
+      runId: event.runId,
+      runtimeRunId: event.runtimeRunId ?? runtimeEvent.runId,
+    },
+  }]
 }
 
 function toProductHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
@@ -2428,7 +2483,7 @@ export function toProductHubRunEventEnvelope(
 }
 
 function toProductRuntimeEvent(event: RuntimeRunEvent): RuntimeRunEvent {
-  if (event.type !== 'tool.completed' || event.toolName !== 'web_fetch') {
+  if (event.type !== 'tool.completed' && event.type !== 'tool.failed') {
     return event
   }
 
@@ -2441,13 +2496,27 @@ function toProductRuntimeEvent(event: RuntimeRunEvent): RuntimeRunEvent {
   const output = getRecord(data[outputKey])
   if (!output) return event
 
-  return {
-    ...event,
-    data: {
-      ...data,
-      [outputKey]: toWebFetchUiSummary(output),
-    },
+  if (event.toolName === 'web_fetch') {
+    return {
+      ...event,
+      data: {
+        ...data,
+        [outputKey]: toWebFetchUiSummary(output),
+      },
+    }
   }
+
+  if (event.toolName === 'bash') {
+    return {
+      ...event,
+      data: {
+        ...data,
+        [outputKey]: toBashUiSummary(output),
+      },
+    }
+  }
+
+  return event
 }
 
 function toWebFetchUiSummary(output: Record<string, unknown>): Record<string, unknown> {
@@ -2465,6 +2534,30 @@ function toWebFetchUiSummary(output: Record<string, unknown>): Record<string, un
     ...(headers ? { headerCount: Object.keys(headers).length } : {}),
     ...(typeof body === 'string' ? { bodyCharacters: body.length } : {}),
     bodyOmittedForUi: true,
+  }
+}
+
+function toBashUiSummary(output: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(output)) {
+    if (key !== 'stdout' && key !== 'stderr') {
+      summary[key] = value
+    }
+  }
+
+  const stdout = typeof output.stdout === 'string' ? output.stdout : ''
+  const stderr = typeof output.stderr === 'string' ? output.stderr : ''
+  const stdoutTruncatedForUi = stdout.length > BASH_OUTPUT_UI_PREVIEW_CHARS
+  const stderrTruncatedForUi = stderr.length > BASH_OUTPUT_UI_PREVIEW_CHARS
+
+  return {
+    ...summary,
+    stdout: stdoutTruncatedForUi ? stdout.slice(0, BASH_OUTPUT_UI_PREVIEW_CHARS) : stdout,
+    stderr: stderrTruncatedForUi ? stderr.slice(0, BASH_OUTPUT_UI_PREVIEW_CHARS) : stderr,
+    stdoutCharacters: stdout.length,
+    stderrCharacters: stderr.length,
+    stdoutTruncatedForUi,
+    stderrTruncatedForUi,
   }
 }
 

@@ -95,6 +95,13 @@ export async function findRunById(id: string): Promise<RunOutput | null> {
   return toOutput(record as Record<string, unknown>)
 }
 
+export async function findRunByRuntimeId(runtimeId: string): Promise<RunOutput | null> {
+  const db = getPrismaClient()
+  const record = await db.run.findFirst({ where: { runtimeId } })
+  if (!record) return null
+  return toOutput(record as Record<string, unknown>)
+}
+
 export async function listRuns(filter: ListRunsFilter = {}): Promise<RunOutput[]> {
   const db = getPrismaClient()
   const { conversationId, status, limit = 50, offset = 0, order = 'desc' } = filter

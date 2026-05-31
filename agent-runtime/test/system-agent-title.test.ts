@@ -201,7 +201,7 @@ describe("title system agent", () => {
     expect(events[systemAgentIndex].data).toEqual(createTitleResult("conv_title_nearly_ready", "coder"))
   })
 
-  test("skips and cancels title work when the title result is not ready before run.completed", async () => {
+  test("emits a fallback title and cancels title work when the title result is not ready", async () => {
     const registry = await createInitializedRegistry()
     const runManager = new RunManager(registry, {} as ProviderService)
     installCompletedEntryExecutor(runManager)
@@ -238,9 +238,57 @@ describe("title system agent", () => {
     await waitForTerminalRun(runManager, run.id)
 
     const events = runManager.getEvents(run.id) ?? []
-    expect(events.some((event) => event.type === "system_agent.completed")).toBe(false)
-    expect(events.at(-1)?.type).toBe("run.completed")
+    const systemAgentIndex = events.findIndex((event) => event.type === "system_agent.completed")
+    const runCompletedIndex = events.findIndex((event) => event.type === "run.completed")
+
+    expect(systemAgentIndex).toBeGreaterThan(-1)
+    expect(runCompletedIndex).toBeGreaterThan(-1)
+    expect(systemAgentIndex).toBeLessThan(runCompletedIndex)
+    expect(events[systemAgentIndex].data).toEqual({
+      ...createTitleResult("conv_title_late", "coder"),
+      result: {
+        title: "请帮我写一个标题",
+      },
+    })
     expect(abortObserved).toBe(true)
+  })
+
+  test("emits a fallback title when model title generation returns no result", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    installCompletedEntryExecutor(runManager)
+
+    ;(runManager as any).systemAgentRunner = {
+      shouldRunTitle: () => true,
+      runTitle: async () => null,
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_title_fallback",
+      mode: "single",
+      participantAgentIds: ["coder"],
+      userMessage: {
+        role: "user",
+        content: "帮我看一下该工作区有没有git仓库",
+      },
+      history: [],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const systemAgentIndex = events.findIndex((event) => event.type === "system_agent.completed")
+    const runCompletedIndex = events.findIndex((event) => event.type === "run.completed")
+
+    expect(systemAgentIndex).toBeGreaterThan(-1)
+    expect(runCompletedIndex).toBeGreaterThan(-1)
+    expect(systemAgentIndex).toBeLessThan(runCompletedIndex)
+    expect(events[systemAgentIndex].data).toEqual({
+      ...createTitleResult("conv_title_fallback", "coder"),
+      result: {
+        title: "帮我看一下该工作区有没有git仓库",
+      },
+    })
   })
 
   test("does not trigger title when a title already exists", async () => {

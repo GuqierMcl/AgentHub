@@ -1,4 +1,5 @@
 import type { AgentDefinition } from "./types"
+import { DEFAULT_PRESET_BASH_PERMISSION_RULES } from "./bash-permission-rules"
 import { presetAgentSystemPrompts } from "./preset-agent-prompts"
 
 const orchestrationSubagents = ["explore", "general", "file", "deploy"]
@@ -17,12 +18,15 @@ export const presetAgents: AgentDefinition[] = [
     systemPrompt: presetAgentSystemPrompts.orchestrator,
     capabilities: ["routing", "planning", "delegation", "aggregation"],
     allowedSubagents: orchestrationSubagents,
-    allowedTools: ["write_plan", "run_task", "web_fetch"],
+    allowedTools: ["write_plan", "run_task", "web_fetch", "bash"],
     permissionPolicy: {
       filesystem: "none",
-      shell: "none",
+      shell: "limited",
       network: "full",
       deploy: "none",
+    },
+    toolPermissionRules: {
+      bash: DEFAULT_PRESET_BASH_PERMISSION_RULES,
     },
     enabled: true,
     readonly: true,
@@ -40,12 +44,15 @@ export const presetAgents: AgentDefinition[] = [
     systemPrompt: presetAgentSystemPrompts.coder,
     capabilities: ["implementation", "refactor", "tests"],
     allowedSubagents: ["explore", "general", "file"],
-    allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file", "web_fetch"],
+    allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file", "web_fetch", "bash"],
     permissionPolicy: {
       filesystem: "write",
-      shell: "none",
+      shell: "limited",
       network: "full",
       deploy: "none",
+    },
+    toolPermissionRules: {
+      bash: DEFAULT_PRESET_BASH_PERMISSION_RULES,
     },
     enabled: true,
     readonly: true,
@@ -63,12 +70,15 @@ export const presetAgents: AgentDefinition[] = [
     systemPrompt: presetAgentSystemPrompts.reviewer,
     capabilities: ["code-review", "risk-analysis", "test-gaps"],
     allowedSubagents: ["explore", "general"],
-    allowedTools: ["ls", "read_file", "glob", "grep", "web_fetch"],
+    allowedTools: ["ls", "read_file", "glob", "grep", "web_fetch", "bash"],
     permissionPolicy: {
       filesystem: "read",
-      shell: "none",
+      shell: "limited",
       network: "full",
       deploy: "none",
+    },
+    toolPermissionRules: {
+      bash: DEFAULT_PRESET_BASH_PERMISSION_RULES,
     },
     enabled: true,
     readonly: true,
@@ -86,12 +96,15 @@ export const presetAgents: AgentDefinition[] = [
     systemPrompt: presetAgentSystemPrompts.writer,
     capabilities: ["documentation", "copywriting", "summarization"],
     allowedSubagents: ["general"],
-    allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file", "web_fetch"],
+    allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file", "web_fetch", "bash"],
     permissionPolicy: {
       filesystem: "write",
-      shell: "none",
+      shell: "limited",
       network: "full",
       deploy: "none",
+    },
+    toolPermissionRules: {
+      bash: DEFAULT_PRESET_BASH_PERMISSION_RULES,
     },
     enabled: true,
     readonly: true,
@@ -109,12 +122,15 @@ export const presetAgents: AgentDefinition[] = [
     systemPrompt: presetAgentSystemPrompts.planner,
     capabilities: ["planning-advice", "architecture-analysis", "risk-assessment", "acceptance-criteria"],
     allowedSubagents: [],
-    allowedTools: ["ls", "read_file", "glob", "grep", "web_fetch"],
+    allowedTools: ["ls", "read_file", "glob", "grep", "web_fetch", "bash"],
     permissionPolicy: {
       filesystem: "read",
-      shell: "none",
+      shell: "limited",
       network: "full",
       deploy: "none",
+    },
+    toolPermissionRules: {
+      bash: DEFAULT_PRESET_BASH_PERMISSION_RULES,
     },
     enabled: true,
     readonly: true,

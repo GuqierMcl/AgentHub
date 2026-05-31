@@ -90,7 +90,7 @@ AI SDK 文档把 `UIMessage` 定义为应用状态的事实来源，适合承载
 
 其中，`Conversation` 与 `Run` 负责业务流程，`UIMessage` 负责消息事实本身。
 
-`Conversation.metadataJson` 可记录由系统智能体派生的轻量状态。首版标题生成使用 `titleSource` 标记标题来源：`default` 或缺省表示前端/系统初始标题，`auto` 表示 Runtime `title` 系统智能体生成后由 HubServer 写入，`manual` 表示用户手动改名。HubServer 消费 `system_agent.completed(systemAgentId="title")` 时，只在标题来源不是 `manual` 的情况下更新 `Conversation.title`；手动重命名必须同步写入 `titleSource = "manual"`，避免后续自动标题覆盖用户选择。若首次自动标题事件未赶上而标题来源仍为 `default`，HubServer 可在后续 Run 中用会话第一条用户消息作为 `titleSeedUserMessage` 触发重试。
+`Conversation.metadataJson` 可记录由系统智能体派生的轻量状态。首版标题生成使用 `titleSource` 标记标题来源：`default` 或缺省表示前端/系统初始标题，`auto` 表示 Runtime `title` 系统智能体生成后由 HubServer 写入，`manual` 表示用户手动改名。HubServer 消费 `system_agent.completed(systemAgentId="title")` 时，只在标题来源不是 `manual` 的情况下更新 `Conversation.title`；手动重命名必须同步写入 `titleSource = "manual"`，避免后续自动标题覆盖用户选择。若模型标题没有赶上或生成失败，Runtime 会在 terminal event 前输出基于首条用户消息的 fallback 标题事件；若整个标题事件仍因 Run 取消等原因缺失且标题来源仍为 `default`，HubServer 可在后续 Run 中用会话第一条用户消息作为 `titleSeedUserMessage` 触发重试。
 
 阶段 2 的持久化聊天链路已经开始使用这些实体：
 
@@ -98,7 +98,7 @@ AI SDK 文档把 `UIMessage` 定义为应用状态的事实来源，适合承载
 - `MessagePart(type="text")` 保存当前阶段可恢复的聊天文本；每个 part 额外记录 `partKey`、`entityType`、`entityId`、`runtimeEventId`、`firstEventSequence` 和 `lastEventSequence`。
 - `Run` 保存 HubServer 本地执行记录，`runtimeId` 关联 Agent Runtime run id，`planJson` 保存最近一次 `write_plan` 结果，`lastEventSequence` 作为本 run 的最新 raw event 消费序号，`lastProjectedSequence` 记录结构化投影已追平到的序号。
 - `RunEvent` 保存 Runtime 原始事件，`id` 等于 Runtime event id，`payloadJson` 永久保留 raw SSE 事实，`sequence` 是本地 Run 内递增序号，也是 raw replay 的 run 内顺序真相。
-- 聊天主 UI 恢复时，Web 使用 `timelineRuns` 先插入触发 run 的用户 `Message`，再按 `RunEvent.sequence` 重放 raw events，避免 assistant 排到用户消息前面。
+- 聊天主 UI 恢复时，Web 使用 `timelineRuns` 先插入触发 run 的用户 `Message`，再按 `RunEvent.sequence` 重放产品 event envelopes，避免 assistant 排到用户消息前面；完整 raw Runtime event 仍保留在 `RunEvent.payloadJson`。
 - 任何投影表都不得重写 `firstEventSequence`；它负责结构化查询、统计、调试和非聊天 UI 的稳定排序，而不是聊天流 hydrate 的唯一来源。
 - 高频 delta 可以批量投影；结构化表允许短暂落后于 raw `RunEvent`，但读取历史消息和组装 Runtime history 前必须通过 `lastProjectedSequence` 从 raw events 补齐。
 - assistant message 的 `metadataJson.runtime` 仍保留 Runtime `messageId`、`messageIndex` 和 `runtimeRunId`，用于兼容性、history 投影和调试。

@@ -140,7 +140,8 @@ function shouldShowRunProgress(
     runStatus === "submitted" ||
     runStatus === "queued" ||
     runStatus === "running" ||
-    runStatus === "waiting_approval"
+    runStatus === "waiting_approval" ||
+    runStatus === "waiting_input"
     )
   )
 }
