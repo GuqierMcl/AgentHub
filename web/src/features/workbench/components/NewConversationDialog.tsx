@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { SearchIcon, XIcon, ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
+import { SearchIcon, XIcon, ChevronRightIcon, FolderOpenIcon, AlertTriangleIcon } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/animate-ui/components/radix/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { cn } from "@/lib/utils"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { agentsApi } from "@/features/agents/api/agents"
 import { workbenchQueryKeys } from "../api/query-keys"
@@ -182,8 +183,8 @@ export function NewConversationDialog({
           <DialogDescription>选择已有会话或创建新会话</DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 pb-3 flex gap-2">
-          <div className="relative flex-1">
+        <div className="px-6 pb-3">
+          <div className="relative">
             <SearchIcon className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜索会话或智能体"
@@ -192,31 +193,44 @@ export function NewConversationDialog({
               className="pl-9"
             />
           </div>
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={handleSelectWorkspace}
-              className="flex items-center gap-1.5 h-9 rounded-lg border border-input bg-transparent px-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors whitespace-nowrap"
-            >
-              {workspacePath ? (
-                <>
-                  <FolderOpenIcon className="size-4" />
-                  <span className="max-w-[140px] truncate">{workspacePath}</span>
-                  <span
-                    onClick={(e) => { e.stopPropagation(); setWorkspacePath("") }}
-                    className="ml-1 hover:text-foreground"
-                  >
-                    <XIcon className="size-3.5" />
-                  </span>
-                </>
-              ) : (
-                <>
-                  <FolderIcon className="size-4" />
-                  工作空间
-                </>
-              )}
-            </button>
-          </div>
+        </div>
+
+        <div className="px-6 pb-3">
+          <button
+            type="button"
+            onClick={handleSelectWorkspace}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg px-3.5 py-2.5 text-sm transition-colors",
+              workspacePath
+                ? "border border-border bg-muted/40 text-foreground hover:bg-accent"
+                :               "border border-amber-400/60 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-600/60 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/50"
+            )}
+          >
+            {workspacePath ? (
+              <>
+                <FolderOpenIcon className="size-4 shrink-0" />
+                <span className="flex-1 min-w-0 truncate text-left">{workspacePath}</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); setWorkspacePath("") }}
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="size-3.5" />
+                </span>
+              </>
+            ) : (
+              <>
+                <AlertTriangleIcon className="size-4 shrink-0" />
+                <span className="flex-1 text-left">未选择工作空间</span>
+              </>
+            )}
+          </button>
+          {!workspacePath && (
+            <p className="mt-1.5 px-1 text-[11px] text-amber-600/80 dark:text-amber-400/70">
+              未关联工作区时，智能体将无法访问本地文件、执行 Shell 命令及操作项目资源。
+            </p>
+          )}
         </div>
 
         <div className="flex flex-1 min-h-0 px-6 gap-4 pb-2 overflow-hidden">
