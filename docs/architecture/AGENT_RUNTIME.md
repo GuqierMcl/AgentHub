@@ -195,7 +195,7 @@ Runtime 还支持独立的系统智能体层，用于自动执行不属于用户
 
 每个 Runtime Run 创建后会生成一次 `RuntimeEnvironmentSnapshot`，并追加进 AI SDK 执行器的 system prompt。该快照只用于模型上下文，不进入 Runtime HTTP API、HubServer API 或前端 SSE/消息投影。
 
-`question` 是 AI SDK 智能体的 deferred interaction tool。Runtime 在 AI SDK tool set 中只注入 schema，不提供 `execute`；当模型产生 `question` tool call 时，执行器捕获该调用并交给 `RunManager` 创建 question continuation frame。用户提交答案后，Runtime 追加合成 `tool-result` message 并二次执行同一分支。
+`question` 是 AI SDK 智能体的 deferred interaction tool。Runtime 在 AI SDK tool set 中只注入 schema，不提供 `execute`；当模型产生 `question` tool call 时，执行器捕获该调用并交给 `RunManager` 创建 question continuation frame。用户提交答案后，Runtime 追加合成 `tool-result` message 并二次执行同一分支。用户也可以通过 Run cancel 放弃等待中的 question；这种 Skip/停止回答路径只取消当前 Run，不提交答案，也不产生合成 `tool-result`。
 
 AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄封装进入 RunEvent 流；provider/AI SDK 显式暴露的 reasoning/thinking 会同步提升为 `reasoning.started`、`reasoning.delta`、`reasoning.completed`。RunInput 可通过 `diagnostics` 关闭模型流透传、关闭 reasoning 输出或显式开启 `raw` chunk。默认开启 `includeModelStream` 和 `includeReasoning`，默认关闭 `includeRawModelChunks`。完整 SSE 契约见 `docs/contracts/RUNTIME_SSE_EVENTS.md`。
 
@@ -381,7 +381,7 @@ Runtime 通过每个 Run 独立的 `RuntimePermissionService` 存储内存态审
 
 Shell 权限先由 `permissionPolicy.shell` 做粗粒度门禁：`none` 直接拒绝，`limited` / `full` 允许进入命令级规则。`bash` 使用 `AgentDefinition.toolPermissionRules.bash` 控制单条命令，规则值为 `allow | ask | deny`；`ask` 创建 `permissionType = "command_execute"`、`approvalReason = "bash_command"` 的审批请求，`deny` 在工具启动前失败。`bash` 不提供 OS/container sandbox，真实进程仍以 Runtime 所在用户权限运行；当前边界是命令规则、审批、workspace-relative `cwd`、环境变量白名单、超时和输出截断。完整设计见 `docs/architecture/BASH_TOOL.md`。
 
-用户问答不走权限审批链路。`question` 会创建 `question.requested`，并在没有其他 active task 时将 Run 标记为 `waiting_input`；用户回答后发送 `question.answered` 和 `tool.completed(toolName="question")`，再以合成 `tool-result` message 恢复同一 execution branch。同一 frame 的多个 question request 全部回答后只恢复一次；取消 Run 时发送 `question.cancelled` 与对应 `tool.failed`。
+用户问答不走权限审批链路。`question` 会创建 `question.requested`，并在没有其他 active task 时将 Run 标记为 `waiting_input`；用户回答后发送 `question.answered` 和 `tool.completed(toolName="question")`，再以合成 `tool-result` message 恢复同一 execution branch。同一 frame 的多个 question request 全部回答后只恢复一次；取消 Run 时发送 `question.cancelled` 与对应 `tool.failed`，并关闭 continuation frame，不再续跑原 execution branch。
 
 ### 3.7 事件流输出
 

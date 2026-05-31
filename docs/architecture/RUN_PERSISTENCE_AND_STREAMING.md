@@ -48,6 +48,7 @@ sequenceDiagram
 - `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes；大工具结果可能已被投影为 UI 摘要，完整 raw event 留在 `RunEvent.payloadJson`。
 - 权限请求先作为 raw Runtime event 落库，再投影到 `PermissionRequest`；投影优先使用事件 payload 中的 `permissionType`，例如 `web_fetch` 的 `network_access` 和 `bash` 的 `command_execute`。
 - 用户问答请求不新增 Prisma 表；`question.requested`、`question.answered`、`question.cancelled` 原样作为 raw event 落库，并由 Web 通过 `timelineRuns` replay 恢复 pending/answered/cancelled 状态。HubServer 在 `question.requested` 时将本地 Run 投影为 `waiting_input`，在 `question.answered` / `question.cancelled` 后按 Runtime 后续事件恢复运行态或终态。
+- 产品 cancel API 会在 Runtime cancel 成功返回后立即把本地 Run 标记为终态，发布全局 `run.status.changed`，并 finalize 本地 streaming message/task/permission 投影；如果 Runtime 因重启或不可用丢失了该 run，HubServer 也会把本地 Run 收口为 `cancelled`，解除产品侧 active run 阻塞。后续 Runtime SSE 的 `question.cancelled` / `run.cancelled` 事件仍会落库和幂等投影。
 
 ## 恢复规则
 
@@ -68,3 +69,5 @@ Web 对 pending permission 卡片的批准/拒绝操作调用 `POST /api/runs/:r
 ## 产品级问题回答
 
 Web 从 `timelineRuns` 或 live product SSE 中投影 pending question；存在 pending question 时，聊天输入框替换为 Question 回答组件。提交答案时调用 `POST /api/runs/:runId/questions/:requestId/answer`，HubServer 使用本地 Run 记录找到 `runtimeId` 后转发 Runtime answer API。Runtime 继续通过 `question.answered`、`tool.completed` 和后续 `message.*` 事件恢复同一执行分支，浏览器不直接调用 Runtime 调试代理。
+
+Question 回答组件的 `Skip/跳过` 不提交答案，而是调用 `POST /api/runs/:runId/cancel` 取消整个当前 Run；多个 pending question request 会一起取消。聊天输入框在 Run 运行中把发送按钮替换为 `停止回答`，同样调用产品 cancel API。前端在 cancel 成功后会本地应用 terminal run event 并恢复输入框，不只依赖 SSE 延迟到达。若 Skip 的 cancel 请求失败，前端仍会本地应用 `cancelled` 终态以恢复普通输入框；提交答案失败则仍留在回答组件中显示错误，允许重试。

@@ -42,11 +42,13 @@ type QuestionDraft = {
 
 type QuestionAnswerComposerProps = {
   agentProfiles: ConversationAgentProfile[]
+  onSkipRun: (runId: string) => Promise<void> | void
   requests: WorkbenchTimelineQuestionItem[]
 }
 
 export function QuestionAnswerComposer({
   agentProfiles,
+  onSkipRun,
   requests,
 }: QuestionAnswerComposerProps) {
   const pendingRequests = useMemo(
@@ -87,6 +89,7 @@ export function QuestionAnswerComposer({
     Record<string, Record<string, QuestionDraft>>
   >({})
   const [submittingRequestId, setSubmittingRequestId] = useState<string | null>(null)
+  const [skippingRequestId, setSkippingRequestId] = useState<string | null>(null)
   const [submittedRequestId, setSubmittedRequestId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -106,6 +109,7 @@ export function QuestionAnswerComposer({
     Boolean(activeRequest) &&
     missingRequired.length === 0 &&
     submittingRequestId === null &&
+    skippingRequestId === null &&
     submittedRequestId !== activeRequest?.requestId
 
   const setDraft = useCallback((
@@ -158,6 +162,20 @@ export function QuestionAnswerComposer({
     }
   }, [activeRequest, canSubmit, currentDrafts])
 
+  const skipRun = useCallback(async () => {
+    if (!activeRequest || skippingRequestId !== null || submittingRequestId !== null) return
+
+    setSkippingRequestId(activeRequest.requestId)
+    setError(null)
+    try {
+      await onSkipRun(activeRequest.runId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Question skip failed")
+    } finally {
+      setSkippingRequestId(null)
+    }
+  }, [activeRequest, onSkipRun, skippingRequestId, submittingRequestId])
+
   if (!activeRequest) {
     return null
   }
@@ -172,10 +190,13 @@ export function QuestionAnswerComposer({
   const nextQuestion = activeRequest.questions[activeQuestionIndex + 1]
   const isLastQuestion = !nextQuestion
   const submitting = submittingRequestId === activeRequest.requestId
+  const skipping = skippingRequestId === activeRequest.requestId
+  const busy = submitting || skipping
   const activeDraft = activeQuestion ? currentDrafts[activeQuestion.id] : undefined
   const canGoNext =
     Boolean(nextQuestion) &&
     submittingRequestId === null &&
+    skippingRequestId === null &&
     Boolean(
       activeQuestion &&
         (!activeQuestion.required ||
@@ -444,29 +465,42 @@ export function QuestionAnswerComposer({
                 : "可以提交"}
             </span>
           </div>
-          {isLastQuestion ? (
-            <Button disabled={!canSubmit} onClick={() => void submit()} type="button">
-              {submitting ? (
-                <Loader2Icon className="animate-spin" data-icon="inline-start" />
-              ) : (
-                <CheckIcon data-icon="inline-start" />
-              )}
-              提交
-            </Button>
-          ) : (
+          <div className="flex shrink-0 items-center gap-2">
             <Button
-              disabled={!canGoNext}
-              onClick={() => {
-                if (nextQuestion) {
-                  setSelectedQuestionId(nextQuestion.id)
-                }
-              }}
+              disabled={busy}
+              onClick={() => void skipRun()}
               type="button"
+              variant="outline"
             >
-              下一题
-              <ArrowRightIcon data-icon="inline-end" />
+              {skipping ? (
+                <Loader2Icon className="animate-spin" data-icon="inline-start" />
+              ) : null}
+              跳过
             </Button>
-          )}
+            {isLastQuestion ? (
+              <Button disabled={!canSubmit} onClick={() => void submit()} type="button">
+                {submitting ? (
+                  <Loader2Icon className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <CheckIcon data-icon="inline-start" />
+                )}
+                提交
+              </Button>
+            ) : (
+              <Button
+                disabled={!canGoNext}
+                onClick={() => {
+                  if (nextQuestion) {
+                    setSelectedQuestionId(nextQuestion.id)
+                  }
+                }}
+                type="button"
+              >
+                下一题
+                <ArrowRightIcon data-icon="inline-end" />
+              </Button>
+            )}
+          </div>
         </CardFooter>
       </Card>
     </div>

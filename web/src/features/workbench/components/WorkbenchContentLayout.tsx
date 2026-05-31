@@ -19,6 +19,7 @@ import {
   conversationMessagesApi,
 } from "../api/messages"
 import { workbenchQueryKeys } from "../api/query-keys"
+import type { RuntimeRunEvent, RuntimeRunStatus } from "../api/runtime-runs"
 import { RightWorkbench } from "../right-workbench/RightWorkbench"
 import { runStreamManager } from "../runtime/run-stream-manager"
 import {
@@ -64,6 +65,7 @@ export function WorkbenchContentLayout({
   const setDraft = useWorkbenchStore((s) => s.setDraft)
   const hydrateTimelineFromReplay = useWorkbenchStore((s) => s.hydrateTimelineFromReplay)
   const markRunSubmitted = useWorkbenchStore((s) => s.markRunSubmitted)
+  const applyRuntimeEvents = useWorkbenchStore((s) => s.applyRuntimeEvents)
   const failRunStart = useWorkbenchStore((s) => s.failRunStart)
   const setConversationChatSpeakers = useWorkbenchStore((s) => s.setConversationChatSpeakers)
   const hasTabsRef = useRef(false)
@@ -242,6 +244,53 @@ export function WorkbenchContentLayout({
     setDraft,
   ])
 
+  const handleCancelActiveRun = useCallback(async (
+    runId?: string,
+    options?: { fallbackToChat?: boolean }
+  ) => {
+    if (!activeConversationId) return
+
+    const targetRunId = runId ?? runtimeState?.activeRuntimeRunId
+    if (!targetRunId) {
+      toast.info("当前没有可停止的回复")
+      return
+    }
+
+    try {
+      const result = await conversationMessagesApi.cancelRun(targetRunId)
+      const terminalRunId = result.id || targetRunId
+      const terminalStatus = getTerminalCancelStatus(result.status)
+      applyRuntimeEvents(activeConversationId, [
+        createLocalRunTerminalEvent(terminalRunId, result.runtimeId, terminalStatus),
+      ])
+      runStreamManager.disconnect(activeConversationId, "disconnected")
+      void queryClient.invalidateQueries({
+        queryKey: workbenchQueryKeys.conversations.messages(activeConversationId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: workbenchQueryKeys.conversations.all,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "停止回答失败"
+      const code = err instanceof ConversationMessageRequestError ? err.code : undefined
+      if (options?.fallbackToChat) {
+        applyRuntimeEvents(activeConversationId, [
+          createLocalRunTerminalEvent(targetRunId, null, "cancelled"),
+        ])
+        runStreamManager.disconnect(activeConversationId, "disconnected")
+        toast.info("无法确认原 Run 状态，已在本地跳过本轮问题等待")
+        return
+      }
+      toast.error(code ? `${code}: ${message}` : message)
+      throw err
+    }
+  }, [
+    activeConversationId,
+    applyRuntimeEvents,
+    queryClient,
+    runtimeState?.activeRuntimeRunId,
+  ])
+
   const handleToggleWorkspaceCollapsed = useCallback(() => {
     const workspacePanel = workspacePanelRef.current
 
@@ -335,10 +384,12 @@ export function WorkbenchContentLayout({
           <div className="h-full">
             {activeConversation ? (
               <ChatPanel
+                activeRunId={runtimeState?.activeRuntimeRunId ?? null}
                 conversation={activeConversation}
                 connectionStatus={runtimeState?.connectionStatus ?? "idle"}
                 draft={runtimeState?.draft ?? ""}
                 isWorkspaceOpen={!isWorkspaceCollapsed}
+                onCancelRun={handleCancelActiveRun}
                 onDraftChange={handleDraftChange}
                 onOpenConversationStatus={handleOpenConversationStatus}
                 onSubmit={handleSubmit}
@@ -424,6 +475,32 @@ function resolveShortName(name: string, id: string): string {
       .toUpperCase()
   }
   return Array.from(source).slice(0, 2).join("").toUpperCase()
+}
+
+function getTerminalCancelStatus(
+  status: RuntimeRunStatus
+): "completed" | "failed" | "cancelled" {
+  return status === "completed" || status === "failed" || status === "cancelled"
+    ? status
+    : "cancelled"
+}
+
+function createLocalRunTerminalEvent(
+  runId: string,
+  runtimeRunId: string | null,
+  status: "completed" | "failed" | "cancelled"
+): RuntimeRunEvent {
+  return {
+    id: `local-run-terminal:${runId}:${status}:${crypto.randomUUID()}`,
+    runId,
+    runtimeRunId,
+    type: `run.${status}`,
+    timestamp: new Date().toISOString(),
+    data: {
+      status,
+      reason: "client_cancel",
+    },
+  }
 }
 
 function syncConversationListCache(

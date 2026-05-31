@@ -734,7 +734,9 @@ Web 恢复规则：
 - HubServer 查找本地 Run。
 - 若存在 `runtimeId`，转发到 Runtime `POST /runtime/runs/:runtimeId/cancel`。
 - 若 Runtime id 尚未写入，则直接将本地 Run 标记为 `cancelled`。
-- 返回更新后的 `ActiveRunSnapshot`。
+- 若 Runtime 因重启或不可用导致 cancel 返回 `RUN_NOT_FOUND` / `RUNTIME_NOT_READY`，HubServer 仍将本地 Run 标记为 `cancelled`，用于解除产品侧 active run 阻塞。
+- 返回更新后的 `ActiveRunSnapshot`；HubServer 会在 Runtime cancel 成功后立即把本地 Run 投影到终态并发布 `run.status.changed`，后续 Runtime SSE 的 terminal event 按幂等方式继续处理。
+- Web 的 Question `Skip/跳过` 与聊天输入区 `停止回答` 都复用本端点；Skip 不提交 question 答案，不会产生合成 `tool-result`，语义是放弃本轮 Run。若 Skip 的产品 cancel 请求本身失败，Web 仍可本地 dismiss 该 pending question，恢复普通输入框，让用户重新发起下一轮对话。
 
 ### 决定产品 Run 权限请求
 

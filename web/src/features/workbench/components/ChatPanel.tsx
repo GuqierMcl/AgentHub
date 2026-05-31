@@ -15,23 +15,30 @@ import type { RunConnectionStatus } from "../store/workbench-store"
 
 type ChatPanelProps = {
   conversation: Conversation
+  activeRunId: string | null
   draft: string
   runStatus: RuntimeRunStatus | "idle" | "submitted"
   connectionStatus: RunConnectionStatus
   isWorkspaceOpen: boolean
   onDraftChange: (draft: string) => void
   onOpenConversationStatus: () => void
+  onCancelRun: (
+    runId?: string,
+    options?: { fallbackToChat?: boolean }
+  ) => Promise<void> | void
   onSubmit: (content: string) => Promise<void> | void
   onToggleWorkspace: () => void
 }
 
 export function ChatPanel({
+  activeRunId,
   conversation,
   connectionStatus,
   draft,
   isWorkspaceOpen,
   onDraftChange,
   onOpenConversationStatus,
+  onCancelRun,
   onSubmit,
   onToggleWorkspace,
   runStatus,
@@ -66,11 +73,14 @@ export function ChatPanel({
       {hasPendingQuestions ? (
         <QuestionAnswerComposer
           agentProfiles={conversation.agents ?? []}
+          onSkipRun={(runId) => onCancelRun(runId, { fallbackToChat: true })}
           requests={pendingQuestions}
         />
       ) : (
         <ChatComposer
+          canCancelRun={Boolean(activeRunId)}
           disabled={composerDisabled}
+          onCancelRun={() => onCancelRun()}
           onSubmit={onSubmit}
           onValueChange={onDraftChange}
           status={submitStatus}

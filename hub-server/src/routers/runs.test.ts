@@ -14,6 +14,36 @@ function createApp(service: Partial<RunPersistenceService>): Hono {
 }
 
 describe('runs router', () => {
+  it('forwards product run cancellation through RunPersistenceService', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      cancelRun: async (...args: unknown[]) => {
+        calls.push(args)
+        return {
+          id: 'run_1',
+          runtimeId: 'runtime_run_1',
+          status: 'cancelled',
+          lastEventSequence: 2,
+          plan: null,
+        }
+      },
+    })
+
+    const response = await app.request('/api/runs/run_1/cancel', {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      id: 'run_1',
+      runtimeId: 'runtime_run_1',
+      status: 'cancelled',
+      lastEventSequence: 2,
+      plan: null,
+    })
+    expect(calls).toEqual([['run_1']])
+  })
+
   it('forwards product permission decisions through RunPersistenceService', async () => {
     const calls: unknown[] = []
     const app = createApp({

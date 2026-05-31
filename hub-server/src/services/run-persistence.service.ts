@@ -496,18 +496,70 @@ export class RunPersistenceService {
     if (!run) {
       throw notFound('RUN_NOT_FOUND', 'Run 不存在')
     }
+    if (this.isTerminalRunStatus(run.status)) {
+      return this.toActiveRunSnapshot(run)
+    }
+
     const runtimeId = run.runtimeId
     if (!runtimeId) {
-      await updateRun(run.id, { status: 'cancelled', completedAt: new Date().toISOString() })
-      this.publishRunStatusChanged(run, 'cancelled')
-      this.publishTerminalRunStatus(run, 'cancelled')
-      const latest = await findRunById(run.id)
+      return this.cancelLocalRun(run)
+    }
+
+    let response: Awaited<ReturnType<RuntimeClient['forward']>>
+    try {
+      response = await this.runtimeClient.forward(
+        'POST',
+        `/runtime/runs/${encodeURIComponent(runtimeId)}/cancel`,
+        undefined,
+        { raw: true },
+      )
+    } catch (error) {
+      if (isAbandonableRuntimeCancelError(error)) {
+        return this.cancelLocalRun(run)
+      }
+      throw error
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      const code = getRuntimeErrorCode(response.data)
+      if (isAbandonableRuntimeCancelFailure(response.status, code)) {
+        return this.cancelLocalRun(run)
+      }
+
+      throw new AppError(
+        response.status as ContentfulStatusCode,
+        code ?? 'RUN_CANCEL_FAILED',
+        getRuntimeErrorMessage(response.data),
+      )
+    }
+
+    const nextStatus = getTerminalRunStatusFromRuntimeResponse(response.data) ?? 'cancelled'
+    const completedAt = new Date().toISOString()
+    const latestBeforeUpdate = await findRunById(run.id) ?? run
+    if (!this.isTerminalRunStatus(latestBeforeUpdate.status)) {
+      const latest = await updateRun(run.id, { status: nextStatus, completedAt })
+      await finalizeRunProjection(run.id, nextStatus, completedAt)
+      this.publishRunStatusChanged(latest, nextStatus)
+      this.publishTerminalRunStatus(latest, nextStatus)
       return this.toActiveRunSnapshot(latest)
     }
 
-    await this.runtimeClient.forward('POST', `/runtime/runs/${encodeURIComponent(runtimeId)}/cancel`, undefined, { raw: true })
     const latest = await findRunById(run.id)
     return this.toActiveRunSnapshot(latest)
+  }
+
+  private async cancelLocalRun(run: RunOutput): Promise<ActiveRunSnapshot> {
+    const latest = await findRunById(run.id) ?? run
+    if (this.isTerminalRunStatus(latest.status)) {
+      return this.toActiveRunSnapshot(latest)
+    }
+
+    const completedAt = new Date().toISOString()
+    const cancelled = await updateRun(run.id, { status: 'cancelled', completedAt })
+    await finalizeRunProjection(run.id, 'cancelled', completedAt)
+    this.publishRunStatusChanged(cancelled, 'cancelled')
+    this.publishTerminalRunStatus(cancelled, 'cancelled')
+    return this.toActiveRunSnapshot(cancelled)
   }
 
   async decidePermission(
@@ -1061,8 +1113,7 @@ export class RunPersistenceService {
     const timestamp = event.timestamp ?? new Date().toISOString()
 
     if (event.type === 'run.started') {
-      await updateRun(runId, { status: 'running', startedAt: timestamp })
-      this.publishRunStatusChanged(run, 'running')
+      await this.updateActiveRunStatus(run, 'running', { startedAt: timestamp })
       return
     }
     if (event.type === 'run.completed') {
@@ -1091,8 +1142,7 @@ export class RunPersistenceService {
       return
     }
     if (event.type === 'permission.requested') {
-      await updateRun(runId, { status: 'waiting_approval' })
-      this.publishRunStatusChanged(run, 'waiting_approval')
+      await this.updateActiveRunStatus(run, 'waiting_approval')
       await projectPermissionEvent(run, event, sequence)
       return
     }
@@ -1101,19 +1151,16 @@ export class RunPersistenceService {
       event.type === 'permission.denied' ||
       event.type === 'permission.cancelled'
     ) {
-      await updateRun(runId, { status: 'running' })
-      this.publishRunStatusChanged(run, 'running')
+      await this.updateActiveRunStatus(run, 'running')
       await projectPermissionEvent(run, event, sequence)
       return
     }
     if (event.type === 'question.requested') {
-      await updateRun(runId, { status: 'waiting_input' })
-      this.publishRunStatusChanged(run, 'waiting_input')
+      await this.updateActiveRunStatus(run, 'waiting_input')
       return
     }
     if (event.type === 'question.answered' || event.type === 'question.cancelled') {
-      await updateRun(runId, { status: 'running' })
-      this.publishRunStatusChanged(run, 'running')
+      await this.updateActiveRunStatus(run, 'running')
       return
     }
     if (event.type === 'task.group.started' || event.type === 'task.group.completed') {
@@ -1146,6 +1193,26 @@ export class RunPersistenceService {
     if (event.type === 'message.delta' || event.type === 'message.completed') {
       await projectRuntimeMessageEvent(run, event, sequence, this.hubEventBus)
       return
+    }
+  }
+
+  private async updateActiveRunStatus(
+    run: RunOutput,
+    status: RunStatus,
+    patch: { startedAt?: string | null } = {},
+  ): Promise<void> {
+    const latest = await findRunById(run.id)
+    if (!latest || this.isTerminalRunStatus(latest.status)) {
+      return
+    }
+
+    if (latest.status === status && patch.startedAt === undefined) {
+      return
+    }
+
+    const updated = await updateRun(run.id, { status, ...patch })
+    if (latest.status !== status) {
+      this.publishRunStatusChanged(updated, status)
     }
   }
 
@@ -2721,4 +2788,27 @@ function getRuntimeErrorCode(data: unknown): string | undefined {
   }
   if (typeof record.code === 'string') return record.code
   return undefined
+}
+
+function getTerminalRunStatusFromRuntimeResponse(
+  data: unknown,
+): 'completed' | 'failed' | 'cancelled' | undefined {
+  const status = getString(getRecord(data)?.status)
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
+    ? status
+    : undefined
+}
+
+function isAbandonableRuntimeCancelFailure(
+  status: number,
+  code: string | undefined,
+): boolean {
+  return status === 404 ||
+    status === 503 ||
+    code === 'RUN_NOT_FOUND' ||
+    code === 'RUNTIME_NOT_READY'
+}
+
+function isAbandonableRuntimeCancelError(error: unknown): boolean {
+  return error instanceof AppError && error.code === 'RUNTIME_NOT_READY'
 }

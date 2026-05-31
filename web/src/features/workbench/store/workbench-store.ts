@@ -431,7 +431,7 @@ function replayTimelineRuns(
     }
     const next = applyEnvelopesToRuntimeState(
       replayState,
-      timelineRun.events,
+      withSyntheticTerminalRunEvent(timelineRun),
       chatSpeakerIds,
       "replay"
     )
@@ -441,6 +441,39 @@ function replayTimelineRuns(
   }
 
   return { timelineItems, receivedEventIds, events }
+}
+
+function withSyntheticTerminalRunEvent(
+  timelineRun: ConversationTimelineRunSnapshot
+): HubRunEventEnvelope[] {
+  const status = timelineRun.run.status
+  if (!isTerminalRunStatus(status)) {
+    return timelineRun.events
+  }
+
+  const terminalType = `run.${status}`
+  if (timelineRun.events.some((envelope) => envelope.event.type === terminalType)) {
+    return timelineRun.events
+  }
+
+  const lastSequence = timelineRun.events.at(-1)?.sequence ?? 0
+  return [
+    ...timelineRun.events,
+    {
+      sequence: lastSequence + 1,
+      event: {
+        id: `local-replay-terminal:${timelineRun.run.id}:${status}`,
+        runId: timelineRun.run.id,
+        runtimeRunId: timelineRun.run.runtimeId,
+        type: terminalType,
+        timestamp: new Date().toISOString(),
+        data: {
+          status,
+          reason: "terminal_run_snapshot",
+        },
+      },
+    },
+  ]
 }
 
 function applyEnvelopesToRuntimeState(

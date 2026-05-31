@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react"
 import type { ChatStatus } from "ai"
-import { CheckIcon, GlobeIcon } from "lucide-react"
+import { CheckIcon, GlobeIcon, SquareIcon } from "lucide-react"
 
 import {
   Attachment,
@@ -125,13 +125,17 @@ function ModelItem({
 type ChatComposerProps = {
   value: string
   status: ChatStatus
+  canCancelRun?: boolean
   disabled?: boolean
+  onCancelRun?: () => Promise<void> | void
   onValueChange: (value: string) => void
   onSubmit: (message: string) => Promise<void> | void
 }
 
 export function ChatComposer({
+  canCancelRun = false,
   disabled = false,
+  onCancelRun,
   onSubmit,
   onValueChange,
   status,
@@ -145,10 +149,18 @@ export function ChatComposer({
     () => modelOptions.find((option) => option.id === model),
     [model]
   )
+  const isGenerating = status === "submitted" || status === "streaming"
+  const submitDisabled = isGenerating
+    ? !canCancelRun
+    : disabled || !value.trim()
 
   const handleSubmit = useCallback(async (message: PromptInputMessage) => {
     await onSubmit(message.text)
   }, [onSubmit])
+
+  const handleCancelRun = useCallback(() => {
+    void onCancelRun?.()
+  }, [onCancelRun])
 
   const handleTranscriptionChange = useCallback((transcript: string) => {
     onValueChange(value ? `${value} ${transcript}` : transcript)
@@ -233,9 +245,18 @@ export function ChatComposer({
             </ModelSelector>
           </PromptInputTools>
           <PromptInputSubmit
-            disabled={disabled || !value.trim()}
+            disabled={submitDisabled}
+            onStop={handleCancelRun}
+            size={isGenerating ? "sm" : "icon-sm"}
             status={status}
-          />
+          >
+            {isGenerating ? (
+              <>
+                <SquareIcon data-icon="inline-start" />
+                停止回答
+              </>
+            ) : undefined}
+          </PromptInputSubmit>
         </PromptInputFooter>
       </PromptInput>
     </div>

@@ -101,11 +101,19 @@ export function applyRuntimeEventToTimeline(
     case "orchestrator.plan.created":
       return upsertPlanFromEvent(items, event)
     case "run.completed":
-      return completeRunItems(items, event)
+      return finalizeTerminalRunItems(items, event, "completed")
     case "run.failed":
-      return upsertRunStatus(items, event, "failed")
+      return upsertRunStatus(
+        finalizeTerminalRunItems(items, event, "failed"),
+        event,
+        "failed"
+      )
     case "run.cancelled":
-      return upsertRunStatus(items, event, "cancelled")
+      return upsertRunStatus(
+        finalizeTerminalRunItems(items, event, "cancelled"),
+        event,
+        "cancelled"
+      )
     default:
       return items
   }
@@ -760,9 +768,10 @@ function upsertPlan(
   })
 }
 
-function completeRunItems(
+function finalizeTerminalRunItems(
   items: WorkbenchTimelineItem[],
-  event: RuntimeRunEvent
+  event: RuntimeRunEvent,
+  status: "completed" | "failed" | "cancelled"
 ): WorkbenchTimelineItem[] {
   const runId = event.runId
   const completedAt = event.timestamp
@@ -771,25 +780,21 @@ function completeRunItems(
     if (item.kind === "chat_message" && item.status === "streaming") {
       return {
         ...item,
-        status: "completed",
+        status,
         reasoningBlocks: item.reasoningBlocks?.map((block) =>
           completeReasoningBlock(block, completedAt)
         ),
-        questionItems: item.questionItems?.map((question) =>
-          question.status === "pending" ? { ...question, status: "cancelled" } : question
-        ),
+        questionItems: cancelPendingQuestionItems(item.questionItems),
       }
     }
     if (item.kind === "task" && item.status === "running") {
       return {
         ...item,
-        status: "completed",
+        status: status === "completed" ? "completed" : "failed",
         reasoningBlocks: item.reasoningBlocks?.map((block) =>
           completeReasoningBlock(block, completedAt)
         ),
-        questionItems: item.questionItems?.map((question) =>
-          question.status === "pending" ? { ...question, status: "cancelled" } : question
-        ),
+        questionItems: cancelPendingQuestionItems(item.questionItems),
       }
     }
     if (item.kind === "question" && item.status === "pending") {
@@ -798,8 +803,30 @@ function completeRunItems(
     if (item.kind === "reasoning" && item.status === "streaming") {
       return completeReasoningItem(item, completedAt)
     }
+    if (item.kind === "chat_message") {
+      const questionItems = cancelPendingQuestionItems(item.questionItems)
+      return questionItems === item.questionItems ? item : { ...item, questionItems }
+    }
+    if (item.kind === "task") {
+      const questionItems = cancelPendingQuestionItems(item.questionItems)
+      return questionItems === item.questionItems ? item : { ...item, questionItems }
+    }
     return item
   })
+}
+
+function cancelPendingQuestionItems(
+  questionItems: WorkbenchTimelineQuestionItem[] | undefined
+): WorkbenchTimelineQuestionItem[] | undefined {
+  if (!questionItems?.some((question) => question.status === "pending")) {
+    return questionItems
+  }
+
+  return questionItems.map((question): WorkbenchTimelineQuestionItem =>
+    question.status === "pending"
+      ? { ...question, status: "cancelled" }
+      : question
+  )
 }
 
 function upsertRunStatus(
