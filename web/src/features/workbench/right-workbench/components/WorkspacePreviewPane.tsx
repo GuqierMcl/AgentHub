@@ -10,6 +10,7 @@ import { TextPreview } from "./preview-renderers/TextPreview"
 import { MarkdownPreview } from "./preview-renderers/MarkdownPreview"
 import { ImagePreview } from "./preview-renderers/ImagePreview"
 import { PdfPreview } from "./preview-renderers/PdfPreview"
+import { WordPreview } from "./preview-renderers/WordPreview"
 import { AudioPreview } from "./preview-renderers/AudioPreview"
 import { VideoPreview } from "./preview-renderers/VideoPreview"
 import { BinaryPreview } from "./preview-renderers/BinaryPreview"
@@ -97,6 +98,8 @@ function PreviewRenderer({ preview }: PreviewRendererProps) {
       return <ImagePreview src={preview.base64} alt={preview.name} />
     case "pdf":
       return <PdfPreview url={preview.url} />
+    case "office-word":
+      return <WordPreview url={preview.url} name={preview.name} />
     case "audio":
       return <AudioPreview url={preview.url} name={preview.name} mimeType={preview.mimeType} />
     case "video":

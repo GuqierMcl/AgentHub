@@ -98,6 +98,14 @@ export type WorkspaceFilePreviewResponse =
       posterUrl?: string
     }
   | {
+      kind: "office-word"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      url: string
+    }
+  | {
       kind: "binary"
       path: string
       name: string
