@@ -570,18 +570,21 @@ Product Messages and Runs API 是 Web 聊天主路径。Web 不再直接用 `/ap
 
 ```json
 {
-  "content": "请帮我改一下这个组件。"
+  "content": "请帮我改一下这个组件。",
+  "addressedAgentIds": ["coder"]
 }
 ```
 
 行为：
 
+- `addressedAgentIds` 可省略；省略或为空数组时保持当前会话默认入口规则。当前阶段最多只能包含一个智能体 ID，且必须来自当前 conversation 成员。纯文本中的 `@Agent` 不会被 HubServer 自动解析为路由目标。
 - HubServer 创建 user `Message` 和 text `MessagePart`，并使用 run-local `firstEventSequence = 0` 固定它排在该 run 的 Runtime 输出之前。
 - HubServer 创建本地 `Run(status="queued")`，并将 `triggerMessageId` 指向 user message。
-- HubServer 从持久化 messages 投影 Runtime `history`，组装 Runtime `RunInput` 后调用 `POST /runtime/runs`。
+- HubServer 从持久化 messages 投影 Runtime `history`，组装包含 `addressedAgentIds` 的 Runtime `RunInput` 后调用 `POST /runtime/runs`。
 - Runtime 返回的 `runId` 写入本地 `Run.runtimeId`。
 - HubServer 启动后台 Runtime SSE consumer，并返回最新消息快照与 `timelineRuns` 产品 event replay 数据。
 - 同一 conversation 已存在非终态 Run 时返回 `RUN_ALREADY_ACTIVE`。
+- `addressedAgentIds` 非成员、重复或超过一个时返回 `RUN_INVALID_ENTRY_AGENT`，且不创建新 Run。
 
 成功响应：
 

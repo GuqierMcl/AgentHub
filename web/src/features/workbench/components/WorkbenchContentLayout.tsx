@@ -34,6 +34,7 @@ import type {
   ConversationAgentProfile,
   ConversationDetail,
   ConversationListItem,
+  ChatSubmitInput,
   WorkbenchTimelineItem,
 } from "../types"
 
@@ -106,7 +107,11 @@ export function WorkbenchContentLayout({
     if (!conversationDetail) return []
     return resolveConversationAgents(
       conversationDetail.agents,
-      agentSummaries
+      agentSummaries,
+      {
+        mode: conversationDetail.mode,
+        orchestratorAgentId: conversationDetail.orchestratorAgentId,
+      }
     )
   }, [agentSummaries, conversationDetail])
 
@@ -187,9 +192,9 @@ export function WorkbenchContentLayout({
     setDraft(activeConversationId, draft)
   }, [activeConversationId, setDraft])
 
-  const handleSubmit = useCallback(async (content: string) => {
+  const handleSubmit = useCallback(async (input: ChatSubmitInput) => {
     if (!activeConversationId || !conversationDetail) return
-    const trimmedContent = content.trim()
+    const trimmedContent = input.content.trim()
     if (!trimmedContent) return
 
     if (
@@ -204,9 +209,11 @@ export function WorkbenchContentLayout({
     markRunSubmitted(activeConversationId)
 
     try {
+      const addressedAgentIds = input.addressedAgentIds?.filter(Boolean) ?? []
       const result = await conversationMessagesApi.send(
         activeConversationId,
-        trimmedContent
+        trimmedContent,
+        addressedAgentIds.length ? { addressedAgentIds } : undefined
       )
       queryClient.setQueryData(
         workbenchQueryKeys.conversations.messages(activeConversationId),
@@ -443,7 +450,11 @@ function getLatestChatMessage(
 
 function resolveConversationAgents(
   conversationAgents: ConversationAgentItem[],
-  agentSummaries: AgentSummary[]
+  agentSummaries: AgentSummary[],
+  context: {
+    mode: ConversationDetail["mode"]
+    orchestratorAgentId: string | null
+  }
 ): ConversationAgentProfile[] {
   const agentById = new Map(agentSummaries.map((agent) => [agent.id, agent]))
   return [...conversationAgents]
@@ -454,7 +465,7 @@ function resolveConversationAgents(
         id: member.agentId,
         name: agent?.name ?? member.agentId,
         shortName: resolveShortName(agent?.name ?? member.agentId, member.agentId),
-        role: member.role,
+        role: member.role ?? resolveFallbackAgentRole(member.agentId, context),
         origin: agent?.origin,
         executorType: agent?.executorType,
         capabilities: agent?.capabilities ?? [],
@@ -462,6 +473,19 @@ function resolveConversationAgents(
         resolvedModel: agent?.resolvedModel,
       }
     })
+}
+
+function resolveFallbackAgentRole(
+  agentId: string,
+  context: {
+    mode: ConversationDetail["mode"]
+    orchestratorAgentId: string | null
+  }
+): ConversationAgentProfile["role"] {
+  if (agentId === context.orchestratorAgentId || agentId === "orchestrator") {
+    return "orchestrator"
+  }
+  return context.mode === "single" ? "primary" : "member"
 }
 
 function resolveShortName(name: string, id: string): string {

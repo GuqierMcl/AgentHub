@@ -112,6 +112,10 @@ export type QuestionAnswerBody = {
   }>
 }
 
+export type SendConversationMessageOptions = {
+  addressedAgentIds?: string[]
+}
+
 type ErrorBody = {
   error?: {
     code?: string
@@ -160,11 +164,18 @@ export const conversationMessagesApi = {
 
   send(
     conversationId: string,
-    content: string
+    content: string,
+    options?: SendConversationMessageOptions
   ): Promise<ConversationMessagesResponse> {
+    const addressedAgentIds = options?.addressedAgentIds?.filter(Boolean) ?? []
+    const body = {
+      content,
+      ...(addressedAgentIds.length ? { addressedAgentIds } : {}),
+    }
+
     return request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/send`, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(body),
     })
   },
 

@@ -20,7 +20,7 @@
 - 前端契约类型必须与后端 API 返回保持同步。
 - 新建单聊时，只展示可见、启用、可调用的主智能体；不展示 `orchestrator`，但允许选择外部主智能体。
 - 新建群聊时，用户选择一个或多个可见主智能体，`orchestrator` 由 HubServer 自动加入且不需要用户手动选择。
-- 群聊消息当前阶段只允许显式 @ 一个主智能体；未 @ 时默认由 `orchestrator` 接管，后续再扩展并行 @ 多个主智能体。
+- 聊天输入框在任意会话类型输入 `@` 都打开 mention 候选；群聊候选显示可直接 @ 的成员主智能体并排除 `orchestrator`，非群聊当前只显示空状态。当前阶段只允许结构化选择一个 @ 智能体；纯手打 `@Agent` 文本不改变路由。
 
 ## 当前应用工作区
 
@@ -48,7 +48,7 @@
 - TanStack Query 管理服务端事实：active conversation list、conversation detail、runtime agents、conversation timeline replay snapshot、active run snapshot，以及后续 permissions/artifacts。
 - Zustand 管理客户端运行态和 UI overlay：`activeConversationId`、per-conversation draft、由 `timelineRuns` 产品 event replay hydrate 出来的 timeline items、当前 HubServer active run id、Run 状态、SSE 连接状态、已收到 Runtime event ids、轻量 event log、产物工作台 tab、折叠状态和自动聚焦请求。会话列表可用该本地状态覆盖已打开会话的最近消息预览和运行状态；未打开会话不显示运行状态。`ResizablePanel` 等 DOM imperative ref 不进入 store，布局组件只消费 store 意图并执行展开/折叠。
 - Conversation create、rename、pin、archive 使用 mutation；成功后 invalidate conversation list 和对应 detail。模态框开关、输入框内容等纯临时 UI 状态仍可以保留在组件局部 state。
-- 当前阶段同一 conversation 同时只允许一个 active run。发送消息时 Web 不再自行组装 Runtime `RunInput`，而是调用 HubServer `POST /api/conversations/:conversationId/messages/send`；HubServer 从持久化 messages 投影 Runtime `history`，并继续将 `addressedAgentIds` 固定为空数组。
+- 当前阶段同一 conversation 同时只允许一个 active run。发送消息时 Web 不再自行组装 Runtime `RunInput`，而是调用 HubServer `POST /api/conversations/:conversationId/messages/send`；HubServer 从持久化 messages 投影 Runtime `history`，并透传由结构化 mention 选择得到的 `addressedAgentIds`。未选择 mention 时 `addressedAgentIds` 为空数组，保持默认入口规则。
 - HubServer 产品 SSE 事件格式为 `{ sequence, event }`；Web 用 `activeRun.lastEventSequence` 作为 `afterSequence` 续订，收到后仍按 Runtime `event.id` 去重，并通过 Web 本地 projection reducer 转为 `WorkbenchTimelineItem` 后渲染。产品 event 的 `event.runId` 是 HubServer 本地 Run id，`event.runtimeRunId` 保留 Agent Runtime run id，Web 调用产品 API（取消、审批、续订）必须使用本地 Run id。会话 hydrate 时不再用 `messages + runItems` 拼聊天流，而是按 `timelineRuns` 的 run 顺序插入 trigger user message，再按每个 run 的 `sequence asc` 重放产品 event envelopes；live SSE 与 replay 共用同一套 projection reducer。为保护 `EventSource` 热路径，大工具结果可以由 HubServer 投影为 UI 摘要（例如 `web_fetch` 不向前端传输 body，只显示 URL、状态码、bytes 和耗时等摘要）。切回会话时 messages snapshot 必须强制 refetch，组件生命周期 cleanup 必须断开旧 run stream，再用 fresh `activeRun.lastEventSequence` 续订 live SSE，避免切回后只等 terminal snapshot 刷新。`message.delta` / `message.completed` 优先使用 `event.messageId` 作为聊天气泡身份：`chat:${runtimeRunId}:${messageId}`；缺少 `messageId` 的老事件才回退到 `runId + agentId + taskId/entry`。
 - HubServer 全局事件流 `GET /api/events` 独立于产品 Run SSE。全局事件只作为 query invalidation 和已打开会话运行态更新信号；它不进入 timeline projection，也不影响产品 event replay 顺序。
 - `messageId` 是 Web 聚合智能体消息的主键：同一 `messageId` 下的 `reasoning.*`、普通 `tool.*`、`permission.*` 和 `message.*` 会嵌入同一个 `chat_message` item；旧事件缺少 `messageId` 时，Web 退回按同一 run 内当前 chat speaker 聚合。这样 reasoning、工具和审批是消息内部过程卡片，而不是散落在消息流里的独立发言。

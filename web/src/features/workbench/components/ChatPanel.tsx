@@ -7,6 +7,7 @@ import { QuestionAnswerComposer } from "./QuestionAnswerComposer"
 import { TimelineList } from "./MessageList"
 import type {
   Conversation,
+  ChatSubmitInput,
   WorkbenchTimelineItem,
   WorkbenchTimelineQuestionItem,
 } from "../types"
@@ -26,7 +27,7 @@ type ChatPanelProps = {
     runId?: string,
     options?: { fallbackToChat?: boolean }
   ) => Promise<void> | void
-  onSubmit: (content: string) => Promise<void> | void
+  onSubmit: (input: ChatSubmitInput) => Promise<void> | void
   onToggleWorkspace: () => void
 }
 
@@ -79,8 +80,11 @@ export function ChatPanel({
       ) : (
         <ChatComposer
           canCancelRun={Boolean(activeRunId)}
+          conversationId={conversation.id}
           disabled={composerDisabled}
           onCancelRun={() => onCancelRun()}
+          agentProfiles={conversation.agents ?? []}
+          conversationMode={conversation.mode}
           onSubmit={onSubmit}
           onValueChange={onDraftChange}
           status={submitStatus}

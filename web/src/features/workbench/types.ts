@@ -242,6 +242,18 @@ export type WorkbenchTimelineItem =
 
 export type WorkbenchMessage = WorkbenchTimelineChatMessageItem
 
+export type MentionTarget = {
+  kind: "agent"
+  id: string
+  label: string
+  shortLabel?: string
+}
+
+export type ChatSubmitInput = {
+  content: string
+  addressedAgentIds?: string[]
+}
+
 export type Conversation = {
   id: string
   title: string

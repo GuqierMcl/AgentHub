@@ -154,6 +154,10 @@ type RuntimeRunCreateResponse = {
   eventsUrl: string
 }
 
+export type SendMessageOptions = {
+  addressedAgentIds?: string[]
+}
+
 export type PersistedMessagePart = {
   id: string
   messageId: string
@@ -358,6 +362,7 @@ export class RunPersistenceService {
   async sendMessage(
     conversationId: string,
     content: string,
+    options: SendMessageOptions = {},
   ): Promise<ConversationMessagesResponse> {
     const trimmed = content.trim()
     if (!trimmed) {
@@ -368,6 +373,10 @@ export class RunPersistenceService {
     if (!conversation) {
       throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
     }
+    const addressedAgentIds = resolveAddressedAgentIds(
+      conversation,
+      options.addressedAgentIds,
+    )
     await this.ensureConversationProjectionCaughtUp(conversationId)
 
     const existingActiveRun = await this.findActiveRun(conversationId)
@@ -425,7 +434,12 @@ export class RunPersistenceService {
     await updateMessage(userMessage.id, { runId: run.id })
     await updateMessagePart(userMessagePart.id, { runId: run.id })
 
-    const input = buildRuntimeRunInput(conversation, trimmed, history)
+    const input = buildRuntimeRunInput(
+      conversation,
+      trimmed,
+      history,
+      addressedAgentIds,
+    )
     await updateRun(run.id, { inputJson: input })
 
     const response = await this.runtimeClient.forward('POST', '/runtime/runs', input, { raw: true })
@@ -2433,6 +2447,7 @@ function buildRuntimeRunInput(
   conversation: ConversationDetailOutput,
   userContent: string,
   history: RuntimeMessage[],
+  addressedAgentIds: string[],
 ): RuntimeRunInput {
   const workspace = getRuntimeWorkspace(conversation.metadataJson)
   const titleSource = getTitleSource(conversation.metadataJson)
@@ -2442,7 +2457,7 @@ function buildRuntimeRunInput(
     conversationId: conversation.id,
     mode: conversation.mode as 'single' | 'group',
     participantAgentIds: conversation.agents.map((agent) => agent.agentId),
-    addressedAgentIds: [],
+    addressedAgentIds,
     userMessage: {
       role: 'user',
       content: userContent,
@@ -2462,6 +2477,59 @@ function buildRuntimeRunInput(
     },
     ...(workspace ? { workspace } : {}),
   }
+}
+
+export function resolveAddressedAgentIds(
+  conversation: {
+    mode: string
+    agents: Array<{ agentId: string }>
+  },
+  addressedAgentIds: string[] | undefined,
+): string[] {
+  const normalized = (addressedAgentIds ?? []).map((agentId) => agentId.trim())
+  if (normalized.some((agentId) => !agentId)) {
+    throw invalidEntryAgent('Addressed agent id cannot be empty')
+  }
+
+  if (new Set(normalized).size !== normalized.length) {
+    throw invalidEntryAgent('Addressed agents must be unique')
+  }
+
+  if (normalized.length > 1) {
+    throw invalidEntryAgent('Only one addressed agent is supported in this version')
+  }
+
+  if (normalized.length === 0) {
+    return []
+  }
+
+  const agentId = normalized[0]
+  if (!agentId) {
+    return []
+  }
+  const participantIds = new Set(
+    conversation.agents.map((agent) => agent.agentId)
+  )
+  if (!participantIds.has(agentId)) {
+    throw invalidEntryAgent('Addressed agent must be a conversation member')
+  }
+
+  if (conversation.mode === 'single') {
+    const [singleAgent] = conversation.agents
+    if (conversation.agents.length !== 1 || singleAgent?.agentId !== agentId) {
+      throw invalidEntryAgent('Single chat can only address its only member')
+    }
+  }
+
+  return [agentId]
+}
+
+function invalidEntryAgent(message: string): AppError {
+  return new AppError(
+    400 as ContentfulStatusCode,
+    'RUN_INVALID_ENTRY_AGENT',
+    message,
+  )
 }
 
 function projectMessagesToRuntimeHistory(records: unknown[]): RuntimeMessage[] {

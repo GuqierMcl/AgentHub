@@ -351,7 +351,7 @@ function BashToolTerminalView({ item }: { item: WorkbenchTimelineToolItem }) {
     return (
       <Terminal
         autoScroll={isStreaming}
-        className="not-prose mb-0 w-full max-w-[min(720px,100%)] rounded-md border-zinc-800"
+        className="not-prose mb-0 w-full max-w-[min(720px,100%)] rounded-md border-zinc-800 shadow-md"
         isStreaming={isStreaming}
         output={fallbackOutput}
       >
@@ -408,7 +408,7 @@ function BashToolTerminalView({ item }: { item: WorkbenchTimelineToolItem }) {
   return (
     <Terminal
       autoScroll={isStreaming}
-      className="not-prose mb-0 w-full max-w-[min(720px,100%)] rounded-md border-zinc-800"
+      className="not-prose mb-0 w-full max-w-[min(720px,100%)] rounded-md border-zinc-800 shadow-md"
       isStreaming={isStreaming}
       output={terminalOutput}
     >

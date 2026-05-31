@@ -12,6 +12,7 @@ const messages = new Hono()
 
 const SendMessageBodySchema = z.object({
   content: z.string().trim().min(1),
+  addressedAgentIds: z.array(z.string().trim().min(1)).optional().default([]),
 }).strict()
 
 messages.get('/api/conversations/:conversationId/messages', async (c: Context) => {
@@ -39,7 +40,9 @@ messages.post('/api/conversations/:conversationId/messages/send', async (c: Cont
       },
     }, 400)
   }
-  const result = await service.sendMessage(conversationId, parsed.data.content)
+  const result = await service.sendMessage(conversationId, parsed.data.content, {
+    addressedAgentIds: parsed.data.addressedAgentIds,
+  })
   return c.json(result, 201)
 })
 

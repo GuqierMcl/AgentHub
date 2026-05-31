@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   RuntimeEventBatcher,
   isRetryableRuntimeEventStreamError,
+  resolveAddressedAgentIds,
   toProductHubRunEventEnvelope,
 } from './run-persistence.service'
 
@@ -113,5 +114,74 @@ describe('toProductHubRunEventEnvelope', () => {
     expect(eventData.data.stderrCharacters).toBe(stderr.length)
     expect(eventData.data.stdoutTruncatedForUi).toBe(true)
     expect(eventData.data.stderrTruncatedForUi).toBe(true)
+  })
+})
+
+describe('resolveAddressedAgentIds', () => {
+  it('keeps default routing when no addressed agent is provided', () => {
+    expect(resolveAddressedAgentIds({
+      mode: 'group',
+      agents: [
+        { agentId: 'orchestrator' },
+        { agentId: 'coder' },
+      ],
+    }, undefined)).toEqual([])
+  })
+
+  it('allows one conversation member to be addressed in a group chat', () => {
+    expect(resolveAddressedAgentIds({
+      mode: 'group',
+      agents: [
+        { agentId: 'orchestrator' },
+        { agentId: 'coder' },
+      ],
+    }, ['coder'])).toEqual(['coder'])
+  })
+
+  it('rejects duplicate and multiple addressed agents', () => {
+    expect(() => resolveAddressedAgentIds({
+      mode: 'group',
+      agents: [
+        { agentId: 'orchestrator' },
+        { agentId: 'coder' },
+        { agentId: 'writer' },
+      ],
+    }, ['coder', 'coder'])).toThrow('Addressed agents must be unique')
+
+    expect(() => resolveAddressedAgentIds({
+      mode: 'group',
+      agents: [
+        { agentId: 'orchestrator' },
+        { agentId: 'coder' },
+        { agentId: 'writer' },
+      ],
+    }, ['coder', 'writer'])).toThrow('Only one addressed agent is supported in this version')
+  })
+
+  it('rejects addressed agents outside the conversation', () => {
+    expect(() => resolveAddressedAgentIds({
+      mode: 'group',
+      agents: [
+        { agentId: 'orchestrator' },
+        { agentId: 'coder' },
+      ],
+    }, ['writer'])).toThrow('Addressed agent must be a conversation member')
+  })
+
+  it('only allows a single chat to address its only member', () => {
+    expect(resolveAddressedAgentIds({
+      mode: 'single',
+      agents: [
+        { agentId: 'coder' },
+      ],
+    }, ['coder'])).toEqual(['coder'])
+
+    expect(() => resolveAddressedAgentIds({
+      mode: 'single',
+      agents: [
+        { agentId: 'coder' },
+        { agentId: 'writer' },
+      ],
+    }, ['coder'])).toThrow('Single chat can only address its only member')
   })
 })
