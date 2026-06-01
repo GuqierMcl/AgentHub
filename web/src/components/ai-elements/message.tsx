@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
+import { LinkSafetyModal } from "./link-safety-modal";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -331,6 +332,10 @@ export const MessageResponse = memo(
         className
       )}
       plugins={streamdownPlugins}
+      linkSafety={{
+        enabled: true,
+        renderModal: (modalProps) => <LinkSafetyModal {...modalProps} />,
+      }}
       {...props}
     />
   ),
