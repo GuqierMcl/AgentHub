@@ -4,6 +4,7 @@ import type { ProviderService } from "../provider"
 import { createChildLogger } from "../logger"
 import { EntryResolver, RunInputValidationError } from "./entry-resolver"
 import { AiSdkExecutor } from "./ai-sdk-executor"
+import { ExternalAdapterError, ExternalAdapterExecutor } from "./external-adapters"
 import { AgentModelResolutionError } from "./model-resolver"
 import { MockExecutor } from "./mock-executor"
 import { OrchestratorExecutor } from "./orchestrator-executor"
@@ -142,6 +143,7 @@ type TaskDispatchOptions = {
 export class RunManager {
   private entryResolver: EntryResolver
   private aiSdkExecutor: AiSdkExecutor
+  private externalAdapterExecutor: ExternalAdapterExecutor
   private mockExecutor = new MockExecutor()
   private orchestratorExecutor: OrchestratorExecutor
   private systemAgentRunner: SystemAgentRunner
@@ -161,6 +163,7 @@ export class RunManager {
     this.entryResolver = new EntryResolver(agentRegistry)
     this.toolRegistry = toolRegistry
     this.aiSdkExecutor = new AiSdkExecutor(providerService, this.toolRegistry)
+    this.externalAdapterExecutor = new ExternalAdapterExecutor()
     this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry, providerService, this.toolRegistry)
     this.systemAgentRunner = new SystemAgentRunner(providerService)
   }
@@ -480,7 +483,7 @@ export class RunManager {
       case "mock":
         return this.mockExecutor
       case "external-adapter":
-        return this.mockExecutor
+        return this.externalAdapterExecutor
       default:
         return this.mockExecutor
     }
@@ -548,11 +551,13 @@ export class RunManager {
           ? error.code
           : error instanceof AgentModelResolutionError
             ? error.code
+          : error instanceof ExternalAdapterError
+            ? error.code
           : error instanceof TaskExecutionError
             ? error.code
             : "RUN_FAILED",
         message,
-        details: error instanceof AgentModelResolutionError || error instanceof TaskExecutionError
+        details: error instanceof AgentModelResolutionError || error instanceof ExternalAdapterError || error instanceof TaskExecutionError
           ? error.details
           : undefined,
       }

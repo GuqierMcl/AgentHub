@@ -72,7 +72,16 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `RUN_NOT_FOUND` | 404 | 指定的 Run 不存在 |
 | `RUN_ALREADY_ACTIVE` | 409 | 同一会话已有非终态 Run，当前阶段不允许并发发送 |
 | `RUN_TIMEOUT` | 504 | Run 执行超时 |
-| `ADAPTER_ERROR` | 502 | Agent Adapter 调用失败 |
+| `ADAPTER_CONFIG_MISSING` | 500 | 外部智能体缺少 adapter 配置 |
+| `ADAPTER_NOT_AVAILABLE` | 503 | 外部 adapter 未注册或不可用 |
+| `ADAPTER_WORKSPACE_REQUIRED` | 400 | 外部 adapter 需要绑定 workspace |
+| `ADAPTER_SERVER_START_FAILED` | 502 | 外部 agent server / CLI 启动失败 |
+| `ADAPTER_SERVER_UNHEALTHY` | 502 | 外部 agent server 启动后健康检查失败或超时 |
+| `ADAPTER_WORKSPACE_MISMATCH` | 409 | 外部 agent 当前 Project/path 与 AgentHub workspace 不一致 |
+| `ADAPTER_SESSION_FAILED` | 502 | 外部 agent session 查找或创建失败 |
+| `ADAPTER_PROMPT_FAILED` | 502 | 外部 agent prompt 执行失败 |
+| `ADAPTER_ABORT_FAILED` | 502 | 外部 agent abort/cancel 回写失败 |
+| `ADAPTER_EXECUTION_FAILED` | 502 | 外部 adapter 未分类执行失败 |
 | `AGENT_NOT_FOUND` | 404 | 指定的 Agent 不存在，或隐藏 Agent 未授权查看 |
 | `AGENT_INVALID_FILTER` | 400 | Agent 查询参数无效 |
 | `AGENT_INVALID_INPUT` | 400 | Agent 创建或更新请求参数无效 |
@@ -806,6 +815,20 @@ RunInput 必须携带会话模式和当前会话智能体成员：
 
 ```ts
 type RuntimeConversationMode = "single" | "group"
+type ExternalSessionScope = "conversation-visible" | "delegated-task"
+
+type ExternalSessionHint = {
+  provider: "opencode" | "claude-code" | "codex"
+  agentId: string
+  scope: ExternalSessionScope
+  providerSessionId: string
+  conversationId?: string
+  workspaceId?: string
+  parentProviderSessionId?: string
+  taskId?: string
+  runId?: string
+  handoffSummary?: string
+}
 
 type RunInput = {
   conversationId: string
@@ -829,6 +852,7 @@ type RunInput = {
     includeReasoning?: boolean
     includeRawModelChunks?: boolean
   }
+  externalSessionHints?: ExternalSessionHint[]
 }
 ```
 
@@ -842,6 +866,7 @@ type RunInput = {
 | `conversationState` | HubServer 提供的会话状态快照；首版用于 Runtime 判断是否触发 `title` 系统智能体。`titleSeedUserMessage` 固定为会话第一条用户输入，供自动标题重试时使用 |
 | `workspace` | 可选的本次 Run 主工作区 snapshot；首版只支持已存在本地目录 |
 | `diagnostics` | 可选模型流追踪开关；默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk |
+| `externalSessionHints` | HubServer 提供的外部智能体 session 复用 hint；当前用于 OpenCode direct `conversation-visible` session 续接，缺失时 Runtime Adapter 可创建 provider session 并在 `agent.started.data.externalSession` 回传 link |
 
 入口解析规则：
 
@@ -1095,7 +1120,9 @@ type RunEvent = {
 - `messageId` 表示一次可聚合的智能体消息容器。同一文本块的 delta 和 completed 必须共享同一个 `messageId`；同一输出上下文内的 `reasoning.*`、`tool.*`、`permission.*` 也应复用该 `messageId`。
 - `messageIndex` 是 RunManager 按首次 emit 顺序分配的 run-local 递增序号，用于并发任务和交替发言下的稳定排序；同一 `messageId` 下的 reasoning/tool/permission/message 事件共享同一个 `messageIndex`。
 - `message.delta` / `message.completed` 可在 `data.generation` 携带 `executionId` 与 compact model 信息；`agent.started` / `agent.completed` 也可携带同结构的 `data.generation`，其中 `agent.completed.data.generation` 可额外包含 usage、finishReason 与 durationMs。
+- 外部智能体的 `agent.started.data.externalSession` 可携带 `{ provider, agentId, scope, providerSessionId, conversationId, workspaceId, parentProviderSessionId?, taskId?, runId?, handoffSummary? }`，供 HubServer 持久化外部 Session 映射。该字段不表示 AgentHub 接管外部平台配置。
 - `agent.completed` 仍表示 execution 完成；兼容字段 usage、finishReason、resolvedModel 继续保留在 `agent.completed.data`。Web 展示模型名、compact tokens 和 tooltip 详情时优先从 Runtime event replay/live SSE 的 `generation` 字段恢复，而不是读取当前 agent 绑定状态。
+- 外部智能体后续可在 `agent.completed.data.workspaceDiff` 携带基础 workspace 变更摘要；V1 先用于 Diff 摘要和文件列表，不要求前端立即具备完整回滚 UI。
 - HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。
 
 工具事件的附加约束：

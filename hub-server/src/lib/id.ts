@@ -18,6 +18,7 @@ type IdPrefix =
   | 'rtg'
   | 'rt'
   | 'rtc'
+  | 'eas'
 
 const prefixes: Record<IdPrefix, string> = {
   conv: 'conv_',
@@ -35,6 +36,7 @@ const prefixes: Record<IdPrefix, string> = {
   rtg: 'rtg_',
   rt: 'rt_',
   rtc: 'rtc_',
+  eas: 'eas_',
 }
 
 export function generateId(prefix: IdPrefix): string {

@@ -57,6 +57,8 @@ OpenCode SDK 可以启动 server 并返回 client，也可以连接已有 server
 实现时应注意：
 
 - OpenCode Project 不应被设计成 AgentHub 显式创建的业务对象。Adapter 应通过以 workspace 为工作目录启动或选择 OpenCode server，并用 OpenCode 的 `project.current` / `path.get` 结果校验当前 Project 与 AgentHub workspace 一致。
+- Phase 3 默认优先保留 SDK managed server 入口，但当前 `@opencode-ai/sdk@1.15.13` 的 `createOpencode()` ServerOptions 未暴露 cwd/workdir/projectPath 等进程局部 workspace 参数。因此 V1 实际启用 `opencode serve` CLI fallback：Runtime 以 AgentHub workspace root 作为子进程 `cwd` 启动本机 server，再用 `createOpencodeClient()` 连接。不得用 `process.chdir()` 包装 `createOpencode()`。
+- SDK client 调用应显式传入 `query.directory = workspaceRoot`，并使用 `createOpencodeClient({ baseUrl, directory })` 作为 GET/HEAD 的辅助保护。
 - OpenCode Session 可以由 Adapter 创建和更新标题；Session 映射事实来源仍在 HubServer。
 - Adapter 向 OpenCode 发送用户消息时默认不传入 model/provider 覆盖项，避免 AgentHub 接管 OpenCode 模型配置。
 - 如果需要把 AgentHub 公共上下文同步给 OpenCode Session，应优先使用 OpenCode 支持的 no-reply message/prompt 语义，避免触发一次额外模型回复。
@@ -212,6 +214,21 @@ Adapter 可以读取必要的 OpenCode 运行状态和版本信息，用于健�
 
 如果 OpenCode 配置导致某些操作被直接允许，AgentHub 只能观察结果和 Diff；只有 OpenCode 发出 permission request 时，AgentHub 才能桥接审批。
 
+### 8.1 模型状态展示可行性
+
+AgentHub 不配置 OpenCode model/provider，但可以展示 OpenCode 实际运行状态。需要区分三种“当前模型”含义：
+
+- 配置默认模型：OpenCode `config.providers()` / `provider.list()` 暴露 provider、model 列表和 default 映射，Runtime 可以在已启动 server 后读取，用于展示“OpenCode 默认模型”。这不是 AgentHub 的配置来源，只是只读状态。
+- 本次回复实际使用模型：`session.prompt()` 返回的 assistant message `info` 中包含 `providerID` 与 `modelID`。这是最权威、最适合展示在消息或 Run 详情上的值，尤其当 OpenCode 内部 agent、command 或配置覆盖默认模型时。
+- OpenCode TUI 当前选择：这属于 OpenCode 原生 UI 的运行时状态，当前不应作为 AgentHub V1 的事实来源。AgentHub 不复刻 TUI，也不依赖浏览器直接连接 OpenCode server。
+
+推荐 UI 分阶段：
+
+- V1.1 先展示“最近一次 OpenCode 回复使用的模型”：Runtime 从 prompt response 中读取 `providerID/modelID`，通过现有 RunEvent metadata 或后续新增轻量状态接口投影到 HubServer/Web。
+- 若尚未产生回复，可以显示“使用 OpenCode 默认配置”或只展示 OpenCode 连接状态，避免把未知值伪装成确定模型。
+- 后续如果需要会话头部展示默认模型，应由 Runtime 读取 OpenCode server 的只读 provider/config 状态，再经 HubServer API 转发；浏览器仍不直连 OpenCode server。
+- AgentHub 不提供 OpenCode 模型切换控件，除非后续明确把“只读展示”升级为“外部平台配置管理”，该升级需要新的产品决策。
+
 ## 9. 权限桥接
 
 OpenCode 的权限请求应桥接到 AgentHub 权限 UI。
@@ -287,6 +304,24 @@ OpenCodeAdapter 负责启动或连接 OpenCode server。
 
 如果用户已经手动运行 OpenCode server，后续可以支持连接已有 server；MVP 可先由 Runtime 托管启动。
 
+当前 V1 连接模式保留两种内部枚举：`managed-by-runtime` 与 `existing-local-server`。已启用的是 `managed-by-runtime`；`existing-local-server` 需要后续基于 `createOpencodeClient({ baseUrl })` 增加 localhost 限制、health check 和 workspace 校验后再产品化。
+
+当前 Phase 3 已实现 `session.prompt()` 的基础文本投影：Adapter 从 assistant message `parts` 中提取非 ignored text part，输出 AgentHub `message.delta` 与 `message.completed`。OpenCode `event.subscribe()`、权限桥接、工具事件和 Diff 投影仍属于 Phase 4。
+
+### 12.1 Runtime 可观测性
+
+OpenCode 相关日志必须明确带有 `externalProvider = "opencode"`，并使用 `opencode-server`、`opencode-client`、`opencode-adapter` 等模块名，方便从 Agent Runtime 日志中过滤。
+
+应记录的生命周期信息：
+
+- workspace connection：canonical workspace、启动模式、server URL、复用、pending startup、关闭。
+- server 启动：SDK managed 或 CLI managed、hostname、port、CLI process exit/error、启动超时。
+- workspace 校验：`project.current` / `path.get` 的关键结果，以及 mismatch 详情。
+- session：scope、conversationId、taskId、hint lookup、hint reuse、hint 丢失后的 replacement session、新 session 标题和 providerSessionId。
+- prompt：prompt dispatch、abort request、prompt completed、assistant message id、输出长度，以及 OpenCode 返回的 `providerID/modelID`。
+
+日志不应输出 OpenCode API key、认证 token、完整底层堆栈或完整用户 prompt 内容；prompt 只记录长度和追踪 id。
+
 ## 13. 直接调用与委派调用示例
 
 ### 13.1 直接 `@OpenCode`
@@ -339,6 +374,8 @@ OpenCodeAdapter 应将错误转换为稳定 Runtime 错误。
 - OpenCode provider auth 失败。
 - OpenCode event stream 中断。
 - OpenCode session abort 失败。
+
+Runtime 稳定错误码包括：`ADAPTER_SERVER_START_FAILED`、`ADAPTER_SERVER_UNHEALTHY`、`ADAPTER_WORKSPACE_MISMATCH`、`ADAPTER_SESSION_FAILED`、`ADAPTER_PROMPT_FAILED`、`ADAPTER_ABORT_FAILED`。
 
 错误对用户展示时应说明当前 OpenCode 无法执行的原因，同时避免泄漏本机敏感路径、API key 或完整底层堆栈。
 

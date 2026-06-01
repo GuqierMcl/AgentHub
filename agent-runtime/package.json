@@ -10,6 +10,7 @@
     "@ai-sdk/anthropic": "^3.0.79",
     "@ai-sdk/openai": "^3.0.65",
     "@ai-sdk/openai-compatible": "^2.0.48",
+    "@opencode-ai/sdk": "^1.15.13",
     "ai": "^6.0.188",
     "execa": "^9.6.1",
     "hono": "^4.12.21",

@@ -72,11 +72,13 @@ HubServer 的职责：
 - 创建 user `Message` 和 text `MessagePart`。
 - 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
 - 从持久化 messages 组装 Runtime `history` 和 `RunInput`。
+- 创建 direct 外部智能体 Run 前，按 provider、agentId、conversation、workspace 与 `conversation-visible` scope 查询可复用外部 Session，并通过 Runtime `externalSessionHints` 注入。
 - 后台消费 Runtime SSE，将 Runtime events 以 per-run micro-batch 持久化为 `RunEvent.id = event.id`、本地递增 `sequence`；raw payload 永久保留，未知事件也不丢。
 - 持久化成功后才向 run-level SSE 订阅者发布 envelope；默认 batch 延迟约 50ms，terminal event 强制 flush。
 - 将 `message.delta` / `reasoning.delta` 合并投影到 assistant `MessagePart` / `RunReasoningBlock`，减少 SQLite 写入；`message.completed`、`reasoning.completed` 和 terminal event 强制追平。
 - `Run.lastProjectedSequence` 记录结构化投影进度，读取历史消息或组装 Runtime history 前会从 raw `RunEvent` 补投影。
 - 将 `tool.completed(toolName="write_plan")` 投影到 `Run.planJson`。
+- 将 `agent.started.data.externalSession` 投影到 `ExternalAgentSession`，持久化 provider session link，供后续 direct 外部智能体调用续接正确的 conversation-visible session。
 - 消费 `system_agent.completed(systemAgentId="title")`，仅当 `Conversation.metadataJson.titleSource` 不是 `manual` 时更新 `Conversation.title`，并把 `titleSource` 标记为 `auto`。
 - 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes，供 Web 聊天主 UI 恢复；完整 raw Runtime event 留在 `RunEvent.payloadJson`。
 - 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。

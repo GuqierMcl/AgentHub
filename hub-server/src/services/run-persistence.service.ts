@@ -95,6 +95,11 @@ import {
   updatePermissionRequest,
   type PermissionRequestOutput,
 } from '../repositories/permission-request.repo'
+import {
+  findExternalAgentSessionHint,
+  upsertExternalAgentSession,
+  type ExternalSessionScope,
+} from '../repositories/external-agent-session.repo'
 import type { HubEventBus } from './hub-event-bus.service'
 
 export type RuntimeRunEvent = {
@@ -122,6 +127,19 @@ type RuntimeMessage = {
   content: string
 }
 
+type RuntimeExternalSessionHint = {
+  provider: 'opencode' | 'claude-code' | 'codex'
+  agentId: string
+  scope: ExternalSessionScope
+  providerSessionId: string
+  conversationId?: string
+  workspaceId?: string
+  parentProviderSessionId?: string
+  taskId?: string
+  runId?: string
+  handoffSummary?: string
+}
+
 type RuntimeRunInput = {
   conversationId: string
   mode: 'single' | 'group'
@@ -144,6 +162,7 @@ type RuntimeRunInput = {
     includeReasoning: boolean
     includeRawModelChunks: boolean
   }
+  externalSessionHints?: RuntimeExternalSessionHint[]
 }
 
 type RuntimeRunCreateResponse = {
@@ -434,11 +453,16 @@ export class RunPersistenceService {
     await updateMessage(userMessage.id, { runId: run.id })
     await updateMessagePart(userMessagePart.id, { runId: run.id })
 
+    const externalSessionHints = await resolveExternalSessionHints(
+      conversation,
+      addressedAgentIds,
+    )
     const input = buildRuntimeRunInput(
       conversation,
       trimmed,
       history,
       addressedAgentIds,
+      externalSessionHints,
     )
     await updateRun(run.id, { inputJson: input })
 
@@ -1155,6 +1179,10 @@ export class RunPersistenceService {
       this.publishTerminalRunStatus(run, 'cancelled')
       return
     }
+    if (event.type === 'agent.started') {
+      await projectExternalAgentSessionEvent(run, event)
+      return
+    }
     if (event.type === 'permission.requested') {
       await this.updateActiveRunStatus(run, 'waiting_approval')
       await projectPermissionEvent(run, event, sequence)
@@ -1414,6 +1442,58 @@ async function projectRuntimeMessageEvent(
       })
     }
   }
+}
+
+async function projectExternalAgentSessionEvent(
+  run: RunOutput,
+  event: RuntimeRunEvent,
+): Promise<void> {
+  const data = getEventDataRecord(event)
+  const externalSession = data.externalSession
+  if (typeof externalSession !== 'object' || externalSession === null) return
+
+  const link = externalSession as Record<string, unknown>
+  const provider = typeof link.provider === 'string' ? link.provider : null
+  const providerSessionId = typeof link.providerSessionId === 'string' ? link.providerSessionId : null
+  const agentId = typeof link.agentId === 'string' ? link.agentId : event.agentId
+  const conversationId = typeof link.conversationId === 'string' ? link.conversationId : run.conversationId
+  const workspaceIdentity = typeof link.workspaceId === 'string' ? link.workspaceId : null
+  const scope = typeof link.scope === 'string' && isExternalSessionScope(link.scope) ? link.scope : null
+
+  if (!provider || !providerSessionId || !agentId || !workspaceIdentity || !scope) {
+    logger.warn({
+      runId: run.id,
+      runtimeRunId: event.runId,
+      eventId: event.id,
+      agentId: event.agentId,
+    }, 'Skipping invalid external session link')
+    return
+  }
+
+  await upsertExternalAgentSession({
+    provider,
+    agentId,
+    conversationId,
+    workspaceIdentity,
+    scope,
+    providerSessionId,
+    parentProviderSessionId: typeof link.parentProviderSessionId === 'string'
+      ? link.parentProviderSessionId
+      : null,
+    runId: run.id,
+    taskId: typeof link.taskId === 'string' ? link.taskId : event.taskId ?? null,
+    handoffSummary: typeof link.handoffSummary === 'string' ? link.handoffSummary : null,
+    lastSyncedRunEventId: event.id,
+    metadataJson: {
+      runtimeRunId: event.runId,
+      runtimeAgentId: event.agentId ?? null,
+      providerRunId: typeof link.runId === 'string' ? link.runId : null,
+    },
+  })
+}
+
+function isExternalSessionScope(value: string): value is ExternalSessionScope {
+  return value === 'conversation-visible' || value === 'delegated-task'
 }
 
 async function projectRuntimeMessageDeltaEvents(
@@ -2448,6 +2528,7 @@ function buildRuntimeRunInput(
   userContent: string,
   history: RuntimeMessage[],
   addressedAgentIds: string[],
+  externalSessionHints: RuntimeExternalSessionHint[] = [],
 ): RuntimeRunInput {
   const workspace = getRuntimeWorkspace(conversation.metadataJson)
   const titleSource = getTitleSource(conversation.metadataJson)
@@ -2476,7 +2557,50 @@ function buildRuntimeRunInput(
       includeRawModelChunks: false,
     },
     ...(workspace ? { workspace } : {}),
+    ...(externalSessionHints.length > 0 ? { externalSessionHints } : {}),
   }
+}
+
+async function resolveExternalSessionHints(
+  conversation: ConversationDetailOutput,
+  addressedAgentIds: string[],
+): Promise<RuntimeExternalSessionHint[]> {
+  const workspace = getRuntimeWorkspace(conversation.metadataJson)
+  if (!workspace) return []
+
+  const directAgentId = resolveDirectExternalAgentId(conversation, addressedAgentIds)
+  if (directAgentId !== 'opencode') return []
+
+  const session = await findExternalAgentSessionHint({
+    provider: 'opencode',
+    agentId: directAgentId,
+    conversationId: conversation.id,
+    workspaceIdentity: workspace.workspaceId,
+    scope: 'conversation-visible',
+    status: 'active',
+  })
+  if (!session) return []
+
+  return [{
+    provider: 'opencode',
+    agentId: session.agentId,
+    scope: session.scope,
+    providerSessionId: session.providerSessionId,
+    conversationId: session.conversationId,
+    workspaceId: session.workspaceIdentity,
+    ...(session.handoffSummary ? { handoffSummary: session.handoffSummary } : {}),
+  }]
+}
+
+function resolveDirectExternalAgentId(
+  conversation: ConversationDetailOutput,
+  addressedAgentIds: string[],
+): string | null {
+  if (conversation.mode === 'single') {
+    return conversation.agents.length === 1 ? conversation.agents[0]?.agentId ?? null : null
+  }
+
+  return addressedAgentIds.length === 1 ? addressedAgentIds[0] ?? null : null
 }
 
 export function resolveAddressedAgentIds(

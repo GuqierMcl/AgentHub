@@ -197,7 +197,7 @@ Adapter 负责把外部平台事件转换成 AgentHub 稳定 RunEvent。
 | 权限请求 | `permission.*` |
 | 会话状态 | `agent.started` / `agent.completed` / `run.*` 的辅助依据 |
 | 文件变化 | Diff / Artifact 投影，或首版 trace |
-| 外部错误 | `agent.completed` error 或 `run.failed` / `ADAPTER_ERROR` |
+| 外部错误 | `agent.completed` error 或 `run.failed` / 稳定 `ADAPTER_*` 错误码 |
 
 Adapter 应保留足够的 raw provider event 供调试，但面向 HubServer 和 Web 的产品投影应优先使用 AgentHub 稳定事件。
 
@@ -240,7 +240,7 @@ Adapter 必须处理：
 - Provider auth 失败。
 - workspace 无效。
 
-Runtime 不应泄漏底层异常堆栈给 Web。外部平台错误应转换为稳定错误码，例如 `ADAPTER_ERROR`、`ADAPTER_NOT_AVAILABLE`、`ADAPTER_SESSION_NOT_FOUND`、`ADAPTER_PERMISSION_FAILED` 等后续契约化错误。
+Runtime 不应泄漏底层异常堆栈给 Web。外部平台错误应转换为稳定错误码。当前 OpenCode V1 已使用的基础错误码包括 `ADAPTER_CONFIG_MISSING`、`ADAPTER_NOT_AVAILABLE`、`ADAPTER_WORKSPACE_REQUIRED`、`ADAPTER_SERVER_START_FAILED`、`ADAPTER_SERVER_UNHEALTHY`、`ADAPTER_WORKSPACE_MISMATCH`、`ADAPTER_SESSION_FAILED`、`ADAPTER_PROMPT_FAILED`、`ADAPTER_ABORT_FAILED` 和 `ADAPTER_EXECUTION_FAILED`；权限桥接阶段会继续补充 `ADAPTER_PERMISSION_*` 类错误。
 
 ## 13. 非目标
 

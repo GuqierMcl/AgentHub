@@ -105,7 +105,7 @@ export function withRuntimeGenerationData<T>(
     return data
   }
 
-  const record = isRecord(data) ? data : {}
+  const record: Record<string, unknown> = isRecord(data) ? data : {}
   const currentGeneration = isRuntimeGeneration(record.generation)
     ? record.generation
     : undefined

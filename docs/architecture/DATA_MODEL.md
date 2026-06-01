@@ -87,6 +87,7 @@ AI SDK 文档把 `UIMessage` 定义为应用状态的事实来源，适合承载
 - `RunEvent`：Run 的事件流记录。
 - `Artifact`：代码、网页、文件、Diff 等产物。
 - `PermissionRequest`：权限申请记录。
+- `ExternalAgentSession`：AgentHub 会话语境与外部平台 Session 的映射记录。
 
 其中，`Conversation` 与 `Run` 负责业务流程，`UIMessage` 负责消息事实本身。
 
@@ -98,6 +99,7 @@ AI SDK 文档把 `UIMessage` 定义为应用状态的事实来源，适合承载
 - `MessagePart(type="text")` 保存当前阶段可恢复的聊天文本；每个 part 额外记录 `partKey`、`entityType`、`entityId`、`runtimeEventId`、`firstEventSequence` 和 `lastEventSequence`。
 - `Run` 保存 HubServer 本地执行记录，`runtimeId` 关联 Agent Runtime run id，`planJson` 保存最近一次 `write_plan` 结果，`lastEventSequence` 作为本 run 的最新 raw event 消费序号，`lastProjectedSequence` 记录结构化投影已追平到的序号。
 - `RunEvent` 保存 Runtime 原始事件，`id` 等于 Runtime event id，`payloadJson` 永久保留 raw SSE 事实，`sequence` 是本地 Run 内递增序号，也是 raw replay 的 run 内顺序真相。
+- `ExternalAgentSession` 保存外部智能体 Session link，字段包括 `provider`、`agentId`、`conversationId`、`workspaceIdentity`、`scope`、`providerSessionId`、可选 `taskId`/`runId`、`handoffSummary` 和 `lastSyncedRunEventId`。HubServer 投影 `agent.started.data.externalSession` 时 upsert；direct OpenCode run 会查询 matching `conversation-visible` 记录并作为 Runtime `externalSessionHints` 注入。
 - 聊天主 UI 恢复时，Web 使用 `timelineRuns` 先插入触发 run 的用户 `Message`，再按 `RunEvent.sequence` 重放产品 event envelopes，避免 assistant 排到用户消息前面；完整 raw Runtime event 仍保留在 `RunEvent.payloadJson`。
 - 任何投影表都不得重写 `firstEventSequence`；它负责结构化查询、统计、调试和非聊天 UI 的稳定排序，而不是聊天流 hydrate 的唯一来源。
 - 高频 delta 可以批量投影；结构化表允许短暂落后于 raw `RunEvent`，但读取历史消息和组装 Runtime history 前必须通过 `lastProjectedSequence` 从 raw events 补齐。
