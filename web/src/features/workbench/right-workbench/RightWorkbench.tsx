@@ -1,8 +1,10 @@
-import { useCallback } from "react"
+import { useCallback, useEffect, useMemo } from "react"
+import { toast } from "sonner"
 
-import { useTabStore } from "@/store/tab-store"
+import { useTabStore, type TerminalTabPayload } from "@/store/tab-store"
 
 import type { RuntimeRunStatus } from "../api/runtime-runs"
+import { terminalApi } from "../api/terminal"
 import type { RunConnectionStatus } from "../store/workbench-store"
 import type { Conversation } from "../types"
 import { RightWorkbenchTabBar } from "./components/RightWorkbenchTabBar"
@@ -13,6 +15,17 @@ type RightWorkbenchProps = {
   conversation: Conversation | null
   connectionStatus: RunConnectionStatus
   runStatus: RuntimeRunStatus | "idle" | "submitted"
+}
+
+function deriveWorkspaceLabel(workspacePath: string): string {
+  if (!workspacePath) return ""
+  const segments = workspacePath.replace(/\\/g, "/").split("/").filter(Boolean)
+  return segments[segments.length - 1] ?? workspacePath
+}
+
+function deriveWorkspaceId(workspacePath: string): string {
+  if (!workspacePath) return ""
+  return `workspace_${workspacePath.replace(/[^a-zA-Z0-9_-]/g, "_")}`
 }
 
 export function RightWorkbench({
@@ -27,16 +40,75 @@ export function RightWorkbench({
   const closeTab = useTabStore((s) => s.closeTab)
   const activateTab = useTabStore((s) => s.activateTab)
 
+  const workspaceLabel = useMemo(
+    () => deriveWorkspaceLabel(conversation?.workspace ?? ""),
+    [conversation?.workspace]
+  )
+  const workspaceId = useMemo(
+    () => deriveWorkspaceId(conversation?.workspace ?? ""),
+    [conversation?.workspace]
+  )
+
   const handleOpenTab = useCallback(
     (type: Parameters<typeof openTab>[0]) => {
       if (type === "preview") {
         openTab("preview", undefined, { source: "manual" })
+      } else if (type === "terminal") {
+        if (!conversation?.workspace) {
+          toast.info("未设置工作区")
+          return
+        }
+        const payload: TerminalTabPayload = {
+          conversationId: conversation.id,
+          workspaceId,
+          workspaceLabel,
+        }
+        openTab("terminal", undefined, payload)
       } else {
         openTab(type)
       }
     },
-    [openTab]
+    [openTab, conversation, workspaceId, workspaceLabel]
   )
+
+  useEffect(() => {
+    if (!conversation?.workspace) return
+
+    let cancelled = false
+
+    terminalApi.listSessions(conversation.id).then((res) => {
+      if (cancelled) return
+
+      for (const session of res.data) {
+        if (session.status === "closed" || session.status === "error") continue
+
+        const payload: TerminalTabPayload = {
+          conversationId: conversation.id,
+          workspaceId,
+          workspaceLabel,
+          sessionId: session.sessionId,
+        }
+
+        const hasTab = tabs.some(
+          (t) =>
+            t.type === "terminal" &&
+            t.payload &&
+            "sessionId" in t.payload &&
+            (t.payload as TerminalTabPayload).sessionId === session.sessionId,
+        )
+
+        if (!hasTab) {
+          openTab("terminal", undefined, payload)
+        }
+      }
+    }).catch(() => {
+      // Session listing is best-effort
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [conversation?.id, conversation?.workspace, openTab, workspaceId, workspaceLabel])
 
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col border-border border-l bg-background">

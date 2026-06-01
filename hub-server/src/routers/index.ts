@@ -8,6 +8,7 @@ import workspace from './workspace'
 import settings from './settings'
 import events from './events'
 import preview from './preview'
+import terminal from './terminal'
 
 const router = new Hono()
 
@@ -29,5 +30,6 @@ router.route('/', workspace)
 router.route('/', settings)
 router.route('/', events)
 router.route('/', preview)
+router.route('/', terminal)
 
 export default router

@@ -7,6 +7,9 @@ import { ConversationService } from './services/conversation.service'
 import { RuntimeClient } from './lib/runtime'
 import { RunPersistenceService } from './services/run-persistence.service'
 import { HubEventBus } from './services/hub-event-bus.service'
+import { TerminalService } from './services/terminal/terminal.service'
+import { DEFAULT_TERMINAL_CONFIG } from './services/terminal/types'
+import { websocket } from './routers/terminal'
 import { config } from './config'
 import { logger, requestLogger } from './lib/logger'
 import router from './routers'
@@ -46,12 +49,15 @@ const runtimeClient = new RuntimeClient(config.runtimeUrl)
 const hubEventBus = new HubEventBus()
 const conversationService = new ConversationService(hubEventBus)
 const runPersistenceService = new RunPersistenceService(runtimeClient, hubEventBus)
+const terminalService = new TerminalService(DEFAULT_TERMINAL_CONFIG)
+terminalService.startCleanup()
 
 app.use('*', async (c: Context, next: Next) => {
   c.set('conversationService', conversationService)
   c.set('runtimeClient', runtimeClient)
   c.set('runPersistenceService', runPersistenceService)
   c.set('hubEventBus', hubEventBus)
+  c.set('terminalService', terminalService)
   await next()
 })
 
@@ -72,6 +78,7 @@ start().catch((err) => {
 
 const shutdown = async () => {
   logger.info('Shutting down')
+  terminalService.shutdown()
   await closeDatabase()
   process.exit(0)
 }
@@ -82,5 +89,6 @@ export default {
   port: config.port,
   hostname: config.hostname,
   fetch: app.fetch,
+  websocket,
   idleTimeout: 60,
 }

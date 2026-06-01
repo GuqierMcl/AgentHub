@@ -18,12 +18,21 @@ export type PreviewTabPayload = {
   initialUrl?: string
 }
 
+export type TerminalTabPayload = {
+  conversationId: string
+  workspaceId: string
+  workspaceLabel: string
+  sessionId?: string
+}
+
+export type TabPayload = PreviewTabPayload | TerminalTabPayload
+
 export type TabInstance = {
   uid: string
   type: TabType
   title: string
   icon: LucideIcon
-  payload?: PreviewTabPayload
+  payload?: TabPayload
 }
 
 export type WorkspaceFocusRequest = {
@@ -60,7 +69,7 @@ type TabStore = {
   workspaceFocusRequest: WorkspaceFocusRequest | null
   workspaceFocusRequestSeq: number
 
-  openTab: (type: TabType, title?: string, payload?: PreviewTabPayload) => string
+  openTab: (type: TabType, title?: string, payload?: TabPayload) => string
   closeTab: (uid: string) => void
   activateTab: (uid: string) => void
   closeAllTabs: () => void
@@ -111,11 +120,19 @@ export const useTabStore = create<TabStore>((set, get) => ({
     // Multi-instance
     const multiType = type as MultiTabId
     const counter = state.tabCounters[multiType]
+
+    // Terminal: derive default title from workspace label
+    const derivedTitle =
+      title ??
+      (type === "terminal" && payload && "workspaceLabel" in payload
+        ? `${meta.label} - ${(payload as unknown as TerminalTabPayload).workspaceLabel}`
+        : `${meta.label}${counter + 1}`)
+
     const uid = `${type}-${counter + 1}`
     const tab: TabInstance = {
       uid,
       type,
-      title: title ?? `${meta.label}${counter + 1}`,
+      title: derivedTitle,
       icon: meta.icon,
       payload,
     }

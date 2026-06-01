@@ -50,11 +50,25 @@ function renderPanel(
     case "deploy":
       return <DeployPreviewPanel />
     case "terminal":
-      return <TerminalPanel title={tab.title} uid={tab.uid} />
+      return (
+        <TerminalPanel
+          title={tab.title}
+          uid={tab.uid}
+          payload={
+            tab.payload && "workspaceId" in tab.payload
+              ? tab.payload
+              : undefined
+          }
+        />
+      )
     case "preview":
       return (
         <BrowserPanel
-          initialUrl={tab.payload?.initialUrl}
+          initialUrl={
+            tab.payload && "initialUrl" in tab.payload
+              ? tab.payload.initialUrl
+              : undefined
+          }
         />
       )
     default:
