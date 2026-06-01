@@ -73,6 +73,11 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { ToolUIPart } from "ai"
 
 import type {
@@ -94,6 +99,8 @@ type TimelineItemProps = {
   item: WorkbenchTimelineItem
   agentProfiles: ConversationAgentProfile[]
 }
+
+type GenerationMetadata = NonNullable<WorkbenchTimelineChatMessageItem["generation"]>
 
 export const TimelineItem = memo(function TimelineItem({
   agentProfiles,
@@ -215,6 +222,9 @@ function ChatMessageItem({
               <MessageActions
                 className={item.role === "user" ? "justify-end" : undefined}
               >
+                {item.role === "assistant" && item.generation ? (
+                  <MessageGenerationLabel generation={item.generation} />
+                ) : null}
                 <MessageAction label="Copy message" tooltip={copied ? "Copied!" : "Copy"} onClick={handleCopy}>
                   {copied ? <CheckIcon /> : <CopyIcon className="![&_svg]:size-4" size={16} />}
                 </MessageAction>
@@ -232,6 +242,119 @@ function ChatMessageItem({
       ) : null}
     </MessageBranch>
   )
+}
+
+function MessageGenerationLabel({
+  generation,
+}: {
+  generation: GenerationMetadata
+}) {
+  const label = formatGenerationLabel(generation)
+  if (!label) {
+    return null
+  }
+
+  const rows = getGenerationTooltipRows(generation)
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="mr-1 inline-flex max-w-64 cursor-default items-center truncate rounded-sm px-1 text-muted-foreground text-xs leading-7">
+          {label}
+        </span>
+      </TooltipTrigger>
+      {rows.length ? (
+        <TooltipContent className="block max-w-sm px-3 py-2 text-left">
+          <div className="grid gap-1">
+            {rows.map((row) => (
+              <div className="grid grid-cols-[auto_1fr] gap-3" key={row.label}>
+                <span className="text-background/70">{row.label}</span>
+                <span className="break-all">{row.value}</span>
+              </div>
+            ))}
+          </div>
+        </TooltipContent>
+      ) : null}
+    </Tooltip>
+  )
+}
+
+function formatGenerationLabel(generation: GenerationMetadata): string | null {
+  const modelName = generation.model?.modelName
+  if (!modelName) {
+    return null
+  }
+
+  const totalTokens = generation.usage?.totalTokens
+  if (typeof totalTokens === "number") {
+    return `${modelName} · ${formatCompactNumber(totalTokens)} tokens`
+  }
+
+  return modelName
+}
+
+function getGenerationTooltipRows(
+  generation: GenerationMetadata
+): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = []
+  const model = generation.model
+  if (model) {
+    rows.push({ label: "Model", value: model.modelName })
+    rows.push({ label: "Provider", value: model.providerName })
+    rows.push({ label: "Model ID", value: `${model.providerId}/${model.modelId}` })
+    if (model.modelSourceAgentId) {
+      rows.push({ label: "Source", value: model.modelSourceAgentId })
+    }
+  }
+
+  const usage = generation.usage
+  if (usage?.inputTokens !== undefined) {
+    rows.push({ label: "Input", value: formatTokenCount(usage.inputTokens) })
+  }
+  if (usage?.outputTokens !== undefined) {
+    rows.push({ label: "Output", value: formatTokenCount(usage.outputTokens) })
+  }
+  if (usage?.totalTokens !== undefined) {
+    rows.push({ label: "Total", value: formatTokenCount(usage.totalTokens) })
+  }
+  if (usage?.reasoningTokens !== undefined) {
+    rows.push({ label: "Reasoning", value: formatTokenCount(usage.reasoningTokens) })
+  }
+  if (usage?.cachedInputTokens !== undefined) {
+    rows.push({ label: "Cached", value: formatTokenCount(usage.cachedInputTokens) })
+  }
+  if (generation.durationMs !== undefined) {
+    rows.push({ label: "Duration", value: formatGenerationDuration(generation.durationMs) })
+  }
+  if (generation.finishReason) {
+    rows.push({ label: "Finish", value: generation.finishReason })
+  }
+
+  return rows
+}
+
+function formatTokenCount(value: number): string {
+  return `${new Intl.NumberFormat().format(value)} tokens`
+}
+
+function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000) {
+    return `${trimDecimal(value / 1_000_000)}M`
+  }
+  if (value >= 1_000) {
+    return `${trimDecimal(value / 1_000)}k`
+  }
+  return String(value)
+}
+
+function trimDecimal(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, "")
+}
+
+function formatGenerationDuration(durationMs: number): string {
+  if (durationMs >= 1000) {
+    return `${trimDecimal(durationMs / 1000)}s`
+  }
+  return `${Math.round(durationMs)}ms`
 }
 
 function ToolTimelineItem({ item }: { item: WorkbenchTimelineToolItem }) {

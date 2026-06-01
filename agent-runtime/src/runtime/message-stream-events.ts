@@ -1,5 +1,6 @@
 import type { TextStreamPart, ToolSet } from "ai"
 import { createRunEvent } from "./run-events"
+import { withRuntimeGenerationData, type RuntimeGeneration } from "./generation"
 import type { AgentExecutionContext, RunEvent } from "./types"
 
 type TextBlockPart = Extract<TextStreamPart<ToolSet>, {
@@ -85,7 +86,8 @@ export class MessageBlockEventBuilder {
 
   constructor(
     private readonly context: AgentExecutionContext,
-    private readonly identityTracker = new MessageBlockIdentityTracker(context)
+    private readonly identityTracker = new MessageBlockIdentityTracker(context),
+    private readonly baseGeneration?: RuntimeGeneration
   ) {}
 
   createEvents(part: TextStreamPart<ToolSet>): RunEvent[] {
@@ -166,7 +168,12 @@ export class MessageBlockEventBuilder {
     block: MessageBlockState,
     data: unknown
   ): RunEvent {
-    const event = createRunEvent(this.context.runId, type, this.context.agent.id, data)
+    const event = createRunEvent(
+      this.context.runId,
+      type,
+      this.context.agent.id,
+      withRuntimeGenerationData(data, this.baseGeneration)
+    )
     event.messageId = block.messageId
     event.taskId = this.context.task?.taskId
     event.parentAgentId = this.context.parentAgentId

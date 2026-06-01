@@ -698,7 +698,7 @@ type HubRunEventEnvelope = {
 ```
 
 `activeRun.id` 是 HubServer 本地 Run id。`activeRun.runtimeId` 只用于调试和跨进程关联，Web 产品路径不得用它订阅 Runtime。
-`timelineRuns` 是聊天 UI 恢复的主数据源：Web 先渲染每个 run 的 `triggerMessage`，再按 `events.sequence` 重放产品 event envelope，并与 live SSE 共用同一套 projection reducer。产品 event envelope 中 `event.runId` 是 HubServer 本地 Run id，`event.runtimeRunId` 保留 Agent Runtime run id；大工具结果可能已被投影为 UI 摘要；完整 raw Runtime event 保存在 `RunEvent.payloadJson`。`messages` 与 `runItems` 保留为查询、history、统计和后续产品能力的数据源。
+`timelineRuns` 是聊天 UI 恢复的主数据源：Web 先渲染每个 run 的 `triggerMessage`，再按 `events.sequence` 重放产品 event envelope，并与 live SSE 共用同一套 projection reducer。产品 event envelope 中 `event.runId` 是 HubServer 本地 Run id，`event.runtimeRunId` 保留 Agent Runtime run id；`message.*.data.generation` 与 `agent.*.data.generation` 会原样保留，供 Web 从事件 replay 恢复模型名和生成统计；大工具结果可能已被投影为 UI 摘要；完整 raw Runtime event 保存在 `RunEvent.payloadJson`。`messages` 与 `runItems` 保留为查询、history、统计和后续产品能力的数据源。
 
 ### 订阅产品 Run 事件
 
@@ -710,7 +710,7 @@ type HubRunEventEnvelope = {
 
 ```text
 event: run.event
-data: {"sequence":12,"event":{"id":"evt_xxx","runId":"run_hub_xxx","runtimeRunId":"runtime_run_xxx","type":"message.delta","timestamp":"2026-05-29T00:00:00.000Z","messageId":"msg_runtime_run_xxx_exec_0","messageIndex":0,"data":{"delta":"hello"}}}
+data: {"sequence":12,"event":{"id":"evt_xxx","runId":"run_hub_xxx","runtimeRunId":"runtime_run_xxx","type":"message.delta","timestamp":"2026-05-29T00:00:00.000Z","messageId":"msg_runtime_run_xxx_exec_0","messageIndex":0,"data":{"delta":"hello","generation":{"executionId":"execution_xxx","model":{"providerId":"openai","modelId":"gpt-5.1","providerName":"OpenAI","modelName":"GPT-5.1"}}}}}
 ```
 
 行为：
@@ -1090,7 +1090,8 @@ type RunEvent = {
 - `message.delta` / `message.completed` 以 AI SDK 文本块为边界；一次 agent execution 可以输出多条 Runtime message。
 - `messageId` 表示一次可聚合的智能体消息容器。同一文本块的 delta 和 completed 必须共享同一个 `messageId`；同一输出上下文内的 `reasoning.*`、`tool.*`、`permission.*` 也应复用该 `messageId`。
 - `messageIndex` 是 RunManager 按首次 emit 顺序分配的 run-local 递增序号，用于并发任务和交替发言下的稳定排序；同一 `messageId` 下的 reasoning/tool/permission/message 事件共享同一个 `messageIndex`。
-- `agent.completed` 仍表示 execution 完成；usage、finishReason、resolvedModel 以 `agent.completed.data` 为准。`message.completed.data` 只保证包含最终 `content`。
+- `message.delta` / `message.completed` 可在 `data.generation` 携带 `executionId` 与 compact model 信息；`agent.started` / `agent.completed` 也可携带同结构的 `data.generation`，其中 `agent.completed.data.generation` 可额外包含 usage、finishReason 与 durationMs。
+- `agent.completed` 仍表示 execution 完成；兼容字段 usage、finishReason、resolvedModel 继续保留在 `agent.completed.data`。Web 展示模型名、compact tokens 和 tooltip 详情时优先从 Runtime event replay/live SSE 的 `generation` 字段恢复，而不是读取当前 agent 绑定状态。
 - HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。
 
 工具事件的附加约束：

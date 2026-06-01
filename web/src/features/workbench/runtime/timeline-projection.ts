@@ -1,4 +1,4 @@
-import type { RuntimeRunEvent } from "../api/runtime-runs"
+import type { RuntimeGeneration, RuntimeRunEvent } from "../api/runtime-runs"
 import type {
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
@@ -98,6 +98,8 @@ export function applyRuntimeEventToTimeline(
       return applyReasoningDelta(items, event, chatSpeakerIds)
     case "reasoning.completed":
       return applyReasoningCompleted(items, event, chatSpeakerIds)
+    case "agent.completed":
+      return applyAgentCompleted(items, event, chatSpeakerIds)
     case "orchestrator.plan.created":
       return upsertPlanFromEvent(items, event)
     case "run.completed":
@@ -165,6 +167,7 @@ function upsertChatMessage(
   ) => WorkbenchTimelineChatMessageItem
 ): WorkbenchTimelineItem[] {
   const id = getChatMessageId(event)
+  const eventGeneration = getEventGeneration(event)
   const created: WorkbenchTimelineChatMessageItem = {
     kind: "chat_message",
     id,
@@ -179,17 +182,76 @@ function upsertChatMessage(
   }
 
   return upsertItem(items, id, (item) =>
-    update(
-      item?.kind === "chat_message"
-        ? {
-            ...item,
-            runtimeMessageId: item.runtimeMessageId ?? event.messageId,
-            messageIndex: item.messageIndex ?? event.messageIndex,
-            agentId: item.agentId ?? event.agentId,
-          }
-        : created
+    mergeChatMessageGeneration(
+      update(
+        item?.kind === "chat_message"
+          ? {
+              ...item,
+              runtimeMessageId: item.runtimeMessageId ?? event.messageId,
+              messageIndex: item.messageIndex ?? event.messageIndex,
+              agentId: item.agentId ?? event.agentId,
+            }
+          : created
+      ),
+      eventGeneration
     )
   )
+}
+
+function applyAgentCompleted(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  chatSpeakerIds: ChatSpeakerIds
+): WorkbenchTimelineItem[] {
+  const generation = getEventGeneration(event)
+  if (!generation || !isChatSpeaker(chatSpeakerIds, event.agentId)) {
+    return items
+  }
+
+  const targetIndex = findLastAssistantMessageIndexForGeneration(items, event, generation)
+  if (targetIndex < 0) {
+    return items
+  }
+
+  return items.map((item, index) =>
+    index === targetIndex && item.kind === "chat_message"
+      ? mergeChatMessageGeneration(item, generation)
+      : item
+  )
+}
+
+function findLastAssistantMessageIndexForGeneration(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  generation: RuntimeGeneration
+): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (item.kind !== "chat_message" || item.role !== "assistant") continue
+    if (item.runId !== event.runId) continue
+    if (event.agentId && item.agentId !== event.agentId) continue
+    if (
+      generation.executionId &&
+      item.generation?.executionId &&
+      item.generation.executionId !== generation.executionId
+    ) {
+      continue
+    }
+    return index
+  }
+
+  return -1
+}
+
+function mergeChatMessageGeneration(
+  item: WorkbenchTimelineChatMessageItem,
+  generation: RuntimeGeneration | undefined
+): WorkbenchTimelineChatMessageItem {
+  if (!generation) {
+    return item
+  }
+  const nextGeneration = mergeRuntimeGeneration(item.generation, generation)
+  return nextGeneration ? { ...item, generation: nextGeneration } : item
 }
 
 function upsertTask(
@@ -1144,6 +1206,94 @@ function getEventDataObject(event: RuntimeRunEvent): Record<string, unknown> {
 
 function getEventText(event: RuntimeRunEvent, key: string): string {
   return getString(getEventDataObject(event)[key]) ?? ""
+}
+
+function getEventGeneration(event: RuntimeRunEvent): RuntimeGeneration | undefined {
+  return toRuntimeGeneration(getEventDataObject(event).generation)
+}
+
+function toRuntimeGeneration(value: unknown): RuntimeGeneration | undefined {
+  const data = getRecord(value)
+  if (!data) return undefined
+
+  const generation: RuntimeGeneration = {
+    executionId: getString(data.executionId),
+    model: toRuntimeGenerationModel(data.model),
+    usage: toRuntimeGenerationUsage(data.usage),
+    finishReason: getString(data.finishReason),
+    durationMs: getNumber(data.durationMs),
+  }
+
+  return hasRuntimeGenerationValue(generation) ? generation : undefined
+}
+
+function toRuntimeGenerationModel(
+  value: unknown
+): RuntimeGeneration["model"] | undefined {
+  const data = getRecord(value)
+  if (!data) return undefined
+
+  const providerId = getString(data.providerId)
+  const modelId = getString(data.modelId)
+  const providerName = getString(data.providerName)
+  const modelName = getString(data.modelName)
+  if (!providerId || !modelId || !providerName || !modelName) {
+    return undefined
+  }
+
+  return {
+    providerId,
+    modelId,
+    providerName,
+    modelName,
+    modelSourceAgentId: getString(data.modelSourceAgentId),
+  }
+}
+
+function toRuntimeGenerationUsage(
+  value: unknown
+): RuntimeGeneration["usage"] | undefined {
+  const data = getRecord(value)
+  if (!data) return undefined
+
+  const usage: RuntimeGeneration["usage"] = {
+    inputTokens: getNumber(data.inputTokens),
+    outputTokens: getNumber(data.outputTokens),
+    totalTokens: getNumber(data.totalTokens),
+    reasoningTokens: getNumber(data.reasoningTokens),
+    cachedInputTokens: getNumber(data.cachedInputTokens),
+  }
+
+  return Object.values(usage).some((usageValue) => usageValue !== undefined)
+    ? usage
+    : undefined
+}
+
+function mergeRuntimeGeneration(
+  current: RuntimeGeneration | undefined,
+  next: RuntimeGeneration | undefined
+): RuntimeGeneration | undefined {
+  if (!current) return next
+  if (!next) return current
+
+  return {
+    ...current,
+    ...next,
+    model: next.model ?? current.model,
+    usage: next.usage
+      ? { ...current.usage, ...next.usage }
+      : current.usage,
+  }
+}
+
+function hasRuntimeGenerationValue(generation: RuntimeGeneration): boolean {
+  return Boolean(
+    generation.executionId ||
+    generation.model ||
+    generation.usage ||
+    generation.finishReason ||
+    generation.durationMs !== undefined
+  )
 }
 
 function getRecord(value: unknown): Record<string, unknown> | undefined {

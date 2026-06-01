@@ -9,7 +9,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 
-import { useTabStore } from "@/store/tab-store"
+import { useTabStore, type SingletonTabId } from "@/store/tab-store"
 import type { AgentSummary } from "@/features/agents/types"
 import { agentsApi } from "@/features/agents/api/agents"
 
@@ -315,14 +315,14 @@ export function WorkbenchContentLayout({
     setWorkspaceCollapsed(true)
   }, [setWorkspaceCollapsed, workspacePanelRef])
 
-  const handleOpenConversationStatus = useCallback(() => {
+  const handleOpenWorkspaceTab = useCallback((tabType: SingletonTabId) => {
     if (!activeConversationId) return
 
     requestWorkspaceFocus({
-      tabType: "conversation-status",
+      tabType,
       conversationId: activeConversationId,
       reason: "manual",
-      reasonKey: `conversation-status:${activeConversationId}`,
+      reasonKey: `${tabType}:${activeConversationId}`,
     })
   }, [activeConversationId, requestWorkspaceFocus])
 
@@ -398,7 +398,7 @@ export function WorkbenchContentLayout({
                 isWorkspaceOpen={!isWorkspaceCollapsed}
                 onCancelRun={handleCancelActiveRun}
                 onDraftChange={handleDraftChange}
-                onOpenConversationStatus={handleOpenConversationStatus}
+                onOpenWorkspaceTab={handleOpenWorkspaceTab}
                 onSubmit={handleSubmit}
                 onToggleWorkspace={handleToggleWorkspaceCollapsed}
                 runStatus={runtimeState?.runStatus ?? "idle"}
