@@ -2,7 +2,7 @@ import { useState } from "react"
 import { MessageSquarePlusIcon, BotIcon } from "lucide-react"
 
 import { GravityStarsBackground } from "@/components/animate-ui/components/backgrounds/gravity-stars"
-import { Button } from "@/components/ui/button"
+import { LiquidButton } from "@/components/animate-ui/components/buttons/liquid"
 import { cn } from "@/lib/utils"
 import { useAppNavStore } from "@/store/app-nav-store"
 
@@ -68,43 +68,49 @@ export function WorkbenchWelcome({ onCreateConversation }: WorkbenchWelcomeProps
   const selectModule = useAppNavStore((s) => s.selectModule)
 
   return (
-    <div className="relative h-full min-h-0 min-w-0">
-      <GravityStarsBackground
-        className="absolute inset-0 text-foreground"
-        starsInteraction
-        starsSize={3}
-      />
-      <div className="pointer-events-none relative flex h-full flex-col items-center justify-center gap-8 p-6">
-        <div className="flex flex-col items-center gap-3 text-center animate-fade-in-up">
-          <h1 className="text-4xl font-bold tracking-tight animate-fade-in-up" >
-            {greeting}
-            <span className={cn("animate-caret")}>_</span>
-          </h1>
-          <p className="max-w-md text-lg text-muted-foreground animate-fade-in-up" style={{ animationDelay: "50ms" }}>
-            创建新会话开始对话，或从左侧选择已有会话继续。
-          </p>
-        </div>
+      <div className="relative h-full min-h-0 min-w-0">
+          <GravityStarsBackground
+              className="absolute inset-0 text-foreground"
+              starsInteraction
+              starsSize={3}
+          />
+          <div className="pointer-events-none relative flex h-full flex-col items-center justify-center gap-8 p-6">
+              <div className="flex flex-col items-center gap-3 text-center animate-fade-in-up">
+                  <h1 className="text-4xl font-bold tracking-tight animate-fade-in-up">
+                      {greeting}
+                      <span className={cn("animate-caret")}>_</span>
+                  </h1>
+                  <p
+                      className="max-w-md text-lg text-muted-foreground animate-fade-in-up"
+                      style={{ animationDelay: "50ms" }}
+                  >
+                      创建新会话开始对话，或从左侧选择已有会话继续。
+                  </p>
+              </div>
 
-        <div className="flex items-center gap-3 animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-          <Button
-            className="pointer-events-auto"
-            onClick={onCreateConversation}
-            type="button"
-          >
-            <MessageSquarePlusIcon data-icon="inline-start" />
-            新建会话
-          </Button>
-          <Button
-            className="pointer-events-auto"
-            variant="outline"
-            type="button"
-            onClick={() => selectModule("agents")}
-          >
-            <BotIcon data-icon="inline-start" />
-            智能体
-          </Button>
-        </div>
+              <div
+                  className="flex items-center gap-3 animate-fade-in-up"
+                  style={{ animationDelay: "100ms" }}
+              >
+                  <LiquidButton
+                      className="pointer-events-auto shadow-lg border border-transparent hover:border-primary-foreground [--liquid-button-background-color:var(--primary)] [--liquid-button-color:var(--primary-foreground)] text-primary-foreground hover:text-primary"
+                      onClick={onCreateConversation}
+                      type="button"
+                  >
+                      <MessageSquarePlusIcon data-icon="inline-start" />
+                      新建会话
+                  </LiquidButton>
+                  <LiquidButton
+                      className="pointer-events-auto shadow-lg border border-transparent hover:border-primary"
+                      variant="ghost"
+                      type="button"
+                      onClick={() => selectModule("agents")}
+                  >
+                      <BotIcon data-icon="inline-start" />
+                      智能体
+                  </LiquidButton>
+              </div>
+          </div>
       </div>
-    </div>
-  )
+  );
 }
