@@ -23,10 +23,41 @@ type ActiveConnection = {
   payload: TerminalTabPayload
   ws: WebSocket
   closed: boolean
+  closeAfterOpen: boolean
 }
 
 class TerminalConnectionManager {
   private connections = new Map<string, ActiveConnection>()
+
+  private closeConnection(
+    conn: ActiveConnection,
+    destroy: boolean,
+  ): void {
+    conn.closed = true
+    this.connections.delete(conn.sessionId)
+
+    if (destroy) {
+      terminalApi
+        .closeSession(conn.payload.conversationId, conn.sessionId)
+        .catch(() => {})
+    }
+
+    if (conn.ws.readyState === WebSocket.CONNECTING) {
+      conn.closeAfterOpen = true
+      return
+    }
+
+    if (
+      conn.ws.readyState === WebSocket.OPEN ||
+      conn.ws.readyState === WebSocket.CLOSING
+    ) {
+      try {
+        conn.ws.close()
+      } catch {
+        // ignore close errors
+      }
+    }
+  }
 
   async createSession(
     payload: TerminalTabPayload,
@@ -42,10 +73,22 @@ class TerminalConnectionManager {
     const sessionId = data.sessionId
     const wsUrl = terminalApi.wsUrl(sessionId)
     const ws = new WebSocket(wsUrl)
-    const conn: ActiveConnection = { sessionId, payload, ws, closed: false }
+    const conn: ActiveConnection = {
+      sessionId,
+      payload,
+      ws,
+      closed: false,
+      closeAfterOpen: false,
+    }
 
     ws.onopen = () => {
-      events.onReady?.(sessionId)
+      if (conn.closeAfterOpen || conn.closed) {
+        try {
+          ws.close()
+        } catch {
+          // ignore close errors
+        }
+      }
     }
 
     ws.onmessage = (evt: MessageEvent) => {
@@ -84,6 +127,7 @@ class TerminalConnectionManager {
     }
 
     ws.onerror = () => {
+      if (conn.closed) return
       events.onError?.("WebSocket 连接错误")
     }
 
@@ -102,15 +146,10 @@ class TerminalConnectionManager {
         }
       },
       disconnect: () => {
-        conn.closed = true
-        ws.close()
-        this.connections.delete(sessionId)
+        this.closeConnection(conn, false)
       },
       destroy: () => {
-        conn.closed = true
-        ws.close()
-        this.connections.delete(sessionId)
-        terminalApi.closeSession(payload.conversationId, sessionId).catch(() => {})
+        this.closeConnection(conn, true)
       },
     }
 
@@ -124,10 +163,22 @@ class TerminalConnectionManager {
   ): Promise<TerminalSessionHandle> {
     const wsUrl = terminalApi.wsUrl(sessionId)
     const ws = new WebSocket(wsUrl)
-    const conn: ActiveConnection = { sessionId, payload, ws, closed: false }
+    const conn: ActiveConnection = {
+      sessionId,
+      payload,
+      ws,
+      closed: false,
+      closeAfterOpen: false,
+    }
 
     ws.onopen = () => {
-      events.onReady?.(sessionId)
+      if (conn.closeAfterOpen || conn.closed) {
+        try {
+          ws.close()
+        } catch {
+          // ignore close errors
+        }
+      }
     }
 
     ws.onmessage = (evt: MessageEvent) => {
@@ -166,6 +217,7 @@ class TerminalConnectionManager {
     }
 
     ws.onerror = () => {
+      if (conn.closed) return
       events.onError?.("WebSocket 连接错误")
     }
 
@@ -184,15 +236,10 @@ class TerminalConnectionManager {
         }
       },
       disconnect: () => {
-        conn.closed = true
-        ws.close()
-        this.connections.delete(sessionId)
+        this.closeConnection(conn, false)
       },
       destroy: () => {
-        conn.closed = true
-        ws.close()
-        this.connections.delete(sessionId)
-        terminalApi.closeSession(payload.conversationId, sessionId).catch(() => {})
+        this.closeConnection(conn, true)
       },
     }
 
@@ -206,17 +253,13 @@ class TerminalConnectionManager {
   disconnectSession(sessionId: string): void {
     const conn = this.connections.get(sessionId)
     if (conn) {
-      conn.closed = true
-      conn.ws.close()
-      this.connections.delete(sessionId)
+      this.closeConnection(conn, false)
     }
   }
 
   closeAll(): void {
-    for (const [id, conn] of this.connections) {
-      conn.closed = true
-      conn.ws.close()
-      this.connections.delete(id)
+    for (const conn of this.connections.values()) {
+      this.closeConnection(conn, false)
     }
   }
 }

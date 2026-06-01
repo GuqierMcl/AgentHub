@@ -130,7 +130,7 @@ export function RightWorkbench({
     return () => {
       cancelled = true
     }
-  }, [conversation?.id, conversation?.workspace, openTab, tabs, workspaceId, workspaceLabel])
+  }, [conversation?.id, conversation?.workspace, openTab, workspaceId, workspaceLabel])
 
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col border-border border-l bg-background">

@@ -43,13 +43,19 @@ export function useTerminalSession({
   const sessionIdRef = useRef<string | undefined>(payload.sessionId)
   const outputCbRef = useRef<((data: string) => void) | undefined>(undefined)
   const replayCbRef = useRef<((chunks: string[]) => void) | undefined>(undefined)
+  const openRequestIdRef = useRef(0)
+  const unmountedRef = useRef(false)
 
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
 
   useEffect(() => {
+    unmountedRef.current = false
+
     return () => {
+      unmountedRef.current = true
+      openRequestIdRef.current += 1
       if (handleRef.current) {
         handleRef.current.disconnect()
         handleRef.current = undefined
@@ -58,30 +64,64 @@ export function useTerminalSession({
   }, [])
 
   const open = useCallback(async () => {
+    const requestId = openRequestIdRef.current + 1
+    openRequestIdRef.current = requestId
+
     setStatus("creating")
     setErrorMessage(undefined)
 
     try {
       const activeSessionId = sessionIdRef.current ?? payload.sessionId
+      const shouldCreateSession = !activeSessionId
 
       const events = {
         onReady: (id: string) => {
+          if (
+            unmountedRef.current ||
+            openRequestIdRef.current !== requestId
+          ) {
+            return
+          }
           sessionIdRef.current = id
           setSessionId(id)
           setStatus("connected")
         },
         onOutput: (data: string) => {
+          if (
+            unmountedRef.current ||
+            openRequestIdRef.current !== requestId
+          ) {
+            return
+          }
           outputCbRef.current?.(data)
         },
         onExit: () => {
+          if (
+            unmountedRef.current ||
+            openRequestIdRef.current !== requestId
+          ) {
+            return
+          }
           setStatus("expired")
           handleRef.current = undefined
         },
         onError: (msg: string) => {
+          if (
+            unmountedRef.current ||
+            openRequestIdRef.current !== requestId
+          ) {
+            return
+          }
           setErrorMessage(msg)
           setStatus("error")
         },
         onReplay: (chunks: string[]) => {
+          if (
+            unmountedRef.current ||
+            openRequestIdRef.current !== requestId
+          ) {
+            return
+          }
           replayCbRef.current?.(chunks)
         },
       }
@@ -90,9 +130,27 @@ export function useTerminalSession({
         ? await terminalConnectionManager.attachSession(activeSessionId, payload, events)
         : await terminalConnectionManager.createSession(payload, events, initialCols, initialRows)
 
+      if (
+        unmountedRef.current ||
+        openRequestIdRef.current !== requestId
+      ) {
+        if (shouldCreateSession) {
+          handle.destroy()
+        } else {
+          handle.disconnect()
+        }
+        return
+      }
+
       sessionIdRef.current = handle.sessionId
       handleRef.current = handle
     } catch (err) {
+      if (
+        unmountedRef.current ||
+        openRequestIdRef.current !== requestId
+      ) {
+        return
+      }
       const msg =
         err instanceof Error ? err.message : "Failed to create terminal session"
       setErrorMessage(msg)
@@ -101,6 +159,7 @@ export function useTerminalSession({
   }, [payload, initialCols, initialRows])
 
   const disconnect = useCallback(() => {
+    openRequestIdRef.current += 1
     if (handleRef.current) {
       handleRef.current.disconnect()
       handleRef.current = undefined
@@ -108,6 +167,7 @@ export function useTerminalSession({
   }, [])
 
   const destroy = useCallback(() => {
+    openRequestIdRef.current += 1
     if (handleRef.current) {
       handleRef.current.destroy()
       handleRef.current = undefined
@@ -122,6 +182,7 @@ export function useTerminalSession({
 
   const recreate = useCallback(async () => {
     destroy()
+    unmountedRef.current = false
     await open()
   }, [destroy, open])
 
