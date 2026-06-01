@@ -6,6 +6,7 @@ import { ChatHeader } from "./ChatHeader"
 import { EmptyConversationState } from "./EmptyConversationState"
 import { QuestionAnswerComposer } from "./QuestionAnswerComposer"
 import { TimelineList } from "./MessageList"
+import type { SingletonTabId } from "@/store/tab-store"
 import type {
   Conversation,
   ChatSubmitInput,
@@ -23,7 +24,7 @@ type ChatPanelProps = {
   connectionStatus: RunConnectionStatus
   isWorkspaceOpen: boolean
   onDraftChange: (draft: string) => void
-  onOpenConversationStatus: () => void
+  onOpenWorkspaceTab: (tabType: SingletonTabId) => void
   onCancelRun: (
     runId?: string,
     options?: { fallbackToChat?: boolean }
@@ -39,7 +40,7 @@ export function ChatPanel({
   draft,
   isWorkspaceOpen,
   onDraftChange,
-  onOpenConversationStatus,
+  onOpenWorkspaceTab,
   onCancelRun,
   onSubmit,
   onToggleWorkspace,
@@ -68,7 +69,7 @@ export function ChatPanel({
         connectionStatus={connectionStatus}
         conversation={conversation}
         isWorkspaceOpen={isWorkspaceOpen}
-        onOpenConversationStatus={onOpenConversationStatus}
+        onOpenWorkspaceTab={onOpenWorkspaceTab}
         onToggleWorkspace={onToggleWorkspace}
         runStatus={runStatus}
       />

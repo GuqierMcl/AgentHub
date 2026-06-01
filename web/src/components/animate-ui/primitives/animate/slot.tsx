@@ -1,16 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { motion, isMotionComponent } from 'motion/react';
+import { motion, isMotionComponent, type HTMLMotionProps } from 'motion/react';
 import { cn } from '@/lib/utils';
 
 type AnyProps = Record<string, unknown>;
 
-type DOMMotionProps<T extends HTMLElement = HTMLElement> = AnyProps & {
-  className?: string;
-  style?: unknown;
-  ref?: React.Ref<T>;
-};
+type DOMMotionProps<T extends HTMLElement = HTMLElement> = Omit<
+  HTMLMotionProps<keyof HTMLElementTagNameMap>,
+  'ref'
+> & { ref?: React.Ref<T> };
 
 type WithAsChild<Base extends object> =
   | (Base & { asChild: true; children: React.ReactElement })
