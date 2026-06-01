@@ -28,6 +28,6 @@ Agent Runtime 定位为 HubServer 的**侧车进程（Sidecar）**。生产环�
 - 所有 AI 执行必须经过 `agent-runtime`。
 - `agent-runtime` 是 `hub-server` 的 Sidecar 进程，由 `hub-server` 管理其生命周期。
 - `agent-runtime` 不直接写业务数据库，只输出结构化事件。
-- API 与事件契约必须记录在 `docs/contracts/API_CONTRACTS.md`。
+- Agent Runtime API 与事件契约必须记录在 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。
 - 权限、沙箱与执行环境变化必须记录在 `docs/architecture/AGENT_RUNTIME.md`。
 - 领域数据模型建议以 `docs/architecture/DATA_MODEL.md` 为准，并采用 AI SDK 的 `UIMessage` 最佳实践。

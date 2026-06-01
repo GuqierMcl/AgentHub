@@ -2,7 +2,7 @@
 
 本文档定义 Agent Runtime 内部的智能体架构。目标是把系统预设智能体、用户自定义智能体、外部智能体和隐藏子智能体统一到一套可执行、可编排、可扩展的模型中。
 
-本文档约束 `agent-runtime` 的设计与实现；涉及跨进程 API 或事件载荷时，还需要同步更新 `docs/contracts/API_CONTRACTS.md`。
+本文档约束 `agent-runtime` 的设计与实现；涉及 Runtime API 或事件载荷时，还需要同步更新 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。
 
 ## 1. 设计目标
 
@@ -527,7 +527,7 @@ type ExternalAgentConfig = {
 }
 ```
 
-Runtime 应使用隔离工作目录和 Runtime 管理的配置目录，避免污染用户全局配置。
+外部智能体的具体配置目录策略由对应 Adapter 文档约束。某些外部平台可以使用 Runtime 管理的配置目录以获得更强隔离；OpenCode V1 已收敛为“聊天对象”接入：AgentHub 不管理 OpenCode 的模型供应商、Skill、MCP 或私有配置，默认使用用户本机 OpenCode 配置。公共边界见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`，OpenCode 专属设计见 `docs/external_agents/OPENCODE_ADAPTER.md`。
 
 ## 6. 委派边界模型
 

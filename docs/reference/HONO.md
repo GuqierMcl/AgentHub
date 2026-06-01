@@ -46,7 +46,7 @@ app.route('/api/runs', runRoutes)
 - 健康检查统一保留 `/health`。
 - `hub-server` 的浏览器侧 API 建议统一放在 `/api/*` 下。
 - `agent-runtime` 的内部执行 API 建议统一放在 `/runtime/*` 下。
-- 跨进程接口新增或变更时，必须同步更新 `docs/contracts/API_CONTRACTS.md`。
+- Agent Runtime 跨进程接口新增或变更时，必须同步更新 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。
 
 ## Context 使用约定
 
@@ -98,7 +98,7 @@ AgentHub 的 Agent 执行天然需要流式事件：
 
 - `agent-runtime` 负责产生 Run 事件流。
 - `hub-server` 负责消费、持久化，并转发给前端。
-- 流式事件名称、载荷和终止状态必须记录在 `docs/contracts/API_CONTRACTS.md`。
+- Runtime 流式事件名称、载荷和终止状态必须记录在 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。
 
 实现时应优先使用 Hono 生态提供的 Web 标准流能力或 SSE 辅助工具，并保证取消、失败、超时和完成都有明确终止事件。
 

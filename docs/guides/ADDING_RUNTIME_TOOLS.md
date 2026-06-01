@@ -46,7 +46,7 @@ Tool Catalog 由注册的 `ToolDefinition` 组成，是工具风险、权限要�
 
 ## 4. Authoring Options
 
-如果工具允许用户自定义智能体选择，必须在自身定义中设置 `configurableByUserAgent: true` 与展示 metadata，并同步更新 `docs/contracts/API_CONTRACTS.md` 和测试。`GET /runtime/agents/authoring-options` 会自动从 Tool Catalog 返回该工具。
+如果工具允许用户自定义智能体选择，必须在自身定义中设置 `configurableByUserAgent: true` 与展示 metadata，并同步更新 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md` 和测试。`GET /runtime/agents/authoring-options` 会自动从 Tool Catalog 返回该工具。
 
 工具 metadata 至少包含：
 
@@ -83,7 +83,7 @@ Tool Catalog 由注册的 `ToolDefinition` 组成，是工具风险、权限要�
 - `permission.denied`
 - `permission.cancelled`
 
-如果工具引入新的业务事件或特殊 payload，必须同步更新 `docs/contracts/API_CONTRACTS.md`。
+如果工具引入新的业务事件或特殊 payload，必须同步更新 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。
 
 工具事件不得泄露 workspace root、授权目录或用户显式传入的宿主机绝对路径。文件类工具应在 `tool.completed` 中返回 workspace-relative 路径或 `mounts/<mountId>/...` 逻辑路径；`tool.started` 不应回显原始路径入参。
 

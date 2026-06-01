@@ -233,6 +233,8 @@ Claude Code、Codex、OpenCode 等外部 Agent 平台差异，应该被封装在
 
 课题要求通过统一适配器层屏蔽 Claude Code、Codex、OpenCode 等主流 Agent 平台差异，并支持用户自建 Agent，因此 Adapter 仍然是 Agent Runtime 的关键架构点，但它只面向外部智能体。
 
+外部智能体的最新接入原则是把它们视为 AgentHub 中的可见聊天对象，而不是 AgentHub 托管的模型供应商、Skill 或 MCP 配置面板。公共外部智能体边界、Session scope、上下文 handoff、权限桥接和 Diff 投影见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`；OpenCode 专属 Project/Session 映射和事件设计见 `docs/external_agents/OPENCODE_ADAPTER.md`。
+
 ### 3.5 上下文组装
 
 Agent Runtime 不直接管理完整业务数据库，但在执行前需要由 API Server 提供必要上下文。
@@ -507,5 +509,5 @@ Agent Runtime 使用 Hono 承载内部执行 API。通用 Hono 约定见 `docs/r
 - Runtime 内部调用必须具备服务间鉴权或等价的内部访问控制设计。
 - 执行错误应转换为结构化 Runtime 错误或 Runtime 事件，不应泄露底层 Provider、CLI 或系统细节。
 - Run 事件流应保证开始、执行中、失败、超时、取消、完成等状态都有明确事件。
-- 流式事件契约必须同步维护在 `docs/contracts/API_CONTRACTS.md`。
+- 流式事件契约必须同步维护在 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。
 - 后续测试应优先使用 Hono `app.request()` 风格的轻量 API smoke test。

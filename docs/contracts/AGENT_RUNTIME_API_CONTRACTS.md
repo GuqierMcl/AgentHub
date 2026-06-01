@@ -1,6 +1,8 @@
-# API 契约
+# Agent Runtime API 契约
 
-本文档记录 `web`、`hub-server` 与 `agent-runtime` 之间的跨进程契约。
+本文档记录 `hub-server` 调用 `agent-runtime` Sidecar 的 Runtime API、Sidecar 生命周期与相关 Run 事件载荷契约。
+
+本文档不是 HubServer 面向浏览器的产品 API 文档。后续如果需要记录 `web -> hub-server` 的 `/api/*` 契约，应另建 HubServer API 文档，避免与 Runtime 内部执行 API 混淆。
 
 ## 进程流向
 
@@ -256,10 +258,12 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
     "provider": "opencode",
     "outputFormat": "event-stream",
     "workingDirectoryPolicy": "runtime-workspace",
-    "configDirectoryPolicy": "runtime-managed"
+    "configDirectoryPolicy": "user-global"
   }
 }
 ```
+
+OpenCode V1 将外部智能体视为聊天对象，使用用户本机 OpenCode 配置；AgentHub 不通过本 API 配置 OpenCode 模型供应商、Skill、MCP、plugin 或命令。更完整的外部 Session、Project、上下文和权限桥接设计见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md` 与 `docs/external_agents/OPENCODE_ADAPTER.md`。
 
 如果智能体配置了 `modelRef`，列表和详情都可以透出该绑定；`resolvedModel` 仅在 provider 与 model 都可解析时返回，否则为空。
 
