@@ -13,6 +13,7 @@ import {
 } from "../src/runtime"
 import { AgentRegistry, type AgentDefinition } from "../src/agents"
 import type { ProviderService } from "../src/provider"
+import type { RuntimeGeneration } from "../src/runtime/generation"
 import { mkdtemp } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -139,6 +140,37 @@ describe("message stream event helpers", () => {
     expect(completed).toHaveLength(1)
     expect(completed[0]?.messageId).toBe("msg_run_message_identity_execution_test_0")
     expect(eventData(completed[0]!).content).toBe("Hello world")
+    expect(eventData(completed[0]!).generation).toBeUndefined()
+  })
+
+  test("adds base generation metadata to message events", () => {
+    const generation: RuntimeGeneration = {
+      executionId: "execution_test",
+      model: {
+        providerId: "openai",
+        modelId: "gpt-5.1",
+        providerName: "OpenAI",
+        modelName: "GPT-5.1",
+        modelSourceAgentId: "coder",
+      },
+    }
+    const builder = new MessageBlockEventBuilder(createContext(), undefined, generation)
+    const events = [
+      ...builder.createEvents(part({ type: "text-start", id: "text_generation" })),
+      ...builder.createEvents(part({
+        type: "text-delta",
+        id: "text_generation",
+        text: "Hello",
+      })),
+      ...builder.createEvents(part({ type: "text-end", id: "text_generation" })),
+    ]
+
+    expect(events.map((event) => event.type)).toEqual([
+      "message.delta",
+      "message.completed",
+    ])
+    expect(eventData(events[0]!).generation).toEqual(generation)
+    expect(eventData(events[1]!).generation).toEqual(generation)
   })
 
   test("reasoning and following text share the same runtime message id", () => {

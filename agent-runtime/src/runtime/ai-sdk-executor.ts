@@ -4,6 +4,7 @@ import { resolveAgentLanguageModel } from "./model-resolver"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
+import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { createRunEvent } from "./run-events"
 import type { PendingQuestionToolCall } from "./question"
 import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
@@ -126,10 +127,16 @@ export class AiSdkExecutor implements AgentExecutor {
       "Resolved AI SDK model for execution"
     )
 
+    const startedAtMs = Date.now()
+    const baseGeneration = createRuntimeGeneration({
+      executionId: context.executionId,
+      resolvedModel: resolution.resolvedModel,
+    })
     const started = createRunEvent(runId, "agent.started", agent.id, {
       agentName: agent.name,
       executorType: agent.executorType,
       resolvedModel: resolution.resolvedModel,
+      ...(baseGeneration ? { generation: baseGeneration } : {}),
     })
     started.taskId = task?.taskId
     started.parentAgentId = parentAgentId
@@ -178,7 +185,7 @@ export class AiSdkExecutor implements AgentExecutor {
 
     let approvalPending = false
     const pendingQuestionCalls: PendingQuestionToolCall[] = []
-    const messageBlockEvents = new MessageBlockEventBuilder(streamContext, messageIdentity)
+    const messageBlockEvents = new MessageBlockEventBuilder(streamContext, messageIdentity, baseGeneration)
     const modelStreamEvents = new ModelStreamEventBuilder(streamContext, messageIdentity)
 
     try {
@@ -269,6 +276,16 @@ export class AiSdkExecutor implements AgentExecutor {
         finishReason,
         usage,
         resolvedModel: resolution.resolvedModel,
+        ...(baseGeneration
+          ? {
+              generation: {
+                ...baseGeneration,
+                usage: normalizeLanguageModelUsage(usage),
+                finishReason,
+                durationMs: Math.max(0, Date.now() - startedAtMs),
+              },
+            }
+          : {}),
       })
       agentCompleted.taskId = task?.taskId
       agentCompleted.parentAgentId = parentAgentId

@@ -16,6 +16,30 @@ export type RuntimeMessage = {
   content: string
 }
 
+export type RuntimeGenerationModel = {
+  providerId: string
+  modelId: string
+  providerName: string
+  modelName: string
+  modelSourceAgentId?: string
+}
+
+export type RuntimeGenerationUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  reasoningTokens?: number
+  cachedInputTokens?: number
+}
+
+export type RuntimeGeneration = {
+  executionId?: string
+  model?: RuntimeGenerationModel
+  usage?: RuntimeGenerationUsage
+  finishReason?: string
+  durationMs?: number
+}
+
 export type RuntimeRunInput = {
   conversationId: string
   mode: RuntimeConversationMode

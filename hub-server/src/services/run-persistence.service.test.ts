@@ -74,6 +74,45 @@ describe('isRetryableRuntimeEventStreamError', () => {
 })
 
 describe('toProductHubRunEventEnvelope', () => {
+  it('preserves generation metadata on message events', () => {
+    const generation = {
+      executionId: 'execution_123',
+      model: {
+        providerId: 'openai',
+        modelId: 'gpt-5.1',
+        providerName: 'OpenAI',
+        modelName: 'GPT-5.1',
+        modelSourceAgentId: 'coder',
+      },
+      usage: {
+        inputTokens: 10,
+        outputTokens: 20,
+        totalTokens: 30,
+      },
+      finishReason: 'stop',
+      durationMs: 1200,
+    }
+    const envelope = toProductHubRunEventEnvelope({
+      sequence: 1,
+      event: {
+        id: 'event_message_completed',
+        runId: 'run_message',
+        type: 'message.completed',
+        timestamp: new Date().toISOString(),
+        agentId: 'coder',
+        messageId: 'msg_run_message_execution_123_0',
+        messageIndex: 0,
+        data: {
+          content: 'hello',
+          generation,
+        },
+      },
+    })
+
+    const eventData = envelope.event.data as { generation?: unknown }
+    expect(eventData.generation).toEqual(generation)
+  })
+
   it('projects bash tool output to a bounded UI preview', () => {
     const stdout = 'x'.repeat(13_000)
     const stderr = 'error'.repeat(3_000)

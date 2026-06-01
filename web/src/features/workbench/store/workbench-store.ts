@@ -90,6 +90,7 @@ const timelineEventTypes = new Set([
   "reasoning.started",
   "reasoning.delta",
   "reasoning.completed",
+  "agent.completed",
   "orchestrator.plan.created",
   "run.completed",
   "run.failed",

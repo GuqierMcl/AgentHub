@@ -124,7 +124,8 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 - `reasoning-start` 可在 `text-start` 之前预留当前消息的 `messageId`；随后同一输出中的文本块复用该 `messageId`。
 - 工具、权限或问答事件如果发生在当前模型输出上下文中，也复用当前 `messageId`；缺少明确当前消息时 Runtime 会为该工具/权限/问答上下文创建新的 `messageId`。
 - `messageIndex` 由 RunManager 在首次看到新 `messageId` 时按实际 emit 顺序分配，是 run-local 递增序号；同一 `messageId` 下的 reasoning、tool、permission 和 message 事件共享同一个 `messageIndex`。
-- `agent.completed` 仍表示一次 agent execution 完成；`usage`、`finishReason`、`resolvedModel` 以 `agent.completed.data` 为准。`message.completed.data` 只保证包含最终 `content`。
+- `message.delta` / `message.completed` 可以在 `data.generation` 中携带本次 execution 的轻量模型元信息；`message.completed.data.content` 仍是最终文本事实。
+- `agent.completed` 仍表示一次 agent execution 完成；兼容字段 `usage`、`finishReason`、`resolvedModel` 继续保留在 `agent.completed.data`，同时 `agent.completed.data.generation` 提供面向 UI 和后续统计的轻量结构化入口。
 
 示例：
 
@@ -138,7 +139,17 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
   "messageId": "msg_run_xxx_execution_xxx_1",
   "messageIndex": 1,
   "data": {
-    "content": "我已经让 Coder 检查过，实现建议如下。"
+    "content": "我已经让 Coder 检查过，实现建议如下。",
+    "generation": {
+      "executionId": "execution_xxx",
+      "model": {
+        "providerId": "openai",
+        "modelId": "gpt-5.1",
+        "providerName": "OpenAI",
+        "modelName": "GPT-5.1",
+        "modelSourceAgentId": "coder"
+      }
+    }
   }
 }
 ```
@@ -149,7 +160,41 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 - 同一 `messageId` 的 `reasoning.*`、`tool.*`、`permission.*`、`question.*`、`message.delta/completed` 投影到同一 assistant `Message`；文本进入 text `MessagePart`，reasoning/tool/permission/question 可进入对应 message parts 或 metadata。
 - `messageIndex` 可先落入 `Message.metadataJson.runtime.messageIndex`；若后续需要强排序字段，可以再做破坏性迁移。
 
-## 5. AI SDK Part Passthrough
+## 5. Generation Metadata
+
+AI SDK 和 Orchestrator 执行器会在现有 Runtime event `data` 内附加可选 `generation` 字段。该字段不替代完整 raw 事件和旧兼容字段，只作为 Web 展示模型名、tokens 与后续统计的轻量索引。
+
+```ts
+type RuntimeGeneration = {
+  executionId?: string
+  model?: {
+    providerId: string
+    modelId: string
+    providerName: string
+    modelName: string
+    modelSourceAgentId?: string
+  }
+  usage?: {
+    inputTokens?: number
+    outputTokens?: number
+    totalTokens?: number
+    reasoningTokens?: number
+    cachedInputTokens?: number
+  }
+  finishReason?: string
+  durationMs?: number
+}
+```
+
+事件规则：
+
+- `message.delta` / `message.completed` 携带 `generation.executionId` 与 `generation.model`，便于 UI 在 replay 和 live 流中直接恢复消息使用的模型。
+- `agent.started` 携带同样的 compact `generation`，用于 execution 级追踪。
+- `agent.completed` 携带完整 `generation`，包含可用的 `usage`、`finishReason` 与 `durationMs`；旧字段 `resolvedModel`、`usage`、`finishReason` 保持不变。
+- 没有可用模型或用量信息的 mock / external fallback 可以不写 `generation`。
+- Tokens 语义是本次 agent execution 的生成用量；如果一次 execution 产生多条可见 assistant message，UI 可以把 usage 标到该 execution 的最后一条可见消息上。
+
+## 6. AI SDK Part Passthrough
 
 `model.stream.part` 是 AI SDK `streamText().fullStream` part 的薄封装。它用于调试、细粒度 UI 和未来事件投影，不替代现有高层 RunEvent。
 
@@ -199,7 +244,7 @@ type ModelStreamPartEventData = {
 
 `raw` part 仅在 `includeRawModelChunks=true` 时输出。
 
-## 6. Reasoning Events
+## 7. Reasoning Events
 
 `reasoning.*` 是从 AI SDK reasoning part 提升出的稳定 RunEvent。它只表示 provider 或 AI SDK 显式暴露的 reasoning/thinking 内容，不表示 Runtime 能访问隐藏链路。
 
@@ -230,14 +275,14 @@ model.stream.part
 reasoning.started | reasoning.delta | reasoning.completed
 ```
 
-## 7. Ordering And Compatibility
+## 8. Ordering And Compatibility
 
 - 对于 `text-start/text-delta/text-end`，Runtime 先输出 `model.stream.part`，再按文本块输出 `message.delta` 或 `message.completed`。
 - 对于 reasoning part，Runtime 先输出 `model.stream.part`，再输出对应 `reasoning.*`。
 - 工具调用仍以 `tool.*`、`permission.*`、`question.*` 和 `task.*` 作为稳定语义事件；`model.stream.part` 中的 tool part 只作为模型流追踪。
 - 后续如果需要把 `source`、`file`、`tool-input-*` 等提升为独立 RunEvent，应从 `model.stream.part` 增量投影，不改变现有高层事件语义。
 
-## 8. Redaction And Serialization
+## 9. Redaction And Serialization
 
 Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
@@ -252,7 +297,7 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
 `raw` part 可能包含 provider 原始内容，默认关闭。需要调试 provider 新特性时，调用方必须显式设置 `includeRawModelChunks=true`。
 
-## 9. Network Permission Payload
+## 10. Network Permission Payload
 
 `web_fetch` 在 `permissionPolicy.network = "limited"` 时产生标准 `permission.requested`。事件的 `data` 仍是 Runtime permission request 记录，其中 `data.data` 包含网络审批摘要：
 
