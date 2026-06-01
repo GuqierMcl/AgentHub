@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events"
+import { fileURLToPath } from "node:url"
 
 import { TerminalRingBuffer } from "./terminal-ring-buffer"
-import { resolveShell, type ShellConfig } from "./shell-resolver"
+import { resolveShell } from "./shell-resolver"
 
 export type TerminalSessionEvents = {
   onOutput: (data: string) => void
@@ -17,7 +18,7 @@ export class TerminalSession {
   readonly createdAt: string
 
   private proc: {
-    stdin: { write: (data: string) => void }
+    stdin: { write: (data: string) => void; end?: () => void }
     stdout: ReadableStream<Uint8Array>
     pid: number
     kill: () => void
@@ -29,6 +30,10 @@ export class TerminalSession {
   private readonly replayBuffer: TerminalRingBuffer
   private readonly emitter = new EventEmitter()
   private reader: ReadableStreamDefaultReader | null = null
+  private stderrReader: ReadableStreamDefaultReader | null = null
+  private helperBuffer = ""
+  private exitEmitted = false
+  private readonly shellArgs: string[]
 
   constructor(
     sessionId: string,
@@ -52,6 +57,7 @@ export class TerminalSession {
 
     const resolved = resolveShell(shellOverride)
     this.shell = resolved.shell
+    this.shellArgs = resolved.args
   }
 
   get status(): "starting" | "running" | "closing" | "closed" | "error" {
@@ -70,22 +76,45 @@ export class TerminalSession {
     if (this.proc) return
 
     try {
-      const shellProcess = Bun.spawn([this.shell], {
-        cwd: this.workspaceRoot,
-        env: { ...process.env },
+      const nodeBinary =
+        process.env.AGENTHUB_NODE_BIN ?? Bun.which("node") ?? null
+      if (!nodeBinary) {
+        throw new Error("Node.js runtime not found for terminal PTY helper")
+      }
+
+      const helperScript = fileURLToPath(
+        new URL("./pty-session-host.cjs", import.meta.url),
+      )
+
+      const helperProcess = Bun.spawn([nodeBinary, helperScript], {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
-        onExit: (proc, exitCode, signalCode, error) => {
-          this._status = "closed"
-          this.emitter.emit("exit", exitCode, signalCode)
+        env: {
+          ...process.env,
+          PTY_SHELL: this.shell,
+          PTY_ARGS_JSON: JSON.stringify(this.shellArgs),
+          PTY_CWD: this.workspaceRoot,
+          PTY_COLS: String(this.cols),
+          PTY_ROWS: String(this.rows),
+          PTY_TERM_NAME: "xterm-256color",
+        },
+        onExit: (_proc, exitCode, signalCode) => {
+          this._status = this._status === "error" ? "error" : "closed"
+          if (!this.exitEmitted) {
+            this.exitEmitted = true
+            this.emitter.emit("exit", exitCode, signalCode)
+          }
+          this.proc = null
         },
       })
 
       this._status = "running"
+      this.exitEmitted = false
+      this.helperBuffer = ""
 
       const readOutput = async () => {
-        const reader = shellProcess.stdout.getReader()
+        const reader = helperProcess.stdout.getReader()
         this.reader = reader
         const decoder = new TextDecoder()
 
@@ -94,9 +123,7 @@ export class TerminalSession {
             const { done, value } = await reader.read()
             if (done) break
             const text = decoder.decode(value, { stream: true })
-            this._lastActiveAt = new Date().toISOString()
-            this.replayBuffer.write(text)
-            this.emitter.emit("output", text)
+            this.handleHelperStdout(text)
           }
         } catch {
           // stream closed
@@ -105,20 +132,48 @@ export class TerminalSession {
 
       readOutput()
 
+      const readStderr = async () => {
+        const reader = helperProcess.stderr.getReader()
+        this.stderrReader = reader
+        const decoder = new TextDecoder()
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            const text = decoder.decode(value, { stream: true })
+            if (text.trim().length === 0) continue
+            this._lastActiveAt = new Date().toISOString()
+            this.emitter.emit("error", text.trim())
+          }
+        } catch {
+          // stream closed
+        }
+      }
+
+      readStderr()
+
       this.proc = {
         stdin: {
           write: (data: string) => {
             try {
-              shellProcess.stdin.write(data)
+              helperProcess.stdin.write(data)
             } catch {
               // stdin may be closed
             }
           },
+          end: () => {
+            try {
+              helperProcess.stdin.end()
+            } catch {
+              // stdin may already be closed
+            }
+          },
         },
-        stdout: shellProcess.stdout,
-        pid: shellProcess.pid,
+        stdout: helperProcess.stdout,
+        pid: helperProcess.pid,
         kill: () => {
-          shellProcess.kill()
+          helperProcess.kill()
         },
       }
     } catch (err) {
@@ -130,14 +185,14 @@ export class TerminalSession {
 
   write(data: string): void {
     this._lastActiveAt = new Date().toISOString()
-    this.proc?.stdin.write(data)
+    this.sendHelperMessage({ type: "input", data })
   }
 
   resize(_cols: number, _rows: number): void {
     this.cols = _cols
     this.rows = _rows
     this._lastActiveAt = new Date().toISOString()
-    // resize is a no-op with pipe-based PTY
+    this.sendHelperMessage({ type: "resize", cols: _cols, rows: _rows })
   }
 
   kill(): void {
@@ -147,6 +202,12 @@ export class TerminalSession {
         this.reader.cancel()
         this.reader = null
       }
+      if (this.stderrReader) {
+        this.stderrReader.cancel()
+        this.stderrReader = null
+      }
+      this.sendHelperMessage({ type: "close" })
+      this.proc?.stdin.end?.()
       this.proc?.kill()
     } catch {
       // already dead
@@ -181,5 +242,67 @@ export class TerminalSession {
 
   offError(cb: (message: string) => void): void {
     this.emitter.off("error", cb)
+  }
+
+  private sendHelperMessage(message: Record<string, unknown>): void {
+    if (!this.proc) return
+    try {
+      this.proc.stdin.write(`${JSON.stringify(message)}\n`)
+    } catch {
+      // stdin may be closed
+    }
+  }
+
+  private handleHelperStdout(chunk: string): void {
+    this.helperBuffer += chunk
+
+    while (true) {
+      const newlineIndex = this.helperBuffer.indexOf("\n")
+      if (newlineIndex === -1) {
+        break
+      }
+
+      const line = this.helperBuffer.slice(0, newlineIndex).trim()
+      this.helperBuffer = this.helperBuffer.slice(newlineIndex + 1)
+
+      if (!line) {
+        continue
+      }
+
+      try {
+        const message = JSON.parse(line) as
+          | { type: "ready" }
+          | { type: "output"; data: string }
+          | { type: "error"; message: string }
+          | { type: "exit"; code: number | null; signal: number | null }
+
+        switch (message.type) {
+          case "ready":
+            this._lastActiveAt = new Date().toISOString()
+            break
+          case "output":
+            this._lastActiveAt = new Date().toISOString()
+            this.replayBuffer.write(message.data)
+            this.emitter.emit("output", message.data)
+            break
+          case "error":
+            this._lastActiveAt = new Date().toISOString()
+            this._status = "error"
+            this.emitter.emit("error", message.message)
+            break
+          case "exit":
+            this._status = "closed"
+            if (!this.exitEmitted) {
+              this.exitEmitted = true
+              this.emitter.emit("exit", message.code, message.signal)
+            }
+            break
+        }
+      } catch {
+        this._lastActiveAt = new Date().toISOString()
+        this.replayBuffer.write(line)
+        this.emitter.emit("output", line)
+      }
+    }
   }
 }

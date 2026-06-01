@@ -8,7 +8,9 @@ type AttachCallbacks = {
 }
 
 type AttachedEntry = {
+  attachmentId: string
   callbacks: AttachCallbacks
+  cleanup: () => void
 }
 
 export class TerminalService {
@@ -69,7 +71,11 @@ export class TerminalService {
     return this.registry.getSessionInfo(session)
   }
 
-  attachSession(sessionId: string, callbacks: AttachCallbacks): TerminalWsEvent | null {
+  attachSession(
+    sessionId: string,
+    attachmentId: string,
+    callbacks: AttachCallbacks,
+  ): TerminalWsEvent | null {
     const session = this.registry.get(sessionId)
     if (!session) {
       return { type: "error", message: `Session ${sessionId} not found` }
@@ -79,8 +85,8 @@ export class TerminalService {
 
     if (this.attached.has(sessionId)) {
       const existing = this.attached.get(sessionId)!
+      existing.cleanup()
       existing.callbacks.close()
-      this.attached.delete(sessionId)
     }
 
     const replayChunks = session.getReplayChunks()
@@ -88,21 +94,20 @@ export class TerminalService {
       callbacks.send(JSON.stringify({ type: "replay", chunks: replayChunks }))
     }
 
-    const entry: AttachedEntry = { callbacks }
-    this.attached.set(sessionId, entry)
-
     const onOutput = (data: string) => {
       callbacks.send(JSON.stringify({ type: "output", data }))
     }
     const onExit = (code: number | null, _signal: number | null) => {
       callbacks.send(JSON.stringify({ type: "exit", code }))
       callbacks.close()
-      session.offOutput(onOutput)
-      session.offExit(onExit)
-      session.offError(onError)
+      cleanup()
+      this.attached.delete(sessionId)
     }
     const onError = (message: string) => {
       callbacks.send(JSON.stringify({ type: "error", message }))
+    }
+
+    const cleanup = () => {
       session.offOutput(onOutput)
       session.offExit(onExit)
       session.offError(onError)
@@ -112,16 +117,26 @@ export class TerminalService {
     session.onExit(onExit)
     session.onError(onError)
 
+    const entry: AttachedEntry = { attachmentId, callbacks, cleanup }
+    this.attached.set(sessionId, entry)
+    callbacks.send(JSON.stringify({ type: "ready", sessionId }))
+
     return null
   }
 
-  detachSession(sessionId: string): void {
+  detachSession(sessionId: string, attachmentId?: string): void {
     const entry = this.attached.get(sessionId)
-    if (entry) {
-      entry.callbacks.close()
-      this.attached.delete(sessionId)
+    if (!entry) {
+      this.startIdleTimer(sessionId)
+      return
     }
 
+    if (attachmentId && entry.attachmentId !== attachmentId) {
+      return
+    }
+
+    entry.cleanup()
+    this.attached.delete(sessionId)
     this.startIdleTimer(sessionId)
   }
 
@@ -144,6 +159,7 @@ export class TerminalService {
 
     const entry = this.attached.get(sessionId)
     if (entry) {
+      entry.cleanup()
       entry.callbacks.close()
       this.attached.delete(sessionId)
     }
@@ -167,6 +183,7 @@ export class TerminalService {
     this.idleTimers.clear()
     for (const [id] of this.attached) {
       const entry = this.attached.get(id)!
+      entry.cleanup()
       entry.callbacks.close()
     }
     this.attached.clear()

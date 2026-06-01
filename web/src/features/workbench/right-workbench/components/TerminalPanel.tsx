@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import { Loader2Icon, PlugIcon, RefreshCwIcon, TimerOffIcon, AlertCircleIcon } from "lucide-react"
 
 import type { TerminalTabPayload } from "@/store/tab-store"
+import { useTabStore } from "@/store/tab-store"
 import { cn } from "@/lib/utils"
 
 import { XTermView, type XTermViewHandle } from "../../terminal/components/XTermView"
@@ -66,14 +67,17 @@ function StatusOverlay({
   )
 }
 
-export function TerminalPanel({ title, payload }: TerminalPanelProps) {
+export function TerminalPanel({ uid, title, payload }: TerminalPanelProps) {
   const xtermRef = useRef<XTermViewHandle>(null)
+  const updateTabPayload = useTabStore((s) => s.updateTabPayload)
 
   const {
     status,
+    sessionId,
     errorMessage,
     open: openSession,
-    close: closeSession,
+    disconnect,
+    recreate,
     sendInput,
     sendResize,
     onOutput,
@@ -91,15 +95,24 @@ export function TerminalPanel({ title, payload }: TerminalPanelProps) {
   useEffect(() => {
     if (!payload || hasOpened.current) return
     hasOpened.current = true
-    openSession()
+    void openSession()
   }, [payload, openSession])
 
   useEffect(() => {
     return () => {
-      closeSession()
+      disconnect()
       hasOpened.current = false
     }
-  }, [closeSession])
+  }, [disconnect])
+
+  useEffect(() => {
+    if (!payload || !sessionId || payload.sessionId === sessionId) return
+
+    updateTabPayload(uid, {
+      ...payload,
+      sessionId,
+    })
+  }, [payload, sessionId, uid, updateTabPayload])
 
   useEffect(() => {
     onOutput((data) => {
@@ -124,11 +137,11 @@ export function TerminalPanel({ title, payload }: TerminalPanelProps) {
   }
 
   const handleRetry = () => {
-    openSession()
+    void recreate()
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-background">
       <div className="flex shrink-0 items-center gap-2 border-border border-b px-3 py-1.5">
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium text-sm">{title}</div>
@@ -145,7 +158,7 @@ export function TerminalPanel({ title, payload }: TerminalPanelProps) {
         </div>
       </div>
 
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-[#0b0f14]">
         <StatusOverlay
           errorMessage={errorMessage}
           status={status}

@@ -6,7 +6,8 @@ export type TerminalSessionHandle = {
   sessionId: string
   sendInput: (data: string) => void
   sendResize: (cols: number, rows: number) => void
-  close: () => void
+  disconnect: () => void
+  destroy: () => void
 }
 
 export type TerminalConnectionEvents = {
@@ -100,7 +101,12 @@ class TerminalConnectionManager {
           ws.send(JSON.stringify({ type: "resize", cols, rows }))
         }
       },
-      close: () => {
+      disconnect: () => {
+        conn.closed = true
+        ws.close()
+        this.connections.delete(sessionId)
+      },
+      destroy: () => {
         conn.closed = true
         ws.close()
         this.connections.delete(sessionId)
@@ -177,7 +183,12 @@ class TerminalConnectionManager {
           ws.send(JSON.stringify({ type: "resize", cols, rows }))
         }
       },
-      close: () => {
+      disconnect: () => {
+        conn.closed = true
+        ws.close()
+        this.connections.delete(sessionId)
+      },
+      destroy: () => {
         conn.closed = true
         ws.close()
         this.connections.delete(sessionId)
@@ -192,7 +203,7 @@ class TerminalConnectionManager {
     return this.connections.get(sessionId)
   }
 
-  closeSession(sessionId: string): void {
+  disconnectSession(sessionId: string): void {
     const conn = this.connections.get(sessionId)
     if (conn) {
       conn.closed = true

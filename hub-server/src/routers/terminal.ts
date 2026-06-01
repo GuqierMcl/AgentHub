@@ -1,5 +1,6 @@
 import { Hono, Context } from "hono"
 import { createBunWebSocket } from "hono/bun"
+import { randomUUID } from "node:crypto"
 import { z } from "zod"
 
 import { findConversationById } from "../repositories/conversation.repo"
@@ -98,6 +99,7 @@ terminal.get(
   upgradeWebSocket((c: Context) => {
     const sessionId = c.req.param("sessionId") ?? ""
     const terminalService = c.get("terminalService")
+    const attachmentId = randomUUID()
 
     return {
       onOpen(_evt, ws) {
@@ -106,7 +108,7 @@ terminal.get(
           return
         }
 
-        const err = terminalService.attachSession(sessionId, {
+        const err = terminalService.attachSession(sessionId, attachmentId, {
           send: (data: string) => {
             try {
               ws.send(data)
@@ -152,11 +154,11 @@ terminal.get(
       },
 
       onClose() {
-        terminalService.detachSession(sessionId)
+        terminalService.detachSession(sessionId, attachmentId)
       },
 
       onError() {
-        terminalService.detachSession(sessionId)
+        terminalService.detachSession(sessionId, attachmentId)
       },
     }
   }),

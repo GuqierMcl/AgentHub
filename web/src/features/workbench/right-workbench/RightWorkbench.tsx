@@ -71,6 +71,28 @@ export function RightWorkbench({
     [openTab, conversation, workspaceId, workspaceLabel]
   )
 
+  const handleCloseTab = useCallback(
+    (uid: string) => {
+      const tab = tabs.find((item) => item.uid === uid)
+
+      if (
+        tab?.type === "terminal" &&
+        tab.payload &&
+        "conversationId" in tab.payload &&
+        typeof tab.payload.sessionId === "string"
+      ) {
+        terminalApi
+          .closeSession(tab.payload.conversationId, tab.payload.sessionId)
+          .catch(() => {
+            // Best-effort cleanup.
+          })
+      }
+
+      closeTab(uid)
+    },
+    [closeTab, tabs]
+  )
+
   useEffect(() => {
     if (!conversation?.workspace) return
 
@@ -108,7 +130,7 @@ export function RightWorkbench({
     return () => {
       cancelled = true
     }
-  }, [conversation?.id, conversation?.workspace, openTab, workspaceId, workspaceLabel])
+  }, [conversation?.id, conversation?.workspace, openTab, tabs, workspaceId, workspaceLabel])
 
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col border-border border-l bg-background">
@@ -124,7 +146,7 @@ export function RightWorkbench({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <RightWorkbenchTabBar
           activeTabUid={activeTabUid}
-          onCloseTab={closeTab}
+          onCloseTab={handleCloseTab}
           onActivateTab={activateTab}
           onOpenTab={handleOpenTab}
           tabs={tabs}
