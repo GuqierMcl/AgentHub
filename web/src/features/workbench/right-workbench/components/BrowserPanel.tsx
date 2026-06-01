@@ -6,6 +6,8 @@ import {
   WebPreviewNavigation,
   WebPreviewNavigationButton,
   WebPreviewUrl,
+  normalizeUrl,
+  useWebPreview,
 } from "@/components/ai-elements/web-preview"
 
 type BrowserPanelStatus = "idle" | "loading" | "ready" | "error"
@@ -18,15 +20,25 @@ type PreviewViewportLayout = {
 }
 
 const DESKTOP_VIEWPORT_WIDTH = 1280
+const RESOLVE_ENDPOINT = "/api/preview/resolve"
 
 type BrowserPanelProps = {
   initialUrl?: string
 }
 
+function UrlSync({ url }: { url: string }) {
+  const { setUrl } = useWebPreview()
+  useEffect(() => {
+    if (url) setUrl(url)
+  }, [url, setUrl])
+  return null
+}
+
 export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
-  const normalizedInitialUrl = initialUrl ?? ""
+  const normalizedInitialUrl = normalizeUrl(initialUrl ?? "")
   const [prevInitialUrl, setPrevInitialUrl] = useState(normalizedInitialUrl)
-  const [navigatedUrl, setNavigatedUrl] = useState(normalizedInitialUrl)
+  const [navigatedUrl, setNavigatedUrl] = useState("")
+  const [displayUrl, setDisplayUrl] = useState("")
   const [status, setStatus] = useState<BrowserPanelStatus>(
     initialUrl ? "loading" : "idle"
   )
@@ -34,12 +46,59 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
   const [viewportLayout, setViewportLayout] =
     useState<PreviewViewportLayout | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   if (normalizedInitialUrl !== prevInitialUrl) {
     setPrevInitialUrl(normalizedInitialUrl)
-    setNavigatedUrl(normalizedInitialUrl)
+    setNavigatedUrl("")
+    setDisplayUrl(normalizedInitialUrl)
     setStatus(normalizedInitialUrl ? "loading" : "idle")
+    setIframeKey((k) => k + 1)
   }
+
+  const navigateTo = useCallback(async (rawUrl: string) => {
+    if (!rawUrl) return
+
+    abortRef.current?.abort()
+    const abortController = new AbortController()
+    abortRef.current = abortController
+
+    setStatus("loading")
+    setDisplayUrl(rawUrl)
+
+    try {
+      const res = await fetch(RESOLVE_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: rawUrl }),
+        signal: abortController.signal,
+      })
+
+      if (abortController.signal.aborted) return
+
+      if (!res.ok) {
+        setNavigatedUrl(rawUrl)
+        return
+      }
+
+      const data = await res.json()
+      if (abortController.signal.aborted) return
+
+      const finalUrl: string = data.finalUrl
+      setDisplayUrl(finalUrl)
+      setNavigatedUrl(finalUrl)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return
+      setNavigatedUrl(rawUrl)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (normalizedInitialUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      navigateTo(normalizedInitialUrl)
+    }
+  }, [normalizedInitialUrl, navigateTo])
 
   useEffect(() => {
     const element = viewportRef.current
@@ -63,11 +122,21 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
     return () => observer.disconnect()
   }, [])
 
-  const handleUrlChange = useCallback((url: string) => {
-    if (!url) return
-    setNavigatedUrl(url)
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key !== "Enter") return
+      const rawUrl = (event.target as HTMLInputElement).value
+      if (!rawUrl.trim()) return
+      navigateTo(normalizeUrl(rawUrl))
+    },
+    [navigateTo]
+  )
+
+  const handleRefresh = useCallback(() => {
+    if (!navigatedUrl) return
+    setIframeKey((k) => k + 1)
     setStatus("loading")
-  }, [])
+  }, [navigatedUrl])
 
   const handleIframeLoad = useCallback(() => {
     setStatus("ready")
@@ -77,10 +146,17 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
     setStatus("error")
   }, [])
 
-  const handleRefresh = useCallback(() => {
-    if (!navigatedUrl) return
-    setIframeKey((k) => k + 1)
-    setStatus("loading")
+  const iframeSrc = useMemo(() => {
+    if (!navigatedUrl) return ""
+    if (
+      navigatedUrl.startsWith("http://localhost") ||
+      navigatedUrl.startsWith("https://localhost") ||
+      navigatedUrl.startsWith("http://127.0.0.1") ||
+      navigatedUrl.startsWith("https://127.0.0.1")
+    ) {
+      return navigatedUrl
+    }
+    return `/api/preview/proxy?url=${encodeURIComponent(navigatedUrl)}`
   }, [navigatedUrl])
 
   const iframeStyle = useMemo(() => {
@@ -103,11 +179,8 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
-      <WebPreview
-        className="flex min-h-0 min-w-0 flex-1 flex-col rounded-none border-none bg-transparent"
-        defaultUrl={initialUrl ?? ""}
-        onUrlChange={handleUrlChange}
-      >
+      <WebPreview className="flex min-h-0 min-w-0 flex-1 flex-col rounded-none border-none bg-transparent">
+        <UrlSync url={displayUrl} />
         <WebPreviewNavigation>
           <WebPreviewNavigationButton
             disabled={!navigatedUrl}
@@ -116,7 +189,10 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
           >
             <RotateCwIcon className="size-4" />
           </WebPreviewNavigationButton>
-          <WebPreviewUrl placeholder="输入网址后按回车访问" />
+          <WebPreviewUrl
+            placeholder="输入网址后按回车访问"
+            onKeyDown={handleKeyDown}
+          />
         </WebPreviewNavigation>
 
         <div
@@ -161,16 +237,18 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
                     className="relative shrink-0 overflow-hidden rounded-xl border border-border bg-background shadow-sm"
                     style={frameContainerStyle}
                   >
-                    <iframe
-                      key={iframeKey}
-                      className="block border-0"
-                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-top-navigation"
-                      src={navigatedUrl}
-                      style={iframeStyle}
-                      title="Preview"
-                      onError={handleIframeError}
-                      onLoad={handleIframeLoad}
-                    />
+                    {iframeSrc ? (
+                      <iframe
+                        key={iframeKey}
+                        className="block border-0"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-top-navigation"
+                        src={iframeSrc}
+                        style={iframeStyle}
+                        title="Preview"
+                        onError={handleIframeError}
+                        onLoad={handleIframeLoad}
+                      />
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -184,7 +262,7 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
                   <div className="text-center">
                     <div className="text-destructive text-sm">无法加载该页面</div>
                     <div className="mt-1 text-muted-foreground text-xs">
-                      可能是目标页面设置了 X-Frame-Options 或 CSP 限制
+                      可能是目标页面设置了不允许嵌入的限制
                     </div>
                   </div>
                 </div>
@@ -197,7 +275,7 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
   )
 }
 
-const INNER_PADDING = 24 // p-3 = 12px each side
+const INNER_PADDING = 24
 
 function getPreviewViewportLayout(
   containerWidth: number,

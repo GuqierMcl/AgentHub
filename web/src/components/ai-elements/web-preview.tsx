@@ -1,5 +1,12 @@
 "use client";
 
+export function normalizeUrl(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return trimmed
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -33,7 +40,7 @@ export interface WebPreviewContextValue {
 
 const WebPreviewContext = createContext<WebPreviewContextValue | null>(null);
 
-const useWebPreview = () => {
+export const useWebPreview = () => {
   const context = useContext(WebPreviewContext);
   if (!context) {
     throw new Error("WebPreview components must be used within a WebPreview");
@@ -161,13 +168,13 @@ export const WebPreviewUrl = ({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Enter") {
-        const target = event.target as HTMLInputElement;
-        setUrl(target.value);
-      }
       onKeyDown?.(event);
+      if (event.key === "Enter" && value === undefined) {
+        const target = event.target as HTMLInputElement;
+        setUrl(normalizeUrl(target.value));
+      }
     },
-    [setUrl, onKeyDown]
+    [setUrl, onKeyDown, value]
   );
 
   return (

@@ -1489,6 +1489,64 @@ type UpdateWorkspaceFileResponse = {
 - 保存时不自动格式化，保持原始换行风格（LF/CRLF）。
 - 只接受 UTF-8 文本内容。
 
+## Preview API
+
+Preview API 用于 Web 浏览器面板的网页预览功能。它通过 hub-server 代理目标 URL 的内容，解决 X-Frame-Options 和 CSP 限制，并跟踪重定向以更新地址栏。
+
+### 解析 URL（跟踪重定向）
+
+**端点**：`POST /api/preview/resolve`
+
+请求体：
+```json
+{
+  "url": "https://baidu.com"
+}
+```
+
+成功响应 (200 OK)：
+```json
+{
+  "finalUrl": "https://www.baidu.com",
+  "statusCode": 200,
+  "redirected": true
+}
+```
+
+错误响应：
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `NETWORK_INVALID_URL` | 400 | URL 格式无效 |
+| `NETWORK_UNSUPPORTED_PROTOCOL` | 400 | 只支持 http 和 https 协议 |
+| `NETWORK_TIMEOUT` | 504 | 请求超时（10 秒） |
+| `NETWORK_REQUEST_FAILED` | 502 | 网络请求失败 |
+
+行为：
+- 发送 GET 请求并跟随重定向，返回最终 URL 和状态码。
+- 不读取响应体，仅在收到响应头后即关闭连接。
+- 前端在用户按 Enter 后先调用本端点，获得最终 URL 后更新地址栏，再通过 proxy 端点加载内容。
+
+### 代理页面内容
+
+**端点**：`GET /api/preview/proxy?url=<encoded-url>`
+
+成功响应：目标 URL 的完整响应（Content-Type 透传）。
+
+错误响应：
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `NETWORK_INVALID_URL` | 400 | URL 查询参数缺失或无效 |
+| `NETWORK_UNSUPPORTED_PROTOCOL` | 400 | 只支持 http 和 https 协议 |
+| `NETWORK_TIMEOUT` | 504 | 请求超时（30 秒） |
+| `NETWORK_REQUEST_FAILED` | 502 | 网络请求失败 |
+
+行为：
+- 用 GET 请求目标 URL，跟随重定向。
+- 响应头中剥离 `X-Frame-Options`、`Content-Security-Policy`、`Cross-Origin-Resource-Policy`，使页面可在 iframe 中正常嵌入。
+- 删除 `transfer-encoding`、`connection`、`keep-alive`、`content-length` 等 hop-by-hop 头。
+- 对 `text/html` 响应，在 `<head>` 后注入 `<base href="...">` 标签，使页面中的相对路径资源（CSS、JS、图片）能正确解析到目标源站。
+- 非 HTML 内容（如图片、CSS、字体）以流式方式直接透传。
+
 ## 初始契约范围
 
 - 会话。
