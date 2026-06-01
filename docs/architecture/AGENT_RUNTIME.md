@@ -224,7 +224,7 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - HubServer 还未提供面向浏览器的自定义 Agent 管理 API 和配置 UI；当前 CRUD 仍是 Runtime 内部 API。
 - 权限审批和用户问答已具备产品级 API 代理、事件持久化和前端交互；更完整的产品级 MessagePart/Artifact 投影仍在后续阶段。
 - 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。
-- 外部智能体 `opencode` 仍是 `external-adapter` 占位，当前运行时会退回 `MockExecutor`，还没有真实 Adapter 进程管理和事件映射。
+- 外部智能体 `opencode` 已进入 `ExternalAdapterExecutor`，默认使用真实 OpenCode client。Runtime 已接入 `@opencode-ai/sdk`，在 SDK 暴露安全 workspace 启动参数时可走 managed server；当前 SDK 未暴露 cwd/workdir/projectPath 时，使用 `opencode serve` 子进程以 workspace root 为 `cwd` 启动，并通过 `project.current` / `path.get` 校验 workspace。HubServer 已具备外部 Session 映射的基础持久化契约；权限桥接和 Diff 投影仍在 `docs/roadmap/opencode-adapter-implementation.md` 后续阶段。
 - 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Patch、Diff artifact / apply、deploy 仍未开放。
 
 ### 3.4 外部智能体 Adapter
@@ -232,6 +232,8 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 Claude Code、Codex、OpenCode 等外部 Agent 平台差异，应该被封装在 Adapter 内部，对上层只暴露统一事件。
 
 课题要求通过统一适配器层屏蔽 Claude Code、Codex、OpenCode 等主流 Agent 平台差异，并支持用户自建 Agent，因此 Adapter 仍然是 Agent Runtime 的关键架构点，但它只面向外部智能体。
+
+外部智能体的最新接入原则是把它们视为 AgentHub 中的可见聊天对象，而不是 AgentHub 托管的模型供应商、Skill 或 MCP 配置面板。公共外部智能体边界、Session scope、上下文 handoff、权限桥接和 Diff 投影见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`；OpenCode 专属 Project/Session 映射和事件设计见 `docs/external_agents/OPENCODE_ADAPTER.md`。
 
 ### 3.5 上下文组装
 
@@ -507,5 +509,5 @@ Agent Runtime 使用 Hono 承载内部执行 API。通用 Hono 约定见 `docs/r
 - Runtime 内部调用必须具备服务间鉴权或等价的内部访问控制设计。
 - 执行错误应转换为结构化 Runtime 错误或 Runtime 事件，不应泄露底层 Provider、CLI 或系统细节。
 - Run 事件流应保证开始、执行中、失败、超时、取消、完成等状态都有明确事件。
-- 流式事件契约必须同步维护在 `docs/contracts/API_CONTRACTS.md`。
+- 流式事件契约必须同步维护在 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。
 - 后续测试应优先使用 Hono `app.request()` 风格的轻量 API smoke test。

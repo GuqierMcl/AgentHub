@@ -32,7 +32,7 @@ Agent Runtime 智能体架构
 - `docs/architecture/AGENT_RUNTIME_BACKEND.md`
 - `docs/architecture/AGENT_TOOLS.md`
 - `docs/architecture/DATA_MODEL.md`
-- `docs/contracts/API_CONTRACTS.md`
+- `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`
 - `docs/README.md`
 
 ## 范围

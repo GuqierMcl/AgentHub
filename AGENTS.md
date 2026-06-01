@@ -62,7 +62,7 @@ AgentHub/
 - `agent-runtime` is a Sidecar process managed by `hub-server` (see `docs/adr/ADR-001-sidecar-architecture.md`).
 - `agent-runtime` should expose controlled runtime APIs to `hub-server`, not directly to browser UI.
 - LLM credentials, provider adapters, command execution, file access, deployment, and network-sensitive operations belong in `agent-runtime`.
-- When adding or changing cross-process behavior, update `docs/contracts/API_CONTRACTS.md` and the relevant architecture doc.
+- When adding or changing Agent Runtime API behavior, update `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md` and the relevant architecture doc.
 
 ---
 
@@ -190,7 +190,7 @@ Start with these docs before changing the matching area:
 | `docs/architecture/WEB.md` | Frontend architecture and UI rules |
 | `docs/architecture/HUB_SERVER.md` | Platform backend responsibilities and APIs |
 | `docs/architecture/AGENT_RUNTIME.md` | Agent runtime, orchestration, adapters, permissions, sandbox |
-| `docs/contracts/API_CONTRACTS.md` | Cross-process API contracts and event payloads |
+| `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md` | Agent Runtime API contracts and event payloads |
 | `docs/reference/HONO.md` | Shared Hono usage conventions for backend services |
 | `docs/roadmap/` | Long-running implementation paths for complex modules |
 | `docs/adr/` | Architecture decision records |

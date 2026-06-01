@@ -1,6 +1,17 @@
 export { EntryResolver, RunInputValidationError } from "./entry-resolver"
 export { AiSdkExecutor } from "./ai-sdk-executor"
 export { MockExecutor } from "./mock-executor"
+export {
+  DefaultExternalAdapterRegistry,
+  ExternalAdapterError,
+  ExternalAdapterExecutor,
+  FakeOpenCodeClient,
+  ManagedOpenCodeServer,
+  OpenCodeAdapter,
+  RealOpenCodeClient,
+  createDefaultOpenCodeClient,
+  extractAssistantText,
+} from "./external-adapters"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
@@ -35,10 +46,34 @@ export {
 } from "./question"
 export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
 export type {
+  ExternalAdapterContext,
+  ExternalAdapterExecutorDependencies,
+  ExternalAdapterExecutorLike,
+  ExternalAdapterPrompt,
+  ExternalAdapterRegistry,
+  ExternalAgentAdapter,
+  ExternalAdapterErrorCode,
+  ExternalSessionLink,
+  ExternalSessionScope,
+  ManagedOpenCodeServerDependencies,
+  OpenCodeApiClient,
+  OpenCodeClient,
+  OpenCodeConnectionMode,
+  OpenCodeProcessLauncher,
+  OpenCodePromptEvent,
+  OpenCodePromptRequest,
+  OpenCodeSdkManagedFactory,
+  OpenCodeSdkWorkspaceOption,
+  OpenCodeServerHandle,
+  OpenCodeSessionRequest,
+  OpenCodeWorkspaceConnection,
+} from "./external-adapters"
+export type {
   RuntimeConversationMode,
   RuntimeMessage,
   RunDiagnostics,
   RunConversationState,
+  ExternalSessionHint,
   RunInput,
   RunWorkspaceSnapshot,
   RunWorkspaceSummary,

@@ -54,7 +54,7 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 - `hub-server` 不拥有 Provider 级 LLM 逻辑。
 - 具体执行、适配器调用、工具调用、Workspace 和沙箱能力属于 `agent-runtime`。
 - `hub-server` 负责 Agent Runtime 侧车进程的启动、监控、重启和关闭。
-- API 变化必须同步更新 `docs/contracts/API_CONTRACTS.md`。
+- HubServer 调用 Agent Runtime 的 API 变化必须同步更新 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。HubServer 面向浏览器的 `/api/*` 产品 API 后续应独立建档。
 - Hono 路由、Context、中间件、错误响应、流式输出和测试约定应遵循 `docs/reference/HONO.md`。
 
 ## Run 持久化与流式恢复
@@ -72,11 +72,13 @@ HubServer 的职责：
 - 创建 user `Message` 和 text `MessagePart`。
 - 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
 - 从持久化 messages 组装 Runtime `history` 和 `RunInput`。
+- 创建 direct 外部智能体 Run 前，按 provider、agentId、conversation、workspace 与 `conversation-visible` scope 查询可复用外部 Session，并通过 Runtime `externalSessionHints` 注入。
 - 后台消费 Runtime SSE，将 Runtime events 以 per-run micro-batch 持久化为 `RunEvent.id = event.id`、本地递增 `sequence`；raw payload 永久保留，未知事件也不丢。
 - 持久化成功后才向 run-level SSE 订阅者发布 envelope；默认 batch 延迟约 50ms，terminal event 强制 flush。
 - 将 `message.delta` / `reasoning.delta` 合并投影到 assistant `MessagePart` / `RunReasoningBlock`，减少 SQLite 写入；`message.completed`、`reasoning.completed` 和 terminal event 强制追平。
 - `Run.lastProjectedSequence` 记录结构化投影进度，读取历史消息或组装 Runtime history 前会从 raw `RunEvent` 补投影。
 - 将 `tool.completed(toolName="write_plan")` 投影到 `Run.planJson`。
+- 将 `agent.started.data.externalSession` 投影到 `ExternalAgentSession`，持久化 provider session link，供后续 direct 外部智能体调用续接正确的 conversation-visible session。
 - 消费 `system_agent.completed(systemAgentId="title")`，仅当 `Conversation.metadataJson.titleSource` 不是 `manual` 时更新 `Conversation.title`，并把 `titleSource` 标记为 `auto`。
 - 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes，供 Web 聊天主 UI 恢复；完整 raw Runtime event 留在 `RunEvent.payloadJson`。
 - 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。
@@ -96,7 +98,7 @@ HubServer 的职责：
 - 请求鉴权、请求 ID、日志、CORS、错误处理等横切能力优先通过 Hono 中间件实现。
 - 默认使用结构化 JSON 响应；错误响应应包含稳定 `code` 与可读 `message`。
 - SSE 或其他实时转发能力由 `hub-server` 面向前端提供，但事件来源应来自 `agent-runtime`。
-- 新增或修改 API 时，同步更新 `docs/contracts/API_CONTRACTS.md`。
+- 新增或修改 HubServer 调用 Agent Runtime 的 API 时，同步更新 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`；面向浏览器的 `/api/*` 产品 API 后续应进入独立 HubServer API 文档。
 - **重要：实现任何 Hono 相关功能时，必须优先参考 Hono 官方 LLM 文档 `https://hono.dev/llms-small.txt`。**
 
 ## OpenAPI 与 Swagger UI
@@ -167,7 +169,7 @@ Hub Server 使用 Zod 进行 API 边界的运行时类型校验。
 - 可在 Hono 中间件或路由入口完成校验，校验失败应返回结构化错误（`code: 'VALIDATION_ERROR'`，附带字段级错误信息）。
 - 可与 Hono 的 `zValidator` 中间件配合使用。
 - 环境变量、配置文件等外部输入同样应使用 Zod 校验。
-- Zod Schema 可作为 API 契约的类型来源，与 `docs/contracts/API_CONTRACTS.md` 保持同步。
+- Zod Schema 可作为 HubServer 产品 API 契约的类型来源；后续建立 HubServer API 文档后应与其保持同步。调用 Agent Runtime 的 schema 则与 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md` 保持同步。
 - 避免在业务逻辑中混用 Zod 校验和手动 if/else 断言，统一走 Schema。
 
 ### 启动初始化

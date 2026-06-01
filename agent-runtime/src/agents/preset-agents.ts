@@ -157,7 +157,7 @@ export const presetAgents: AgentDefinition[] = [
     external: {
       provider: "opencode",
       workingDirectoryPolicy: "runtime-workspace",
-      configDirectoryPolicy: "runtime-managed",
+      configDirectoryPolicy: "user-global",
       outputFormat: "event-stream",
     },
     enabled: true,

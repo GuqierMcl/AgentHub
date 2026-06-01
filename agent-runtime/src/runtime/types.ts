@@ -45,6 +45,23 @@ export const RunConversationStateSchema = z.object({
 }).strict()
 export type RunConversationState = z.infer<typeof RunConversationStateSchema>
 
+export const ExternalSessionScopeSchema = z.enum(["conversation-visible", "delegated-task"])
+export type ExternalSessionScope = z.infer<typeof ExternalSessionScopeSchema>
+
+export const ExternalSessionHintSchema = z.object({
+  provider: z.enum(["opencode", "claude-code", "codex"]),
+  agentId: z.string().min(1),
+  scope: ExternalSessionScopeSchema,
+  providerSessionId: z.string().min(1),
+  conversationId: z.string().min(1).optional(),
+  workspaceId: z.string().min(1).optional(),
+  parentProviderSessionId: z.string().min(1).optional(),
+  taskId: z.string().min(1).optional(),
+  runId: z.string().min(1).optional(),
+  handoffSummary: z.string().min(1).optional(),
+}).strict()
+export type ExternalSessionHint = z.infer<typeof ExternalSessionHintSchema>
+
 export const RunInputSchema = z.object({
   conversationId: z.string().min(1),
   mode: RuntimeConversationModeSchema,
@@ -57,6 +74,7 @@ export const RunInputSchema = z.object({
   workspace: RunWorkspaceSnapshotSchema.optional(),
   diagnostics: RunDiagnosticsSchema.optional(),
   conversationState: RunConversationStateSchema.optional(),
+  externalSessionHints: z.array(ExternalSessionHintSchema).optional(),
 })
 export type RunInput = z.infer<typeof RunInputSchema>
 

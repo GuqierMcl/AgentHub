@@ -1,6 +1,6 @@
 # Agent Runtime SSE 事件契约
 
-本文档记录 Agent Runtime `GET /runtime/runs/:runId/events` 的 SSE 事件契约。`API_CONTRACTS.md` 保留 Runtime Runs API 主契约；事件细节以后以本文档为准。
+本文档记录 Agent Runtime `GET /runtime/runs/:runId/events` 的 SSE 事件契约。`AGENT_RUNTIME_API_CONTRACTS.md` 保留 Runtime Runs API 主契约；事件细节以后以本文档为准。
 
 ## 1. Wire Format
 

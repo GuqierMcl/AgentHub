@@ -22,7 +22,7 @@ web -> hub-server -> agent-runtime
 - 群聊可以在未显式 @ 时默认进入 `orchestrator`，显式 @ 单个主智能体的能力后续接入。
 - HubServer 后续提供产品级发送入口，负责消息、Run、RunEvent、PermissionRequest 与 conversation 统计字段持久化。
 - 前端会话状态从局部 `useState` 迁移到 Zustand + TanStack Query 的组合模型。
-- 所有跨层契约变更同步更新 `docs/contracts/API_CONTRACTS.md`，状态管理和 UI 架构变更同步更新 `docs/architecture/WEB.md`。
+- 所有 Agent Runtime 契约变更同步更新 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`，状态管理和 UI 架构变更同步更新 `docs/architecture/WEB.md`。
 
 ## 依赖文档
 
@@ -32,7 +32,7 @@ web -> hub-server -> agent-runtime
 - `docs/architecture/HUB_SERVER.md`
 - `docs/architecture/AGENT_RUNTIME.md`
 - `docs/architecture/DATA_MODEL.md`
-- `docs/contracts/API_CONTRACTS.md`
+- `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`
 - `docs/contracts/RUNTIME_SSE_EVENTS.md`
 - `docs/reference/HONO.md`
 

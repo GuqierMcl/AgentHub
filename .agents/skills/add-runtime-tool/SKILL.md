@@ -14,7 +14,7 @@ Treat `docs/` as the source of truth. Before editing code, read the relevant doc
 3. `docs/architecture/AGENT_RUNTIME.md`
 4. `docs/architecture/AGENT_RUNTIME_BACKEND.md` when the tool touches files, workspace mounts, sandboxing, or scoped grants
 5. `docs/contracts/RUNTIME_SSE_EVENTS.md` when the change affects RunEvent types, event fields, model stream diagnostics, reasoning, or message grouping
-6. `docs/contracts/API_CONTRACTS.md` when the change affects public Runtime APIs, event payloads, errors, product APIs, or authoring options
+6. `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md` when the change affects public Runtime APIs, event payloads, errors, or runtime authoring options
 7. `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md` when tool, permission, reasoning, or task events need HubServer persistence or product UI projection
 
 If the docs and implementation disagree, stop and tell the user what is stale or inconsistent before choosing a side.
@@ -59,7 +59,7 @@ After implementation:
 - Register the tool in Runtime initialization or the default Runtime tool registry.
 - Add the tool name to each intended preset agent's `allowedTools`.
 - Keep user custom agent exposure driven by Tool Catalog metadata only.
-- If `configurableByUserAgent: true`, ensure authoring metadata is complete and update `docs/contracts/API_CONTRACTS.md` plus tests for `GET /runtime/agents/authoring-options`.
+- If `configurableByUserAgent: true`, ensure authoring metadata is complete and update `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md` plus tests for `GET /runtime/agents/authoring-options`.
 
 The Tool Catalog is the single code source for tool risk, permissions, approval policy, and authoring metadata. Do not rebuild tool lists in routers, CRUD validation, or UI-support code. As of the current implementation, user custom agents may choose the non-internal workspace tools exposed by Tool Catalog, while `write_plan`, `run_task`, shell, network, and deploy tools must not be granted through user custom agent CRUD without a new documented design.
 

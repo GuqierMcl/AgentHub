@@ -28,10 +28,39 @@ model Conversation {
   runs         Run[]
   artifacts    Artifact[]
   permissions  PermissionRequest[]
+  externalAgentSessions ExternalAgentSession[]
 
   @@index([status, lastMessageAt], map: "idx_conversations_status_last_message_at")
   @@index([pinnedAt], map: "idx_conversations_pinned_at")
   @@map("conversations")
+}
+
+model ExternalAgentSession {
+  id                    String  @id @map("id")
+  provider              String  @map("provider")
+  agentId               String  @map("agent_id")
+  conversationId        String  @map("conversation_id")
+  workspaceIdentity     String  @map("workspace_identity")
+  scope                 String  @map("scope")
+  providerSessionId     String  @map("provider_session_id")
+  parentProviderSessionId String? @map("parent_provider_session_id")
+  runId                 String? @map("run_id")
+  taskId                String? @map("task_id")
+  status                String  @default("active") @map("status")
+  handoffSummary        String? @map("handoff_summary")
+  lastSyncedRunEventId  String? @map("last_synced_run_event_id")
+  metadataJson          String  @default("{}") @map("metadata_json")
+  createdAt             String  @map("created_at")
+  updatedAt             String  @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSessionId], map: "uq_external_agent_sessions_provider_session")
+  @@index([conversationId], map: "idx_external_agent_sessions_conversation_id")
+  @@index([provider, agentId, conversationId, workspaceIdentity, scope], map: "idx_external_agent_sessions_lookup")
+  @@index([runId], map: "idx_external_agent_sessions_run_id")
+  @@index([taskId], map: "idx_external_agent_sessions_task_id")
+  @@map("external_agent_sessions")
 }
 
 model ConversationAgent {
