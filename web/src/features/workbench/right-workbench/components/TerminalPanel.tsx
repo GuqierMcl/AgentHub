@@ -11,7 +11,6 @@ import type { TerminalViewStatus } from "../../terminal/types"
 
 type TerminalPanelProps = {
   uid: string
-  title: string
   payload?: TerminalTabPayload
 }
 
@@ -67,7 +66,7 @@ function StatusOverlay({
   )
 }
 
-export function TerminalPanel({ uid, title, payload }: TerminalPanelProps) {
+export function TerminalPanel({ uid, payload }: TerminalPanelProps) {
   const xtermRef = useRef<XTermViewHandle>(null)
   const updateTabPayload = useTabStore((s) => s.updateTabPayload)
 
@@ -142,22 +141,6 @@ export function TerminalPanel({ uid, title, payload }: TerminalPanelProps) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 items-center gap-2 border-border border-b px-3 py-1.5">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-medium text-sm">{title}</div>
-          {payload?.workspaceLabel && (
-            <div className="truncate text-muted-foreground text-xs">
-              {payload.workspaceLabel}
-            </div>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {status !== "idle" && status !== "connected" && (
-            <StatusBadge status={status} />
-          )}
-        </div>
-      </div>
-
       <div className="relative min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-[#0b0f14]">
         <StatusOverlay
           errorMessage={errorMessage}
@@ -178,25 +161,3 @@ export function TerminalPanel({ uid, title, payload }: TerminalPanelProps) {
   )
 }
 
-function StatusBadge({ status }: { status: TerminalViewStatus }) {
-  const config = statusConfig[status]
-  const Icon = config.icon
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs",
-        config.color,
-        "bg-muted"
-      )}
-    >
-      <Icon
-        className={cn(
-          "size-3",
-          (status === "creating" || status === "connecting" || status === "reconnecting") && "animate-spin"
-        )}
-      />
-      {config.label}
-    </span>
-  )
-}

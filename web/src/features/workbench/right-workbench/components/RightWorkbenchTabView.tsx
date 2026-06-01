@@ -52,7 +52,6 @@ function renderPanel(
     case "terminal":
       return (
         <TerminalPanel
-          title={tab.title}
           uid={tab.uid}
           payload={
             tab.payload && "workspaceId" in tab.payload

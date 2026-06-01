@@ -26,9 +26,9 @@ export type TerminalConfig = {
 }
 
 export const DEFAULT_TERMINAL_CONFIG: TerminalConfig = {
-  maxSessionsPerConversation: 5,
+  maxSessionsPerConversation: 3,
   idleTimeoutMs: 300_000,
-  replayBufferMaxBytes: 100_000,
+  replayBufferMaxBytes: 4_194_304,
 }
 
 export type TerminalWsMessage =

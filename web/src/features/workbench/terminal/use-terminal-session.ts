@@ -95,6 +95,24 @@ export function useTerminalSession({
           }
           outputCbRef.current?.(data)
         },
+        onConnecting: () => {
+          if (
+            unmountedRef.current ||
+            openRequestIdRef.current !== requestId
+          ) {
+            return
+          }
+          setStatus("connecting")
+        },
+        onReconnecting: () => {
+          if (
+            unmountedRef.current ||
+            openRequestIdRef.current !== requestId
+          ) {
+            return
+          }
+          setStatus("reconnecting")
+        },
         onExit: () => {
           if (
             unmountedRef.current ||
