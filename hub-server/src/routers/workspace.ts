@@ -260,6 +260,175 @@ workspace.post('/api/workspace/select', async (c: Context) => {
   }
 })
 
+// ── Workspace browser (standalone, no conversation required) ──
+
+const SKIP_BROWSE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__', '.next', '.nuxt', 'coverage', '.turbo', '.cache', '.svn', '.hg'])
+
+function shouldSkipBrowseEntry(name: string, isDir: boolean): boolean {
+  if (name === '.gitignore') return false
+  if (name.startsWith('.')) return true
+  if (isDir && SKIP_BROWSE_DIRS.has(name)) return true
+  return false
+}
+
+workspace.get('/api/workspace/browse', async (c: Context) => {
+  const pathParam = c.req.query('path') ?? ''
+  const os = platform()
+
+  try {
+    let targetPath: string
+    let entries: { name: string; path: string; kind: 'dir' | 'file'; hasChildren?: boolean }[]
+
+    if (!pathParam) {
+      // Root: list drives on Windows, / on Unix
+      if (os === 'win32') {
+        const drives: string[] = []
+        for (let i = 65; i <= 90; i++) {
+          const letter = String.fromCharCode(i)
+          const drivePath = `${letter}:\\`
+          try {
+            readdirSync(drivePath)
+            drives.push(drivePath)
+          } catch { /* skip inaccessible drives */ }
+        }
+        entries = drives.map((drivePath) => ({
+          name: drivePath,
+          path: drivePath,
+          kind: 'dir' as const,
+          hasChildren: true,
+        }))
+        targetPath = ''
+      } else {
+        targetPath = '/'
+        const dirents = readdirSync('/', { withFileTypes: true })
+        entries = dirents
+          .filter((d) => !shouldSkipBrowseEntry(d.name, d.isDirectory()))
+          .map((d) => {
+            const fullPath = '/' + d.name
+            const isDir = d.isDirectory()
+            let hasChildren: boolean | undefined
+            if (isDir) {
+              try {
+                hasChildren = readdirSync(fullPath).length > 0
+              } catch { hasChildren = false }
+            }
+            return { name: d.name, path: fullPath, kind: isDir ? 'dir' as const : 'file' as const, hasChildren }
+          })
+      }
+    } else {
+      targetPath = pathParam
+      if (existsSync(targetPath)) {
+        const stat = statSync(targetPath)
+        if (!stat.isDirectory()) {
+          return c.json({ path: targetPath, entries: [] })
+        }
+        const dirents = readdirSync(targetPath, { withFileTypes: true })
+        entries = dirents
+          .filter((d) => !shouldSkipBrowseEntry(d.name, d.isDirectory()))
+          .map((d) => {
+            const fullPath = join(targetPath, d.name)
+            const isDir = d.isDirectory()
+            let hasChildren: boolean | undefined
+            if (isDir) {
+              try {
+                hasChildren = readdirSync(fullPath).length > 0
+              } catch { hasChildren = false }
+            }
+            return { name: d.name, path: fullPath, kind: isDir ? 'dir' as const : 'file' as const, hasChildren }
+          })
+      } else {
+        entries = []
+      }
+    }
+
+    entries.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+
+    return c.json({ path: targetPath, entries })
+  } catch (err) {
+    logger.error({ err, pathParam }, 'Workspace browse error')
+    return c.json({ path: pathParam || '', entries: [] })
+  }
+})
+
+workspace.get('/api/workspace/search', async (c: Context) => {
+  const query = (c.req.query('q') ?? '').toLowerCase().trim()
+  const searchRoot = c.req.query('path') ?? ''
+  const os = platform()
+
+  if (!query) {
+    return c.json({ entries: [] })
+  }
+
+  try {
+    const results: { name: string; path: string; kind: 'file' | 'dir'; hasChildren?: boolean }[] = []
+    const maxResults = 200
+
+    function walk(dirPath: string) {
+      if (results.length >= maxResults) return
+
+      let entries
+      try {
+        entries = readdirSync(dirPath, { withFileTypes: true })
+      } catch {
+        return
+      }
+
+      for (const entry of entries) {
+        if (results.length >= maxResults) return
+        if (!entry.isDirectory()) continue
+        if (shouldSkipBrowseEntry(entry.name, true)) continue
+
+        const fullPath = join(dirPath, entry.name)
+        if (entry.name.toLowerCase().includes(query)) {
+          let hasChildren = false
+          try {
+            hasChildren = readdirSync(fullPath).length > 0
+          } catch {
+            hasChildren = false
+          }
+          results.push({
+            name: entry.name,
+            path: fullPath,
+            kind: 'dir',
+            hasChildren,
+          })
+        }
+
+        walk(fullPath)
+      }
+    }
+
+    if (searchRoot) {
+      if (!existsSync(searchRoot) || !statSync(searchRoot).isDirectory()) {
+        return c.json({ entries: [] })
+      }
+      walk(searchRoot)
+    } else if (os === 'win32') {
+      for (let i = 65; i <= 90; i++) {
+        if (results.length >= maxResults) break
+        const letter = String.fromCharCode(i)
+        const drivePath = `${letter}:\\`
+        try {
+          readdirSync(drivePath)
+          walk(drivePath)
+        } catch {
+          // skip inaccessible drives
+        }
+      }
+    } else {
+      walk('/')
+    }
+
+    return c.json({ entries: results })
+  } catch (err) {
+    logger.error({ err, query, searchRoot }, 'Workspace standalone search error')
+    return c.json({ entries: [] })
+  }
+})
+
 workspace.get('/api/conversations/:id/workspace/tree', async (c: Context) => {
   const conversationId = c.req.param('id')!
   const relativePath = c.req.query('path') ?? '.'

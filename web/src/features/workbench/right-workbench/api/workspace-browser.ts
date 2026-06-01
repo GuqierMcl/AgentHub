@@ -1,4 +1,4 @@
-import type { WorkspaceTreeResponse, WorkspaceFilePreviewResponse, WorkspaceSearchResponse, WorkspaceEditableFileResponse, UpdateWorkspaceFileRequest, UpdateWorkspaceFileResponse } from "../types"
+import type { WorkspaceTreeResponse, WorkspaceFilePreviewResponse, WorkspaceBrowseResponse, WorkspaceSearchResponse, WorkspaceEditableFileResponse, UpdateWorkspaceFileRequest, UpdateWorkspaceFileResponse } from "../types"
 
 async function request<T>(path: string): Promise<T> {
   const res = await fetch(path)
@@ -36,6 +36,19 @@ function buildUrl(conversationId: string, path: string): string {
 }
 
 export const workspaceBrowserApi = {
+  browseDirectory(path?: string): Promise<WorkspaceBrowseResponse> {
+    const query = path ? `?path=${encodeURIComponent(path)}` : ""
+    return request(`/api/workspace/browse${query}`)
+  },
+
+  searchDirectory(query: string, path?: string): Promise<WorkspaceSearchResponse> {
+    const params = new URLSearchParams({ q: query })
+    if (path) {
+      params.set("path", path)
+    }
+    return request(`/api/workspace/search?${params.toString()}`)
+  },
+
   getFileContentUrl(conversationId: string, path: string): string {
     return buildUrl(conversationId, path)
   },

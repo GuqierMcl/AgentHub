@@ -22,6 +22,7 @@ import { agentsApi } from "@/features/agents/api/agents"
 import { workbenchQueryKeys } from "../api/query-keys"
 import type { ConversationDetail, ConversationListItem, CreateConversationBody } from "../types"
 import type { AgentSummary } from "@/features/agents/types"
+import { WorkspacePickerDialog } from "./WorkspacePickerDialog"
 
 const EMPTY_AGENTS: AgentSummary[] = []
 
@@ -48,6 +49,7 @@ export function NewConversationDialog({
   const [existingOpen, setExistingOpen] = useState(true)
   const [agentsOpen, setAgentsOpen] = useState(true)
   const [workspacePath, setWorkspacePath] = useState("")
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const agentsQuery = useQuery({
     queryKey: workbenchQueryKeys.agents.primaryEnabled,
@@ -112,16 +114,8 @@ export function NewConversationDialog({
     })
   }, [])
 
-  const handleSelectWorkspace = useCallback(async () => {
-    try {
-      const res = await fetch("/api/workspace/select", { method: "POST" })
-      const data = await res.json()
-      if (data.path) {
-        setWorkspacePath(data.path)
-      }
-    } catch {
-      // user cancelled or error
-    }
+  const handleSelectWorkspace = useCallback(() => {
+    setPickerOpen(true)
   }, [])
 
   const handleCreate = useCallback(async () => {
@@ -176,7 +170,7 @@ export function NewConversationDialog({
   }, [onSwitchConversation, onOpenChange])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <><Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent from="top" className="w-[700px] p-0 flex flex-col max-h-[80vh]">
         <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle>新建会话</DialogTitle>
@@ -335,5 +329,12 @@ export function NewConversationDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      <WorkspacePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onSelect={(path) => setWorkspacePath(path)}
+      />
+    </>
   )
 }

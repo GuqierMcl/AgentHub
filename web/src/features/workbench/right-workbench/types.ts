@@ -122,6 +122,11 @@ export type WorkspaceFilePreviewResponse =
       message: string
     }
 
+export type WorkspaceBrowseResponse = {
+  path: string
+  entries: WorkspaceTreeEntry[]
+}
+
 export type WorkspaceSearchResponse = {
   entries: WorkspaceTreeEntry[]
 }
