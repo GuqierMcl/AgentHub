@@ -1,12 +1,12 @@
-# Dirty Worktree Protocol
+# Dirty Worktree 协议
 
-Canonical path: `comet/reference/dirty-worktree.md`
+规范路径：`comet/reference/dirty-worktree.md`
 
-This protocol is shared by all Comet sub-skills that may modify code. When an agent resumes context or continues execution, it must handle uncommitted working tree changes through this protocol.
+本协议由所有涉及代码修改的 comet 子 skill 共享。当 agent 恢复上下文或继续执行时，必须按本协议处理未提交的工作区改动。
 
-## 1. Checks
+## 1. 检查步骤
 
-Before continuing or starting code changes, run:
+继续或开始修改前，必须先运行以下命令：
 
 ```bash
 git status --short
@@ -15,44 +15,44 @@ git diff --cached --stat
 git ls-files --others --exclude-standard
 ```
 
-When needed, inspect `git diff`, `git diff --cached`, and newly created file contents.
+必要时再查看 `git diff` / `git diff --cached` / 新建文件内容。
 
-## 2. Core Rules
+## 2. 核心规则
 
-- The user may not say which files they changed. If the worktree is dirty, including new files shown as `??` in Git status, assume changes may come from the user or mixed sources.
-- A dirty worktree is code evidence only. It does not automatically advance `.comet.yaml` `phase` or check off `tasks.md`; Comet state may advance only after attribution, verification, required document synchronization, and the relevant phase guard.
+- 用户可能不会说明自己改了哪里。只要存在 dirty worktree（包括 Git 状态里显示为 `??` 的新建文件），就先假设改动可能来自用户或混合来源
+- dirty worktree 只代表代码事实，不会自动推进 `.comet.yaml` 的 `phase` 或勾选 `tasks.md`；只有完成归因、验证、同步必要文档，并通过对应阶段 guard 后，才允许推进 Comet 状态
 
-## 3. Attribution
+## 3. 归因分类
 
-Classify dirty diffs into three groups:
+将 dirty diff 分为三类：
 
-1. **Belongs to the current change**: Files and content match the current change goal, tasks.md, plan, or delta spec. Incorporate the diff into the current task and avoid redoing the same work.
-2. **Does not belong to the current change**: Files or content are unrelated. Pause and ask whether to include it in the current change, split it into a new change, leave it alone, or discard it with explicit authorization.
-3. **Unclear source**: The diff and documents are not enough to determine ownership. Pause, report the file list and reasoning, and do not advance the phase.
+1. **属于当前 change**：文件和内容能对应当前 change 的目标、tasks.md、plan 或 delta spec。将其纳入当前任务继续，不重复改同一处
+2. **不属于当前 change**：文件或内容与当前目标无关。暂停并询问用户：并入当前 change、拆成新 change、保留不处理，或明确授权丢弃
+3. **来源不确定**：无法从 diff 和文档判断归属。暂停并向用户汇报文件列表和判断依据，不继续推进阶段
 
-## 4. Common Patterns
+## 4. 常见处理模式
 
-### Implemented But tasks.md Is Not Checked
+### 已实现但 tasks.md 未勾选
 
-Verify the implementation with build and tests. If it passes, check off the task. Do not redo work just because the task is unchecked, and do not ignore code evidence because state files lag behind. If the current sub-skill defines a phase-specific rule, follow that sub-skill.
+先验证实现（运行构建和测试），通过后补勾任务。不要因为任务未勾选就重做一遍，也不要因为状态文件滞后而忽略代码事实。若当前子 skill 定义了阶段特例，以子 skill 为准。
 
-### Plan Or Scope Changed
+### 暗示计划或范围已变化
 
-Follow the current sub-skill's escalation, incremental-update, or rollback rules. This protocol does not repeat phase-specific details.
+按当前子 skill 的升级、增量更新或回退规则处理，本协议不重复阶段特例。
 
-### Ambiguous Resume Intent
+### 模糊恢复意图
 
-When the user says things like "continue", "keep going", "I changed a bit", "I wasn't happy with it", "redo it", "code changed", or "use what is there", follow this protocol. Do not require the user to remember exactly what they changed.
+用户说"继续""接着跑""我改了一点""刚才不满意""重新弄""代码动过""先按现在的来"等模糊恢复意图时，按本协议处理。不要要求用户先回忆具体改了哪里。
 
-### Code Changes During open/design
+### open/design 阶段出现代码改动
 
-If the current phase is still `open` or `design` but the dirty worktree already contains code changes, first attribute the changes through this protocol and do not advance the phase directly:
+若当前仍处于 `open` 或 `design`，但 dirty worktree 已经包含代码改动，先按本协议归因，不要直接推进阶段：
 
-- If the changes belong to the current change, treat them as requirements or design input and record them in proposal/design/spec/design doc/tasks as appropriate. The current phase guard must still pass before entering build.
-- If the changes do not belong to the current change or ownership is unclear, pause and ask whether to include them, split them into a new change, leave them alone, or discard them with explicit authorization.
-- Do not treat code changes made during open/design as completed implementation ready for verify.
+- 属于当前 change 的改动：作为需求或设计输入记录到 proposal/design/spec/design doc/tasks 中；进入 build 前仍需完成对应阶段 guard
+- 不属于当前 change 或来源不确定：暂停询问用户是并入当前 change、拆成新 change、保留不处理，还是明确授权丢弃
+- 禁止在 open/design 阶段直接把代码改动当作已完成实现并推进到 verify
 
-## 5. Prohibitions
+## 5. 禁令
 
-- Do not overwrite, revert, reformat over, or ignore user changes before understanding the dirty diff source.
-- Do not mark verification as passed while dirty diff remains unexplained.
+- 禁止在未理解 dirty diff 来源时覆盖、回滚、格式化重写或忽略用户改动
+- 禁止在 dirty diff 未解释清楚时判定验证通过
