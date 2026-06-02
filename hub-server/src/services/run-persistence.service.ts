@@ -2,7 +2,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { AppError, notFound } from '../lib/errors'
 import type { RuntimeClient } from '../lib/runtime'
 import { logger } from '../lib/logger'
-import type { RunStatus, MessageSurface, PermissionType } from '../lib/types'
+import type { RunStatus, MessageSurface, PermissionType, MetadataJson } from '../lib/types'
 import {
   findConversationWithAgents,
   updateConversation,
@@ -97,7 +97,10 @@ import {
 } from '../repositories/permission-request.repo'
 import {
   findExternalAgentSessionHint,
+  listExternalAgentSessions,
+  patchExternalAgentSessionMetadata,
   upsertExternalAgentSession,
+  type ExternalAgentSessionOutput,
   type ExternalSessionScope,
 } from '../repositories/external-agent-session.repo'
 import type { HubEventBus } from './hub-event-bus.service'
@@ -140,6 +143,43 @@ type RuntimeExternalSessionHint = {
   handoffSummary?: string
 }
 
+type RuntimeExternalContextMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  agentId?: string
+  senderLabel?: string
+  createdAt?: string
+  content: string
+}
+
+type RuntimeExternalContextHandoffSummary = {
+  sessionId?: string
+  providerSessionId: string
+  taskId?: string
+  runId?: string
+  summary: string
+}
+
+type RuntimeExternalContextPacket = {
+  provider: 'opencode' | 'claude-code' | 'codex'
+  agentId: string
+  scope: ExternalSessionScope
+  mode: 'delta' | 'bootstrap'
+  messages: RuntimeExternalContextMessage[]
+  handoffSummaries: RuntimeExternalContextHandoffSummary[]
+  cursorCandidate?: {
+    throughMessageId?: string
+    throughMessageCreatedAt?: string
+    includedMessageIds: string[]
+    includedHandoffSessionIds: string[]
+  }
+  omitted?: {
+    messageCount?: number
+    characterCount?: number
+    handoffSummaryCount?: number
+  }
+}
+
 type RuntimeRunInput = {
   conversationId: string
   mode: 'single' | 'group'
@@ -163,6 +203,7 @@ type RuntimeRunInput = {
     includeRawModelChunks: boolean
   }
   externalSessionHints?: RuntimeExternalSessionHint[]
+  externalContext?: RuntimeExternalContextPacket[]
 }
 
 type RuntimeRunCreateResponse = {
@@ -367,6 +408,10 @@ const PROJECTION_MAX_BUFFERED_ITEMS = 500
 const RUNTIME_EVENT_STREAM_MAX_RETRIES = 2
 const RUNTIME_EVENT_STREAM_RETRY_DELAY_MS = 250
 const BASH_OUTPUT_UI_PREVIEW_CHARS = 12_000
+const OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGES = 50
+const OPENCODE_EXTERNAL_CONTEXT_MAX_CHARS = 12_000
+const OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS = 4_000
+const OPENCODE_EXTERNAL_CONTEXT_MAX_HANDOFFS = 5
 const runPersistenceLogger = logger.child({ module: 'run-persistence' })
 
 export class RunPersistenceService {
@@ -482,9 +527,18 @@ export class RunPersistenceService {
       }, 'OpenCode local run created')
     }
 
-    const externalSessionHints = await resolveExternalSessionHints(
+    const directOpenCodeSession = await resolveDirectOpenCodeSession(
       conversation,
       addressedAgentIds,
+    )
+    const externalSessionHints = directOpenCodeSession
+      ? [toRuntimeExternalSessionHint(directOpenCodeSession)]
+      : []
+    const externalContext = await resolveExternalContextPackets(
+      conversation,
+      addressedAgentIds,
+      historyMessages,
+      directOpenCodeSession,
     )
     if (isOpenCodeRun) {
       runPersistenceLogger.info({
@@ -493,6 +547,10 @@ export class RunPersistenceService {
         runId: run.id,
         externalSessionHintCount: externalSessionHints.length,
         providerSessionIds: externalSessionHints.map((hint) => hint.providerSessionId),
+        externalContextPacketCount: externalContext.length,
+        externalContextMessageCount: externalContext.reduce((sum, packet) => sum + packet.messages.length, 0),
+        externalContextHandoffCount: externalContext.reduce((sum, packet) => sum + packet.handoffSummaries.length, 0),
+        externalContextModes: externalContext.map((packet) => packet.mode),
       }, 'OpenCode external session hints resolved')
     }
     const input = buildRuntimeRunInput(
@@ -501,6 +559,8 @@ export class RunPersistenceService {
       history,
       addressedAgentIds,
       externalSessionHints,
+      externalContext,
+      userMessage.id,
     )
     await updateRun(run.id, { inputJson: input })
 
@@ -1295,6 +1355,11 @@ export class RunPersistenceService {
       await projectExternalAgentSessionEvent(run, event)
       return
     }
+    if (event.type === 'agent.completed') {
+      await projectExternalAgentSessionEvent(run, event)
+      await projectExternalContextSyncEvent(run, event)
+      return
+    }
     if (event.type === 'permission.requested') {
       await this.updateActiveRunStatus(run, 'waiting_approval')
       await projectPermissionEvent(run, event, sequence)
@@ -1630,6 +1695,77 @@ async function projectExternalAgentSessionEvent(
       scope,
     }, 'OpenCode external session link projected')
   }
+}
+
+async function projectExternalContextSyncEvent(
+  run: RunOutput,
+  event: RuntimeRunEvent,
+): Promise<void> {
+  const data = getEventDataRecord(event)
+  if (getString(data.status) !== 'completed') return
+
+  const externalContext = getRecord(data.externalContext)
+  if (!externalContext) return
+
+  const externalSession = getRecord(data.externalSession)
+  const provider = getString(externalSession?.provider) ?? getString(externalContext.provider)
+  const providerSessionId = getString(externalSession?.providerSessionId)
+  if (provider !== 'opencode' || !providerSessionId) return
+
+  const latestVisibleMessage = await findLatestVisibleContextMessage(run.conversationId)
+  const cursorCandidate = getRecord(externalContext.cursorCandidate)
+  const includedMessageIds = getStringArray(cursorCandidate?.includedMessageIds)
+  const includedHandoffSessionIds = getStringArray(cursorCandidate?.includedHandoffSessionIds)
+  const omitted = getRecord(externalContext.omitted)
+  const contextBridge = {
+    ...(latestVisibleMessage ? {
+      lastSyncedMessageId: latestVisibleMessage.id,
+      lastSyncedMessageCreatedAt: latestVisibleMessage.createdAt,
+    } : {}),
+    lastSyncedAt: event.timestamp,
+    syncedAt: new Date().toISOString(),
+    runId: run.id,
+    runtimeRunId: event.runId,
+    mode: getString(externalContext.mode) ?? null,
+    includedMessageIds,
+    includedHandoffSessionIds,
+    ...(omitted ? { omitted } : {}),
+  }
+
+  await patchExternalAgentSessionMetadata({
+    provider,
+    providerSessionId,
+  }, {
+    contextBridge,
+  })
+
+  runPersistenceLogger.info({
+    externalProvider: 'opencode',
+    conversationId: run.conversationId,
+    runId: run.id,
+    runtimeRunId: event.runId,
+    providerSessionId,
+    contextMode: contextBridge.mode,
+    lastSyncedMessageId: latestVisibleMessage?.id,
+    includedMessageCount: includedMessageIds.length,
+    includedHandoffCount: includedHandoffSessionIds.length,
+  }, 'OpenCode external context sync projected')
+}
+
+async function findLatestVisibleContextMessage(conversationId: string): Promise<PersistedMessage | null> {
+  const messages = await listMessagesWithParts(conversationId, {
+    limit: 100,
+    order: 'desc',
+  })
+  for (const record of messages) {
+    const message = toPersistedMessage(record as Record<string, unknown>)
+    if (message.surface !== 'chat') continue
+    if (message.status !== 'completed') continue
+    if (message.role !== 'user' && message.role !== 'assistant') continue
+    const hasText = message.parts.some((part) => part.type === 'text' && part.text?.trim())
+    if (hasText) return message
+  }
+  return null
 }
 
 function isExternalSessionScope(value: string): value is ExternalSessionScope {
@@ -2704,6 +2840,8 @@ function buildRuntimeRunInput(
   history: RuntimeMessage[],
   addressedAgentIds: string[],
   externalSessionHints: RuntimeExternalSessionHint[] = [],
+  externalContext: RuntimeExternalContextPacket[] = [],
+  userMessageId?: string,
 ): RuntimeRunInput {
   const workspace = getRuntimeWorkspace(conversation.metadataJson)
   const titleSource = getTitleSource(conversation.metadataJson)
@@ -2715,6 +2853,7 @@ function buildRuntimeRunInput(
     participantAgentIds: conversation.agents.map((agent) => agent.agentId),
     addressedAgentIds,
     userMessage: {
+      ...(userMessageId ? { id: userMessageId } : {}),
       role: 'user',
       content: userContent,
     },
@@ -2733,20 +2872,21 @@ function buildRuntimeRunInput(
     },
     ...(workspace ? { workspace } : {}),
     ...(externalSessionHints.length > 0 ? { externalSessionHints } : {}),
+    ...(externalContext.length > 0 ? { externalContext } : {}),
   }
 }
 
-async function resolveExternalSessionHints(
+async function resolveDirectOpenCodeSession(
   conversation: ConversationDetailOutput,
   addressedAgentIds: string[],
-): Promise<RuntimeExternalSessionHint[]> {
+): Promise<ExternalAgentSessionOutput | null> {
   const workspace = getRuntimeWorkspace(conversation.metadataJson)
-  if (!workspace) return []
+  if (!workspace) return null
 
   const directAgentId = resolveDirectExternalAgentId(conversation, addressedAgentIds)
-  if (directAgentId !== 'opencode') return []
+  if (directAgentId !== 'opencode') return null
 
-  const session = await findExternalAgentSessionHint({
+  return findExternalAgentSessionHint({
     provider: 'opencode',
     agentId: directAgentId,
     conversationId: conversation.id,
@@ -2754,9 +2894,10 @@ async function resolveExternalSessionHints(
     scope: 'conversation-visible',
     status: 'active',
   })
-  if (!session) return []
+}
 
-  return [{
+function toRuntimeExternalSessionHint(session: ExternalAgentSessionOutput): RuntimeExternalSessionHint {
+  return {
     provider: 'opencode',
     agentId: session.agentId,
     scope: session.scope,
@@ -2764,7 +2905,213 @@ async function resolveExternalSessionHints(
     conversationId: session.conversationId,
     workspaceId: session.workspaceIdentity,
     ...(session.handoffSummary ? { handoffSummary: session.handoffSummary } : {}),
-  }]
+  }
+}
+
+async function resolveExternalContextPackets(
+  conversation: ConversationDetailOutput,
+  addressedAgentIds: string[],
+  historyMessages: unknown[],
+  directOpenCodeSession: ExternalAgentSessionOutput | null,
+): Promise<RuntimeExternalContextPacket[]> {
+  const workspace = getRuntimeWorkspace(conversation.metadataJson)
+  if (!workspace) return []
+
+  const directAgentId = resolveDirectExternalAgentId(conversation, addressedAgentIds)
+  if (directAgentId !== 'opencode') return []
+
+  const delegatedSessions = await listExternalAgentSessions({
+    conversationId: conversation.id,
+    provider: 'opencode',
+    agentId: directAgentId,
+    scope: 'delegated-task',
+    status: 'active',
+    limit: 20,
+    order: 'desc',
+  })
+  const packet = buildOpenCodeExternalContextPacket({
+    agentId: directAgentId,
+    sessionMetadata: directOpenCodeSession?.metadataJson ?? {},
+    historyMessages,
+    delegatedSessions,
+  })
+  return packet ? [packet] : []
+}
+
+export function buildOpenCodeExternalContextPacket(options: {
+  agentId: string
+  sessionMetadata?: MetadataJson
+  historyMessages: unknown[]
+  delegatedSessions?: ExternalAgentSessionOutput[]
+}): RuntimeExternalContextPacket | null {
+  const bridge = getContextBridgeMetadata(options.sessionMetadata)
+  const messages = projectMessagesToExternalContextMessages(options.historyMessages)
+  const cursorIndex = bridge.lastSyncedMessageId
+    ? messages.findIndex((message) => message.id === bridge.lastSyncedMessageId)
+    : -1
+  const mode: RuntimeExternalContextPacket['mode'] =
+    bridge.lastSyncedMessageId && cursorIndex >= 0 ? 'delta' : 'bootstrap'
+  const candidateMessages = mode === 'delta'
+    ? messages.slice(cursorIndex + 1)
+    : messages
+  const boundedMessages = takeBoundedExternalContextMessages(candidateMessages)
+  const handoffs = selectExternalContextHandoffs(
+    options.delegatedSessions ?? [],
+    mode,
+    bridge.lastSyncedAt,
+  )
+
+  if (boundedMessages.messages.length === 0 && handoffs.summaries.length === 0) {
+    return null
+  }
+
+  const throughMessage = boundedMessages.messages.at(-1)
+  const omitted = compactOmitted({
+    messageCount: boundedMessages.omittedMessageCount,
+    characterCount: boundedMessages.omittedCharacterCount,
+    handoffSummaryCount: handoffs.omittedHandoffSummaryCount,
+  })
+
+  return {
+    provider: 'opencode',
+    agentId: options.agentId,
+    scope: 'conversation-visible',
+    mode,
+    messages: boundedMessages.messages,
+    handoffSummaries: handoffs.summaries,
+    cursorCandidate: {
+      ...(throughMessage ? {
+        throughMessageId: throughMessage.id,
+        throughMessageCreatedAt: throughMessage.createdAt,
+      } : {}),
+      includedMessageIds: boundedMessages.messages.map((message) => message.id),
+      includedHandoffSessionIds: handoffs.summaries
+        .map((summary) => summary.sessionId)
+        .filter((id): id is string => Boolean(id)),
+    },
+    ...(omitted ? { omitted } : {}),
+  }
+}
+
+function getContextBridgeMetadata(metadata: MetadataJson | undefined): {
+  lastSyncedMessageId?: string
+  lastSyncedAt?: string
+} {
+  const bridge = getRecord(metadata?.contextBridge)
+  const lastSyncedMessageId = getString(bridge?.lastSyncedMessageId)
+  const lastSyncedAt = getString(bridge?.lastSyncedAt)
+  return {
+    ...(lastSyncedMessageId ? { lastSyncedMessageId } : {}),
+    ...(lastSyncedAt ? { lastSyncedAt } : {}),
+  }
+}
+
+function projectMessagesToExternalContextMessages(records: unknown[]): RuntimeExternalContextMessage[] {
+  return records.flatMap((record) => {
+    const message = toPersistedMessage(record as Record<string, unknown>)
+    if (message.surface !== 'chat') return []
+    if (message.status !== 'completed') return []
+    if (message.role !== 'user' && message.role !== 'assistant') return []
+    const content = message.parts
+      .filter((part) => part.type === 'text' && part.text)
+      .map((part) => part.text)
+      .join('\n')
+      .trim()
+    if (!content) return []
+
+    const senderLabel = resolveExternalContextSenderLabel(message)
+    return [{
+      id: message.id,
+      role: message.role as RuntimeExternalContextMessage['role'],
+      ...(message.agentId ? { agentId: message.agentId } : {}),
+      ...(senderLabel ? { senderLabel } : {}),
+      createdAt: message.createdAt,
+      content: truncateText(content, OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS),
+    }]
+  })
+}
+
+function resolveExternalContextSenderLabel(message: PersistedMessage): string | undefined {
+  if (message.role === 'user') return 'user'
+  if (message.agentId) return message.agentId
+  if (message.senderType) return message.senderType
+  return undefined
+}
+
+function takeBoundedExternalContextMessages(messages: RuntimeExternalContextMessage[]): {
+  messages: RuntimeExternalContextMessage[]
+  omittedMessageCount: number
+  omittedCharacterCount: number
+} {
+  const selected: RuntimeExternalContextMessage[] = []
+  let usedCharacters = 0
+  let omittedMessageCount = 0
+  let omittedCharacterCount = 0
+
+  for (const message of [...messages].reverse()) {
+    const characterCount = message.content.length
+    const wouldExceedCount = selected.length >= OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGES
+    const wouldExceedChars = usedCharacters + characterCount > OPENCODE_EXTERNAL_CONTEXT_MAX_CHARS
+    if (wouldExceedCount || wouldExceedChars) {
+      omittedMessageCount += 1
+      omittedCharacterCount += characterCount
+      continue
+    }
+    selected.push(message)
+    usedCharacters += characterCount
+  }
+
+  return {
+    messages: selected.reverse(),
+    omittedMessageCount,
+    omittedCharacterCount,
+  }
+}
+
+function selectExternalContextHandoffs(
+  sessions: ExternalAgentSessionOutput[],
+  mode: RuntimeExternalContextPacket['mode'],
+  lastSyncedAt?: string,
+): {
+  summaries: RuntimeExternalContextHandoffSummary[]
+  omittedHandoffSummaryCount: number
+} {
+  const candidates = sessions
+    .filter((session) => {
+      if (!session.handoffSummary?.trim()) return false
+      if (mode !== 'delta' || !lastSyncedAt) return true
+      return session.updatedAt > lastSyncedAt
+    })
+
+  const selected = candidates.slice(0, OPENCODE_EXTERNAL_CONTEXT_MAX_HANDOFFS)
+  return {
+    summaries: selected.reverse().map((session) => ({
+      sessionId: session.id,
+      providerSessionId: session.providerSessionId,
+      ...(session.taskId ? { taskId: session.taskId } : {}),
+      ...(session.runId ? { runId: session.runId } : {}),
+      summary: session.handoffSummary!.trim(),
+    })),
+    omittedHandoffSummaryCount: Math.max(0, candidates.length - selected.length),
+  }
+}
+
+function compactOmitted(omitted: {
+  messageCount: number
+  characterCount: number
+  handoffSummaryCount: number
+}): RuntimeExternalContextPacket['omitted'] | undefined {
+  const result = {
+    ...(omitted.messageCount > 0 ? { messageCount: omitted.messageCount } : {}),
+    ...(omitted.characterCount > 0 ? { characterCount: omitted.characterCount } : {}),
+    ...(omitted.handoffSummaryCount > 0 ? { handoffSummaryCount: omitted.handoffSummaryCount } : {}),
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value
+  return `${value.slice(0, maxLength)}...`
 }
 
 function resolveDirectExternalAgentId(
@@ -3140,6 +3487,12 @@ function extractPlan(event: RuntimeRunEvent): Record<string, unknown> | null {
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+function getStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
 }
 
 function truncatePreview(value: string): string {

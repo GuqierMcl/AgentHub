@@ -103,7 +103,24 @@ OpenCode Adapter V1
 - Runtime 退出时清理由 Runtime 托管的 OpenCode server。
 - OpenCode CLI/server 缺失、启动失败、workspace 不一致时返回稳定错误。
 
-### 阶段 4：权限桥接、Diff 与 Handoff
+### 阶段 4A：Context Bridge 与 Delegated Handoff
+
+目标：
+
+- HubServer 为 direct OpenCode run 生成 `externalContext` packet。
+- Direct `conversation-visible` prompt 前缀注入 AgentHub 可见公共历史与 delegated handoff summary。
+- `ExternalAgentSession.metadataJson.contextBridge` 保存上下文同步状态，不新增 Prisma 字段。
+- 成功完成后推进 context cursor；失败、取消或中途重启不推进。
+- Delegated task 完成后生成 handoff summary，并持久化到 delegated-task session。
+
+验收：
+
+- 群聊中用户直接 `@OpenCode` 时，OpenCode 能看到上一次同步之后的用户和其他智能体公开消息。
+- provider session 丢失或 cursor 不可用时，HubServer 使用 bounded bootstrap。
+- delegated task 的 handoff summary 可进入后续 direct context，但原始 task prompt 不进入 direct session。
+- `RunInput.externalContext`、`agent.completed.data.externalContext` 和 `ExternalAgentSession.metadataJson.contextBridge` 契约同步到文档。
+
+### 阶段 4B：权限桥接与 Diff
 
 目标：
 
@@ -112,13 +129,11 @@ OpenCode Adapter V1
 - AgentHub 批准映射为 OpenCode 一次性允许；拒绝或取消映射为 OpenCode 拒绝并中止相关操作。
 - Run 前后记录 workspace baseline，V1 使用 git-based changed files / diff summary。
 - `agent.completed.data.workspaceDiff` 携带基础 Diff 摘要。
-- Delegated task 完成后生成 handoff summary。
 
 验收：
 
 - Web 现有 permission UI 可以处理 OpenCode 权限请求。
 - OpenCode 修改文件后，Run terminal data 中有变更文件列表和摘要。
-- 后续 direct `@OpenCode` 可以获得 delegated task handoff summary，而不是 task 原始 prompt。
 
 ### 阶段 5：集成硬化
 
@@ -143,7 +158,8 @@ OpenCode Adapter V1
 - 阶段 2 基础契约已落地：Runtime 接收 `externalSessionHints`，HubServer 可从 `agent.started.data.externalSession` upsert `ExternalAgentSession`，并在 direct OpenCode run 中注入 conversation-visible session hint。
 - 阶段 3 基础接入已落地：`@opencode-ai/sdk` 已加入 Runtime；默认 OpenCodeAdapter 使用真实 client；`ManagedOpenCodeServer` 会在 SDK 暴露安全 workspace 选项时走 `createOpencode()`，当前 SDK 版本未暴露该选项时走 CLI fallback，并校验 `project.current` / `path.get`；`RealOpenCodeClient` 支持 session hint 复用、缺失重建、`session.prompt()` 文本投影和 Run cancel 时 `session.abort()`。
 - OpenCode 模型只读展示 V1.1 已落地：Runtime 从 `session.prompt()` response 的 `providerID/modelID` 生成 `message.completed.data.externalModel`，并通过只读 provider catalog 尽量补齐 `providerName/modelName`；HubServer 保留并投影该消息级 metadata，Web 在聊天消息 action 行优先展示 OpenCode 实际回复模型名。
-- 尚无 OpenCode event stream 权限桥接、Diff 投影和 handoff summary 生成。
+- 阶段 4A 已落地：HubServer 生成 OpenCode direct `externalContext` packet，Runtime OpenCodeAdapter 将其作为结构化 prompt 前缀发送；delegated task 完成后生成 handoff summary；HubServer 用 `ExternalAgentSession.metadataJson.contextBridge` 保存成功同步状态。
+- 尚无 OpenCode event stream 权限桥接和 Diff 投影。
 
 ## 已完成
 
@@ -155,17 +171,18 @@ OpenCode Adapter V1
 - 阶段 2：外部 Session 持久化基础契约、Prisma model、repository、Runtime input hint 注入和 Runtime contract 文档。
 - 阶段 3：真实 OpenCode SDK client、workspace-correct managed server fallback、session/prompt/abort 基础链路和 mock unit tests。
 - V1.1：OpenCode 每条回复实际模型的 Runtime event、HubServer message metadata 投影和 Web action 行模型名展示。
+- 阶段 4A：Context Bridge、metadata cursor 与 delegated handoff summary。
 
 ## 待办
 
-- 阶段 4：权限桥接、Diff 与 Handoff。
+- 阶段 4B：权限桥接与 Diff。
 - 阶段 5：集成硬化。
 - OpenCode 会话头部默认模型只读状态：后续再考虑读取 OpenCode provider/config 默认值；AgentHub 仍不接管 OpenCode 模型配置。
 
 ## 风险与待确认点
 
 - 当前 `@opencode-ai/sdk@1.15.13` 的 `createOpencode()` ServerOptions 未暴露 cwd/workdir/projectPath；V1 不使用 `process.chdir()`，因此默认通过 `opencode serve` 子进程 cwd 绑定 workspace。若后续 SDK 增加进程局部 workspace 参数，可切回 SDK managed path。
-- OpenCode 权限回写 API 的精确 payload 需要在 Phase 4 权限桥接阶段验证。
+- OpenCode 权限回写 API 的精确 payload 需要在 Phase 4B 权限桥接阶段验证。
 - 多个 OpenCode session 并发编辑同一 workspace 可能产生冲突；V1 只检测并标记，不自动合并。
 - 非 git workspace 的 Diff 能力需要 fallback 设计；V1 先以 unavailable summary 降级。
 
@@ -178,3 +195,4 @@ OpenCode Adapter V1
 - 2026-06-02：落地 OpenCode 模型只读展示 V1.1：`message.completed.data.externalModel`、HubServer metadata 投影和 Web 消息 action 行展示实际回复模型；随后补齐 `providerName/modelName` 展示增强，旧消息无 display name 时前端降级为可读化 model id。
 - 2026-06-02：修复 OpenCode 输出链路暴露出的通用 Runtime SSE 尾部事件竞态：Runtime SSE 先订阅再 replay 并 terminal-drain；HubServer consumer 只在 Runtime terminal event 已持久化后停止补连。
 - 2026-06-02：修复真实 OpenCode 长 prompt 暴露出的 Runtime SSE idle timeout：Runtime 与 HubServer run SSE 增加 keepalive comment，Agent Runtime Bun server idle timeout 调整为 60 秒，并澄清连接 `cancel()` 日志不是用户取消 Run。
+- 2026-06-02：完成 Phase 4A Context Bridge：HubServer 组装 `externalContext` packet，OpenCodeAdapter 使用结构化 prompt 前缀，delegated task 生成 handoff summary，并用 `ExternalAgentSession.metadataJson.contextBridge` 推进成功同步 cursor；权限桥接和 Diff 移入 Phase 4B。

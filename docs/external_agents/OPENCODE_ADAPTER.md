@@ -61,7 +61,7 @@ OpenCode SDK 可以启动 server 并返回 client，也可以连接已有 server
 - SDK client 调用应显式传入 `query.directory = workspaceRoot`，并使用 `createOpencodeClient({ baseUrl, directory })` 作为 GET/HEAD 的辅助保护。
 - OpenCode Session 可以由 Adapter 创建和更新标题；Session 映射事实来源仍在 HubServer。
 - Adapter 向 OpenCode 发送用户消息时默认不传入 model/provider 覆盖项，避免 AgentHub 接管 OpenCode 模型配置。
-- 如果需要把 AgentHub 公共上下文同步给 OpenCode Session，应优先使用 OpenCode 支持的 no-reply message/prompt 语义，避免触发一次额外模型回复。
+- Phase 4A 将 AgentHub 公共上下文作为结构化 prompt 前缀发送给 `session.prompt()`，不探索 no-reply message/prompt 语义。后续如果 OpenCode SDK 提供稳定静默上下文写入能力，可以再替换前缀实现。
 
 ## 4. OpenCode Project 映射
 
@@ -158,6 +158,16 @@ Adapter 使用 conversation-visible session。
 - 其他智能体隐藏上下文。
 - Runtime 内部 continuation 消息。
 
+Phase 4A 的 direct context bridge 由 HubServer 生成 `externalContext` packet，并由 OpenCodeAdapter 格式化为 `AgentHub visible context` prompt 前缀。该前缀不是当前用户请求；当前用户请求会在前缀之后以 `Current user request` 单独追加。
+
+同步规则：
+
+- 如果 `ExternalAgentSession.metadataJson.contextBridge.lastSyncedMessageId` 仍在最近可见消息窗口内，HubServer 只发送该消息之后的 delta。
+- 如果没有 cursor、OpenCode provider session 被重建、或 cursor 已不在窗口内，HubServer 发送 bounded bootstrap。
+- 首版窗口限制为最多 50 条可见消息、约 12k 字符，单条消息会先截断到约 4k 字符。
+- OpenCodeAdapter 在 `agent.completed.data.externalContext` 回传本轮已应用 context 的摘要，不回传完整消息正文。
+- HubServer 只在成功完成后推进 `metadataJson.contextBridge`；失败、取消或中途重启不会推进 cursor，下一轮可以重复发送 bounded context。
+
 ### 7.2 Orchestrator 委派 OpenCode
 
 Adapter 使用 delegated-task session。
@@ -193,6 +203,8 @@ OpenCode 的任务回复仍作为普通群聊消息展示，但该任务 session
 - 原始 delegated prompt。
 - Orchestrator 私有计划。
 - OpenCode task session 的完整内部消息。
+
+Phase 4A 中，OpenCodeAdapter 在 delegated task 的 `agent.completed` 上生成简短 handoff summary，并写入 `agent.completed.data.handoffSummary` 与 `agent.completed.data.externalSession.handoffSummary`。HubServer 投影后保存到对应 delegated-task `ExternalAgentSession.handoffSummary`。后续 direct `@OpenCode` 会把相关 handoff summary 放入 direct context bridge，但不会复用 delegated-task provider session，也不会注入原始 task instruction。
 
 ## 8. OpenCode 配置策略
 

@@ -62,6 +62,52 @@ export const ExternalSessionHintSchema = z.object({
 }).strict()
 export type ExternalSessionHint = z.infer<typeof ExternalSessionHintSchema>
 
+export const ExternalContextMessageSchema = z.object({
+  id: z.string().min(1),
+  role: z.enum(["user", "assistant"]),
+  agentId: z.string().min(1).optional(),
+  senderLabel: z.string().min(1).optional(),
+  createdAt: z.string().min(1).optional(),
+  content: z.string().min(1),
+}).strict()
+export type ExternalContextMessage = z.infer<typeof ExternalContextMessageSchema>
+
+export const ExternalContextHandoffSummarySchema = z.object({
+  sessionId: z.string().min(1).optional(),
+  providerSessionId: z.string().min(1),
+  taskId: z.string().min(1).optional(),
+  runId: z.string().min(1).optional(),
+  summary: z.string().min(1),
+}).strict()
+export type ExternalContextHandoffSummary = z.infer<typeof ExternalContextHandoffSummarySchema>
+
+export const ExternalContextCursorCandidateSchema = z.object({
+  throughMessageId: z.string().min(1).optional(),
+  throughMessageCreatedAt: z.string().min(1).optional(),
+  includedMessageIds: z.array(z.string().min(1)).default([]),
+  includedHandoffSessionIds: z.array(z.string().min(1)).default([]),
+}).strict()
+export type ExternalContextCursorCandidate = z.infer<typeof ExternalContextCursorCandidateSchema>
+
+export const ExternalContextOmittedSchema = z.object({
+  messageCount: z.number().int().min(0).optional(),
+  characterCount: z.number().int().min(0).optional(),
+  handoffSummaryCount: z.number().int().min(0).optional(),
+}).strict()
+export type ExternalContextOmitted = z.infer<typeof ExternalContextOmittedSchema>
+
+export const ExternalContextPacketSchema = z.object({
+  provider: z.enum(["opencode", "claude-code", "codex"]),
+  agentId: z.string().min(1),
+  scope: ExternalSessionScopeSchema,
+  mode: z.enum(["delta", "bootstrap"]),
+  messages: z.array(ExternalContextMessageSchema).default([]),
+  handoffSummaries: z.array(ExternalContextHandoffSummarySchema).default([]),
+  cursorCandidate: ExternalContextCursorCandidateSchema.optional(),
+  omitted: ExternalContextOmittedSchema.optional(),
+}).strict()
+export type ExternalContextPacket = z.infer<typeof ExternalContextPacketSchema>
+
 export const RunInputSchema = z.object({
   conversationId: z.string().min(1),
   mode: RuntimeConversationModeSchema,
@@ -75,6 +121,7 @@ export const RunInputSchema = z.object({
   diagnostics: RunDiagnosticsSchema.optional(),
   conversationState: RunConversationStateSchema.optional(),
   externalSessionHints: z.array(ExternalSessionHintSchema).optional(),
+  externalContext: z.array(ExternalContextPacketSchema).optional(),
 })
 export type RunInput = z.infer<typeof RunInputSchema>
 

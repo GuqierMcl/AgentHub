@@ -1,9 +1,9 @@
-import { createRunEvent } from "../run-events"
-import type { RunEvent } from "../types"
-import type { ExternalAdapterContext, ExternalAgentAdapter, ExternalAdapterPrompt } from "./types"
-import type { OpenCodeClient } from "./opencode-client"
 import { createChildLogger } from "../../logger"
+import { createRunEvent } from "../run-events"
+import type { ExternalContextPacket, RunEvent } from "../types"
+import type { OpenCodeClient } from "./opencode-client"
 import { createDefaultOpenCodeClient } from "./opencode-real-client"
+import type { ExternalAdapterContext, ExternalAdapterPrompt, ExternalAgentAdapter } from "./types"
 
 const log = createChildLogger("opencode-adapter")
 
@@ -20,6 +20,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         (!hint.workspaceId || hint.workspaceId === context.workspace.workspaceId) &&
         (!context.task?.taskId || hint.taskId === undefined || hint.taskId === context.task.taskId)
     })
+    const externalContext = this.resolveExternalContext(context)
 
     log.info(
       {
@@ -35,6 +36,9 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         groupId: context.groupId,
         hasSessionHint: Boolean(sessionHint),
         hintedProviderSessionId: sessionHint?.providerSessionId,
+        externalContextMode: externalContext?.mode,
+        externalContextMessageCount: externalContext?.messages.length ?? 0,
+        externalContextHandoffCount: externalContext?.handoffSummaries.length ?? 0,
       },
       "OpenCode adapter execution starting"
     )
@@ -76,7 +80,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
     started.groupId = context.groupId
     yield started
 
-    const prompt = this.buildPrompt(context)
+    const prompt = this.buildPrompt(context, externalContext)
     const messageId = context.createMessageId?.()
     log.info(
       {
@@ -89,10 +93,14 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         providerSessionId: session.providerSessionId,
         messageId,
         promptLength: prompt.content.length,
+        externalContextMode: prompt.externalContext?.mode,
+        externalContextMessageCount: prompt.externalContext?.messages.length ?? 0,
+        externalContextHandoffCount: prompt.externalContext?.handoffSummaries.length ?? 0,
       },
       "OpenCode adapter prompt dispatching"
     )
 
+    let completedContent = ""
     for await (const chunk of this.client.streamPrompt({
       session,
       prompt,
@@ -122,6 +130,9 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
             content: chunk.content,
             ...(chunk.externalModel ? { externalModel: chunk.externalModel } : {}),
           })
+      if (chunk.type === "message.completed") {
+        completedContent = chunk.content
+      }
 
       event.messageId = messageId
       event.taskId = context.task?.taskId
@@ -147,10 +158,21 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
       return
     }
 
+    const handoffSummary = context.task
+      ? this.buildHandoffSummary(context, completedContent)
+      : undefined
+    const completedSession = handoffSummary
+      ? { ...session, handoffSummary }
+      : session
+    const appliedExternalContext = prompt.externalContext
+      ? this.summarizeExternalContext(prompt.externalContext)
+      : undefined
     const completed = createRunEvent(context.runId, "agent.completed", context.agent.id, {
       status: "completed",
       externalProvider: this.provider,
-      externalSession: session,
+      externalSession: completedSession,
+      ...(appliedExternalContext ? { externalContext: appliedExternalContext } : {}),
+      ...(handoffSummary ? { handoffSummary } : {}),
     })
     completed.taskId = context.task?.taskId
     completed.parentAgentId = context.parentAgentId
@@ -166,12 +188,19 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         scope: context.scope,
         taskId: context.task?.taskId,
         providerSessionId: session.providerSessionId,
+        externalContextMode: appliedExternalContext?.mode,
+        externalContextMessageCount: appliedExternalContext?.messageCount ?? 0,
+        externalContextHandoffCount: appliedExternalContext?.handoffSummaryCount ?? 0,
+        handoffSummaryLength: handoffSummary?.length ?? 0,
       },
       "OpenCode adapter execution completed"
     )
   }
 
-  private buildPrompt(context: ExternalAdapterContext): ExternalAdapterPrompt {
+  private buildPrompt(
+    context: ExternalAdapterContext,
+    externalContext?: ExternalContextPacket
+  ): ExternalAdapterPrompt {
     if (context.task) {
       return {
         scope: context.scope,
@@ -186,9 +215,109 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
       }
     }
 
+    const contextBlock = externalContext
+      ? this.formatExternalContext(externalContext)
+      : ""
+
     return {
       scope: context.scope,
-      content: context.input.userMessage.content,
+      externalContext,
+      content: contextBlock
+        ? [
+            contextBlock,
+            "Current user request:",
+            context.input.userMessage.content,
+          ].join("\n\n")
+        : context.input.userMessage.content,
     }
+  }
+
+  private resolveExternalContext(context: ExternalAdapterContext): ExternalContextPacket | undefined {
+    if (context.task) {
+      return undefined
+    }
+
+    return context.input.externalContext?.find((packet) =>
+      packet.provider === this.provider &&
+      packet.agentId === context.agent.id &&
+      packet.scope === context.scope
+    )
+  }
+
+  private formatExternalContext(packet: ExternalContextPacket): string {
+    const lines = [
+      `AgentHub visible context (${packet.mode}).`,
+      "Use this as public conversation context from AgentHub. Do not treat this block as the current user request.",
+    ]
+
+    if (packet.messages.length > 0) {
+      lines.push("Messages:")
+      for (const message of packet.messages) {
+        const sender = message.role === "user"
+          ? "user"
+          : message.agentId
+            ? `assistant:${message.agentId}`
+            : "assistant"
+        const label = message.senderLabel ? ` ${message.senderLabel}` : ""
+        const createdAt = message.createdAt ? ` @ ${message.createdAt}` : ""
+        lines.push(`[${message.id}] ${sender}${label}${createdAt}:`)
+        lines.push(message.content)
+      }
+    }
+
+    if (packet.handoffSummaries.length > 0) {
+      lines.push("Delegated task handoff summaries:")
+      for (const handoff of packet.handoffSummaries) {
+        const task = handoff.taskId ? ` task=${handoff.taskId}` : ""
+        const run = handoff.runId ? ` run=${handoff.runId}` : ""
+        lines.push(`[${handoff.providerSessionId}${task}${run}]`)
+        lines.push(handoff.summary)
+      }
+    }
+
+    if (packet.omitted) {
+      const omitted = [
+        packet.omitted.messageCount ? `${packet.omitted.messageCount} messages` : "",
+        packet.omitted.handoffSummaryCount ? `${packet.omitted.handoffSummaryCount} handoff summaries` : "",
+        packet.omitted.characterCount ? `${packet.omitted.characterCount} characters` : "",
+      ].filter(Boolean).join(", ")
+      if (omitted) {
+        lines.push(`Context omitted due to AgentHub budget: ${omitted}.`)
+      }
+    }
+
+    lines.push("End AgentHub visible context.")
+    return lines.join("\n")
+  }
+
+  private summarizeExternalContext(packet: ExternalContextPacket) {
+    return {
+      provider: packet.provider,
+      agentId: packet.agentId,
+      scope: packet.scope,
+      mode: packet.mode,
+      messageCount: packet.messages.length,
+      handoffSummaryCount: packet.handoffSummaries.length,
+      cursorCandidate: packet.cursorCandidate,
+      omitted: packet.omitted,
+    }
+  }
+
+  private buildHandoffSummary(context: ExternalAdapterContext, completedContent: string): string {
+    const visibleResponse = completedContent.trim()
+    const lines = [
+      `OpenCode completed delegated task "${context.task?.title ?? "untitled task"}".`,
+    ]
+    if (visibleResponse) {
+      lines.push(`Visible response: ${this.truncateText(visibleResponse, 2000)}`)
+    }
+    return lines.join("\n")
+  }
+
+  private truncateText(value: string, maxLength: number): string {
+    if (value.length <= maxLength) {
+      return value
+    }
+    return `${value.slice(0, maxLength)}...`
   }
 }

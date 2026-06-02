@@ -2,6 +2,7 @@ import type { AgentDefinition } from "../../agents"
 import type {
   AgentExecutionContext,
   AgentExecutor,
+  ExternalContextPacket,
   OrchestratorTask,
   RunEvent,
   RunWorkspaceSnapshot,
@@ -26,6 +27,7 @@ export type ExternalAdapterPrompt = {
   content: string
   scope: ExternalSessionScope
   task?: OrchestratorTask
+  externalContext?: ExternalContextPacket
 }
 
 export type ExternalAdapterContext = AgentExecutionContext & {

@@ -107,6 +107,8 @@ HubServer 是业务状态中心，应持久化外部 Session 映射。Runtime �
 - 最后同步到的 AgentHub 消息或事件位置。
 - 可选 handoff summary。
 
+Phase 4A 采用不新增数据库字段的上下文同步策略：专用同步状态写入 `ExternalAgentSession.metadataJson.contextBridge`。该对象可保存 `lastSyncedMessageId`、`lastSyncedMessageCreatedAt`、`lastSyncedAt`、最近一次 `mode`、已包含的 message/handoff id 列表和 omitted 信息。HubServer 只在外部智能体成功完成并确认本轮 context 已应用后推进该 metadata；如果 Runtime 或 HubServer 中途重启，后续调用可以重新发送 bounded context，而不会跳过未同步内容。
+
 ## 6. 上下文组装
 
 AgentHub 是用户可见上下文的事实来源。外部 Session 是外部平台的工作记忆，不是业务事实来源。
@@ -129,6 +131,17 @@ AgentHub 是用户可见上下文的事实来源。外部 Session 是外部平�
 - 其他智能体的隐藏 scratch/context。
 - 内部工具原始续跑消息。
 - 外部 delegated-task session 的原始任务包装 prompt。
+
+Phase 4A 中，HubServer 是 direct context packet 的组装方，Runtime Adapter 是格式化和发送方。HubServer 基于 `ExternalAgentSession.metadataJson.contextBridge.lastSyncedMessageId` 选择 delta；当 cursor 缺失、provider session 重建或 cursor 不在最近窗口内时，使用 bounded bootstrap。首版上下文窗口限制为最近可见消息和字符预算，不使用 LLM 总结。
+
+外部 direct context packet 应只包含用户可见事实：
+
+- `surface = "chat"` 且已完成的 user/assistant 消息。
+- 可见主智能体的公开回复。
+- delegated task 的 handoff summary。
+- 同步 cursor candidate 和预算省略信息。
+
+它不包含 raw RunEvent、tool 原始输入输出、reasoning、Orchestrator 私有计划或 delegated task 原始 instruction。
 
 ### 6.2 Delegated Task Context
 
