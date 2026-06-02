@@ -17,7 +17,13 @@ import type {
   WorkbenchTimelineRunStatusItem,
   WorkbenchTimelineTaskItem,
   WorkbenchTimelineToolItem,
+  Artifact,
 } from "../types"
+import {
+  formatWorkspaceDiffDescription,
+  formatWorkspaceDiffMeta,
+  formatWorkspaceDiffTitle,
+} from "../utils/workspace-diff-copy"
 
 type ChatSpeakerIds = Record<string, true>
 
@@ -107,16 +113,28 @@ export function applyRuntimeEventToTimeline(
     case "orchestrator.plan.created":
       return upsertPlanFromEvent(items, event)
     case "run.completed":
-      return finalizeTerminalRunItems(items, event, "completed")
+      return applyWorkspaceDiffArtifact(
+        finalizeTerminalRunItems(items, event, "completed"),
+        event,
+        "completed"
+      )
     case "run.failed":
       return upsertRunStatus(
-        finalizeTerminalRunItems(items, event, "failed"),
+        applyWorkspaceDiffArtifact(
+          finalizeTerminalRunItems(items, event, "failed"),
+          event,
+          "failed"
+        ),
         event,
         "failed"
       )
     case "run.cancelled":
       return upsertRunStatus(
-        finalizeTerminalRunItems(items, event, "cancelled"),
+        applyWorkspaceDiffArtifact(
+          finalizeTerminalRunItems(items, event, "cancelled"),
+          event,
+          "cancelled"
+        ),
         event,
         "cancelled"
       )
@@ -889,6 +907,109 @@ function finalizeTerminalRunItems(
       return questionItems === item.questionItems ? item : { ...item, questionItems }
     }
     return item
+  })
+}
+
+function applyWorkspaceDiffArtifact(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent,
+  status: "completed" | "failed" | "cancelled"
+): WorkbenchTimelineItem[] {
+  const artifact = createWorkspaceDiffArtifact(event)
+  if (!artifact) return items
+
+  const targetIndex = findWorkspaceDiffArtifactTargetIndex(items, event.runId)
+  if (targetIndex < 0) {
+    const artifactOnlyMessage: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: `chat:${event.runId}:workspace-diff`,
+      runId: event.runId,
+      role: "assistant",
+      text: "",
+      time: formatTimelineTime(new Date(event.timestamp)),
+      status,
+      artifacts: [artifact],
+    }
+    return [...items, artifactOnlyMessage]
+  }
+
+  return items.map((item, index) => {
+    if (index !== targetIndex || item.kind !== "chat_message") return item
+    return {
+      ...item,
+      artifacts: upsertArtifact(item.artifacts, artifact),
+    }
+  })
+}
+
+function createWorkspaceDiffArtifact(event: RuntimeRunEvent): Artifact | undefined {
+  const workspaceDiff = getRecord(getEventDataObject(event).workspaceDiff)
+  if (!workspaceDiff) return undefined
+
+  const changedFileCount = getWorkspaceDiffChangedFileCount(workspaceDiff)
+  if (changedFileCount <= 0) return undefined
+
+  return {
+    id: `diff:${event.runId}:${event.id}`,
+    type: "diff",
+    title: formatWorkspaceDiffTitle(),
+    description: formatWorkspaceDiffDescription(workspaceDiff, changedFileCount),
+    meta: formatWorkspaceDiffArtifactMeta(workspaceDiff, changedFileCount),
+  }
+}
+
+function findWorkspaceDiffArtifactTargetIndex(
+  items: WorkbenchTimelineItem[],
+  runId: string
+): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (item.kind === "chat_message" && item.runId === runId && item.role === "assistant") {
+      return index
+    }
+  }
+
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (item.kind === "chat_message" && item.runId === runId) {
+      return index
+    }
+  }
+
+  return -1
+}
+
+function upsertArtifact(
+  artifacts: Artifact[] | undefined,
+  artifact: Artifact
+): Artifact[] {
+  const current = artifacts ?? []
+  const index = current.findIndex((item) => item.id === artifact.id)
+  if (index < 0) {
+    return [...current, artifact]
+  }
+  return current.map((item, itemIndex) =>
+    itemIndex === index ? artifact : item
+  )
+}
+
+function getWorkspaceDiffChangedFileCount(
+  workspaceDiff: Record<string, unknown>
+): number {
+  const stats = getRecord(workspaceDiff.stats)
+  const fromStats = getNumber(stats?.filesChanged)
+  if (fromStats !== undefined) return fromStats
+  return Array.isArray(workspaceDiff.changedFiles) ? workspaceDiff.changedFiles.length : 0
+}
+
+function formatWorkspaceDiffArtifactMeta(
+  workspaceDiff: Record<string, unknown>,
+  changedFileCount: number
+): string {
+  const status = getString(workspaceDiff.status)
+  return formatWorkspaceDiffMeta(workspaceDiff, changedFileCount, {
+    baselineDirty: workspaceDiff.baselineDirty === true,
+    status,
   })
 }
 

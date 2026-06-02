@@ -1,11 +1,12 @@
 import { createChildLogger } from "../../logger"
 import { createRunEvent } from "../run-events"
 import type { ExternalContextPacket, RunEvent } from "../types"
-import type { OpenCodeClient } from "./opencode-client"
+import type { OpenCodeClient, OpenCodeExecutionAgent } from "./opencode-client"
 import { createDefaultOpenCodeClient } from "./opencode-real-client"
 import type { ExternalAdapterContext, ExternalAdapterPrompt, ExternalAgentAdapter } from "./types"
 
 const log = createChildLogger("opencode-adapter")
+const DEFAULT_OPENCODE_EXECUTION_AGENT: OpenCodeExecutionAgent = "build"
 
 export class OpenCodeAdapter implements ExternalAgentAdapter {
   provider = "opencode" as const
@@ -81,6 +82,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
     yield started
 
     const prompt = this.buildPrompt(context, externalContext)
+    const executionAgent = this.resolveExecutionAgent(context)
     const messageId = context.createMessageId?.()
     log.info(
       {
@@ -92,6 +94,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         taskId: context.task?.taskId,
         providerSessionId: session.providerSessionId,
         messageId,
+        executionAgent,
         promptLength: prompt.content.length,
         externalContextMode: prompt.externalContext?.mode,
         externalContextMessageCount: prompt.externalContext?.messages.length ?? 0,
@@ -104,6 +107,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
     for await (const chunk of this.client.streamPrompt({
       session,
       prompt,
+      executionAgent,
       signal: context.signal,
     })) {
       if (context.signal.aborted) {
@@ -188,6 +192,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         scope: context.scope,
         taskId: context.task?.taskId,
         providerSessionId: session.providerSessionId,
+        executionAgent,
         externalContextMode: appliedExternalContext?.mode,
         externalContextMessageCount: appliedExternalContext?.messageCount ?? 0,
         externalContextHandoffCount: appliedExternalContext?.handoffSummaryCount ?? 0,
@@ -195,6 +200,10 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
       },
       "OpenCode adapter execution completed"
     )
+  }
+
+  private resolveExecutionAgent(_context: ExternalAdapterContext): OpenCodeExecutionAgent {
+    return DEFAULT_OPENCODE_EXECUTION_AGENT
   }
 
   private buildPrompt(

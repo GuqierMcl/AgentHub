@@ -216,6 +216,7 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - `web_fetch` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.network = "full"`，可直接执行 HTTP(S) 请求；`opencode` 的网络策略也为 `full`，但外部适配器不注入 Runtime Tool。用户自定义智能体暂不开放网络工具。
 - `bash` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.shell = "limited"`，通过 `toolPermissionRules.bash` 做命令级 `allow | ask | deny` 控制；`opencode` 仍不注入 Runtime Tool。用户自定义智能体暂不开放 shell 工具和 bash 规则。
 - `question` 隐式开放给所有内部 AI SDK 智能体，包括预设主智能体、隐藏子智能体和用户自定义智能体；它不进入用户自定义智能体 authoring options，外部 adapter 不注入。
+- 通用 Workspace Diff Summary V0 已闭环到 Runtime 终态事件：Run 创建时捕获 git baseline，`run.completed` / `run.failed` / `run.cancelled` best-effort 携带 `data.workspaceDiff`。该能力覆盖内部预设智能体、隐藏 `file` 子智能体、用户自定义写入智能体和 OpenCode 等外部智能体。
 
 尚未完全闭环的部分：
 
@@ -224,8 +225,8 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - HubServer 还未提供面向浏览器的自定义 Agent 管理 API 和配置 UI；当前 CRUD 仍是 Runtime 内部 API。
 - 权限审批和用户问答已具备产品级 API 代理、事件持久化和前端交互；更完整的产品级 MessagePart/Artifact 投影仍在后续阶段。
 - 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。
-- 外部智能体 `opencode` 已进入 `ExternalAdapterExecutor`，默认使用真实 OpenCode client。Runtime 已接入 `@opencode-ai/sdk`，在 SDK 暴露安全 workspace 启动参数时可走 managed server；当前 SDK 未暴露 cwd/workdir/projectPath 时，使用 `opencode serve` 子进程以 workspace root 为 `cwd` 启动，并通过 `project.current` / `path.get` 校验 workspace。HubServer 已具备外部 Session 映射的基础持久化契约；权限桥接和 Diff 投影仍在 `docs/roadmap/opencode-adapter-implementation.md` 后续阶段。
-- 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Patch、Diff artifact / apply、deploy 仍未开放。
+- 外部智能体 `opencode` 已进入 `ExternalAdapterExecutor`，默认使用真实 OpenCode client。Runtime 已接入 `@opencode-ai/sdk`，在 SDK 暴露安全 workspace 启动参数时可走 managed server；当前 SDK 未暴露 cwd/workdir/projectPath 时，使用 `opencode serve` 子进程以 workspace root 为 `cwd` 启动，并通过 `project.current` / `path.get` 校验 workspace。HubServer 已具备外部 Session 映射、direct context bridge 和通用 Workspace Diff 投影；OpenCode event stream/tool timeline 与权限桥接仍在 `docs/roadmap/opencode-adapter-implementation.md` 后续阶段。
+- 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Workspace Diff 摘要卡片已开放，Patch apply、完整 Diff viewer/rollback、deploy 仍未开放。
 
 ### 3.4 外部智能体 Adapter
 
@@ -374,6 +375,10 @@ workspace?: {
 - `rootPath` 必须是已存在目录；Runtime 使用 canonical real path 建立 session，不自动创建目录。
 - 未携带 workspace 的 Run 可以继续纯对话；文件工具返回 `WORKSPACE_NOT_BOUND`，不会回退到 `config.workdir`。
 - Run 查询只回显 `workspaceId`、`backendType` 和 `rootLabel`，不回显 `rootPath`。
+
+Workspace Diff V0 由 Runtime 的通用 diff 服务负责，而不是由某个 Adapter 私有实现。Run 创建时，Runtime 基于绑定 workspace 捕获 git baseline，包括 repository 可用性、branch/head、dirty 状态和 status map；Run 完成、失败或取消时，在 workspace close 前计算 final status、changed files、numstat、diffstat 和 bounded patch，并写入终态 `RunEvent.data.workspaceDiff`。取消路径同样 best-effort 计算 diff：取消先 abort 正在执行的 adapter/tool，再输出带 diff 的 `run.cancelled`。行数统计优先来自 `git diff HEAD --numstat`；未跟踪文本文件不会出现在 git numstat 中，因此 Runtime 会读取文件内容 best-effort 计算新增行数，无法可靠统计时前端不应展示 `+0/-0` 伪统计。
+
+Diff V0 只基于 git。未绑定 workspace、非 git repository、git 不存在、git 命令超时或 patch 超预算时，Runtime 返回结构化 `unavailable` 或 `degraded` summary，不让 diff 失败升级为 Run 失败。如果 Run 开始前 workspace 已 dirty，summary 会标记 `baselineDirty = true`、`runOnlyReliable = false`。Runtime 会用 baseline/final 脏文件 fingerprint 尽量过滤掉本轮未变化的既有脏文件，但 bounded patch 仍是 final-vs-HEAD 的保守摘要，不声称精确归因到本次 Run。HubServer 负责把有实际文件变化的 summary 投影为 `Artifact(type="diff")` 与 ArtifactVersion；前端首版只展示摘要卡片、文件数、增删行、dirty/degraded/truncated 状态，不提供 apply、rollback 或完整 viewer。
 
 Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。workspace 内 `.env`、`AGENTS.md`、`.npmrc`、密钥文件和 VCS 元数据等敏感路径的显式内容读写也必须审批；`ls` / `glob` 隐藏敏感路径，目录递归 `grep` 跳过敏感文件。workspace 内普通文件写入和 search/replace 编辑在 agent 具备 `filesystem: "write"` 时直接执行，不逐次审批。
 

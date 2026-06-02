@@ -644,6 +644,36 @@ type PersistedMessage = {
   updatedAt: string
   completedAt: string | null
   parts: PersistedMessagePart[]
+  artifacts?: PersistedArtifact[]
+}
+
+type PersistedArtifact = {
+  id: string
+  conversationId: string
+  runId: string | null
+  messageId: string | null
+  createdByAgentId: string | null
+  type: string
+  title: string
+  status: string
+  currentVersionId: string | null
+  metadataJson: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+  currentVersion?: PersistedArtifactVersion | null
+}
+
+type PersistedArtifactVersion = {
+  id: string
+  artifactId: string
+  version: number
+  source: string
+  language: string | null
+  content: string
+  summary: string | null
+  diffJson: Record<string, unknown> | null
+  createdByAgentId: string | null
+  createdAt: string
 }
 
 type PersistedMessagePart = {
@@ -1148,7 +1178,82 @@ type RunEvent = {
   messageIndex?: number
   data?: unknown
 }
+
+type WorkspaceDiffSummary = {
+  version: 1
+  status: "available" | "degraded" | "unavailable"
+  source: "git"
+  workspace?: {
+    workspaceId: string
+    backendType: "local"
+    rootLabel: string
+  }
+  baseline: WorkspaceDiffSnapshot
+  final: WorkspaceDiffSnapshot
+  baselineDirty: boolean
+  runOnlyReliable: boolean
+  changedFiles: WorkspaceDiffFile[]
+  stats: {
+    filesChanged: number
+    additions: number
+    deletions: number
+    modified: number
+    added: number
+    deleted: number
+    renamed: number
+    untracked: number
+    conflicted: number
+  }
+  patch?: {
+    text: string
+    bytes: number
+    maxBytes: number
+    truncated: boolean
+    omittedReason?: string
+  }
+  summary: string
+  limitations: string[]
+  error?: {
+    code: string
+    message: string
+  }
+}
+
+type WorkspaceDiffSnapshot = {
+  capturedAt: string
+  repository: "available" | "not_repository" | "unknown"
+  branch?: string
+  head?: string
+  dirty: boolean
+  fileCount: number
+  unavailableReason?: string
+}
+
+type WorkspaceDiffFile = {
+  path: string
+  statusBefore?: string
+  statusAfter?: string
+  origin:
+    | "new-since-baseline"
+    | "removed-since-baseline"
+    | "status-changed"
+    | "unchanged-baseline"
+    | "unknown-dirty-baseline"
+  additions?: number
+  deletions?: number
+  binary?: boolean
+}
 ```
+
+Workspace Diff V0 由 Runtime 在 Run 创建时捕获 baseline，并在终态事件上 best-effort 计算：
+
+- `run.completed.data.workspaceDiff?: WorkspaceDiffSummary`
+- `run.failed.data.workspaceDiff?: WorkspaceDiffSummary`
+- `run.cancelled.data.workspaceDiff?: WorkspaceDiffSummary`
+
+该能力是平台通用能力，不属于 OpenCode 私有事件。内部预设智能体、隐藏子智能体、用户自定义写入智能体和外部智能体共享同一套 git-based baseline / final status / changed files / diffstat / bounded patch 逻辑。`stats.additions/deletions` 优先来自 `git diff HEAD --numstat`；对未跟踪文本文件，Runtime 会 best-effort 按文件内容计算新增行数，因为 git numstat 不覆盖这类文件。无法可靠统计增删行时，消费者应把行数视为未知，而不是把 `0` 展示为真实变更行数。非 git、未绑定 workspace、git 缺失、命令超时等情况必须降级为结构化 `status = "unavailable" | "degraded"`，不导致 Run 本身失败。若 `baselineDirty = true`，Runtime 会用 baseline/final 脏文件 fingerprint 尽量过滤掉本轮未变化的既有脏文件，但 `runOnlyReliable = false` 仍表示 bounded patch 是 final-vs-HEAD 的保守结果，不声称是精确 run-only patch。
+
+HubServer 消费终态事件后，对 `changedFiles.length > 0` 或 `stats.filesChanged > 0` 的 summary 投影为 `Artifact(type = "diff")` 与 `ArtifactVersion`：Artifact metadata 记录 `source = "runtime.workspaceDiff"`、`runtimeEventId`、`baselineDirty`、`status` 与 `changedFileCount`；版本的 `content` 保存 bounded patch 或摘要文本，`diffJson` 保存完整 `WorkspaceDiffSummary`。`GET /api/conversations/:conversationId/messages` 通过 `PersistedMessage.artifacts` 返回这些卡片所需数据。
 
 消息事件身份规则：
 
@@ -1161,7 +1266,7 @@ type RunEvent = {
 - OpenCode direct run 可在 `agent.completed.data.externalContext` 回传 `{ provider, agentId, scope, mode, messageCount, handoffSummaryCount, cursorCandidate?, omitted? }`，表示本轮已应用的 AgentHub 可见上下文摘要；HubServer 仅在成功终态后推进 `ExternalAgentSession.metadataJson.contextBridge`。该字段不携带完整消息正文。
 - OpenCode delegated task 完成时可在 `agent.completed.data.handoffSummary` 与 `agent.completed.data.externalSession.handoffSummary` 携带 handoff summary。该 summary 用于后续 direct context bridge，不应包含原始 delegated prompt 或 Orchestrator 私有计划。
 - `agent.completed` 仍表示 execution 完成；兼容字段 usage、finishReason、resolvedModel 继续保留在 `agent.completed.data`。Web 展示模型名、compact tokens 和 tooltip 详情时优先从 Runtime event replay/live SSE 的 `generation` 或 `externalModel` 字段恢复，而不是读取当前 agent 绑定状态。
-- 外部智能体后续可在 `agent.completed.data.workspaceDiff` 携带基础 workspace 变更摘要；V1 先用于 Diff 摘要和文件列表，不要求前端立即具备完整回滚 UI。
+- Workspace Diff V0 统一挂在 `run.completed` / `run.failed` / `run.cancelled` 的 `data.workspaceDiff`，不挂在外部智能体私有 `agent.completed` 字段上；V0 只要求摘要卡片、变更文件列表和 bounded patch 持久化，不提供完整 diff viewer、apply 或 rollback UI。
 - HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。
 
 工具事件的附加约束：

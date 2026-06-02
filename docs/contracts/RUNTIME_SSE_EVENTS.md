@@ -116,6 +116,8 @@ run.cancelled
 
 `system_agent.completed` 是 Runtime 内部系统智能体的结果事件。首版只支持 `agentId = "system:title"`，用于把会话第一条用户输入生成的短标题作为同一条 Run SSE 流的一部分交给上游消费方。标题生成不包含第一轮智能体输出；如果首次自动标题错过而 `titleSource` 仍为 `default`，后续 Run 可以使用 `conversationState.titleSeedUserMessage` 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即输出该事件；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。若模型标题没有赶上或生成失败，Runtime 会在 `run.completed` 前输出一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务；Run 被取消时仍静默跳过。该事件不表示 Runtime 已经更新业务状态，HubServer 后续接入时负责条件落库。
 
+`run.completed`、`run.failed`、`run.cancelled` 是 Run terminal 事件。具备 workspace 的 Run 会在这些事件的 `data.workspaceDiff` 中 best-effort 携带通用 `WorkspaceDiffSummary`，用于 HubServer 投影 diff Artifact 和 Web 摘要卡片。该字段是平台级 workspace 变更摘要，不属于 OpenCode 私有 `agent.completed` payload；完整结构见 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`。
+
 ## 4. Message Identity
 
 Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`message.delta` 与 `message.completed` 仍以模型文本块作为文本边界；`reasoning.*`、`tool.*`、`permission.*` 与 `question.*` 在能归属到当前模型输出时也会携带同一个 `messageId`，供 UI 和后续 HubServer 持久化把同一智能体的思考、工具、审批、问答和文本聚合到同一条产品消息。

@@ -249,6 +249,7 @@ describe("external adapter executor", () => {
     expect(prompt).toContain("OpenCode previously edited src/index.ts.")
     expect(prompt).toContain("Current user request:")
     expect(prompt).toContain("Continue from that result.")
+    expect(client.prompts[0]?.executionAgent).toBe("build")
     expect(completedData.externalContext).toEqual({
       provider: "opencode",
       agentId: "opencode",
@@ -453,7 +454,7 @@ describe("external adapter executor", () => {
       event.type === "message.delta" && event.agentId === "opencode"
     )
 
-    runManager.cancelRun(run.id)
+    await runManager.cancelRun(run.id)
     await waitForTerminalRun(runManager, run.id)
 
     const completedRun = runManager.getRun(run.id)

@@ -36,6 +36,9 @@ export {
   parseGitStatus,
 } from "./environment-snapshot"
 export {
+  WorkspaceDiffService,
+} from "./workspace-diff"
+export {
   createShellCommand,
   resolveRuntimeShell,
 } from "./shell-resolver"
@@ -59,6 +62,7 @@ export type {
   OpenCodeApiClient,
   OpenCodeClient,
   OpenCodeConnectionMode,
+  OpenCodeExecutionAgent,
   OpenCodeProcessLauncher,
   OpenCodePromptEvent,
   OpenCodePromptRequest,
@@ -82,6 +86,12 @@ export type {
   RunInput,
   RunWorkspaceSnapshot,
   RunWorkspaceSummary,
+  WorkspaceDiffFile,
+  WorkspaceDiffFileOrigin,
+  WorkspaceDiffPatch,
+  WorkspaceDiffSnapshot,
+  WorkspaceDiffStats,
+  WorkspaceDiffSummary,
   RunStatus,
   EntryReason,
   RunEventType,
@@ -183,6 +193,12 @@ export {
   RunConversationStateSchema,
   RunWorkspaceSnapshotSchema,
   RunWorkspaceSummarySchema,
+  WorkspaceDiffFileOriginSchema,
+  WorkspaceDiffFileSchema,
+  WorkspaceDiffPatchSchema,
+  WorkspaceDiffSnapshotSchema,
+  WorkspaceDiffStatsSchema,
+  WorkspaceDiffSummarySchema,
   RunInputSchema,
   RunStatusSchema,
   EntryReasonSchema,
@@ -196,5 +212,9 @@ export {
   RunCreateResponseSchema,
   RunRecordResponseSchema,
 } from "./types"
+export type {
+  GitCommandRunner,
+  WorkspaceDiffBaseline,
+} from "./workspace-diff"
 export type { AgentDefinition } from "../agents"
 

@@ -32,6 +32,10 @@ type ArtifactPreviewProps = {
 
 export function ArtifactPreview({ artifact }: ArtifactPreviewProps) {
   const Icon = artifactIconByType[artifact.type]
+  const metaParts = artifact.meta
+    .split("|")
+    .map((part) => part.trim())
+    .filter(Boolean)
 
   return (
     <Artifact className="max-w-xl shadow-none">
@@ -47,16 +51,24 @@ export function ArtifactPreview({ artifact }: ArtifactPreviewProps) {
             </ArtifactDescription>
           </div>
         </div>
-        <ArtifactActions>
-          <ArtifactAction
-            icon={ExternalLinkIcon}
-            label="Open artifact"
-            tooltip="Open"
-          />
-        </ArtifactActions>
+        {artifact.type !== "diff" ? (
+          <ArtifactActions>
+            <ArtifactAction
+              icon={ExternalLinkIcon}
+              label="打开产物"
+              tooltip="打开"
+            />
+          </ArtifactActions>
+        ) : null}
       </ArtifactHeader>
       <ArtifactContent className="px-3 py-2">
-        <Badge variant="secondary">{artifact.meta}</Badge>
+        <div className="flex flex-wrap gap-1.5">
+          {(metaParts.length ? metaParts : [artifact.meta]).map((part) => (
+            <Badge key={part} variant="secondary">
+              {part}
+            </Badge>
+          ))}
+        </div>
       </ArtifactContent>
     </Artifact>
   )

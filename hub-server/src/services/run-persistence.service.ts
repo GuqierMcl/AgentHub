@@ -103,6 +103,13 @@ import {
   type ExternalAgentSessionOutput,
   type ExternalSessionScope,
 } from '../repositories/external-agent-session.repo'
+import {
+  createArtifact,
+  findArtifactByRunAndSourceEvent,
+  listArtifactsByMessageIds,
+  updateArtifact,
+} from '../repositories/artifact.repo'
+import { createArtifactVersion } from '../repositories/artifact-version.repo'
 import type { HubEventBus } from './hub-event-bus.service'
 
 export type RuntimeRunEvent = {
@@ -238,8 +245,38 @@ export type PersistedMessagePart = {
   updatedAt: string
 }
 
+export type PersistedArtifactVersion = {
+  id: string
+  artifactId: string
+  version: number
+  source: string
+  language: string | null
+  content: string
+  summary: string | null
+  diffJson: Record<string, unknown> | null
+  createdByAgentId: string | null
+  createdAt: string
+}
+
+export type PersistedArtifact = {
+  id: string
+  conversationId: string
+  runId: string | null
+  messageId: string | null
+  createdByAgentId: string | null
+  type: string
+  title: string
+  status: string
+  currentVersionId: string | null
+  metadataJson: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+  currentVersion?: PersistedArtifactVersion | null
+}
+
 export type PersistedMessage = MessageOutput & {
   parts: PersistedMessagePart[]
+  artifacts?: PersistedArtifact[]
 }
 
 export type ActiveRunSnapshot = {
@@ -636,8 +673,12 @@ export class RunPersistenceService {
     const runItems = await this.listConversationRunItems(conversationId)
     const timelineRuns = await this.listConversationTimelineRuns(conversationId, page)
 
+    const persistedMessages = await attachArtifactsToMessages(
+      messages.map(toPersistedMessage).sort(comparePersistedMessages),
+    )
+
     return {
-      messages: messages.map(toPersistedMessage).sort(comparePersistedMessages),
+      messages: persistedMessages,
       activeRun: activeRunSnapshot,
       latestPlan: latestPlanRun
         ? {
@@ -1327,6 +1368,7 @@ export class RunPersistenceService {
       return
     }
     if (event.type === 'run.completed') {
+      await projectWorkspaceDiffArtifact(run, event)
       await updateRun(runId, { status: 'completed', completedAt: timestamp })
       await finalizeRunProjection(runId, 'completed', timestamp)
       this.publishRunStatusChanged(run, 'completed')
@@ -1334,6 +1376,7 @@ export class RunPersistenceService {
       return
     }
     if (event.type === 'run.failed') {
+      await projectWorkspaceDiffArtifact(run, event)
       await updateRun(runId, {
         status: 'failed',
         errorJson: getEventDataRecord(event),
@@ -1345,6 +1388,7 @@ export class RunPersistenceService {
       return
     }
     if (event.type === 'run.cancelled') {
+      await projectWorkspaceDiffArtifact(run, event)
       await updateRun(runId, { status: 'cancelled', completedAt: timestamp })
       await finalizeRunProjection(runId, 'cancelled', timestamp)
       this.publishRunStatusChanged(run, 'cancelled')
@@ -1750,6 +1794,140 @@ async function projectExternalContextSyncEvent(
     includedMessageCount: includedMessageIds.length,
     includedHandoffCount: includedHandoffSessionIds.length,
   }, 'OpenCode external context sync projected')
+}
+
+async function projectWorkspaceDiffArtifact(
+  run: RunOutput,
+  event: RuntimeRunEvent,
+): Promise<void> {
+  const workspaceDiff = getRecord(getEventDataRecord(event).workspaceDiff)
+  if (!workspaceDiff || !shouldProjectWorkspaceDiffArtifact(workspaceDiff)) {
+    return
+  }
+
+  const existing = await findArtifactByRunAndSourceEvent(run.id, event.id)
+  if (existing) {
+    return
+  }
+
+  const messageId = await resolveWorkspaceDiffArtifactMessageId(run)
+  const changedFileCount = getWorkspaceDiffChangedFileCount(workspaceDiff)
+  const status = getString(workspaceDiff.status) ?? 'degraded'
+  const baselineDirty = Boolean(workspaceDiff.baselineDirty)
+  const summary = getString(workspaceDiff.summary) ?? formatWorkspaceDiffTitle(changedFileCount)
+  const title = 'Workspace changes'
+  const artifact = await createArtifact({
+    conversationId: run.conversationId,
+    runId: run.id,
+    messageId,
+    createdByAgentId: resolveWorkspaceDiffCreatedByAgentId(run),
+    type: 'diff',
+    title,
+    status: 'ready',
+    metadataJson: {
+      source: 'runtime.workspaceDiff',
+      runtimeEventId: event.id,
+      runtimeRunId: event.runId,
+      terminalEventType: event.type,
+      status,
+      baselineDirty,
+      changedFileCount,
+      summary,
+    },
+  })
+  const version = await createArtifactVersion({
+    artifactId: artifact.id as string,
+    version: 1,
+    source: 'agent',
+    language: 'diff',
+    content: formatWorkspaceDiffArtifactContent(workspaceDiff),
+    summary,
+    diffJson: workspaceDiff,
+    createdByAgentId: resolveWorkspaceDiffCreatedByAgentId(run),
+  })
+  await updateArtifactCurrentVersion(artifact.id as string, version.id as string)
+
+  runPersistenceLogger.info({
+    conversationId: run.conversationId,
+    runId: run.id,
+    runtimeRunId: event.runId,
+    eventId: event.id,
+    artifactId: artifact.id,
+    messageId,
+    changedFileCount,
+    status,
+    baselineDirty,
+  }, 'Workspace diff artifact projected')
+}
+
+async function resolveWorkspaceDiffArtifactMessageId(run: RunOutput): Promise<string> {
+  const messages = await listMessagesByRun(run.id)
+  const assistant = messages
+    .filter((message) => message.surface === 'chat' && message.role === 'assistant')
+    .sort(comparePersistedMessages)
+    .at(-1)
+  return assistant?.id ?? run.triggerMessageId
+}
+
+function shouldProjectWorkspaceDiffArtifact(workspaceDiff: Record<string, unknown>): boolean {
+  const changedFileCount = getWorkspaceDiffChangedFileCount(workspaceDiff)
+  return changedFileCount > 0
+}
+
+function getWorkspaceDiffChangedFileCount(workspaceDiff: Record<string, unknown>): number {
+  const stats = getRecord(workspaceDiff.stats)
+  const fromStats = getNumber(stats?.filesChanged)
+  if (fromStats !== undefined) return fromStats
+  const changedFiles = workspaceDiff.changedFiles
+  return Array.isArray(changedFiles) ? changedFiles.length : 0
+}
+
+function formatWorkspaceDiffArtifactContent(workspaceDiff: Record<string, unknown>): string {
+  const patch = getRecord(workspaceDiff.patch)
+  const patchText = getString(patch?.text)
+  if (patchText !== undefined) {
+    return patchText
+  }
+
+  const summary = getString(workspaceDiff.summary) ?? 'Workspace diff summary'
+  const changedFiles = Array.isArray(workspaceDiff.changedFiles)
+    ? workspaceDiff.changedFiles
+      .map((item) => getRecord(item))
+      .filter((item): item is Record<string, unknown> => Boolean(item))
+    : []
+  const lines = changedFiles
+    .map((file) => {
+      const path = getString(file.path)
+      if (!path) return null
+      const status = getString(file.statusAfter) ?? getString(file.statusBefore)
+      return status ? `${status} ${path}` : path
+    })
+    .filter((line): line is string => Boolean(line))
+  return [summary, ...lines].join('\n')
+}
+
+function formatWorkspaceDiffTitle(changedFileCount: number): string {
+  if (changedFileCount === 0) return 'Workspace changes'
+  return `${changedFileCount} workspace file${changedFileCount === 1 ? '' : 's'} changed`
+}
+
+function resolveWorkspaceDiffCreatedByAgentId(run: RunOutput): string | undefined {
+  const input = run.inputJson as Record<string, unknown>
+  const addressedAgentIds = Array.isArray(input.addressedAgentIds)
+    ? input.addressedAgentIds.filter((item): item is string => typeof item === 'string')
+    : []
+  if (addressedAgentIds.length === 1) {
+    return addressedAgentIds[0]
+  }
+
+  const participantAgentIds = Array.isArray(input.participantAgentIds)
+    ? input.participantAgentIds.filter((item): item is string => typeof item === 'string')
+    : []
+  return participantAgentIds.length === 1 ? participantAgentIds[0] : run.orchestratorAgentId ?? undefined
+}
+
+async function updateArtifactCurrentVersion(artifactId: string, versionId: string): Promise<void> {
+  await updateArtifact(artifactId, { currentVersionId: versionId })
 }
 
 async function findLatestVisibleContextMessage(conversationId: string): Promise<PersistedMessage | null> {
@@ -3237,6 +3415,26 @@ function toPersistedMessage(record: Record<string, unknown>): PersistedMessage {
   } as PersistedMessage
 }
 
+async function attachArtifactsToMessages(messages: PersistedMessage[]): Promise<PersistedMessage[]> {
+  const messageIds = messages.map((message) => message.id)
+  const artifacts = await listArtifactsByMessageIds(messageIds)
+  if (artifacts.length === 0) return messages
+
+  const artifactsByMessageId = new Map<string, PersistedArtifact[]>()
+  for (const artifact of artifacts) {
+    const messageId = typeof artifact.messageId === 'string' ? artifact.messageId : null
+    if (!messageId) continue
+    const current = artifactsByMessageId.get(messageId) ?? []
+    current.push(artifact as PersistedArtifact)
+    artifactsByMessageId.set(messageId, current)
+  }
+
+  return messages.map((message) => ({
+    ...message,
+    artifacts: artifactsByMessageId.get(message.id) ?? [],
+  }))
+}
+
 function toHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
   const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
   if (!runtimeEvent) return []
@@ -3487,6 +3685,10 @@ function extractPlan(event: RuntimeRunEvent): Record<string, unknown> | null {
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function getStringArray(value: unknown): string[] {

@@ -28,6 +28,10 @@ import {
 import { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./tools"
 import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 import { WorkspaceError, WorkspaceService } from "./workspace"
+import {
+  WorkspaceDiffService,
+  type WorkspaceDiffBaseline,
+} from "./workspace-diff"
 import type {
   AgentExecutionContext,
   AgentExecutor,
@@ -38,6 +42,7 @@ import type {
   RunRecordResponse,
   RunStatus,
   TaskExecutionResult,
+  WorkspaceDiffSummary,
 } from "./types"
 
 const log = createChildLogger("run-manager")
@@ -88,6 +93,8 @@ type RunExecutionState = {
   workspaceService?: WorkspaceService
   environmentSnapshot?: RuntimeEnvironmentSnapshot
   environmentSnapshotPromise: Promise<RuntimeEnvironmentSnapshot>
+  workspaceDiffBaselinePromise: Promise<WorkspaceDiffBaseline>
+  workspaceDiffBaseline?: WorkspaceDiffBaseline
   permissionService: RuntimePermissionService
   continuations: Map<string, RunContinuationFrame>
   questionRequests: Map<string, QuestionRequestRecord>
@@ -147,6 +154,7 @@ export class RunManager {
   private mockExecutor = new MockExecutor()
   private orchestratorExecutor: OrchestratorExecutor
   private systemAgentRunner: SystemAgentRunner
+  private workspaceDiffService = new WorkspaceDiffService()
   private toolRegistry: RuntimeToolRegistry
   private runs: Map<string, RunRecord> = new Map()
   private events: Map<string, RunEvent[]> = new Map()
@@ -202,6 +210,7 @@ export class RunManager {
     const abortController = new AbortController()
     const workspaceService = this.createWorkspaceSession(run.id, input)
     const environmentSnapshotPromise = buildRuntimeEnvironmentSnapshot({ workspaceService })
+    const workspaceDiffBaselinePromise = this.workspaceDiffService.captureBaseline(workspaceService)
     const permissionService = new RuntimePermissionService(workspaceService)
 
     this.runs.set(run.id, run)
@@ -211,6 +220,7 @@ export class RunManager {
       entryAgent: resolution.entryAgents[0],
       workspaceService,
       environmentSnapshotPromise,
+      workspaceDiffBaselinePromise,
       permissionService,
       continuations: new Map(),
       questionRequests: new Map(),
@@ -440,7 +450,7 @@ export class RunManager {
     }
   }
 
-  cancelRun(runId: string): RunRecord | null {
+  async cancelRun(runId: string): Promise<RunRecord | null> {
     const run = this.runs.get(runId)
     if (!run) {
       log.warn({ runId }, "Run not found for cancellation")
@@ -465,10 +475,12 @@ export class RunManager {
         frame.resolveResume(null)
       }
     }
-    state?.workspaceService?.close()
     this.updateRunStatus(run, "cancelled")
+    const workspaceDiff = await this.resolveWorkspaceDiffSummary(runId)
+    state?.workspaceService?.close()
     this.emit(createRunEvent(runId, "run.cancelled", undefined, {
       reason: "cancelled_by_request",
+      ...(workspaceDiff ? { workspaceDiff } : {}),
     }))
     log.info({ runId }, "Run cancelled successfully")
     return run
@@ -503,6 +515,10 @@ export class RunManager {
     try {
       log.info({ runId, agentId: agent.id }, "Starting run execution")
       this.updateRunStatus(run, "running")
+      const state = this.executionState.get(runId)
+      if (state) {
+        await this.resolveWorkspaceDiffBaseline(runId, state)
+      }
       this.emit(createRunEvent(runId, "run.started", undefined, {
         entryAgentIds: run.entryAgentIds,
         entryReason: run.entryReason,
@@ -535,8 +551,10 @@ export class RunManager {
       }
 
       this.updateRunStatus(run, "completed")
+      const workspaceDiff = await this.resolveWorkspaceDiffSummary(runId)
       this.emit(createRunEvent(runId, "run.completed", undefined, {
         status: "completed",
+        ...(workspaceDiff ? { workspaceDiff } : {}),
       }))
       log.info({ runId }, "Run completed successfully")
     } catch (error) {
@@ -561,8 +579,12 @@ export class RunManager {
           ? error.details
           : undefined,
       }
+      const workspaceDiff = await this.resolveWorkspaceDiffSummary(runId)
       this.updateRunStatus(run, "failed")
-      this.emit(createRunEvent(runId, "run.failed", undefined, run.error))
+      this.emit(createRunEvent(runId, "run.failed", undefined, {
+        ...run.error,
+        ...(workspaceDiff ? { workspaceDiff } : {}),
+      }))
       log.error({ runId, error: message }, "Run failed")
     } finally {
       if (isTerminalStatus(run.status)) {
@@ -1259,6 +1281,61 @@ export class RunManager {
           error: error instanceof Error ? error.message : String(error),
         },
         "Runtime environment snapshot failed"
+      )
+      return undefined
+    }
+  }
+
+  private async resolveWorkspaceDiffBaseline(
+    runId: string,
+    state: RunExecutionState
+  ): Promise<WorkspaceDiffBaseline | undefined> {
+    if (state.workspaceDiffBaseline) {
+      return state.workspaceDiffBaseline
+    }
+
+    try {
+      state.workspaceDiffBaseline = await state.workspaceDiffBaselinePromise
+      return state.workspaceDiffBaseline
+    } catch (error) {
+      log.warn(
+        {
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Workspace diff baseline failed"
+      )
+      return undefined
+    }
+  }
+
+  private async resolveWorkspaceDiffSummary(runId: string): Promise<WorkspaceDiffSummary | undefined> {
+    const state = this.executionState.get(runId)
+    if (!state) {
+      return undefined
+    }
+
+    try {
+      const baseline = await this.resolveWorkspaceDiffBaseline(runId, state)
+      const summary = await this.workspaceDiffService.summarize(state.workspaceService, baseline)
+      log.info(
+        {
+          runId,
+          status: summary.status,
+          baselineDirty: summary.baselineDirty,
+          changedFileCount: summary.changedFiles.length,
+          limitations: summary.limitations,
+        },
+        "Workspace diff summary computed"
+      )
+      return summary
+    } catch (error) {
+      log.warn(
+        {
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Workspace diff summary failed"
       )
       return undefined
     }

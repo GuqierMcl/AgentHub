@@ -240,7 +240,7 @@ describe("Runtime question tool", () => {
 
     const runId = await startSingleCoderRun(app)
     await waitForStatus(manager, runId, "waiting_input")
-    manager.cancelRun(runId)
+    await manager.cancelRun(runId)
 
     expect(manager.getRun(runId)?.status).toBe("cancelled")
     expect(questionEvents(manager, runId, "question.cancelled")).toHaveLength(1)

@@ -15,8 +15,11 @@ export type OpenCodeSessionRequest = {
 export type OpenCodePromptRequest = {
   session: ExternalSessionLink
   prompt: ExternalAdapterPrompt
+  executionAgent?: OpenCodeExecutionAgent
   signal: AbortSignal
 }
+
+export type OpenCodeExecutionAgent = "build"
 
 export type OpenCodeExternalModel = {
   provider: "opencode"
