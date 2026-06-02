@@ -1,0 +1,12 @@
+.workspace-file-edit-dialog .monaco-editor .find-widget {
+  top: 25px !important;
+  transform: translateY(calc(-100% - 35px));
+}
+
+.workspace-file-edit-dialog .monaco-editor .find-widget.visible {
+  transform: translateY(0);
+}
+
+.workspace-file-edit-dialog .monaco-editor .findOptionsWidget {
+  top: 25px !important;
+}

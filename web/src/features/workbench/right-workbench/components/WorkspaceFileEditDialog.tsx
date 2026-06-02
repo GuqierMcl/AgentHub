@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 
 import { workspaceBrowserApi } from "../api/workspace-browser"
 import { EditableCodeEditor } from "./preview-renderers/EditableCodeEditor"
+import "./WorkspaceFileEditDialog.css"
 
 type WorkspaceFileEditDialogProps = {
   open: boolean
@@ -110,7 +111,7 @@ export function WorkspaceFileEditDialog({ open, onOpenChange, conversationId, pa
     <Dialog open={open} onOpenChange={handleCloseWithCheck}>
       <DialogContent
         className={cn(
-          "flex flex-col gap-0 p-0 overflow-hidden",
+          "workspace-file-edit-dialog flex flex-col gap-0 p-0 overflow-hidden",
           isFullscreen &&
             "!inset-0 !left-0 !top-0 !right-0 !bottom-0 !z-50 !h-[100dvh] !w-[100dvw] !max-w-none !translate-x-0 !translate-y-0 !rounded-none sm:!max-w-none"
         )}
