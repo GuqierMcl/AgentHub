@@ -26,6 +26,7 @@
 
 - `docs/roadmap/agent-runtime-agent-architecture.md`：Agent Runtime 智能体架构、内部预设智能体、工具、Orchestrator 与外部 Adapter 骨架。
 - `docs/roadmap/opencode-adapter-implementation.md`：OpenCode Adapter V1，包含 Phase 4B 通用 Workspace Diff、Phase 4C OpenCode Event Stream / Tool Timeline、Phase 4D OpenCode Permission Bridge。
+- `docs/roadmap/agenthub-native-patch-review.md`：AgentHub 原生 Patch Review / Workspace Change Review，包含 Diff Viewer、ChangeSet 归因、Run Revert、Pre-Apply Review 和外部智能体隔离合入策略。
 - `docs/roadmap/agent-side-capability-backlog.md`：对照原始需求整理的智能体侧未接入或未闭环能力 backlog。
 - `docs/roadmap/runs-chat-integration.md`：Runtime RunEvent 到 HubServer / Web 聊天产品链路的集成路线。
 

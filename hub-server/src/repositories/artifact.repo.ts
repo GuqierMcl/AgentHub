@@ -173,8 +173,10 @@ export async function countArtifacts(filter: { conversationId?: string; type?: A
 
 export async function findArtifactWithVersions(id: string) {
   const db = getPrismaClient()
-  return db.artifact.findUnique({
+  const record = await db.artifact.findUnique({
     where: { id },
     include: { versions: { orderBy: { version: 'desc' } } },
   })
+  if (!record) return null
+  return toOutputWithVersions(record as Record<string, unknown>)
 }

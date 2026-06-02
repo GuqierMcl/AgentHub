@@ -2,7 +2,7 @@ import { Activity } from "react"
 
 import { cn } from "@/lib/utils"
 
-import type { TabInstance } from "@/store/tab-store"
+import type { DiffReviewTabPayload, TabInstance } from "@/store/tab-store"
 import type { RuntimeRunStatus } from "@/features/workbench/api/runtime-runs"
 import type { RunConnectionStatus } from "@/features/workbench/store/workbench-store"
 import type { Conversation } from "@/features/workbench/types"
@@ -44,7 +44,15 @@ function renderPanel(
         />
       )
     case "review":
-      return <CodeReviewPanel />
+      return (
+        <CodeReviewPanel
+          payload={
+            isDiffReviewTabPayload(tab.payload)
+              ? tab.payload
+              : undefined
+          }
+        />
+      )
     case "files":
       return <FileBrowserPanel conversation={conversation} />
     case "deploy":
@@ -73,6 +81,15 @@ function renderPanel(
     default:
       return null
   }
+}
+
+function isDiffReviewTabPayload(
+  payload: TabInstance["payload"]
+): payload is DiffReviewTabPayload {
+  if (!payload || !("source" in payload)) return false
+  if (payload.source === "live") return true
+  return payload.source === "artifact" &&
+    ("artifactId" in payload || "workspaceDiff" in payload || "syntheticId" in payload)
 }
 
 export function RightWorkbenchTabView({

@@ -49,6 +49,32 @@ export type PersistedArtifact = {
   currentVersion?: PersistedArtifactVersion | null
 }
 
+export type DiffFileSummary = {
+  path: string
+  oldPath?: string
+  status: string
+  additions?: number
+  deletions?: number
+  binary?: boolean
+  truncated?: boolean
+}
+
+export type DiffArtifactDetail = {
+  summary: Record<string, unknown>
+  changedFiles: DiffFileSummary[]
+  patchText: string
+  patchTruncated: boolean
+  baselineDirty: boolean
+  runOnlyReliable: boolean
+  limitations: string[]
+}
+
+export type ArtifactDetailResponse = {
+  artifact: PersistedArtifact
+  currentVersion: PersistedArtifactVersion | null
+  diff?: DiffArtifactDetail
+}
+
 export type PersistedMessage = {
   id: string
   conversationId: string
@@ -190,6 +216,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const conversationMessagesApi = {
   list(conversationId: string): Promise<ConversationMessagesResponse> {
     return request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`)
+  },
+
+  artifactDetail(
+    conversationId: string,
+    artifactId: string
+  ): Promise<ArtifactDetailResponse> {
+    return request(
+      `/api/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(artifactId)}`
+    )
   },
 
   send(

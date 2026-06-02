@@ -8,8 +8,8 @@ import { createConversation } from '../repositories/conversation.repo'
 import { createMessage } from '../repositories/message.repo'
 import { createMessagePart } from '../repositories/message-part.repo'
 import { createRun } from '../repositories/run.repo'
-import { listArtifacts } from '../repositories/artifact.repo'
-import { listArtifactVersionsByArtifact } from '../repositories/artifact-version.repo'
+import { createArtifact, listArtifacts, updateArtifact } from '../repositories/artifact.repo'
+import { createArtifactVersion, listArtifactVersionsByArtifact } from '../repositories/artifact-version.repo'
 import {
   buildOpenCodeExternalContextPacket,
   RuntimeEventBatcher,
@@ -546,6 +546,96 @@ describe('workspace diff artifact projection', () => {
 
     const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
     expect(artifacts).toHaveLength(0)
+  })
+})
+
+describe('artifact detail', () => {
+  it('returns current version and normalized diff detail for a conversation artifact', async () => {
+    const service = new RunPersistenceService(
+      {} as never,
+      { publish: () => {} } as never,
+    )
+    const conversation = await createConversation({
+      title: 'Artifact detail',
+      mode: 'single',
+    })
+    const artifact = await createArtifact({
+      conversationId: conversation.id,
+      type: 'diff',
+      title: 'Workspace changes',
+      status: 'ready',
+      metadataJson: {
+        source: 'runtime.workspaceDiff',
+      },
+    })
+    const workspaceDiff = {
+      ...createWorkspaceDiffSummary(),
+      baselineDirty: true,
+      runOnlyReliable: false,
+      patch: {
+        text: 'diff --git a/src/index.ts b/src/index.ts\n@@ -1 +1,2 @@\n-old\n+new\n+line\n',
+        truncated: true,
+      },
+      limitations: ['git diff was bounded'],
+    }
+    const version = await createArtifactVersion({
+      artifactId: artifact.id as string,
+      version: 1,
+      source: 'agent',
+      language: 'diff',
+      content: workspaceDiff.patch.text,
+      summary: '1 file changed',
+      diffJson: workspaceDiff,
+      createdByAgentId: 'coder',
+    })
+    await updateArtifact(artifact.id as string, {
+      currentVersionId: version.id as string,
+    })
+
+    const detail = await service.getArtifactDetail(conversation.id, artifact.id as string)
+
+    expect(detail.artifact.id).toBe(artifact.id)
+    expect(detail.currentVersion?.id).toBe(version.id)
+    expect(detail.diff?.patchText).toContain('diff --git')
+    expect(detail.diff?.patchTruncated).toBe(true)
+    expect(detail.diff?.baselineDirty).toBe(true)
+    expect(detail.diff?.runOnlyReliable).toBe(false)
+    expect(detail.diff?.changedFiles).toEqual([{
+      path: 'src/index.ts',
+      status: ' M',
+      additions: 3,
+      deletions: 1,
+    }])
+    expect(detail.diff?.limitations).toContain('git diff was bounded')
+    expect(detail.diff?.limitations.join('\n')).toContain('run-only patch')
+  })
+
+  it('does not expose artifacts across conversations', async () => {
+    const service = new RunPersistenceService(
+      {} as never,
+      { publish: () => {} } as never,
+    )
+    const owner = await createConversation({
+      title: 'Owner',
+      mode: 'single',
+    })
+    const other = await createConversation({
+      title: 'Other',
+      mode: 'single',
+    })
+    const artifact = await createArtifact({
+      conversationId: owner.id,
+      type: 'code',
+      title: 'Code artifact',
+      status: 'ready',
+    })
+
+    try {
+      await service.getArtifactDetail(other.id, artifact.id as string)
+      throw new Error('Expected getArtifactDetail to fail')
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe('ARTIFACT_NOT_FOUND')
+    }
   })
 })
 

@@ -106,6 +106,7 @@ import {
 import {
   createArtifact,
   findArtifactByRunAndSourceEvent,
+  findArtifactWithVersions,
   listArtifactsByMessageIds,
   updateArtifact,
 } from '../repositories/artifact.repo'
@@ -325,6 +326,32 @@ export type ConversationMessagesResponse = {
   latestPlan: RunPlanSnapshot | null
   runItems: ConversationRunItemsSnapshot
   timelineRuns: ConversationTimelineRunSnapshot[]
+}
+
+export type DiffFileSummary = {
+  path: string
+  oldPath?: string
+  status: string
+  additions?: number
+  deletions?: number
+  binary?: boolean
+  truncated?: boolean
+}
+
+export type DiffArtifactDetail = {
+  summary: Record<string, unknown>
+  changedFiles: DiffFileSummary[]
+  patchText: string
+  patchTruncated: boolean
+  baselineDirty: boolean
+  runOnlyReliable: boolean
+  limitations: string[]
+}
+
+export type ArtifactDetailResponse = {
+  artifact: PersistedArtifact
+  currentVersion: PersistedArtifactVersion | null
+  diff?: DiffArtifactDetail
 }
 
 export type HubRunEventEnvelope = {
@@ -693,6 +720,35 @@ export class RunPersistenceService {
       runItems,
       timelineRuns,
     }
+  }
+
+  async getArtifactDetail(
+    conversationId: string,
+    artifactId: string,
+  ): Promise<ArtifactDetailResponse> {
+    const artifactRecord = await findArtifactWithVersions(artifactId) as
+      | (PersistedArtifact & { versions?: PersistedArtifactVersion[] })
+      | null
+
+    if (!artifactRecord || artifactRecord.conversationId !== conversationId) {
+      throw notFound('ARTIFACT_NOT_FOUND', '产物不存在')
+    }
+
+    const currentVersion = resolveCurrentArtifactVersion(artifactRecord)
+    const { versions: _versions, ...artifact } = {
+      ...artifactRecord,
+      currentVersion,
+    }
+    const response: ArtifactDetailResponse = {
+      artifact,
+      currentVersion,
+    }
+
+    if (artifact.type === 'diff' && currentVersion) {
+      response.diff = buildDiffArtifactDetail(currentVersion)
+    }
+
+    return response
   }
 
   async cancelRun(runId: string): Promise<ActiveRunSnapshot> {
@@ -1905,6 +1961,111 @@ function formatWorkspaceDiffArtifactContent(workspaceDiff: Record<string, unknow
     })
     .filter((line): line is string => Boolean(line))
   return [summary, ...lines].join('\n')
+}
+
+function resolveCurrentArtifactVersion(
+  artifact: PersistedArtifact & { versions?: PersistedArtifactVersion[] },
+): PersistedArtifactVersion | null {
+  if (artifact.currentVersion) return artifact.currentVersion
+  if (!artifact.currentVersionId) return artifact.versions?.[0] ?? null
+  return artifact.versions?.find((version) => version.id === artifact.currentVersionId) ??
+    artifact.versions?.[0] ??
+    null
+}
+
+function buildDiffArtifactDetail(
+  currentVersion: PersistedArtifactVersion,
+): DiffArtifactDetail {
+  const summary = getRecord(currentVersion.diffJson) ?? {}
+  const patch = getRecord(summary.patch)
+  const patchText = resolveDiffPatchText(currentVersion, patch)
+  const patchTruncated = patch?.truncated === true
+  const baselineDirty = summary.baselineDirty === true
+  const runOnlyReliable = summary.runOnlyReliable !== false
+  const limitations = collectDiffLimitations(summary, {
+    baselineDirty,
+    patchText,
+    patchTruncated,
+    runOnlyReliable,
+  })
+
+  return {
+    summary,
+    changedFiles: normalizeDiffFileSummaries(summary.changedFiles),
+    patchText,
+    patchTruncated,
+    baselineDirty,
+    runOnlyReliable,
+    limitations,
+  }
+}
+
+function resolveDiffPatchText(
+  currentVersion: PersistedArtifactVersion,
+  patch: Record<string, unknown> | undefined,
+): string {
+  const patchText = getString(patch?.text)
+  if (patchText !== undefined) return patchText
+  return looksLikeUnifiedDiff(currentVersion.content) ? currentVersion.content : ''
+}
+
+function looksLikeUnifiedDiff(value: string): boolean {
+  return /(^|\n)(diff --git |--- |\+\+\+ |@@ )/.test(value)
+}
+
+function normalizeDiffFileSummaries(value: unknown): DiffFileSummary[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => getRecord(item))
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .flatMap((file) => {
+      const path = getString(file.path) ??
+        getString(file.newPath) ??
+        getString(file.pathAfter)
+      if (!path) return []
+      const oldPath = getString(file.oldPath) ??
+        getString(file.pathBefore) ??
+        getString(file.previousPath)
+      const status = getString(file.status) ??
+        getString(file.statusAfter) ??
+        getString(file.statusBefore) ??
+        'changed'
+
+      return [{
+        path,
+        ...(oldPath && oldPath !== path ? { oldPath } : {}),
+        status,
+        ...(getNumber(file.additions) !== undefined ? { additions: getNumber(file.additions) } : {}),
+        ...(getNumber(file.deletions) !== undefined ? { deletions: getNumber(file.deletions) } : {}),
+        ...(file.binary === true ? { binary: true } : {}),
+        ...(file.truncated === true ? { truncated: true } : {}),
+      }]
+    })
+}
+
+function collectDiffLimitations(
+  summary: Record<string, unknown>,
+  options: {
+    baselineDirty: boolean
+    patchText: string
+    patchTruncated: boolean
+    runOnlyReliable: boolean
+  },
+): string[] {
+  const limitations = getStringArray(summary.limitations)
+  const error = getRecord(summary.error)
+  const errorMessage = getString(error?.message)
+  if (errorMessage) limitations.push(errorMessage)
+  if (!options.patchText) {
+    limitations.push('没有可用的 bounded patch，仅展示文件级摘要。')
+  }
+  if (options.patchTruncated) {
+    limitations.push('补丁内容已按大小预算截断。')
+  }
+  if (options.baselineDirty || !options.runOnlyReliable) {
+    limitations.push('运行前已有未提交变更，当前 Diff 不能保证是精确的 run-only patch。')
+  }
+  return Array.from(new Set(limitations))
 }
 
 function formatWorkspaceDiffTitle(changedFileCount: number): string {

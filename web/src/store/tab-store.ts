@@ -25,7 +25,20 @@ export type TerminalTabPayload = {
   sessionId?: string
 }
 
-export type TabPayload = PreviewTabPayload | TerminalTabPayload
+export type DiffReviewTabPayload = {
+  source: "artifact" | "live"
+  title?: string
+  conversationId?: string
+  artifactId?: string
+  syntheticId?: string
+  workspaceDiff?: Record<string, unknown>
+  patchText?: string
+}
+
+export type TabPayload =
+  | PreviewTabPayload
+  | TerminalTabPayload
+  | DiffReviewTabPayload
 
 export type TabInstance = {
   uid: string
@@ -99,7 +112,18 @@ export const useTabStore = create<TabStore>((set, get) => ({
     if (singletonTabIds.includes(type as SingletonTabId)) {
       const existing = state.tabs.find((t) => t.type === type)
       if (existing) {
-        set({ activeTabUid: existing.uid })
+        set((s) => ({
+          tabs: s.tabs.map((tab) =>
+            tab.uid === existing.uid
+              ? {
+                  ...tab,
+                  ...(title ? { title } : {}),
+                  ...(payload ? { payload } : {}),
+                }
+              : tab
+          ),
+          activeTabUid: existing.uid,
+        }))
         return existing.uid
       }
 
@@ -109,6 +133,7 @@ export const useTabStore = create<TabStore>((set, get) => ({
         type,
         title: title ?? meta.label,
         icon: meta.icon,
+        payload,
       }
       set((s) => ({
         tabs: [...s.tabs, tab],

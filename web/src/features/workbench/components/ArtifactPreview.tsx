@@ -6,6 +6,8 @@ import {
   LayoutPanelTopIcon,
 } from "lucide-react"
 
+import { cn } from "@/lib/utils"
+import { useTabStore } from "@/store/tab-store"
 import {
   Artifact,
   ArtifactAction,
@@ -32,13 +34,45 @@ type ArtifactPreviewProps = {
 
 export function ArtifactPreview({ artifact }: ArtifactPreviewProps) {
   const Icon = artifactIconByType[artifact.type]
+  const openTab = useTabStore((s) => s.openTab)
   const metaParts = artifact.meta
     .split("|")
     .map((part) => part.trim())
     .filter(Boolean)
+  const canOpenDiff = artifact.type === "diff" &&
+    Boolean(artifact.detail || (artifact.sourceArtifactId && artifact.conversationId))
+
+  const openDiffReview = () => {
+    if (!canOpenDiff) return
+
+    openTab("review", "代码审查", {
+      source: artifact.sourceArtifactId ? "artifact" : "live",
+      title: artifact.title,
+      ...(artifact.sourceArtifactId ? { artifactId: artifact.sourceArtifactId } : {}),
+      ...(artifact.conversationId ? { conversationId: artifact.conversationId } : {}),
+      ...(artifact.id ? { syntheticId: artifact.id } : {}),
+      ...(artifact.detail?.workspaceDiff ? { workspaceDiff: artifact.detail.workspaceDiff } : {}),
+      ...(artifact.detail?.patchText ? { patchText: artifact.detail.patchText } : {}),
+    })
+  }
 
   return (
-    <Artifact className="max-w-xl shadow-none">
+    <Artifact
+      className={cn(
+        "max-w-xl shadow-none",
+        canOpenDiff && "cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/20"
+      )}
+      onClick={openDiffReview}
+      onKeyDown={(event) => {
+        if (!canOpenDiff) return
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          openDiffReview()
+        }
+      }}
+      role={canOpenDiff ? "button" : undefined}
+      tabIndex={canOpenDiff ? 0 : undefined}
+    >
       <ArtifactHeader className="gap-3 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <Icon className="size-4 shrink-0 text-muted-foreground" />

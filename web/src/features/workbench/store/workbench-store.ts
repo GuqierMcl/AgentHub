@@ -830,8 +830,35 @@ function mapPersistedArtifacts(message: PersistedMessage): Artifact[] {
       title,
       description: formatArtifactDescription(artifact, diff, metadata, changedFileCount),
       meta: formatArtifactMeta(artifact, diff, metadata, changedFileCount),
+      ...(type === "diff" ? {
+        sourceArtifactId: artifact.id,
+        conversationId: artifact.conversationId,
+        ...(diff ? {
+          detail: {
+            kind: "workspace-diff" as const,
+            workspaceDiff: diff,
+            ...(resolvePersistedDiffPatchText(version) ? {
+              patchText: resolvePersistedDiffPatchText(version),
+            } : {}),
+          },
+        } : {}),
+      } : {}),
     }]
   })
+}
+
+function resolvePersistedDiffPatchText(
+  version: PersistedArtifact["currentVersion"] | undefined
+): string | undefined {
+  const patch = getRecord(getRecord(version?.diffJson)?.patch)
+  const patchText = getString(patch?.text)
+  if (patchText !== undefined) return patchText
+  const content = getString(version?.content)
+  return content && looksLikeUnifiedDiff(content) ? content : undefined
+}
+
+function looksLikeUnifiedDiff(value: string): boolean {
+  return /(^|\n)(diff --git |--- |\+\+\+ |@@ )/.test(value)
 }
 
 function getArtifactDisplayId(
