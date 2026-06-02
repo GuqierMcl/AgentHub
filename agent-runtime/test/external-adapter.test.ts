@@ -120,6 +120,15 @@ class AbortAwareOpenCodeClient implements OpenCodeClient {
   }
 }
 
+class PromptCapturingOpenCodeClient extends FakeOpenCodeClient {
+  prompts: OpenCodePromptRequest[] = []
+
+  async *streamPrompt(request: OpenCodePromptRequest) {
+    this.prompts.push(request)
+    yield* super.streamPrompt(request)
+  }
+}
+
 describe("external adapter executor", () => {
   test("direct OpenCode run uses the external adapter instead of the mock executor", async () => {
     const registry = await createInitializedRegistry()
@@ -166,6 +175,95 @@ describe("external adapter executor", () => {
       modelId: "fake-model",
     })
     expect(message?.messageIndex).toBe(0)
+  })
+
+  test("direct OpenCode group run prepends AgentHub external context", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    const client = new PromptCapturingOpenCodeClient()
+    attachOpenCodeClient(runManager, client)
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_opencode_context",
+      mode: "group",
+      participantAgentIds: ["orchestrator", "opencode"],
+      addressedAgentIds: ["opencode"],
+      userMessage: {
+        role: "user",
+        content: "Continue from that result.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_opencode_context",
+        backendType: "local",
+        rootPath,
+      },
+      externalContext: [{
+        provider: "opencode",
+        agentId: "opencode",
+        scope: "conversation-visible",
+        mode: "delta",
+        messages: [{
+          id: "msg_visible_user",
+          role: "user",
+          senderLabel: "user",
+          createdAt: "2026-06-02T00:00:00.000Z",
+          content: "Earlier visible request.",
+        }, {
+          id: "msg_visible_coder",
+          role: "assistant",
+          agentId: "coder",
+          senderLabel: "coder",
+          createdAt: "2026-06-02T00:01:00.000Z",
+          content: "Coder explained the current bug.",
+        }],
+        handoffSummaries: [{
+          sessionId: "eas_task_context",
+          providerSessionId: "ses_task_context",
+          taskId: "task_context",
+          runId: "run_context",
+          summary: "OpenCode previously edited src/index.ts.",
+        }],
+        cursorCandidate: {
+          throughMessageId: "msg_visible_coder",
+          throughMessageCreatedAt: "2026-06-02T00:01:00.000Z",
+          includedMessageIds: ["msg_visible_user", "msg_visible_coder"],
+          includedHandoffSessionIds: ["eas_task_context"],
+        },
+      }],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const prompt = client.prompts[0]?.prompt.content ?? ""
+    const events = runManager.getEvents(run.id) ?? []
+    const completed = events.find((event) => event.type === "agent.completed" && event.agentId === "opencode")
+    const completedData = completed?.data as {
+      externalContext?: Record<string, unknown>
+    }
+
+    expect(prompt).toContain("AgentHub visible context (delta).")
+    expect(prompt).toContain("Earlier visible request.")
+    expect(prompt).toContain("Coder explained the current bug.")
+    expect(prompt).toContain("OpenCode previously edited src/index.ts.")
+    expect(prompt).toContain("Current user request:")
+    expect(prompt).toContain("Continue from that result.")
+    expect(completedData.externalContext).toEqual({
+      provider: "opencode",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      mode: "delta",
+      messageCount: 2,
+      handoffSummaryCount: 1,
+      cursorCandidate: {
+        throughMessageId: "msg_visible_coder",
+        throughMessageCreatedAt: "2026-06-02T00:01:00.000Z",
+        includedMessageIds: ["msg_visible_user", "msg_visible_coder"],
+        includedHandoffSessionIds: ["eas_task_context"],
+      },
+      omitted: undefined,
+    })
   })
 
   test("direct OpenCode run reuses a conversation-visible session hint", async () => {
@@ -269,6 +367,11 @@ describe("external adapter executor", () => {
     const events = runManager.getEvents(run.id) ?? []
     const started = events.find((event) => event.type === "agent.started" && event.agentId === "opencode")
     const message = events.find((event) => event.type === "message.completed" && event.agentId === "opencode")
+    const agentCompleted = events.find((event) => event.type === "agent.completed" && event.agentId === "opencode")
+    const completedData = agentCompleted?.data as {
+      handoffSummary?: string
+      externalSession?: { handoffSummary?: string }
+    }
 
     expect(completedRun?.status).toBe("completed")
     expect((started?.data as { externalSession?: { scope?: string; taskId?: string } }).externalSession?.scope)
@@ -289,6 +392,10 @@ describe("external adapter executor", () => {
     })
     expect(events.some((event) => event.type === "task.completed" && event.taskId === "task_opencode_delegated"))
       .toBe(true)
+    expect(completedData.handoffSummary).toContain("OpenCode completed delegated task \"Ask OpenCode\".")
+    expect(completedData.handoffSummary).toContain("Visible response:")
+    expect(completedData.handoffSummary).not.toContain("Use OpenCode for this delegated task.")
+    expect(completedData.externalSession?.handoffSummary).toBe(completedData.handoffSummary)
   })
 
   test("OpenCode adapter fails clearly without a bound workspace", async () => {

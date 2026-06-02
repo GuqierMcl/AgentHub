@@ -22,6 +22,13 @@
 
 路线图文件应持续更新，不是一次性计划稿。每次继续该模块时，先读路线图，再补当前状态，再决定下一步。
 
+## 当前路线图索引
+
+- `docs/roadmap/agent-runtime-agent-architecture.md`：Agent Runtime 智能体架构、内部预设智能体、工具、Orchestrator 与外部 Adapter 骨架。
+- `docs/roadmap/opencode-adapter-implementation.md`：OpenCode Adapter V1，包含 Phase 4B 通用 Workspace Diff、Phase 4C OpenCode Event Stream / Tool Timeline、Phase 4D OpenCode Permission Bridge。
+- `docs/roadmap/agent-side-capability-backlog.md`：对照原始需求整理的智能体侧未接入或未闭环能力 backlog。
+- `docs/roadmap/runs-chat-integration.md`：Runtime RunEvent 到 HubServer / Web 聊天产品链路的集成路线。
+
 ## 建议结构
 
 每个路线图文件建议包含以下内容：

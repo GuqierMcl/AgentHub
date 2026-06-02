@@ -7,6 +7,7 @@ import { createConversation } from './conversation.repo'
 import {
   findExternalAgentSessionHint,
   listExternalAgentSessions,
+  patchExternalAgentSessionMetadata,
   upsertExternalAgentSession,
 } from './external-agent-session.repo'
 
@@ -96,5 +97,68 @@ describe('external agent session repository', () => {
       provider: 'opencode',
     })
     expect(sessions.map((session) => session.providerSessionId)).toEqual(['provider_session_one'])
+  })
+
+  it('merges metadata across upsert and patch operations', async () => {
+    const conversation = await createConversation({
+      title: 'OpenCode context metadata',
+      mode: 'single',
+    })
+
+    await upsertExternalAgentSession({
+      provider: 'opencode',
+      agentId: 'opencode',
+      conversationId: conversation.id,
+      workspaceIdentity: 'workspace_context',
+      scope: 'conversation-visible',
+      providerSessionId: 'provider_session_context',
+      runId: 'run_context_first',
+      metadataJson: {
+        runtimeRunId: 'runtime_first',
+        contextBridge: {
+          lastSyncedMessageId: 'msg_first',
+        },
+      },
+    })
+
+    const updated = await upsertExternalAgentSession({
+      provider: 'opencode',
+      agentId: 'opencode',
+      conversationId: conversation.id,
+      workspaceIdentity: 'workspace_context',
+      scope: 'conversation-visible',
+      providerSessionId: 'provider_session_context',
+      runId: 'run_context_second',
+      metadataJson: {
+        providerRunId: 'provider_second',
+      },
+    })
+
+    expect(updated.metadataJson).toEqual({
+      runtimeRunId: 'runtime_first',
+      providerRunId: 'provider_second',
+      contextBridge: {
+        lastSyncedMessageId: 'msg_first',
+      },
+    })
+
+    const patched = await patchExternalAgentSessionMetadata({
+      provider: 'opencode',
+      providerSessionId: 'provider_session_context',
+    }, {
+      contextBridge: {
+        lastSyncedMessageId: 'msg_second',
+        lastSyncedAt: '2026-06-02T00:00:00.000Z',
+      },
+    })
+
+    expect(patched?.metadataJson).toEqual({
+      runtimeRunId: 'runtime_first',
+      providerRunId: 'provider_second',
+      contextBridge: {
+        lastSyncedMessageId: 'msg_second',
+        lastSyncedAt: '2026-06-02T00:00:00.000Z',
+      },
+    })
   })
 })

@@ -33,7 +33,7 @@ AgentHub 负责：
 - 组装 direct 或 delegated task 上下文。
 - 订阅 OpenCode 事件并映射为 AgentHub RunEvent。
 - 将 OpenCode 权限请求桥接到 AgentHub UI。
-- 在 Run 前后检测 workspace 文件变化并生成 Diff 投影。
+- 复用 AgentHub 通用 Workspace Diff 能力，在 Run 前后检测 workspace 文件变化并生成 Diff 摘要。
 
 ## 3. Runtime 拓扑
 
@@ -61,7 +61,7 @@ OpenCode SDK 可以启动 server 并返回 client，也可以连接已有 server
 - SDK client 调用应显式传入 `query.directory = workspaceRoot`，并使用 `createOpencodeClient({ baseUrl, directory })` 作为 GET/HEAD 的辅助保护。
 - OpenCode Session 可以由 Adapter 创建和更新标题；Session 映射事实来源仍在 HubServer。
 - Adapter 向 OpenCode 发送用户消息时默认不传入 model/provider 覆盖项，避免 AgentHub 接管 OpenCode 模型配置。
-- 如果需要把 AgentHub 公共上下文同步给 OpenCode Session，应优先使用 OpenCode 支持的 no-reply message/prompt 语义，避免触发一次额外模型回复。
+- Phase 4A 将 AgentHub 公共上下文作为结构化 prompt 前缀发送给 `session.prompt()`，不探索 no-reply message/prompt 语义。后续如果 OpenCode SDK 提供稳定静默上下文写入能力，可以再替换前缀实现。
 
 ## 4. OpenCode Project 映射
 
@@ -158,6 +158,16 @@ Adapter 使用 conversation-visible session。
 - 其他智能体隐藏上下文。
 - Runtime 内部 continuation 消息。
 
+Phase 4A 的 direct context bridge 由 HubServer 生成 `externalContext` packet，并由 OpenCodeAdapter 格式化为 `AgentHub visible context` prompt 前缀。该前缀不是当前用户请求；当前用户请求会在前缀之后以 `Current user request` 单独追加。
+
+同步规则：
+
+- 如果 `ExternalAgentSession.metadataJson.contextBridge.lastSyncedMessageId` 仍在最近可见消息窗口内，HubServer 只发送该消息之后的 delta。
+- 如果没有 cursor、OpenCode provider session 被重建、或 cursor 已不在窗口内，HubServer 发送 bounded bootstrap。
+- 首版窗口限制为最多 50 条可见消息、约 12k 字符，单条消息会先截断到约 4k 字符。
+- OpenCodeAdapter 在 `agent.completed.data.externalContext` 回传本轮已应用 context 的摘要，不回传完整消息正文。
+- HubServer 只在成功完成后推进 `metadataJson.contextBridge`；失败、取消或中途重启不会推进 cursor，下一轮可以重复发送 bounded context。
+
 ### 7.2 Orchestrator 委派 OpenCode
 
 Adapter 使用 delegated-task session。
@@ -193,6 +203,8 @@ OpenCode 的任务回复仍作为普通群聊消息展示，但该任务 session
 - 原始 delegated prompt。
 - Orchestrator 私有计划。
 - OpenCode task session 的完整内部消息。
+
+Phase 4A 中，OpenCodeAdapter 在 delegated task 的 `agent.completed` 上生成简短 handoff summary，并写入 `agent.completed.data.handoffSummary` 与 `agent.completed.data.externalSession.handoffSummary`。HubServer 投影后保存到对应 delegated-task `ExternalAgentSession.handoffSummary`。后续 direct `@OpenCode` 会把相关 handoff summary 放入 direct context bridge，但不会复用 delegated-task provider session，也不会注入原始 task instruction。
 
 ## 8. OpenCode 配置策略
 
@@ -306,7 +318,13 @@ OpenCodeAdapter 负责启动或连接 OpenCode server。
 
 当前 V1 连接模式保留两种内部枚举：`managed-by-runtime` 与 `existing-local-server`。已启用的是 `managed-by-runtime`；`existing-local-server` 需要后续基于 `createOpencodeClient({ baseUrl })` 增加 localhost 限制、health check 和 workspace 校验后再产品化。
 
-当前 Phase 3 已实现 `session.prompt()` 的基础文本投影：Adapter 从 assistant message `parts` 中提取非 ignored text part，输出 AgentHub `message.delta` 与 `message.completed`；当 OpenCode response 暴露 `providerID/modelID` 时，`message.completed` 同步携带 `externalModel` 供 UI 只读展示，并在可用时附带 OpenCode provider catalog 中的显示名。OpenCode `event.subscribe()`、权限桥接、工具事件和 Diff 投影仍属于 Phase 4。
+当前 Phase 3 已实现 `session.prompt()` 的基础文本投影：Adapter 从 assistant message `parts` 中提取非 ignored text part，输出 AgentHub `message.delta` 与 `message.completed`；当 OpenCode response 暴露 `providerID/modelID` 时，`message.completed` 同步携带 `externalModel` 供 UI 只读展示，并在可用时附带 OpenCode provider catalog 中的显示名。
+
+后续阶段拆分：
+
+- Phase 4B：通用 Workspace Diff Summary V0。Diff 不做 OpenCode 私有实现，而是由内部智能体和外部智能体共享同一套 workspace baseline / changed files / diffstat / bounded patch summary 逻辑。
+- Phase 4C：OpenCode Event Stream 与 Tool Timeline。Adapter 订阅 OpenCode event stream，将执行状态、工具调用和可用的文本增量映射成 AgentHub RunEvent，供 HubServer/Web 使用现有 timeline 和消息投影展示。
+- Phase 4D：OpenCode Permission Bridge。在 event stream 基础上把 OpenCode permission request 映射到 AgentHub `permission.*`，并将用户决定回写 OpenCode。
 
 ### 12.1 Runtime 可观测性
 
@@ -334,7 +352,7 @@ OpenCode 相关日志必须明确带有 `externalProvider = "opencode"`，并使
 4. Adapter 同步公共群聊上下文和 handoff summary。
 5. Adapter 向 OpenCode session 发送当前用户消息。
 6. Adapter 将 OpenCode 输出映射成普通 `opencode` 聊天消息。
-7. Run 完成后计算 Diff。
+7. Run 完成后通过通用 Workspace Diff 能力计算本次变更摘要。
 
 ### 13.2 Orchestrator 委派 OpenCode
 

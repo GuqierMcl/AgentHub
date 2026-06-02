@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  buildOpenCodeExternalContextPacket,
   RuntimeEventBatcher,
   isPersistedTerminalRuntimeEvent,
   isRetryableRuntimeEventStreamError,
@@ -56,6 +57,152 @@ describe('RuntimeEventBatcher', () => {
 
     await expect(batcher.enqueue(1)).rejects.toThrow('write failed')
     await expect(batcher.enqueue(2)).rejects.toThrow('write failed')
+  })
+})
+
+describe('buildOpenCodeExternalContextPacket', () => {
+  function messageRecord(input: {
+    id: string
+    role: 'user' | 'assistant' | 'system'
+    content: string
+    surface?: string
+    status?: string
+    agentId?: string | null
+    senderType?: string
+    createdAt?: string
+  }) {
+    return {
+      id: input.id,
+      conversationId: 'conv_context',
+      runId: null,
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      surface: input.surface ?? 'chat',
+      role: input.role,
+      senderType: input.senderType ?? (input.role === 'user' ? 'user' : 'agent'),
+      senderId: input.role === 'user' ? 'user' : input.agentId ?? null,
+      agentId: input.agentId ?? null,
+      taskId: null,
+      groupId: null,
+      parentMessageId: null,
+      regeneratedFromId: null,
+      status: input.status ?? 'completed',
+      finishReason: null,
+      firstEventSequence: null,
+      lastEventSequence: null,
+      metadataJson: '{}',
+      uiMessageJson: null,
+      createdAt: input.createdAt ?? '2026-06-02T00:00:00.000Z',
+      updatedAt: input.createdAt ?? '2026-06-02T00:00:00.000Z',
+      completedAt: input.createdAt ?? '2026-06-02T00:00:00.000Z',
+      parts: [{
+        id: `${input.id}_part`,
+        messageId: input.id,
+        conversationId: 'conv_context',
+        runId: null,
+        runtimeEventId: null,
+        partKey: 'text',
+        partIndex: 0,
+        entityType: null,
+        entityId: null,
+        type: 'text',
+        state: 'done',
+        text: input.content,
+        payloadJson: '{}',
+        firstEventSequence: null,
+        lastEventSequence: null,
+        createdAt: input.createdAt ?? '2026-06-02T00:00:00.000Z',
+        updatedAt: input.createdAt ?? '2026-06-02T00:00:00.000Z',
+      }],
+    }
+  }
+
+  function delegatedSession(input: {
+    id: string
+    providerSessionId: string
+    summary: string
+    updatedAt: string
+    taskId?: string
+  }) {
+    return {
+      id: input.id,
+      provider: 'opencode',
+      agentId: 'opencode',
+      conversationId: 'conv_context',
+      workspaceIdentity: 'workspace_context',
+      scope: 'delegated-task',
+      providerSessionId: input.providerSessionId,
+      parentProviderSessionId: null,
+      runId: 'run_delegated',
+      taskId: input.taskId ?? null,
+      status: 'active',
+      handoffSummary: input.summary,
+      lastSyncedRunEventId: null,
+      metadataJson: {},
+      createdAt: input.updatedAt,
+      updatedAt: input.updatedAt,
+    } as never
+  }
+
+  it('creates bootstrap context from visible completed chat messages only', () => {
+    const packet = buildOpenCodeExternalContextPacket({
+      agentId: 'opencode',
+      historyMessages: [
+        messageRecord({ id: 'msg_user', role: 'user', content: 'Visible user request.' }),
+        messageRecord({ id: 'msg_hidden', role: 'assistant', agentId: 'coder', content: 'Hidden note.', surface: 'hidden' }),
+        messageRecord({ id: 'msg_streaming', role: 'assistant', agentId: 'coder', content: 'Still streaming.', status: 'streaming' }),
+        messageRecord({ id: 'msg_coder', role: 'assistant', agentId: 'coder', content: 'Visible coder reply.' }),
+      ],
+      delegatedSessions: [],
+    })
+
+    expect(packet?.mode).toBe('bootstrap')
+    expect(packet?.messages.map((message) => message.id)).toEqual(['msg_user', 'msg_coder'])
+    expect(packet?.messages.map((message) => message.content)).toEqual([
+      'Visible user request.',
+      'Visible coder reply.',
+    ])
+    expect(packet?.cursorCandidate?.includedMessageIds).toEqual(['msg_user', 'msg_coder'])
+  })
+
+  it('uses delta cursor and includes only newer delegated handoffs', () => {
+    const packet = buildOpenCodeExternalContextPacket({
+      agentId: 'opencode',
+      sessionMetadata: {
+        contextBridge: {
+          lastSyncedMessageId: 'msg_old',
+          lastSyncedAt: '2026-06-02T00:02:00.000Z',
+        },
+      },
+      historyMessages: [
+        messageRecord({ id: 'msg_old', role: 'user', content: 'Already synced.', createdAt: '2026-06-02T00:01:00.000Z' }),
+        messageRecord({ id: 'msg_new_user', role: 'user', content: 'New user context.', createdAt: '2026-06-02T00:03:00.000Z' }),
+        messageRecord({ id: 'msg_new_agent', role: 'assistant', agentId: 'coder', content: 'New agent context.', createdAt: '2026-06-02T00:04:00.000Z' }),
+      ],
+      delegatedSessions: [
+        delegatedSession({
+          id: 'eas_old',
+          providerSessionId: 'ses_old',
+          summary: 'Old handoff.',
+          updatedAt: '2026-06-02T00:01:30.000Z',
+        }),
+        delegatedSession({
+          id: 'eas_new',
+          providerSessionId: 'ses_new',
+          summary: 'New handoff.',
+          updatedAt: '2026-06-02T00:03:30.000Z',
+          taskId: 'task_new',
+        }),
+      ],
+    })
+
+    expect(packet?.mode).toBe('delta')
+    expect(packet?.messages.map((message) => message.id)).toEqual(['msg_new_user', 'msg_new_agent'])
+    expect(packet?.handoffSummaries.map((summary) => summary.sessionId)).toEqual(['eas_new'])
+    expect(packet?.handoffSummaries[0]?.summary).toBe('New handoff.')
+    expect(packet?.cursorCandidate?.throughMessageId).toBe('msg_new_agent')
+    expect(packet?.cursorCandidate?.includedHandoffSessionIds).toEqual(['eas_new'])
   })
 })
 

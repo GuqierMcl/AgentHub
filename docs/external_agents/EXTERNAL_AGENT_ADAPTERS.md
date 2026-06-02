@@ -107,6 +107,8 @@ HubServer 是业务状态中心，应持久化外部 Session 映射。Runtime �
 - 最后同步到的 AgentHub 消息或事件位置。
 - 可选 handoff summary。
 
+Phase 4A 采用不新增数据库字段的上下文同步策略：专用同步状态写入 `ExternalAgentSession.metadataJson.contextBridge`。该对象可保存 `lastSyncedMessageId`、`lastSyncedMessageCreatedAt`、`lastSyncedAt`、最近一次 `mode`、已包含的 message/handoff id 列表和 omitted 信息。HubServer 只在外部智能体成功完成并确认本轮 context 已应用后推进该 metadata；如果 Runtime 或 HubServer 中途重启，后续调用可以重新发送 bounded context，而不会跳过未同步内容。
+
 ## 6. 上下文组装
 
 AgentHub 是用户可见上下文的事实来源。外部 Session 是外部平台的工作记忆，不是业务事实来源。
@@ -129,6 +131,17 @@ AgentHub 是用户可见上下文的事实来源。外部 Session 是外部平�
 - 其他智能体的隐藏 scratch/context。
 - 内部工具原始续跑消息。
 - 外部 delegated-task session 的原始任务包装 prompt。
+
+Phase 4A 中，HubServer 是 direct context packet 的组装方，Runtime Adapter 是格式化和发送方。HubServer 基于 `ExternalAgentSession.metadataJson.contextBridge.lastSyncedMessageId` 选择 delta；当 cursor 缺失、provider session 重建或 cursor 不在最近窗口内时，使用 bounded bootstrap。首版上下文窗口限制为最近可见消息和字符预算，不使用 LLM 总结。
+
+外部 direct context packet 应只包含用户可见事实：
+
+- `surface = "chat"` 且已完成的 user/assistant 消息。
+- 可见主智能体的公开回复。
+- delegated task 的 handoff summary。
+- 同步 cursor candidate 和预算省略信息。
+
+它不包含 raw RunEvent、tool 原始输入输出、reasoning、Orchestrator 私有计划或 delegated task 原始 instruction。
 
 ### 6.2 Delegated Task Context
 
@@ -201,19 +214,27 @@ Adapter 负责把外部平台事件转换成 AgentHub 稳定 RunEvent。
 
 Adapter 应保留足够的 raw provider event 供调试，但面向 HubServer 和 Web 的产品投影应优先使用 AgentHub 稳定事件。
 
+OpenCode V1 的后续阶段拆分为：
+
+- Phase 4B：先实现通用 Workspace Diff Summary V0，不依赖外部 provider event stream。
+- Phase 4C：接入 OpenCode event stream，将外部执行状态和工具调用映射到 AgentHub timeline。
+- Phase 4D：在 event stream 基础上桥接 OpenCode permission request。
+
+其他外部智能体接入时也应优先复用这些公共层：workspace diff 属于平台能力，event stream 和 permission bridge 属于 adapter 能力。
+
 ## 10. Artifact 与 Diff
 
 外部智能体可能直接修改 workspace。AgentHub 需要在产品层可见这些变化。
 
 设计要求：
 
-- Run 开始前记录 workspace 摘要或快照引用。
-- Run 结束后计算本次变更 Diff。
+- Run 开始前记录 workspace baseline。
+- Run 结束后计算本次变更 Diff summary。
 - Diff 归因到外部 agent、Run 和可选 task。
 - 普通文本发言与文件变更应同时存在：用户既看到外部智能体说了什么，也能看到改了什么。
 - 后续应支持一键查看、应用、回滚、版本历史和冲突处理。
 
-首版可以先完成变更检测和 Diff 摘要，完整 Artifact 投影后续扩展。
+首版 Diff 应作为通用 `WorkspaceDiffService` 或等价公共能力实现，而不是每个 Adapter 私有实现。内部预设智能体、用户自定义写入智能体和外部智能体都应复用同一套 baseline / changed files / diffstat / bounded patch summary 逻辑。完整 Diff Artifact、回滚和一键应用后续扩展。
 
 ## 11. 并发与取消
 

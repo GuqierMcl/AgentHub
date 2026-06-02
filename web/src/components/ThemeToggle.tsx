@@ -1,5 +1,6 @@
-import { MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
-
+import { SunIcon } from "@/components/ui/sun";
+import { MoonIcon } from "@/components/ui/moon";
+import { SunMoonIcon } from "@/components/ui/sun-moon";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/useTheme";
 
@@ -8,7 +9,7 @@ const THEME_ORDER = ["light", "dark", "system"] as const;
 const THEME_ICONS = {
   light: SunIcon,
   dark: MoonIcon,
-  system: MonitorIcon,
+  system: SunMoonIcon,
 } as const;
 
 const THEME_LABELS = {
@@ -36,7 +37,7 @@ export function ThemeToggle() {
       size="icon-sm"
       type="button"
     >
-      <Icon />
+      <Icon className="![&_svg]:size-4" size={16} />
     </Button>
   );
 }

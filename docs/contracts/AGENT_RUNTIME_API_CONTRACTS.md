@@ -831,6 +831,39 @@ type ExternalSessionHint = {
   handoffSummary?: string
 }
 
+type ExternalContextPacket = {
+  provider: "opencode" | "claude-code" | "codex"
+  agentId: string
+  scope: ExternalSessionScope
+  mode: "delta" | "bootstrap"
+  messages: Array<{
+    id: string
+    role: "user" | "assistant"
+    agentId?: string
+    senderLabel?: string
+    createdAt?: string
+    content: string
+  }>
+  handoffSummaries: Array<{
+    sessionId?: string
+    providerSessionId: string
+    taskId?: string
+    runId?: string
+    summary: string
+  }>
+  cursorCandidate?: {
+    throughMessageId?: string
+    throughMessageCreatedAt?: string
+    includedMessageIds: string[]
+    includedHandoffSessionIds: string[]
+  }
+  omitted?: {
+    messageCount?: number
+    characterCount?: number
+    handoffSummaryCount?: number
+  }
+}
+
 type RunInput = {
   conversationId: string
   mode: RuntimeConversationMode
@@ -854,6 +887,7 @@ type RunInput = {
     includeRawModelChunks?: boolean
   }
   externalSessionHints?: ExternalSessionHint[]
+  externalContext?: ExternalContextPacket[]
 }
 ```
 
@@ -868,6 +902,7 @@ type RunInput = {
 | `workspace` | 可选的本次 Run 主工作区 snapshot；首版只支持已存在本地目录 |
 | `diagnostics` | 可选模型流追踪开关；默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk |
 | `externalSessionHints` | HubServer 提供的外部智能体 session 复用 hint；当前用于 OpenCode direct `conversation-visible` session 续接，缺失时 Runtime Adapter 可创建 provider session 并在 `agent.started.data.externalSession` 回传 link |
+| `externalContext` | HubServer 为外部智能体组装的用户可见上下文包；当前用于 OpenCode direct `conversation-visible` prompt 前缀，包含公共 chat 消息、delegated handoff summary、同步 cursor candidate 和预算省略信息 |
 
 入口解析规则：
 
@@ -1122,7 +1157,9 @@ type RunEvent = {
 - `messageIndex` 是 RunManager 按首次 emit 顺序分配的 run-local 递增序号，用于并发任务和交替发言下的稳定排序；同一 `messageId` 下的 reasoning/tool/permission/message 事件共享同一个 `messageIndex`。
 - `message.delta` / `message.completed` 可在 `data.generation` 携带 `executionId` 与 compact model 信息；`agent.started` / `agent.completed` 也可携带同结构的 `data.generation`，其中 `agent.completed.data.generation` 可额外包含 usage、finishReason 与 durationMs。
 - 外部智能体可在 `message.completed.data.externalModel` 携带本条回复实际使用的外部平台模型，例如 `{ provider: "opencode", providerId: "anthropic", modelId: "claude-sonnet-4", providerName: "Anthropic", modelName: "Claude Sonnet 4" }`。`providerName/modelName` 可选，仅用于 UI 展示；`providerId/modelId` 仍是稳定标识。该字段属于消息级只读 metadata，不表示 AgentHub 管理或覆盖 OpenCode 的 provider/model 配置。
-- 外部智能体的 `agent.started.data.externalSession` 可携带 `{ provider, agentId, scope, providerSessionId, conversationId, workspaceId, parentProviderSessionId?, taskId?, runId?, handoffSummary? }`，供 HubServer 持久化外部 Session 映射。该字段不表示 AgentHub 接管外部平台配置。
+- 外部智能体的 `agent.started.data.externalSession` 与 `agent.completed.data.externalSession` 可携带 `{ provider, agentId, scope, providerSessionId, conversationId, workspaceId, parentProviderSessionId?, taskId?, runId?, handoffSummary? }`，供 HubServer 持久化外部 Session 映射。该字段不表示 AgentHub 接管外部平台配置。
+- OpenCode direct run 可在 `agent.completed.data.externalContext` 回传 `{ provider, agentId, scope, mode, messageCount, handoffSummaryCount, cursorCandidate?, omitted? }`，表示本轮已应用的 AgentHub 可见上下文摘要；HubServer 仅在成功终态后推进 `ExternalAgentSession.metadataJson.contextBridge`。该字段不携带完整消息正文。
+- OpenCode delegated task 完成时可在 `agent.completed.data.handoffSummary` 与 `agent.completed.data.externalSession.handoffSummary` 携带 handoff summary。该 summary 用于后续 direct context bridge，不应包含原始 delegated prompt 或 Orchestrator 私有计划。
 - `agent.completed` 仍表示 execution 完成；兼容字段 usage、finishReason、resolvedModel 继续保留在 `agent.completed.data`。Web 展示模型名、compact tokens 和 tooltip 详情时优先从 Runtime event replay/live SSE 的 `generation` 或 `externalModel` 字段恢复，而不是读取当前 agent 绑定状态。
 - 外部智能体后续可在 `agent.completed.data.workspaceDiff` 携带基础 workspace 变更摘要；V1 先用于 Diff 摘要和文件列表，不要求前端立即具备完整回滚 UI。
 - HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。

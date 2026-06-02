@@ -68,12 +68,37 @@ function toOutput(record: Record<string, unknown>): ExternalAgentSessionOutput {
   } as ExternalAgentSessionOutput
 }
 
+function mergeMetadataJson(
+  existing: string | undefined,
+  patch: MetadataJson | undefined,
+): MetadataJson {
+  const parsed = safeJsonParse(existing, {})
+  const current = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+    ? parsed as MetadataJson
+    : {}
+  return {
+    ...current,
+    ...(patch ?? {}),
+  }
+}
+
 export async function upsertExternalAgentSession(
   input: UpsertExternalAgentSessionInput,
 ): Promise<ExternalAgentSessionOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()
-  const metadataJson = JSON.stringify(input.metadataJson ?? {})
+  const existing = await db.externalAgentSession.findUnique({
+    where: {
+      provider_providerSessionId: {
+        provider: input.provider,
+        providerSessionId: input.providerSessionId,
+      },
+    },
+  })
+  const metadataJson = JSON.stringify(mergeMetadataJson(
+    existing?.metadataJson as string | undefined,
+    input.metadataJson,
+  ))
   const record = await db.externalAgentSession.upsert({
     where: {
       provider_providerSessionId: {
@@ -112,6 +137,42 @@ export async function upsertExternalAgentSession(
       lastSyncedRunEventId: input.lastSyncedRunEventId ?? null,
       metadataJson,
       updatedAt: now,
+    },
+  })
+  return toOutput(record as Record<string, unknown>)
+}
+
+export async function patchExternalAgentSessionMetadata(
+  filter: {
+    provider: string
+    providerSessionId: string
+  },
+  patch: MetadataJson,
+): Promise<ExternalAgentSessionOutput | null> {
+  const db = getPrismaClient()
+  const existing = await db.externalAgentSession.findUnique({
+    where: {
+      provider_providerSessionId: {
+        provider: filter.provider,
+        providerSessionId: filter.providerSessionId,
+      },
+    },
+  })
+  if (!existing) return null
+
+  const record = await db.externalAgentSession.update({
+    where: {
+      provider_providerSessionId: {
+        provider: filter.provider,
+        providerSessionId: filter.providerSessionId,
+      },
+    },
+    data: {
+      metadataJson: JSON.stringify(mergeMetadataJson(
+        existing.metadataJson as string | undefined,
+        patch,
+      )),
+      updatedAt: new Date().toISOString(),
     },
   })
   return toOutput(record as Record<string, unknown>)
