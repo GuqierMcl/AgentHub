@@ -25,6 +25,100 @@ globalThis.MonacoEnvironment = {
   },
 }
 
+let monacoConfigured = false
+
+function configureMonacoDiagnostics() {
+  if (monacoConfigured) return
+  monacoConfigured = true
+
+  const languages = monaco.languages as any
+  const tsApi = languages.typescript
+  const jsonApi = languages.json
+  const htmlApi = languages.html
+  const cssApi = languages.css
+
+  if (!tsApi || !jsonApi || !htmlApi || !cssApi) {
+    return
+  }
+
+  tsApi.typescriptDefaults.setEagerModelSync(true)
+  tsApi.javascriptDefaults.setEagerModelSync(true)
+
+  tsApi.typescriptDefaults.setCompilerOptions({
+    allowNonTsExtensions: true,
+    module: tsApi.ModuleKind.ESNext,
+    moduleResolution: tsApi.ModuleResolutionKind.NodeJs,
+    target: tsApi.ScriptTarget.Latest,
+    jsx: tsApi.JsxEmit.ReactJSX,
+  })
+
+  tsApi.javascriptDefaults.setCompilerOptions({
+    allowJs: true,
+    allowNonTsExtensions: true,
+    checkJs: true,
+    module: tsApi.ModuleKind.ESNext,
+    moduleResolution: tsApi.ModuleResolutionKind.NodeJs,
+    target: tsApi.ScriptTarget.Latest,
+    jsx: tsApi.JsxEmit.ReactJSX,
+  })
+
+  tsApi.typescriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: false,
+    noSyntaxValidation: false,
+    onlyVisible: false,
+  })
+
+  tsApi.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: false,
+    noSyntaxValidation: false,
+    onlyVisible: false,
+  })
+
+  jsonApi.jsonDefaults.setDiagnosticsOptions({
+    ...jsonApi.jsonDefaults.diagnosticsOptions,
+    validate: true,
+    allowComments: true,
+    schemaRequest: "warning",
+    schemaValidation: "warning",
+    trailingCommas: "warning",
+  })
+
+  htmlApi.htmlDefaults.setOptions({
+    ...htmlApi.htmlDefaults.options,
+  })
+  htmlApi.htmlDefaults.setModeConfiguration({
+    ...htmlApi.htmlDefaults.modeConfiguration,
+    diagnostics: true,
+  })
+
+  cssApi.cssDefaults.setOptions({
+    ...cssApi.cssDefaults.options,
+    validate: true,
+  })
+  cssApi.scssDefaults.setOptions({
+    ...cssApi.scssDefaults.options,
+    validate: true,
+  })
+  cssApi.lessDefaults.setOptions({
+    ...cssApi.lessDefaults.options,
+    validate: true,
+  })
+  cssApi.cssDefaults.setModeConfiguration({
+    ...cssApi.cssDefaults.modeConfiguration,
+    diagnostics: true,
+  })
+  cssApi.scssDefaults.setModeConfiguration({
+    ...cssApi.scssDefaults.modeConfiguration,
+    diagnostics: true,
+  })
+  cssApi.lessDefaults.setModeConfiguration({
+    ...cssApi.lessDefaults.modeConfiguration,
+    diagnostics: true,
+  })
+}
+
+configureMonacoDiagnostics()
+
 // Must run at module level, before any Editor component renders,
 // otherwise @monaco-editor/react will load Monaco from CDN.
 loader.config({ monaco })

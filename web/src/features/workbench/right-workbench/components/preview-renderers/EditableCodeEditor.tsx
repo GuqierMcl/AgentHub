@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import Editor from "@monaco-editor/react"
+import * as monaco from "monaco-editor"
 import { useTheme } from "@/components/useTheme"
 import { getCodePreviewMeta } from "../../utils/code-preview"
 import "../../utils/monaco-loader"
@@ -33,6 +34,8 @@ export function EditableCodeEditor({ path, content, language, onChange }: Editab
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     automaticLayout: true,
+    renderValidationDecorations: "on" as const,
+    lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
     wordWrap: (isMarkdown ? "on" : "off") as "on" | "off",
     renderWhitespace: "selection" as const,
     lineNumbers: "on" as const,

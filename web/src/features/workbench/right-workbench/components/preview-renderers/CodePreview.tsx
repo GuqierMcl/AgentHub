@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import Editor from "@monaco-editor/react"
+import * as monaco from "monaco-editor"
 import { Maximize2Icon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,6 +24,8 @@ const EDITOR_OPTIONS = {
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
   automaticLayout: true,
+  renderValidationDecorations: "on" as const,
+  lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
   wordWrap: "off" as const,
   renderWhitespace: "selection" as const,
   lineNumbers: "on" as const,
