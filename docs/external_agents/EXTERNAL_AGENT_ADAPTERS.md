@@ -214,19 +214,27 @@ Adapter 负责把外部平台事件转换成 AgentHub 稳定 RunEvent。
 
 Adapter 应保留足够的 raw provider event 供调试，但面向 HubServer 和 Web 的产品投影应优先使用 AgentHub 稳定事件。
 
+OpenCode V1 的后续阶段拆分为：
+
+- Phase 4B：先实现通用 Workspace Diff Summary V0，不依赖外部 provider event stream。
+- Phase 4C：接入 OpenCode event stream，将外部执行状态和工具调用映射到 AgentHub timeline。
+- Phase 4D：在 event stream 基础上桥接 OpenCode permission request。
+
+其他外部智能体接入时也应优先复用这些公共层：workspace diff 属于平台能力，event stream 和 permission bridge 属于 adapter 能力。
+
 ## 10. Artifact 与 Diff
 
 外部智能体可能直接修改 workspace。AgentHub 需要在产品层可见这些变化。
 
 设计要求：
 
-- Run 开始前记录 workspace 摘要或快照引用。
-- Run 结束后计算本次变更 Diff。
+- Run 开始前记录 workspace baseline。
+- Run 结束后计算本次变更 Diff summary。
 - Diff 归因到外部 agent、Run 和可选 task。
 - 普通文本发言与文件变更应同时存在：用户既看到外部智能体说了什么，也能看到改了什么。
 - 后续应支持一键查看、应用、回滚、版本历史和冲突处理。
 
-首版可以先完成变更检测和 Diff 摘要，完整 Artifact 投影后续扩展。
+首版 Diff 应作为通用 `WorkspaceDiffService` 或等价公共能力实现，而不是每个 Adapter 私有实现。内部预设智能体、用户自定义写入智能体和外部智能体都应复用同一套 baseline / changed files / diffstat / bounded patch summary 逻辑。完整 Diff Artifact、回滚和一键应用后续扩展。
 
 ## 11. 并发与取消
 

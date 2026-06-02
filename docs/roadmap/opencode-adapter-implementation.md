@@ -15,8 +15,9 @@ OpenCode Adapter V1
 - OpenCode Session 按 `conversation-visible` 与 `delegated-task` 分 scope。
 - HubServer 持久化外部 Session 映射，并在 direct run 中向 Runtime 提供可复用 session hint。
 - Runtime 能启动或连接 OpenCode server，并校验 Project 与 AgentHub workspace 一致。
+- OpenCode 执行过程中的可观察事件能进入 AgentHub RunEvent / timeline 链路。
 - OpenCode 权限请求映射为 AgentHub `permission.*` 事件。
-- OpenCode 修改 workspace 后，AgentHub 至少能展示基础 Diff 摘要和变更文件列表。
+- OpenCode 和内部文件写入智能体修改 workspace 后，AgentHub 至少能展示基础 Diff 摘要和变更文件列表。
 
 ## 依赖文档
 
@@ -40,7 +41,7 @@ OpenCode Adapter V1
 - Runtime 托管启动 OpenCode server 的进程生命周期。
 - OpenCode event stream 到 AgentHub RunEvent 的映射。
 - OpenCode 权限桥接。
-- 基础 workspace Diff 摘要和 handoff summary。
+- 通用 workspace Diff 摘要和 handoff summary。
 
 ### 不包含
 
@@ -120,27 +121,63 @@ OpenCode Adapter V1
 - delegated task 的 handoff summary 可进入后续 direct context，但原始 task prompt 不进入 direct session。
 - `RunInput.externalContext`、`agent.completed.data.externalContext` 和 `ExternalAgentSession.metadataJson.contextBridge` 契约同步到文档。
 
-### 阶段 4B：权限桥接与 Diff
+### 阶段 4B：通用 Workspace Diff Summary V0
 
 目标：
 
-- `RuntimePermissionService` 支持 waitable external permission request。
+- 将 Diff 从 OpenCode 私有能力调整为 AgentHub 通用 workspace 变更摘要能力。
+- Runtime 在具备 workspace 的 Run 前后记录 workspace baseline。
+- V0 使用 git-based changed files / diffstat / bounded patch summary；非 git workspace 先返回 unavailable summary。
+- 内部预设智能体、隐藏 `file` 子智能体、用户自定义写入智能体和 OpenCode 都复用同一套 diff 计算逻辑。
+- 外部智能体仍可在 `agent.completed.data.workspaceDiff` 携带归因到 agent / task 的摘要；内部多智能体 Run 可以先在 run terminal 或相关 agent terminal data 上携带 aggregate summary，具体事件归属在实现前同步 contract。
+- 只做摘要和变更文件列表，不做完整 Diff Artifact、回滚或一键应用。
+
+验收：
+
+- `coder` / `writer` / `file` / `opencode` 修改文件后，Run terminal data 中有变更文件列表和摘要。
+- 没有 workspace、不是 git repository、git 不可用、diff 超预算时都有结构化 degraded result。
+- 多智能体或委派任务造成的同一 Run 多处写入能给出 aggregate summary，并保留可选 agent/task 归因。
+- HubServer 持久化 raw event 时不会破坏现有消息恢复；Web 首版可以先展示摘要或仅保留 data，不要求完整 Diff UI。
+
+### 阶段 4C：OpenCode Event Stream 与 Tool Timeline
+
+目标：
+
+- Runtime 订阅 OpenCode event stream，并按 active session / task 过滤。
+- 将 OpenCode 的执行状态、工具调用、文本增量和错误转换为 AgentHub 稳定 RunEvent。
+- OpenCode 工具调用映射到 `tool.started` / `tool.completed` / `tool.failed`，并携带 `externalProvider = "opencode"`、provider tool id/name、session id 等 metadata。
+- 如果 OpenCode 暴露真实 assistant text delta，Adapter 应优先使用真实增量；如果 SDK 只能从 `session.prompt()` 返回最终 assistant parts，则保留最终文本投影，同时用 event stream 提供执行状态和工具 timeline。
+- HubServer 和 Web 复用现有 run timeline / message part 投影展示 OpenCode 执行过程，不引入浏览器直连 OpenCode server。
+
+验收：
+
+- OpenCode 执行期间，前端能看到与 OpenCode 明确关联的运行状态和工具调用 trace。
+- OpenCode 工具事件不会被误认为 AgentHub Runtime Tool；UI 展示应能区分外部 provider tool。
+- 文本消息仍作为普通 `opencode` assistant message 持久化和恢复。
+- Event stream 断开、provider event 格式不支持或事件过量时有稳定降级，不影响最终文本消息投影。
+
+### 阶段 4D：OpenCode Permission Bridge
+
+目标：
+
+- `RuntimePermissionService` 支持 waitable external permission request，或提供等价的外部 permission continuation。
 - OpenCode permission request 映射为 AgentHub `permission.requested`。
 - AgentHub 批准映射为 OpenCode 一次性允许；拒绝或取消映射为 OpenCode 拒绝并中止相关操作。
-- Run 前后记录 workspace baseline，V1 使用 git-based changed files / diff summary。
-- `agent.completed.data.workspaceDiff` 携带基础 Diff 摘要。
+- Run 取消时取消或拒绝 pending OpenCode permission，并 abort active prompt。
+- 权限 metadata 记录 provider、providerPermissionId、permissionKind、session id、task id 等外部追踪信息。
 
 验收：
 
 - Web 现有 permission UI 可以处理 OpenCode 权限请求。
-- OpenCode 修改文件后，Run terminal data 中有变更文件列表和摘要。
+- 批准后 OpenCode 对应操作继续；拒绝、取消或 Run abort 后 OpenCode 对应操作停止并输出终态事件。
+- OpenCode permission 回写失败时产生稳定 `ADAPTER_PERMISSION_*` 错误，且不会留下永远 pending 的 AgentHub permission。
 
 ### 阶段 5：集成硬化
 
 目标：
 
 - 增加真实 OpenCode 可用时的 smoke test，默认跳过本机缺失 OpenCode 的环境。
-- 补齐错误码、日志、redaction 和 contract 文档。
+- 补齐错误码、日志、redaction、contract 文档和阶段 4B-4D 的端到端验收记录。
 - 验证 HubServer projection 不因 external metadata 破坏现有聊天恢复。
 
 验收：
@@ -159,7 +196,7 @@ OpenCode Adapter V1
 - 阶段 3 基础接入已落地：`@opencode-ai/sdk` 已加入 Runtime；默认 OpenCodeAdapter 使用真实 client；`ManagedOpenCodeServer` 会在 SDK 暴露安全 workspace 选项时走 `createOpencode()`，当前 SDK 版本未暴露该选项时走 CLI fallback，并校验 `project.current` / `path.get`；`RealOpenCodeClient` 支持 session hint 复用、缺失重建、`session.prompt()` 文本投影和 Run cancel 时 `session.abort()`。
 - OpenCode 模型只读展示 V1.1 已落地：Runtime 从 `session.prompt()` response 的 `providerID/modelID` 生成 `message.completed.data.externalModel`，并通过只读 provider catalog 尽量补齐 `providerName/modelName`；HubServer 保留并投影该消息级 metadata，Web 在聊天消息 action 行优先展示 OpenCode 实际回复模型名。
 - 阶段 4A 已落地：HubServer 生成 OpenCode direct `externalContext` packet，Runtime OpenCodeAdapter 将其作为结构化 prompt 前缀发送；delegated task 完成后生成 handoff summary；HubServer 用 `ExternalAgentSession.metadataJson.contextBridge` 保存成功同步状态。
-- 尚无 OpenCode event stream 权限桥接和 Diff 投影。
+- 尚无通用 Workspace Diff Summary、OpenCode event stream/tool timeline 和 OpenCode permission bridge。
 
 ## 已完成
 
@@ -175,16 +212,20 @@ OpenCode Adapter V1
 
 ## 待办
 
-- 阶段 4B：权限桥接与 Diff。
+- 阶段 4B：通用 Workspace Diff Summary V0。
+- 阶段 4C：OpenCode Event Stream 与 Tool Timeline。
+- 阶段 4D：OpenCode Permission Bridge。
 - 阶段 5：集成硬化。
 - OpenCode 会话头部默认模型只读状态：后续再考虑读取 OpenCode provider/config 默认值；AgentHub 仍不接管 OpenCode 模型配置。
 
 ## 风险与待确认点
 
 - 当前 `@opencode-ai/sdk@1.15.13` 的 `createOpencode()` ServerOptions 未暴露 cwd/workdir/projectPath；V1 不使用 `process.chdir()`，因此默认通过 `opencode serve` 子进程 cwd 绑定 workspace。若后续 SDK 增加进程局部 workspace 参数，可切回 SDK managed path。
-- OpenCode 权限回写 API 的精确 payload 需要在 Phase 4B 权限桥接阶段验证。
+- OpenCode event stream 的真实文本 delta、tool part 和 permission payload 需要在 Phase 4C/4D 结合 SDK/Server 实测验证。
+- OpenCode 权限回写 API 的精确 payload 需要在 Phase 4D 权限桥接阶段验证。
 - 多个 OpenCode session 并发编辑同一 workspace 可能产生冲突；V1 只检测并标记，不自动合并。
 - 非 git workspace 的 Diff 能力需要 fallback 设计；V1 先以 unavailable summary 降级。
+- 通用 Workspace Diff 需要处理内部智能体和外部智能体都可能写入同一 Run 的归因问题；V0 先保留 aggregate summary，再逐步细化 agent/task 归因。
 
 ## 最近更新
 
@@ -195,4 +236,5 @@ OpenCode Adapter V1
 - 2026-06-02：落地 OpenCode 模型只读展示 V1.1：`message.completed.data.externalModel`、HubServer metadata 投影和 Web 消息 action 行展示实际回复模型；随后补齐 `providerName/modelName` 展示增强，旧消息无 display name 时前端降级为可读化 model id。
 - 2026-06-02：修复 OpenCode 输出链路暴露出的通用 Runtime SSE 尾部事件竞态：Runtime SSE 先订阅再 replay 并 terminal-drain；HubServer consumer 只在 Runtime terminal event 已持久化后停止补连。
 - 2026-06-02：修复真实 OpenCode 长 prompt 暴露出的 Runtime SSE idle timeout：Runtime 与 HubServer run SSE 增加 keepalive comment，Agent Runtime Bun server idle timeout 调整为 60 秒，并澄清连接 `cancel()` 日志不是用户取消 Run。
-- 2026-06-02：完成 Phase 4A Context Bridge：HubServer 组装 `externalContext` packet，OpenCodeAdapter 使用结构化 prompt 前缀，delegated task 生成 handoff summary，并用 `ExternalAgentSession.metadataJson.contextBridge` 推进成功同步 cursor；权限桥接和 Diff 移入 Phase 4B。
+- 2026-06-02：完成 Phase 4A Context Bridge：HubServer 组装 `externalContext` packet，OpenCodeAdapter 使用结构化 prompt 前缀，delegated task 生成 handoff summary，并用 `ExternalAgentSession.metadataJson.contextBridge` 推进成功同步 cursor；权限桥接和 Diff 进入后续阶段，并在下一条更新中拆分。
+- 2026-06-02：根据验收后的计划调整，将原 Phase 4B 拆分为 4B 通用 Workspace Diff Summary V0、4C OpenCode Event Stream / Tool Timeline、4D OpenCode Permission Bridge；Diff 明确作为平台通用能力，内部预设智能体和 OpenCode 共享。

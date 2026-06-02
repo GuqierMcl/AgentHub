@@ -33,7 +33,7 @@ AgentHub 负责：
 - 组装 direct 或 delegated task 上下文。
 - 订阅 OpenCode 事件并映射为 AgentHub RunEvent。
 - 将 OpenCode 权限请求桥接到 AgentHub UI。
-- 在 Run 前后检测 workspace 文件变化并生成 Diff 投影。
+- 复用 AgentHub 通用 Workspace Diff 能力，在 Run 前后检测 workspace 文件变化并生成 Diff 摘要。
 
 ## 3. Runtime 拓扑
 
@@ -318,7 +318,13 @@ OpenCodeAdapter 负责启动或连接 OpenCode server。
 
 当前 V1 连接模式保留两种内部枚举：`managed-by-runtime` 与 `existing-local-server`。已启用的是 `managed-by-runtime`；`existing-local-server` 需要后续基于 `createOpencodeClient({ baseUrl })` 增加 localhost 限制、health check 和 workspace 校验后再产品化。
 
-当前 Phase 3 已实现 `session.prompt()` 的基础文本投影：Adapter 从 assistant message `parts` 中提取非 ignored text part，输出 AgentHub `message.delta` 与 `message.completed`；当 OpenCode response 暴露 `providerID/modelID` 时，`message.completed` 同步携带 `externalModel` 供 UI 只读展示，并在可用时附带 OpenCode provider catalog 中的显示名。OpenCode `event.subscribe()`、权限桥接、工具事件和 Diff 投影仍属于 Phase 4。
+当前 Phase 3 已实现 `session.prompt()` 的基础文本投影：Adapter 从 assistant message `parts` 中提取非 ignored text part，输出 AgentHub `message.delta` 与 `message.completed`；当 OpenCode response 暴露 `providerID/modelID` 时，`message.completed` 同步携带 `externalModel` 供 UI 只读展示，并在可用时附带 OpenCode provider catalog 中的显示名。
+
+后续阶段拆分：
+
+- Phase 4B：通用 Workspace Diff Summary V0。Diff 不做 OpenCode 私有实现，而是由内部智能体和外部智能体共享同一套 workspace baseline / changed files / diffstat / bounded patch summary 逻辑。
+- Phase 4C：OpenCode Event Stream 与 Tool Timeline。Adapter 订阅 OpenCode event stream，将执行状态、工具调用和可用的文本增量映射成 AgentHub RunEvent，供 HubServer/Web 使用现有 timeline 和消息投影展示。
+- Phase 4D：OpenCode Permission Bridge。在 event stream 基础上把 OpenCode permission request 映射到 AgentHub `permission.*`，并将用户决定回写 OpenCode。
 
 ### 12.1 Runtime 可观测性
 
@@ -346,7 +352,7 @@ OpenCode 相关日志必须明确带有 `externalProvider = "opencode"`，并使
 4. Adapter 同步公共群聊上下文和 handoff summary。
 5. Adapter 向 OpenCode session 发送当前用户消息。
 6. Adapter 将 OpenCode 输出映射成普通 `opencode` 聊天消息。
-7. Run 完成后计算 Diff。
+7. Run 完成后通过通用 Workspace Diff 能力计算本次变更摘要。
 
 ### 13.2 Orchestrator 委派 OpenCode
 

@@ -225,6 +225,7 @@ Agent Runtime 智能体架构
 - 实现外部智能体 Adapter 骨架。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
 - 后续扩展 Patch / diff artifact、一键 apply、版本历史、回滚和更复杂的写入冲突处理。
+- 智能体侧尚未接入或尚未闭环能力的完整 backlog 见 `docs/roadmap/agent-side-capability-backlog.md`；近期优先级为通用 Workspace Diff Summary V0、OpenCode Event Stream / Tool Timeline、OpenCode Permission Bridge。
 
 ## 风险与待确认点
 
@@ -256,3 +257,4 @@ Agent Runtime 智能体架构
 - 本轮已完成 `write_file` / `edit_file`、write grant 与敏感/沙箱外写入审批；写工具已接入 Tool Catalog、Authoring Options 和 per-agent permission policy。
 - 本轮已将隐藏子智能体迁移到 `ai-sdk` 执行器，并确定子智能体不绑定模型、执行时继承直接调用方模型。
 - 本轮已增强 Run SSE 事件契约：AI SDK `fullStream` 通过 `model.stream.part` 薄封装透传，reasoning/thinking 默认提升为 `reasoning.*`，`raw` chunk 仅显式 opt-in，并新增 `RUNTIME_SSE_EVENTS.md` 作为事件契约专文。
+- 2026-06-02：新增 `agent-side-capability-backlog.md`，对照原始需求记录智能体侧未接入或未闭环能力；OpenCode 后续拆分为 Phase 4B 通用 Workspace Diff、Phase 4C Event Stream / Tool Timeline、Phase 4D Permission Bridge。
