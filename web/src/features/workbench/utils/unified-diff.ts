@@ -37,7 +37,14 @@ export function parseUnifiedDiff(patchText: string): UnifiedDiffFile[] {
 
   const finishCurrent = () => {
     if (!current) return
-    const { currentHunk: _currentHunk, oldCursor: _oldCursor, newCursor: _newCursor, ...file } = current
+    const file: UnifiedDiffFile = {
+      path: current.path,
+      oldPath: current.oldPath,
+      status: current.status,
+      binary: current.binary,
+      headerLines: current.headerLines,
+      hunks: current.hunks,
+    }
     if (file.path || file.oldPath || file.hunks.length || file.headerLines.length) {
       files.push({
         ...file,

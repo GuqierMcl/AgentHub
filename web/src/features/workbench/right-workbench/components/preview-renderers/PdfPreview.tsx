@@ -22,7 +22,7 @@ function isAutoZoom(v: string): v is "auto" {
   return v === "auto"
 }
 
-export function PdfPreview({ url, name: _name, onFullscreen }: PdfPreviewProps) {
+export function PdfPreview({ url, onFullscreen }: PdfPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const scrollAreaHostRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)

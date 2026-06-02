@@ -31,6 +31,7 @@ function configureMonacoDiagnostics() {
   if (monacoConfigured) return
   monacoConfigured = true
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const languages = monaco.languages as any
   const tsApi = languages.typescript
   const jsonApi = languages.json

@@ -157,31 +157,32 @@ export function WorkspacePickerDialog({
   onSelect,
 }: WorkspacePickerDialogProps) {
   const [rootEntries, setRootEntries] = useState<WorkspaceTreeEntry[] | null>(null)
-  const [rootLoading, setRootLoading] = useState(false)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [openValues, setOpenValues] = useState<string[]>([])
 
+  const rootLoading = open && rootEntries === null
+
   useEffect(() => {
-    if (!open) {
-      setRootEntries(null)
-      setSelectedPath(null)
-      setOpenValues([])
-      return
-    }
-    setRootLoading(true)
-    setSelectedPath(null)
-    setOpenValues([])
+    if (!open) return
     workspaceBrowserApi
       .browseDirectory()
       .then((data) => {
         setRootEntries(data.entries.filter((e) => e.kind === "dir"))
-        setRootLoading(false)
       })
       .catch(() => {
         setRootEntries([])
-        setRootLoading(false)
       })
   }, [open])
+
+  const handleDialogOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      setRootEntries(null)
+      setSelectedPath(null)
+      setOpenValues([])
+    }
+    if (open) return
+    onOpenChange(open)
+  }, [onOpenChange])
 
   const handleOpenChange = useCallback((newValues: string[]) => {
     setOpenValues(newValues)
@@ -190,16 +191,16 @@ export function WorkspacePickerDialog({
   const handleConfirm = useCallback(() => {
     if (selectedPath) {
       onSelect(selectedPath)
-      onOpenChange(false)
+      handleDialogOpenChange(false)
     }
-  }, [selectedPath, onSelect, onOpenChange])
+  }, [selectedPath, onSelect, handleDialogOpenChange])
 
   const handleFolderSelect = useCallback((path: string) => {
     setSelectedPath(path)
   }, [])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         from="top"
         className="flex max-h-[75vh] w-[600px] flex-col overflow-hidden p-0"
@@ -267,7 +268,7 @@ export function WorkspacePickerDialog({
         </div>
 
         <DialogFooter className="shrink-0 px-6 pt-2 pb-6">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => handleDialogOpenChange(false)}>
             取消
           </Button>
           <Button onClick={handleConfirm} disabled={!selectedPath}>

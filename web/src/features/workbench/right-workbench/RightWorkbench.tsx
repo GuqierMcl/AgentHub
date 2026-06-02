@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { toast } from "sonner"
 
 import { useTabStore, type TerminalTabPayload } from "@/store/tab-store"
@@ -93,6 +93,11 @@ export function RightWorkbench({
     [closeTab, tabs]
   )
 
+  const tabsRef = useRef(tabs)
+  useEffect(() => {
+    tabsRef.current = tabs
+  })
+
   useEffect(() => {
     if (!conversation?.workspace) return
 
@@ -111,7 +116,7 @@ export function RightWorkbench({
           sessionId: session.sessionId,
         }
 
-        const hasTab = tabs.some(
+        const hasTab = tabsRef.current.some(
           (t) =>
             t.type === "terminal" &&
             t.payload &&

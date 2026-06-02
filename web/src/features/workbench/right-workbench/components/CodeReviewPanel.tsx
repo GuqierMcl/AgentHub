@@ -42,11 +42,13 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
     enabled: shouldFetch,
   })
 
+  const workspaceDiff = payload?.workspaceDiff
+  const patchText = payload?.patchText
   const fallbackDetail = useMemo(
-    () => payload?.workspaceDiff
-      ? buildDetailFromWorkspaceDiff(payload.workspaceDiff, payload.patchText)
+    () => workspaceDiff
+      ? buildDetailFromWorkspaceDiff(workspaceDiff, patchText)
       : undefined,
-    [payload?.workspaceDiff, payload?.patchText]
+    [workspaceDiff, patchText]
   )
   const detail = detailQuery.data?.diff ?? fallbackDetail
   const files = useMemo(() => buildViewerFiles(detail), [detail])
@@ -56,6 +58,7 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
   )
   const [selectedPath, setSelectedPath] = useState<string | undefined>()
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!files.length) {
       setSelectedPath(undefined)
@@ -67,6 +70,7 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
         : files[0]?.path
     )
   }, [files])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!payload) {
     return <ReviewEmptyState />

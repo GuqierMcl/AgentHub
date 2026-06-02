@@ -96,7 +96,7 @@ type PreviewRendererProps = {
   onFullscreen?: () => void
 }
 
-export function PreviewRenderer({ preview, conversationId: _conversationId, onFullscreen }: PreviewRendererProps) {
+export function PreviewRenderer({ preview, onFullscreen }: PreviewRendererProps) {
   const editorSettings = useEditorSettings()
   switch (preview.kind) {
     case "text":

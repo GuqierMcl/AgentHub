@@ -39,11 +39,6 @@ export function WorkspaceFileEditDialog({ open, onOpenChange, conversationId, pa
   const isDirty = originalContent !== draftContent
 
   useEffect(() => {
-    if (open) return
-    setIsFullscreen(false)
-  }, [open])
-
-  useEffect(() => {
     if (!open || !conversationId || !path) return
 
     const loadId = ++loadIdRef.current
@@ -104,6 +99,7 @@ export function WorkspaceFileEditDialog({ open, onOpenChange, conversationId, pa
       }
       return
     }
+    if (!open) setIsFullscreen(false)
     onOpenChange(open)
   }, [isDirty, onOpenChange])
 
