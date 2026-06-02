@@ -25,6 +25,7 @@ AgentHub 负责产品和编排边界：
 - 外部智能体的启动、连接、健康检查、取消和事件投影。
 - 将外部智能体输出转换为 AgentHub 统一事件和消息。
 - 在需要时将外部智能体的权限请求桥接到 AgentHub UI。
+- 当外部平台存在“执行模式 / agent / 只读或可写能力”这类 per-run 开关时，Adapter 可以为 AgentHub 发起的请求显式指定本轮执行模式，避免继承外部平台原生 UI 的上一次选择。
 
 ### 2.2 外部智能体负责
 
@@ -37,6 +38,8 @@ AgentHub 负责产品和编排边界：
 - 平台内部如何调用模型、工具和文件系统。
 
 AgentHub 不把这些能力拆成自身配置面板。用户专注于“与这个外部智能体协作”，而不是在 AgentHub 里重新配置外部平台。
+
+需要区分“管理外部平台配置”和“控制本轮 AgentHub 执行请求”：前者仍属于外部平台自身；后者属于 Adapter 的执行正确性。例如 OpenCode V1 不管理 agent 配置文件，但会在 AgentHub-originated prompt 中显式指定 `build` agent，避免用户上一次在 OpenCode TUI 中选择 Plan 后导致 AgentHub 编辑请求变成只读。
 
 ## 3. 智能体身份与可见性
 
@@ -216,7 +219,7 @@ Adapter 应保留足够的 raw provider event 供调试，但面向 HubServer �
 
 OpenCode V1 的后续阶段拆分为：
 
-- Phase 4B：先实现通用 Workspace Diff Summary V0，不依赖外部 provider event stream。
+- Phase 4B：通用 Workspace Diff Summary V0 已作为平台能力实现，不依赖外部 provider event stream。
 - Phase 4C：接入 OpenCode event stream，将外部执行状态和工具调用映射到 AgentHub timeline。
 - Phase 4D：在 event stream 基础上桥接 OpenCode permission request。
 
@@ -234,7 +237,11 @@ OpenCode V1 的后续阶段拆分为：
 - 普通文本发言与文件变更应同时存在：用户既看到外部智能体说了什么，也能看到改了什么。
 - 后续应支持一键查看、应用、回滚、版本历史和冲突处理。
 
-首版 Diff 应作为通用 `WorkspaceDiffService` 或等价公共能力实现，而不是每个 Adapter 私有实现。内部预设智能体、用户自定义写入智能体和外部智能体都应复用同一套 baseline / changed files / diffstat / bounded patch summary 逻辑。完整 Diff Artifact、回滚和一键应用后续扩展。
+Phase 4B 已将首版 Diff 落成通用 `WorkspaceDiffService`，而不是每个 Adapter 私有实现。Runtime 在 Run 开始前捕获 git baseline，在 `run.completed` / `run.failed` / `run.cancelled` 的 `data.workspaceDiff` 输出 summary。内部预设智能体、隐藏 `file` 子智能体、用户自定义写入智能体和外部智能体都复用同一套 baseline / changed files / diffstat / bounded patch 逻辑。
+
+HubServer 将有实际文件变化的 `workspaceDiff` 投影为 `Artifact(type="diff")` 与 ArtifactVersion，并挂到同一 Run 的可见聊天消息；Web 展示摘要卡片、文件数、增删行、dirty baseline、degraded 和 truncated 状态。完整 Diff Viewer、回滚、一键应用和冲突处理仍是后续扩展。
+
+如果 Run 开始前 workspace 已 dirty，`baselineDirty = true` 且 `runOnlyReliable = false`。Runtime 会用 baseline/final 脏文件 fingerprint 尽量过滤掉本轮未变化的既有脏文件；但 bounded patch 仍是 final-vs-HEAD 的保守内容，不应被 UI 或后续 agent 描述成精确 run-only patch。
 
 ## 11. 并发与取消
 

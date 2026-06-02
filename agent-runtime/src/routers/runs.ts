@@ -367,11 +367,11 @@ runs.post("/runtime/runs/:runId/questions/:requestId/answer", async (c: Context)
   }
 })
 
-runs.post("/runtime/runs/:runId/cancel", (c: Context) => {
+runs.post("/runtime/runs/:runId/cancel", async (c: Context) => {
   const runId = c.req.param("runId")
   log.info({ runId }, "POST /runtime/runs/:runId/cancel - cancelling run")
 
-  const run = c.get("runManager").cancelRun(runId)
+  const run = await c.get("runManager").cancelRun(runId)
   if (!run) {
     log.warn({ runId }, "Run not found for cancellation")
     return runNotFound(c, runId)

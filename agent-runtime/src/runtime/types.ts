@@ -31,6 +31,80 @@ export const RunWorkspaceSummarySchema = z.object({
 })
 export type RunWorkspaceSummary = z.infer<typeof RunWorkspaceSummarySchema>
 
+export const WorkspaceDiffFileOriginSchema = z.enum([
+  "new-since-baseline",
+  "removed-since-baseline",
+  "status-changed",
+  "unchanged-baseline",
+  "unknown-dirty-baseline",
+])
+export type WorkspaceDiffFileOrigin = z.infer<typeof WorkspaceDiffFileOriginSchema>
+
+export const WorkspaceDiffFileSchema = z.object({
+  path: z.string().min(1),
+  statusBefore: z.string().min(1).optional(),
+  statusAfter: z.string().min(1).optional(),
+  origin: WorkspaceDiffFileOriginSchema,
+  additions: z.number().int().min(0).optional(),
+  deletions: z.number().int().min(0).optional(),
+  binary: z.boolean().optional(),
+}).strict()
+export type WorkspaceDiffFile = z.infer<typeof WorkspaceDiffFileSchema>
+
+export const WorkspaceDiffStatsSchema = z.object({
+  filesChanged: z.number().int().min(0),
+  additions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  modified: z.number().int().min(0),
+  added: z.number().int().min(0),
+  deleted: z.number().int().min(0),
+  renamed: z.number().int().min(0),
+  untracked: z.number().int().min(0),
+  conflicted: z.number().int().min(0),
+}).strict()
+export type WorkspaceDiffStats = z.infer<typeof WorkspaceDiffStatsSchema>
+
+export const WorkspaceDiffSnapshotSchema = z.object({
+  capturedAt: z.string().min(1),
+  repository: z.enum(["available", "not_repository", "unknown"]),
+  branch: z.string().min(1).optional(),
+  head: z.string().min(1).optional(),
+  dirty: z.boolean(),
+  fileCount: z.number().int().min(0),
+  unavailableReason: z.string().min(1).optional(),
+}).strict()
+export type WorkspaceDiffSnapshot = z.infer<typeof WorkspaceDiffSnapshotSchema>
+
+export const WorkspaceDiffPatchSchema = z.object({
+  text: z.string(),
+  bytes: z.number().int().min(0),
+  maxBytes: z.number().int().min(1),
+  truncated: z.boolean(),
+  omittedReason: z.string().min(1).optional(),
+}).strict()
+export type WorkspaceDiffPatch = z.infer<typeof WorkspaceDiffPatchSchema>
+
+export const WorkspaceDiffSummarySchema = z.object({
+  version: z.literal(1),
+  status: z.enum(["available", "degraded", "unavailable"]),
+  source: z.literal("git"),
+  workspace: RunWorkspaceSummarySchema.optional(),
+  baseline: WorkspaceDiffSnapshotSchema,
+  final: WorkspaceDiffSnapshotSchema,
+  baselineDirty: z.boolean(),
+  runOnlyReliable: z.boolean(),
+  changedFiles: z.array(WorkspaceDiffFileSchema),
+  stats: WorkspaceDiffStatsSchema,
+  patch: WorkspaceDiffPatchSchema.optional(),
+  summary: z.string(),
+  limitations: z.array(z.string()).default([]),
+  error: z.object({
+    code: z.string().min(1),
+    message: z.string().min(1),
+  }).strict().optional(),
+}).strict()
+export type WorkspaceDiffSummary = z.infer<typeof WorkspaceDiffSummarySchema>
+
 export const RunDiagnosticsSchema = z.object({
   includeModelStream: z.boolean().optional(),
   includeReasoning: z.boolean().optional(),

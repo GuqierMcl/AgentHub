@@ -14,6 +14,7 @@ export {
 } from "./opencode-server"
 export type {
   OpenCodeClient,
+  OpenCodeExecutionAgent,
   OpenCodeExternalModel,
   OpenCodePromptEvent,
   OpenCodePromptRequest,

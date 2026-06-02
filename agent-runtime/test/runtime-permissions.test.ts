@@ -141,7 +141,7 @@ describe("Runtime permissions", () => {
 
     const cancelledHarness = await createHarness()
     const cancelledRunId = await createWaitingRun(cancelledHarness.app, cancelledHarness.manager)
-    cancelledHarness.manager.cancelRun(cancelledRunId)
+    await cancelledHarness.manager.cancelRun(cancelledRunId)
     expect(cancelledHarness.manager.getRun(cancelledRunId)?.status).toBe("cancelled")
     expect(cancelledHarness.manager.getEvents(cancelledRunId)?.some((event) => event.type === "permission.cancelled")).toBe(true)
   })

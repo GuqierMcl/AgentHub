@@ -1,12 +1,43 @@
-import { describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { randomUUID } from 'node:crypto'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { closeDatabase, initDatabase } from '../lib/db'
+import { createConversation } from '../repositories/conversation.repo'
+import { createMessage } from '../repositories/message.repo'
+import { createMessagePart } from '../repositories/message-part.repo'
+import { createRun } from '../repositories/run.repo'
+import { listArtifacts } from '../repositories/artifact.repo'
+import { listArtifactVersionsByArtifact } from '../repositories/artifact-version.repo'
 import {
   buildOpenCodeExternalContextPacket,
   RuntimeEventBatcher,
+  RunPersistenceService,
   isPersistedTerminalRuntimeEvent,
   isRetryableRuntimeEventStreamError,
   resolveAddressedAgentIds,
   toProductHubRunEventEnvelope,
 } from './run-persistence.service'
+
+let tempDir: string
+
+beforeAll(async () => {
+  tempDir = await mkdtemp(join(tmpdir(), 'hub-server-run-persistence-'))
+  const dbPath = join(tempDir, 'hub.db').replace(/\\/g, '/')
+  await initDatabase(`file:${dbPath}`)
+})
+
+afterAll(async () => {
+  await closeDatabase()
+  if (tempDir) {
+    try {
+      await rm(tempDir, { recursive: true, force: true })
+    } catch {
+      // SQLite can release WAL file handles slightly after disconnect on Windows.
+    }
+  }
+})
 
 describe('RuntimeEventBatcher', () => {
   it('flushes items in arrival order when max batch size is reached', async () => {
@@ -365,6 +396,159 @@ describe('toProductHubRunEventEnvelope', () => {
   })
 })
 
+describe('workspace diff artifact projection', () => {
+  it('projects terminal workspaceDiff into a diff artifact attached to the latest assistant message', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture()
+    const terminalEventId = `event_workspace_diff_${randomUUID()}`
+    const workspaceDiff = createWorkspaceDiffSummary()
+
+    await (service as any).projectRuntimeEventsBatch(runId, [
+      {
+        sequence: 1,
+        event: {
+          id: 'event_message_completed',
+          runId: 'runtime_workspace_diff',
+          type: 'message.completed',
+          timestamp: '2026-06-02T00:00:00.000Z',
+          agentId: 'coder',
+          messageId: 'msg_runtime_workspace_diff',
+          messageIndex: 0,
+          data: {
+            content: 'I updated the workspace.',
+          },
+        },
+      },
+      {
+        sequence: 2,
+        event: {
+          id: terminalEventId,
+          runId: 'runtime_workspace_diff',
+          type: 'run.completed',
+          timestamp: '2026-06-02T00:01:00.000Z',
+          data: {
+            status: 'completed',
+            workspaceDiff,
+          },
+        },
+      },
+    ])
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]?.metadataJson).toMatchObject({
+      source: 'runtime.workspaceDiff',
+      runtimeEventId: terminalEventId,
+      status: 'available',
+      baselineDirty: false,
+      changedFileCount: 1,
+    })
+
+    const versions = await listArtifactVersionsByArtifact(artifacts[0]!.id as string)
+    expect(versions).toHaveLength(1)
+    expect(versions[0]?.content).toContain('diff --git')
+    expect(versions[0]?.diffJson).toMatchObject({
+      summary: workspaceDiff.summary,
+      stats: { filesChanged: 1 },
+    })
+    expect(artifacts[0]?.currentVersionId).toBe(versions[0]?.id)
+
+    const messages = await service.listConversationMessages(conversationId)
+    const assistant = messages.messages.find((message) => message.role === 'assistant')
+    expect(assistant?.artifacts).toHaveLength(1)
+    expect(assistant?.artifacts?.[0]?.currentVersion?.diffJson).toMatchObject({
+      summary: workspaceDiff.summary,
+    })
+  })
+
+  it('attributes group addressed workspaceDiff artifacts to the addressed agent', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture({
+      mode: 'group',
+      orchestratorAgentId: 'orchestrator',
+      inputJson: {
+        participantAgentIds: ['orchestrator', 'opencode'],
+        addressedAgentIds: ['opencode'],
+      },
+    })
+    const terminalEventId = `event_workspace_diff_addressed_${randomUUID()}`
+
+    await (service as any).projectRuntimeEventsBatch(runId, [{
+      sequence: 1,
+      event: {
+        id: terminalEventId,
+        runId: 'runtime_workspace_diff_addressed',
+        type: 'run.completed',
+        timestamp: '2026-06-02T00:01:00.000Z',
+        data: {
+          status: 'completed',
+          workspaceDiff: createWorkspaceDiffSummary(),
+        },
+      },
+    }])
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]?.createdByAgentId).toBe('opencode')
+
+    const versions = await listArtifactVersionsByArtifact(artifacts[0]!.id as string)
+    expect(versions[0]?.createdByAgentId).toBe('opencode')
+  })
+
+  it('does not create duplicate diff artifacts when a terminal event is replayed', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture()
+    const terminalEvent = {
+      id: `event_workspace_diff_replay_${randomUUID()}`,
+      runId: 'runtime_workspace_diff_replay',
+      type: 'run.completed',
+      timestamp: '2026-06-02T00:01:00.000Z',
+      data: {
+        status: 'completed',
+        workspaceDiff: createWorkspaceDiffSummary(),
+      },
+    }
+
+    await (service as any).projectRuntimeEventsBatch(runId, [{ sequence: 1, event: terminalEvent }])
+    await (service as any).projectRuntimeEventsBatch(runId, [{ sequence: 1, event: terminalEvent }])
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
+    expect(artifacts).toHaveLength(1)
+  })
+
+  it('skips no-change workspaceDiff summaries', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture()
+    await (service as any).projectRuntimeEventsBatch(runId, [{
+      sequence: 1,
+      event: {
+        id: `event_workspace_diff_no_changes_${randomUUID()}`,
+        runId: 'runtime_workspace_diff_no_changes',
+        type: 'run.completed',
+        timestamp: '2026-06-02T00:01:00.000Z',
+        data: {
+          status: 'completed',
+          workspaceDiff: {
+            ...createWorkspaceDiffSummary(),
+            changedFiles: [],
+            stats: {
+              filesChanged: 0,
+              additions: 0,
+              deletions: 0,
+              modified: 0,
+              added: 0,
+              deleted: 0,
+              renamed: 0,
+              untracked: 0,
+              conflicted: 0,
+            },
+            summary: 'No workspace changes detected',
+          },
+        },
+      },
+    }])
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
+    expect(artifacts).toHaveLength(0)
+  })
+})
+
 describe('resolveAddressedAgentIds', () => {
   it('keeps default routing when no addressed agent is provided', () => {
     expect(resolveAddressedAgentIds({
@@ -433,3 +617,114 @@ describe('resolveAddressedAgentIds', () => {
     }, ['coder'])).toThrow('Single chat can only address its only member')
   })
 })
+
+async function createProjectionFixture(options: {
+  mode?: 'single' | 'group'
+  orchestratorAgentId?: string
+  inputJson?: Record<string, unknown>
+} = {}): Promise<{
+  service: RunPersistenceService
+  conversationId: string
+  runId: string
+}> {
+  const service = new RunPersistenceService(
+    {} as never,
+    { publish: () => {} } as never,
+  )
+  const conversation = await createConversation({
+    title: 'Workspace diff projection',
+    mode: 'single',
+  })
+  const triggerMessage = await createMessage({
+    conversationId: conversation.id,
+    surface: 'chat',
+    role: 'user',
+    senderType: 'user',
+    senderId: 'user',
+    status: 'completed',
+    completedAt: '2026-06-02T00:00:00.000Z',
+  })
+  await createMessagePart({
+    messageId: triggerMessage.id,
+    conversationId: conversation.id,
+    partKey: 'text',
+    partIndex: 0,
+    type: 'text',
+    state: 'done',
+    text: 'Please update the workspace.',
+  })
+  const run = await createRun({
+    conversationId: conversation.id,
+    triggerMessageId: triggerMessage.id,
+    mode: options.mode ?? 'single',
+    status: 'running',
+    runtimeId: 'runtime_workspace_diff',
+    orchestratorAgentId: options.orchestratorAgentId,
+    inputJson: options.inputJson ?? {
+      participantAgentIds: ['coder'],
+    },
+  })
+
+  return {
+    service,
+    conversationId: conversation.id,
+    runId: run.id,
+  }
+}
+
+function createWorkspaceDiffSummary() {
+  return {
+    version: 1,
+    status: 'available',
+    source: 'git',
+    workspace: {
+      workspaceId: 'workspace_diff',
+      backendType: 'local',
+      rootLabel: 'AgentHub',
+    },
+    baseline: {
+      capturedAt: '2026-06-02T00:00:00.000Z',
+      repository: 'available',
+      branch: 'main',
+      head: 'abc123',
+      dirty: false,
+      fileCount: 0,
+    },
+    final: {
+      capturedAt: '2026-06-02T00:01:00.000Z',
+      repository: 'available',
+      branch: 'main',
+      head: 'abc123',
+      dirty: true,
+      fileCount: 1,
+    },
+    baselineDirty: false,
+    runOnlyReliable: true,
+    changedFiles: [{
+      path: 'src/index.ts',
+      statusAfter: ' M',
+      origin: 'new-since-baseline',
+      additions: 3,
+      deletions: 1,
+    }],
+    stats: {
+      filesChanged: 1,
+      additions: 3,
+      deletions: 1,
+      modified: 1,
+      added: 0,
+      deleted: 0,
+      renamed: 0,
+      untracked: 0,
+      conflicted: 0,
+    },
+    patch: {
+      text: 'diff --git a/src/index.ts b/src/index.ts\n+new line\n',
+      bytes: 52,
+      maxBytes: 204800,
+      truncated: false,
+    },
+    summary: '1 workspace file changed (+3/-1)',
+    limitations: [],
+  }
+}

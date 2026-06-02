@@ -28,7 +28,11 @@ function errorResponse(error: unknown): { data: undefined; error: unknown } {
 function createHealthyClient(workspaceRoot: string, overrides: Partial<{
   sessionGet: (id: string) => Promise<unknown>
   sessionCreate: (title?: string) => Promise<unknown>
-  sessionPrompt: (text: string, signal?: AbortSignal) => Promise<unknown>
+  sessionPrompt: (
+    text: string,
+    signal?: AbortSignal,
+    agent?: string
+  ) => Promise<unknown>
   sessionAbort: (id: string) => Promise<unknown>
   providerList: () => Promise<unknown>
   projectWorktree: string
@@ -65,12 +69,12 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
         return response(createSession("session_created", options?.body?.title ?? "Untitled"))
       },
       prompt: async (options: {
-        body?: { parts?: Array<{ text?: string }> }
+        body?: { agent?: string; parts?: Array<{ text?: string }> }
         signal?: AbortSignal
       }) => {
         const text = options.body?.parts?.[0]?.text ?? ""
         if (overrides.sessionPrompt) {
-          return overrides.sessionPrompt(text, options.signal)
+          return overrides.sessionPrompt(text, options.signal, options.body?.agent)
         }
         return response({
           info: {
@@ -380,6 +384,50 @@ describe("RealOpenCodeClient", () => {
       },
     ])
     expect(extractAssistantText([{ type: "text", text: "a" } as any])).toBe("a")
+  })
+
+  test("forces Build agent for AgentHub-originated prompts", async () => {
+    const workspaceRoot = await createWorkspace()
+    let promptAgent: string | undefined
+    const apiClient = createHealthyClient(workspaceRoot, {
+      sessionPrompt: async (_text, _signal, agent) => {
+        promptAgent = agent
+        return response({
+          info: {
+            id: "message_assistant",
+            role: "assistant",
+            sessionID: "session_prompt",
+          },
+          parts: [{ type: "text", text: "Build mode response" }],
+        })
+      },
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_build_agent",
+      conversationId: "conv_build_agent",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_build_agent",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    for await (const _event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Edit a file",
+      },
+      signal: new AbortController().signal,
+    })) {
+      // drain prompt stream
+    }
+
+    expect(promptAgent).toBe("build")
   })
 
   test("keeps prompt output when OpenCode provider catalog cannot resolve model names", async () => {

@@ -11,5 +11,8 @@
   "devDependencies": {
     "concurrently": "^9.2.1",
     "shadcn": "^4.7.0"
+  },
+  "dependencies": {
+    "@fission-ai/openspec": "^1.4.0"
   }
 }

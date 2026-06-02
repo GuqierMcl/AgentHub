@@ -39,6 +39,25 @@ function toOutput(record: Record<string, unknown>) {
   }
 }
 
+function toVersionOutput(record: Record<string, unknown>) {
+  return {
+    ...record,
+    diffJson: safeJsonParse(record.diffJson as string | undefined, null),
+  }
+}
+
+function toOutputWithVersions(record: Record<string, unknown>) {
+  const output = toOutput(record)
+  const versions = ((record.versions as Record<string, unknown>[] | undefined) ?? [])
+    .map(toVersionOutput)
+  const currentVersion = versions.find((version) => version.id === output.currentVersionId) ?? versions[0] ?? null
+  return {
+    ...output,
+    versions,
+    currentVersion,
+  }
+}
+
 export async function createArtifact(input: CreateArtifactInput) {
   const now = new Date().toISOString()
   const db = getPrismaClient()
@@ -85,6 +104,42 @@ export async function listArtifacts(filter: ListArtifactsFilter = {}) {
     skip: offset,
   })
   return records.map(r => toOutput(r as Record<string, unknown>))
+}
+
+export async function listArtifactsByMessageIds(messageIds: string[]) {
+  if (messageIds.length === 0) return []
+  const db = getPrismaClient()
+  const records = await db.artifact.findMany({
+    where: {
+      messageId: { in: messageIds },
+    },
+    include: {
+      versions: { orderBy: { version: 'desc' } },
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+  return records.map((record) => toOutputWithVersions(record as Record<string, unknown>))
+}
+
+export async function findArtifactByRunAndSourceEvent(
+  runId: string,
+  sourceEventId: string,
+) {
+  const db = getPrismaClient()
+  const records = await db.artifact.findMany({
+    where: {
+      runId,
+      type: 'diff',
+    },
+  })
+  const artifact = records
+    .map((record) => toOutput(record as Record<string, unknown>))
+    .find((record) => {
+      const metadata = record.metadataJson as MetadataJson
+      return metadata.source === 'runtime.workspaceDiff' &&
+        metadata.runtimeEventId === sourceEventId
+    })
+  return artifact ?? null
 }
 
 export async function updateArtifact(id: string, input: UpdateArtifactInput) {

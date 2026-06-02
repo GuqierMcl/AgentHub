@@ -6,6 +6,7 @@ import type {
   ActiveRunSnapshot,
   ConversationTimelineRunSnapshot,
   HubRunEventEnvelope,
+  PersistedArtifact,
   PersistedMessage,
 } from "../api/messages"
 import type { RuntimeRunEvent, RuntimeRunStatus } from "../api/runtime-runs"
@@ -15,11 +16,18 @@ import {
   createLocalUserTimelineItem,
 } from "../runtime/timeline-projection"
 import type {
+  Artifact,
+  ArtifactKind,
   WorkbenchTimelineItem,
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelinePlanItem,
   WorkbenchTimelineStatus,
 } from "../types"
+import {
+  formatWorkspaceDiffDescription,
+  formatWorkspaceDiffMeta,
+  formatWorkspaceDiffTitle,
+} from "../utils/workspace-diff-copy"
 
 export type RunConnectionStatus =
   | "idle"
@@ -621,8 +629,14 @@ function toTimelineItemFromPersistedMessage(
     .filter((part) => part.type === "text" && part.text)
     .map((part) => part.text)
     .join("\n")
+  const artifacts = mapPersistedArtifacts(message)
 
-  if (!text && message.role === "assistant" && message.status !== "streaming") {
+  if (
+    !text &&
+    artifacts.length === 0 &&
+    message.role === "assistant" &&
+    message.status !== "streaming"
+  ) {
     return []
   }
 
@@ -638,6 +652,7 @@ function toTimelineItemFromPersistedMessage(
     text,
     time: formatPersistedMessageTime(message.createdAt),
     status: toTimelineStatus(message.status, message.role),
+    ...(artifacts.length ? { artifacts } : {}),
   }
   const externalModel = getPersistedExternalModel(message)
   return [externalModel ? { ...item, externalModel } : item]
@@ -712,6 +727,7 @@ function mergePersistedChatMessage(
     status: nextStatus,
     generation: current.generation ?? persisted.generation,
     externalModel: current.externalModel ?? persisted.externalModel,
+    artifacts: mergeArtifacts(current.artifacts, persisted.artifacts),
   }
 
   return isSameChatMessage(current, next) ? current : next
@@ -795,6 +811,117 @@ function getPersistedRuntimeMetadata(message: PersistedMessage): Record<string, 
   return getRecord(message.metadataJson.runtime) ?? {}
 }
 
+function mapPersistedArtifacts(message: PersistedMessage): Artifact[] {
+  return (message.artifacts ?? []).flatMap((artifact) => {
+    const type = mapArtifactType(artifact.type)
+    if (!type) return []
+
+    const metadata = artifact.metadataJson ?? {}
+    const version = artifact.currentVersion ?? undefined
+    const diff = getRecord(version?.diffJson)
+    const changedFileCount = getNumber(metadata.changedFileCount) ??
+      getWorkspaceDiffChangedFileCount(diff)
+    const title = type === "diff"
+      ? formatArtifactTitle(type)
+      : artifact.title || formatArtifactTitle(type)
+    return [{
+      id: getArtifactDisplayId(artifact, metadata),
+      type,
+      title,
+      description: formatArtifactDescription(artifact, diff, metadata, changedFileCount),
+      meta: formatArtifactMeta(artifact, diff, metadata, changedFileCount),
+    }]
+  })
+}
+
+function getArtifactDisplayId(
+  artifact: PersistedArtifact,
+  metadata: Record<string, unknown>
+): string {
+  const runtimeEventId = getString(metadata.runtimeEventId)
+  if (artifact.type === "diff" && artifact.runId && runtimeEventId) {
+    return `diff:${artifact.runId}:${runtimeEventId}`
+  }
+  return artifact.id
+}
+
+function mapArtifactType(type: string): ArtifactKind | undefined {
+  if (type === "code" || type === "diff") return type
+  if (type === "webpage") return "preview"
+  if (type === "deployment") return "deploy"
+  return undefined
+}
+
+function formatArtifactTitle(type: ArtifactKind): string {
+  if (type === "diff") {
+    return formatWorkspaceDiffTitle()
+  }
+  return "产物"
+}
+
+function formatArtifactDescription(
+  artifact: PersistedArtifact,
+  diff: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown>,
+  changedFileCount: number | undefined
+): string {
+  if (artifact.type === "diff") {
+    return formatWorkspaceDiffDescription(diff, changedFileCount)
+  }
+  const summary = getString(artifact.currentVersion?.summary) ??
+    getString(metadata.summary)
+  if (summary) return summary
+  return artifact.status
+}
+
+function formatArtifactMeta(
+  artifact: PersistedArtifact,
+  diff: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown>,
+  changedFileCount: number | undefined
+): string {
+  if (artifact.type !== "diff") {
+    return artifact.status
+  }
+
+  const status = getString(metadata.status) ?? getString(diff?.status)
+  const baselineDirty = metadata.baselineDirty === true || diff?.baselineDirty === true
+  return formatWorkspaceDiffMeta(diff, changedFileCount, {
+    baselineDirty,
+    status,
+  })
+}
+
+function getWorkspaceDiffChangedFileCount(
+  diff: Record<string, unknown> | undefined
+): number | undefined {
+  const stats = getRecord(diff?.stats)
+  const fromStats = getNumber(stats?.filesChanged)
+  if (fromStats !== undefined) return fromStats
+  return Array.isArray(diff?.changedFiles) ? diff.changedFiles.length : undefined
+}
+
+function mergeArtifacts(
+  current: Artifact[] | undefined,
+  persisted: Artifact[] | undefined
+): Artifact[] | undefined {
+  if (!current?.length) return persisted
+  if (!persisted?.length) return current
+
+  const byId = new Map(current.map((artifact) => [artifact.id, artifact]))
+  for (const artifact of persisted) {
+    byId.set(artifact.id, artifact)
+  }
+  const merged = [...byId.values()]
+  if (
+    merged.length === current.length &&
+    merged.every((artifact, index) => artifact === current[index])
+  ) {
+    return current
+  }
+  return merged
+}
+
 function getPersistedExternalModel(
   message: PersistedMessage
 ): WorkbenchTimelineChatMessageItem["externalModel"] | undefined {
@@ -852,7 +979,8 @@ function isSameChatMessage(
     left.text === right.text &&
     left.status === right.status &&
     left.generation === right.generation &&
-    left.externalModel === right.externalModel
+    left.externalModel === right.externalModel &&
+    left.artifacts === right.artifacts
 }
 
 function getRecord(value: unknown): Record<string, unknown> | undefined {
@@ -863,6 +991,12 @@ function getRecord(value: unknown): Record<string, unknown> | undefined {
 
 function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined
 }

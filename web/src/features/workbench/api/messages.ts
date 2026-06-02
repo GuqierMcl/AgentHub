@@ -20,6 +20,35 @@ export type PersistedMessagePart = {
   updatedAt: string
 }
 
+export type PersistedArtifactVersion = {
+  id: string
+  artifactId: string
+  version: number
+  source: string
+  language: string | null
+  content: string
+  summary: string | null
+  diffJson: Record<string, unknown> | null
+  createdByAgentId: string | null
+  createdAt: string
+}
+
+export type PersistedArtifact = {
+  id: string
+  conversationId: string
+  runId: string | null
+  messageId: string | null
+  createdByAgentId: string | null
+  type: string
+  title: string
+  status: string
+  currentVersionId: string | null
+  metadataJson: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+  currentVersion?: PersistedArtifactVersion | null
+}
+
 export type PersistedMessage = {
   id: string
   conversationId: string
@@ -44,6 +73,7 @@ export type PersistedMessage = {
   updatedAt: string
   completedAt: string | null
   parts: PersistedMessagePart[]
+  artifacts?: PersistedArtifact[]
 }
 
 export type ActiveRunSnapshot = {

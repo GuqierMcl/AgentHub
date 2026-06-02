@@ -2,7 +2,7 @@
 
 本文档定义 AgentHub 接入 OpenCode 的专属设计。公共外部智能体原则见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`。
 
-OpenCode 在 AgentHub 中被视为一个完整外部聊天对象。AgentHub 不拆解或管理 OpenCode 的模型供应商、OpenCode agents、Skill、MCP、plugin、command 或私有工具配置。
+OpenCode 在 AgentHub 中被视为一个完整外部聊天对象。AgentHub 不拆解或管理 OpenCode 的模型供应商、OpenCode agent 配置、Skill、MCP、plugin、command 或私有工具配置；但 AgentHub 发起的 OpenCode prompt 必须由 Adapter 显式指定本轮执行 agent，不能继承用户在 OpenCode 原生 UI 中上一次选择的 Plan/Build 状态。
 
 ## 1. 接入目标
 
@@ -19,7 +19,7 @@ AgentHub 不负责：
 
 - 配置 OpenCode 使用哪个模型。
 - 配置 OpenCode provider API key。
-- 管理 OpenCode agents / skills。
+- 管理 OpenCode agent 配置 / skills。
 - 管理 OpenCode MCP。
 - 管理 OpenCode plugin、command、hook。
 - 替换 OpenCode 原生工具系统。
@@ -31,6 +31,7 @@ AgentHub 负责：
 - 为 OpenCode 调用选择 AgentHub 当前 workspace。
 - 创建和查找与 AgentHub 会话对应的 OpenCode Session。
 - 组装 direct 或 delegated task 上下文。
+- 为 AgentHub 发起的 OpenCode prompt 指定执行 agent，V1 默认为 `build`。
 - 订阅 OpenCode 事件并映射为 AgentHub RunEvent。
 - 将 OpenCode 权限请求桥接到 AgentHub UI。
 - 复用 AgentHub 通用 Workspace Diff 能力，在 Run 前后检测 workspace 文件变化并生成 Diff 摘要。
@@ -215,7 +216,7 @@ AgentHub 不写入或覆盖：
 - provider。
 - model。
 - API key。
-- agents。
+- agent 配置。
 - skills。
 - MCP。
 - plugin。
@@ -240,6 +241,17 @@ UI 分阶段：
 - 若尚未产生回复，可以显示“使用 OpenCode 默认配置”或只展示 OpenCode 连接状态，避免把未知值伪装成确定模型。
 - 后续如果需要会话头部展示默认模型，应由 Runtime 读取 OpenCode server 的只读 provider/config 状态，再经 HubServer API 转发；浏览器仍不直连 OpenCode server。
 - AgentHub 不提供 OpenCode 模型切换控件，除非后续明确把“只读展示”升级为“外部平台配置管理”，该升级需要新的产品决策。
+
+### 8.2 执行 Agent / Plan-Build 模式
+
+OpenCode 的 Plan/Build 属于“本轮执行能力开关”，不是模型或 Skill 配置。AgentHub 发起的 prompt 不应继承 OpenCode 原生 TUI 或其他客户端上一次选择的 mode，否则用户在 AgentHub 中请求编辑文件时可能被 OpenCode 以只读 Plan 模式拒绝。
+
+V1 规则：
+
+- AgentHub-originated direct prompt 与 delegated task prompt 都显式传入 OpenCode `agent = "build"`。
+- 该设置只作用于 AgentHub 本轮 `session.prompt()` 调用，不写入 OpenCode 配置文件，不改变 provider/model/Skill/MCP/plugin/command。
+- 日志应记录 `executionAgent = "build"`，方便排查 OpenCode 是否按 AgentHub 期望执行。
+- 后续如果 AgentHub 产品层提供“只读规划 / 可写执行”的明确控件，可以把 `build` 扩展为 per-run 策略；在没有该控件前，默认使用 `build` 以保证编辑类请求可完成。
 
 ## 9. 权限桥接
 
@@ -298,7 +310,9 @@ OpenCode 可以直接修改 workspace。AgentHub 应在 Run 前后检测变化�
 - OpenCode 的文本回复与 Diff 都应可见。
 - 如果用户或其他智能体并发修改同一 workspace，AgentHub 应标记潜在冲突。
 
-首版可以先输出 Diff 摘要和文件列表；完整 Diff Artifact、回滚和一键应用后续扩展。
+Phase 4B 已实现通用 Workspace Diff Summary V0。OpenCodeAdapter 不实现私有 diff 协议；Runtime 在 Run 开始前捕获 git baseline，并在 `run.completed` / `run.failed` / `run.cancelled` 的 `data.workspaceDiff` 输出统一 summary。HubServer 将有实际文件变化的 summary 投影为 `Artifact(type="diff")` 与 ArtifactVersion，并挂到对应聊天消息；Web 展示摘要卡片、文件数、增删行、dirty baseline、degraded 和 truncated 状态。
+
+如果 OpenCode Run 开始前 workspace 已经 dirty，`baselineDirty = true`、`runOnlyReliable = false`。Runtime 会用 baseline/final 脏文件 fingerprint 尽量过滤掉本轮未变化的既有脏文件；但 bounded patch 仍是 final-vs-HEAD 的保守内容，不声称精确归因到 OpenCode 本轮操作。完整 Diff Viewer、回滚、一键应用和更细粒度 agent/task 归因仍是后续扩展。
 
 ## 12. 进程与生命周期
 
@@ -322,7 +336,7 @@ OpenCodeAdapter 负责启动或连接 OpenCode server。
 
 后续阶段拆分：
 
-- Phase 4B：通用 Workspace Diff Summary V0。Diff 不做 OpenCode 私有实现，而是由内部智能体和外部智能体共享同一套 workspace baseline / changed files / diffstat / bounded patch summary 逻辑。
+- Phase 4B：通用 Workspace Diff Summary V0 已落地。Diff 不做 OpenCode 私有实现，而是由内部智能体和外部智能体共享同一套 workspace baseline / changed files / diffstat / bounded patch summary 逻辑，并通过 HubServer 投影为 diff Artifact。
 - Phase 4C：OpenCode Event Stream 与 Tool Timeline。Adapter 订阅 OpenCode event stream，将执行状态、工具调用和可用的文本增量映射成 AgentHub RunEvent，供 HubServer/Web 使用现有 timeline 和消息投影展示。
 - Phase 4D：OpenCode Permission Bridge。在 event stream 基础上把 OpenCode permission request 映射到 AgentHub `permission.*`，并将用户决定回写 OpenCode。
 
@@ -352,7 +366,7 @@ OpenCode 相关日志必须明确带有 `externalProvider = "opencode"`，并使
 4. Adapter 同步公共群聊上下文和 handoff summary。
 5. Adapter 向 OpenCode session 发送当前用户消息。
 6. Adapter 将 OpenCode 输出映射成普通 `opencode` 聊天消息。
-7. Run 完成后通过通用 Workspace Diff 能力计算本次变更摘要。
+7. Run 终态事件携带通用 `workspaceDiff`，HubServer 将有变化的摘要投影为 diff Artifact 卡片。
 
 ### 13.2 Orchestrator 委派 OpenCode
 

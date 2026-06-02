@@ -13,6 +13,7 @@ import {
 } from "./opencode-server"
 import type {
   OpenCodeClient,
+  OpenCodeExecutionAgent,
   OpenCodeExternalModel,
   OpenCodePromptEvent,
   OpenCodePromptRequest,
@@ -31,6 +32,8 @@ type OpenCodeModelInfo = {
   providerName?: string
   modelName?: string
 }
+
+const DEFAULT_OPENCODE_EXECUTION_AGENT: OpenCodeExecutionAgent = "build"
 
 export type RealOpenCodeClientDependencies = {
   server?: ManagedOpenCodeServer
@@ -195,6 +198,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
     }
 
     request.signal.addEventListener("abort", startAbort, { once: true })
+    const executionAgent = request.executionAgent ?? DEFAULT_OPENCODE_EXECUTION_AGENT
 
     try {
       this.log.info(
@@ -206,6 +210,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
           scope: request.session.scope,
           taskId: request.session.taskId,
           providerSessionId: state.sessionId,
+          executionAgent,
           promptLength: request.prompt.content.length,
         },
         "OpenCode prompt starting"
@@ -214,6 +219,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
         path: { id: state.sessionId },
         query: { directory: state.connection.directory },
         body: {
+          agent: executionAgent,
           parts: [{
             type: "text",
             text: request.prompt.content,
@@ -257,6 +263,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
           taskId: request.session.taskId,
           providerSessionId: state.sessionId,
           assistantMessageId: message.info.id,
+          executionAgent,
           contentLength: content.length,
           providerId: model.providerId,
           modelId: model.modelId,
