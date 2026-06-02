@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Loader2Icon, AlertCircleIcon, CheckCircle2Icon } from "lucide-react"
+import { Loader2Icon, AlertCircleIcon, CheckCircle2Icon, Maximize2Icon, Minimize2Icon } from "lucide-react"
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 import { workspaceBrowserApi } from "../api/workspace-browser"
 import { EditableCodeEditor } from "./preview-renderers/EditableCodeEditor"
@@ -31,9 +32,15 @@ export function WorkspaceFileEditDialog({ open, onOpenChange, conversationId, pa
   const [fileName, setFileName] = useState("")
   const [fileLanguage, setFileLanguage] = useState<string | undefined>(undefined)
   const [fileSize, setFileSize] = useState(0)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const loadIdRef = useRef(0)
 
   const isDirty = originalContent !== draftContent
+
+  useEffect(() => {
+    if (open) return
+    setIsFullscreen(false)
+  }, [open])
 
   useEffect(() => {
     if (!open || !conversationId || !path) return
@@ -102,8 +109,12 @@ export function WorkspaceFileEditDialog({ open, onOpenChange, conversationId, pa
   return (
     <Dialog open={open} onOpenChange={handleCloseWithCheck}>
       <DialogContent
-        className="flex flex-col gap-0 p-0 overflow-hidden"
-        style={{ width: "min(1100px, 92vw)", maxWidth: "min(1100px, 92vw)", height: "min(85vh, 900px)", maxHeight: "min(85vh, 900px)" }}
+        className={cn(
+          "flex flex-col gap-0 p-0 overflow-hidden",
+          isFullscreen &&
+            "!inset-0 !left-0 !top-0 !right-0 !bottom-0 !z-50 !h-[100dvh] !w-[100dvw] !max-w-none !translate-x-0 !translate-y-0 !rounded-none sm:!max-w-none"
+        )}
+        style={isFullscreen ? {} : { width: "min(1100px, 92vw)", maxWidth: "min(1100px, 92vw)", height: "min(85vh, 900px)", maxHeight: "min(85vh, 900px)" }}
         showCloseButton={false}
       >
         {/* ── Header ── */}
@@ -115,6 +126,9 @@ export function WorkspaceFileEditDialog({ open, onOpenChange, conversationId, pa
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <Button variant="ghost" size="icon-sm" onClick={() => setIsFullscreen((v) => !v)} aria-label={isFullscreen ? "退出全屏" : "全屏编辑"}>
+              {isFullscreen ? <Minimize2Icon className="size-3.5" /> : <Maximize2Icon className="size-3.5" />}
+            </Button>
             {fileLanguage && <Badge variant="secondary" className="text-xs">{fileLanguage}</Badge>}
             <Badge variant="outline" className="text-xs text-muted-foreground">可编辑</Badge>
             {fileSize > 0 && (
