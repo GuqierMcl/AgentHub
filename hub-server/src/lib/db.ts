@@ -4,6 +4,7 @@ import { closeSync, existsSync, mkdirSync, openSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PrismaClient } from '../generated/prisma/client'
+import { logger } from './logger'
 
 let prisma: PrismaClient | null = null
 
@@ -34,20 +35,6 @@ function ensureSqliteFile(dbUrl: string): void {
 
   mkdirSync(dirname(dbPath), { recursive: true })
   closeSync(openSync(dbPath, 'a'))
-}
-
-function cleanupWalFiles(dbPath: string): void {
-  for (const suffix of ['-wal', '-shm']) {
-    const walPath = dbPath + suffix
-    if (existsSync(walPath)) {
-      try {
-        // Truncate WAL files to force SQLite to start fresh
-        closeSync(openSync(walPath, 'w'))
-      } catch {
-        // Ignore errors cleaning up stale files
-      }
-    }
-  }
 }
 
 function isPrismaClientUpToDate(): boolean {
@@ -99,11 +86,6 @@ export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
   process.env.DATABASE_URL = dbUrl
   ensureSqliteFile(dbUrl)
 
-  const dbPath = resolveSqliteFilePath(dbUrl)
-  if (dbPath) {
-    cleanupWalFiles(dbPath)
-  }
-
   runMigrations(dbUrl)
 
   if (!isPrismaClientUpToDate()) {
@@ -128,7 +110,13 @@ export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
 
 export async function closeDatabase(): Promise<void> {
   if (prisma) {
-    await prisma.$disconnect()
-    prisma = null
+    try {
+      await prisma.$executeRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE);')
+    } catch (err) {
+      logger.warn({ err }, 'SQLite WAL checkpoint during shutdown failed')
+    } finally {
+      await prisma.$disconnect()
+      prisma = null
+    }
   }
 }

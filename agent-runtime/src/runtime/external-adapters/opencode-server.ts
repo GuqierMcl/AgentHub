@@ -16,7 +16,7 @@ import { ExternalAdapterError } from "./types"
 
 export type OpenCodeConnectionMode = "managed-by-runtime" | "existing-local-server"
 
-export type OpenCodeApiClient = Pick<OpencodeClient, "project" | "path" | "session">
+export type OpenCodeApiClient = Pick<OpencodeClient, "project" | "path" | "session" | "provider">
 
 export type OpenCodeServerHandle = {
   url: string

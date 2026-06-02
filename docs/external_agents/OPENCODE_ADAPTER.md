@@ -222,9 +222,9 @@ AgentHub 不配置 OpenCode model/provider，但可以展示 OpenCode 实际运�
 - 本次回复实际使用模型：`session.prompt()` 返回的 assistant message `info` 中包含 `providerID` 与 `modelID`。这是最权威、最适合展示在消息或 Run 详情上的值，尤其当 OpenCode 内部 agent、command 或配置覆盖默认模型时。
 - OpenCode TUI 当前选择：这属于 OpenCode 原生 UI 的运行时状态，当前不应作为 AgentHub V1 的事实来源。AgentHub 不复刻 TUI，也不依赖浏览器直接连接 OpenCode server。
 
-推荐 UI 分阶段：
+UI 分阶段：
 
-- V1.1 先展示“最近一次 OpenCode 回复使用的模型”：Runtime 从 prompt response 中读取 `providerID/modelID`，通过现有 RunEvent metadata 或后续新增轻量状态接口投影到 HubServer/Web。
+- V1.1 已采用“每条 OpenCode 回复实际使用的模型”作为首个展示事实：Runtime 从 `session.prompt()` response 的 assistant message `info.providerID/modelID` 读取模型，并尽量通过只读 `provider.list({ directory })` 解析 `providerName/modelName`，写入 `message.completed.data.externalModel = { provider: "opencode", providerId, modelId, providerName?, modelName? }`。HubServer 在产品 Run replay 中原样保留该字段，并可投影到 assistant `Message.metadataJson.runtime.externalModel`；Web 在消息 action 行优先展示 OpenCode 实际回复模型名，拿不到名称时再降级展示可读化 model id。
 - 若尚未产生回复，可以显示“使用 OpenCode 默认配置”或只展示 OpenCode 连接状态，避免把未知值伪装成确定模型。
 - 后续如果需要会话头部展示默认模型，应由 Runtime 读取 OpenCode server 的只读 provider/config 状态，再经 HubServer API 转发；浏览器仍不直连 OpenCode server。
 - AgentHub 不提供 OpenCode 模型切换控件，除非后续明确把“只读展示”升级为“外部平台配置管理”，该升级需要新的产品决策。
@@ -306,7 +306,7 @@ OpenCodeAdapter 负责启动或连接 OpenCode server。
 
 当前 V1 连接模式保留两种内部枚举：`managed-by-runtime` 与 `existing-local-server`。已启用的是 `managed-by-runtime`；`existing-local-server` 需要后续基于 `createOpencodeClient({ baseUrl })` 增加 localhost 限制、health check 和 workspace 校验后再产品化。
 
-当前 Phase 3 已实现 `session.prompt()` 的基础文本投影：Adapter 从 assistant message `parts` 中提取非 ignored text part，输出 AgentHub `message.delta` 与 `message.completed`。OpenCode `event.subscribe()`、权限桥接、工具事件和 Diff 投影仍属于 Phase 4。
+当前 Phase 3 已实现 `session.prompt()` 的基础文本投影：Adapter 从 assistant message `parts` 中提取非 ignored text part，输出 AgentHub `message.delta` 与 `message.completed`；当 OpenCode response 暴露 `providerID/modelID` 时，`message.completed` 同步携带 `externalModel` 供 UI 只读展示，并在可用时附带 OpenCode provider catalog 中的显示名。OpenCode `event.subscribe()`、权限桥接、工具事件和 Diff 投影仍属于 Phase 4。
 
 ### 12.1 Runtime 可观测性
 
@@ -318,7 +318,7 @@ OpenCode 相关日志必须明确带有 `externalProvider = "opencode"`，并使
 - server 启动：SDK managed 或 CLI managed、hostname、port、CLI process exit/error、启动超时。
 - workspace 校验：`project.current` / `path.get` 的关键结果，以及 mismatch 详情。
 - session：scope、conversationId、taskId、hint lookup、hint reuse、hint 丢失后的 replacement session、新 session 标题和 providerSessionId。
-- prompt：prompt dispatch、abort request、prompt completed、assistant message id、输出长度，以及 OpenCode 返回的 `providerID/modelID`。
+- prompt：prompt dispatch、abort request、prompt completed、assistant message id、输出长度、OpenCode 返回的 `providerID/modelID`，以及可解析到的 `providerName/modelName`。
 
 日志不应输出 OpenCode API key、认证 token、完整底层堆栈或完整用户 prompt 内容；prompt 只记录长度和追踪 id。
 

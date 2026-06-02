@@ -29,6 +29,7 @@ const PermissionDecisionSchema = z.object({
   approved: z.boolean(),
   reason: z.string().trim().min(1).optional(),
 }).strict()
+const SSE_KEEPALIVE_INTERVAL_MS = 5_000
 
 function invalidRunInput(c: Context, details: unknown) {
   return c.json({
@@ -71,6 +72,10 @@ function runValidationError(c: Context, error: RunInputValidationError) {
 function encodeSseEvent(event: RunEvent): Uint8Array {
   const payload = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
   return new TextEncoder().encode(payload)
+}
+
+function encodeSseComment(comment: string): Uint8Array {
+  return new TextEncoder().encode(`: ${comment}\n\n`)
 }
 
 runs.post("/runtime/runs", async (c: Context) => {
@@ -138,48 +143,123 @@ runs.get("/runtime/runs/:runId/events", (c: Context) => {
   log.info({ runId, existingEventCount: existingEvents.length }, "Starting SSE stream")
 
   let unsubscribe: (() => void) | undefined
+  let closed = false
+  let terminalSent = false
+  let keepAliveTimer: ReturnType<typeof setInterval> | undefined
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      let closed = false
+      const sentEventIds = new Set<string>()
+
+      const cleanup = () => {
+        unsubscribe?.()
+        if (keepAliveTimer) {
+          clearInterval(keepAliveTimer)
+          keepAliveTimer = undefined
+        }
+      }
 
       const close = () => {
         if (!closed) {
           closed = true
-          unsubscribe?.()
+          cleanup()
           controller.close()
           log.info({ runId }, "SSE stream closed")
         }
       }
 
-      const send = (event: RunEvent) => {
+      const sendKeepAlive = () => {
         if (closed) {
           return
         }
+        controller.enqueue(encodeSseComment("keepalive"))
+        log.debug({ runId }, "SSE keepalive sent")
+      }
+
+      const send = (event: RunEvent): boolean => {
+        if (closed || sentEventIds.has(event.id)) {
+          return false
+        }
+        sentEventIds.add(event.id)
         controller.enqueue(encodeSseEvent(event))
         log.debug({ runId, eventType: event.type, eventId: event.id }, "SSE event sent")
         if (isTerminalRunEvent(event)) {
+          terminalSent = true
           log.info({ runId, eventType: event.type }, "Terminal event reached, closing stream")
           close()
         }
+        return true
       }
 
-      for (const event of existingEvents) {
-        send(event)
-      }
+      sendKeepAlive()
+      keepAliveTimer = setInterval(sendKeepAlive, SSE_KEEPALIVE_INTERVAL_MS)
 
-      const run = manager.getRun(runId)
-      if (!run || isTerminalStatus(run.status)) {
-        log.info({ runId, status: run?.status }, "Run already completed, closing stream")
-        close()
-        return
+      const replayExistingEvents = (phase: "initial" | "terminal-drain"): boolean => {
+        const events = manager.getEvents(runId)
+        if (!events) {
+          log.warn({ runId, phase }, "Run disappeared while replaying SSE events")
+          close()
+          return false
+        }
+
+        let sentCount = 0
+        let reachedTerminal = false
+        for (const event of events) {
+          if (send(event)) {
+            sentCount += 1
+          }
+          if (isTerminalRunEvent(event)) {
+            reachedTerminal = true
+            break
+          }
+        }
+        log.info(
+          { runId, phase, replayEventCount: events.length, sentCount, reachedTerminal },
+          "SSE replay pass completed"
+        )
+        return reachedTerminal
       }
 
       unsubscribe = manager.subscribe(runId, send)
       log.info({ runId }, "Subscribed to run events")
+
+      const reachedTerminal = replayExistingEvents("initial")
+      const run = manager.getRun(runId)
+      if (!run) {
+        log.info({ runId }, "Run missing after SSE replay, closing stream")
+        close()
+        return
+      }
+
+      if (reachedTerminal) {
+        close()
+        return
+      }
+
+      if (isTerminalStatus(run.status)) {
+        const drainedTerminal = replayExistingEvents("terminal-drain")
+        if (!drainedTerminal) {
+          log.warn(
+            { runId, status: run.status, sentEventCount: sentEventIds.size },
+            "Run status is terminal but SSE replay did not include a terminal event"
+          )
+        }
+        log.info({ runId, status: run.status }, "Run already completed, closing stream")
+        close()
+      }
     },
-    cancel() {
-      log.info({ runId }, "SSE stream cancelled by client")
+    cancel(reason) {
+      log.info(
+        { runId, terminalSent, reason },
+        "SSE stream consumer disconnected"
+      )
+      if (!closed) {
+        closed = true
+      }
       unsubscribe?.()
+      if (keepAliveTimer) {
+        clearInterval(keepAliveTimer)
+        keepAliveTimer = undefined
+      }
     },
   })
 

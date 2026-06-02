@@ -141,6 +141,7 @@ export function WorkbenchContentLayout({
 
     hydrateTimelineFromReplay(
       activeConversationId,
+      messagesQuery.data.messages,
       messagesQuery.data.timelineRuns,
       messagesQuery.data.activeRun
     )
@@ -221,6 +222,7 @@ export function WorkbenchContentLayout({
       )
       hydrateTimelineFromReplay(
         activeConversationId,
+        result.messages,
         result.timelineRuns,
         result.activeRun
       )

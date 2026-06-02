@@ -18,6 +18,14 @@ export type OpenCodePromptRequest = {
   signal: AbortSignal
 }
 
+export type OpenCodeExternalModel = {
+  provider: "opencode"
+  providerId: string
+  modelId: string
+  providerName?: string
+  modelName?: string
+}
+
 export type OpenCodePromptEvent =
   | {
       type: "message.delta"
@@ -26,6 +34,7 @@ export type OpenCodePromptEvent =
   | {
       type: "message.completed"
       content: string
+      externalModel?: OpenCodeExternalModel
     }
 
 export type OpenCodeClient = {
@@ -86,6 +95,11 @@ export class FakeOpenCodeClient implements OpenCodeClient {
     yield {
       type: "message.completed",
       content: text,
+      externalModel: {
+        provider: "opencode",
+        providerId: "fake-provider",
+        modelId: "fake-model",
+      },
     }
   }
 }

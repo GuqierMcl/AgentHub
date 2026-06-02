@@ -57,6 +57,7 @@ const server = Bun.serve({
   port: config.port,
   hostname: config.hostname,
   fetch: app.fetch,
+  idleTimeout: 60,
 })
 
 // 初始化 Runtime services

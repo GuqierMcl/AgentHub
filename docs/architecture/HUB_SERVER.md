@@ -154,6 +154,7 @@ Hub Server 使用 Prisma 管理 SQLite 的 Schema、迁移和数据访问。
 - Prisma CLI 命令通过 `bunx --bun prisma ...` 运行，确保在 Bun 运行时执行。
 - SQLite 在 Bun 下通过 `@prisma/adapter-libsql` 适配到 Prisma Client。
 - 初始化连接后启用 `journal_mode = WAL`、`synchronous = NORMAL` 和 `busy_timeout = 5000`，降低 Runtime SSE 高频持久化时的写锁阻塞。
+- 启动时不得删除、截断或重建 `hub.db-wal` / `hub.db-shm`。WAL 文件可能包含已提交但尚未 checkpoint 到主库的消息、Run 和 RunEvent；SQLite 会在打开数据库时完成恢复。HubServer 正常关闭时会尝试执行 `PRAGMA wal_checkpoint(TRUNCATE)`，但异常退出后必须保留 WAL 供下次启动恢复。
 - 通过 `prisma migrate` 管理迁移文件和部署；应用运行时代码不拼接或执行业务 DDL。
 - 数据访问统一通过 Prisma Client 进行，不使用原生 SQL 拼接。
 - Prisma 的 datasource URL 应动态指向数据目录下的 `hub.db`，不硬编码路径。

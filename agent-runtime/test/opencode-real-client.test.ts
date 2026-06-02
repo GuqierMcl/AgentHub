@@ -30,6 +30,7 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
   sessionCreate: (title?: string) => Promise<unknown>
   sessionPrompt: (text: string, signal?: AbortSignal) => Promise<unknown>
   sessionAbort: (id: string) => Promise<unknown>
+  providerList: () => Promise<unknown>
   projectWorktree: string
   pathDirectory: string
   pathWorktree: string
@@ -88,6 +89,28 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
           return overrides.sessionAbort(options.path.id)
         }
         return response(true)
+      },
+    },
+    provider: {
+      list: async () => {
+        if (overrides.providerList) {
+          return overrides.providerList()
+        }
+        return response({
+          all: [{
+            id: "anthropic",
+            name: "Anthropic",
+            env: [],
+            models: {
+              "claude-sonnet-4": {
+                id: "claude-sonnet-4",
+                name: "Claude Sonnet 4",
+              },
+            },
+          }],
+          default: {},
+          connected: [],
+        })
       },
     },
   } as unknown as OpenCodeApiClient
@@ -306,6 +329,8 @@ describe("RealOpenCodeClient", () => {
           id: "message_assistant",
           role: "assistant",
           sessionID: "session_prompt",
+          providerID: "anthropic",
+          modelID: "claude-sonnet-4",
         },
         parts: [
           { type: "text", text: "Hello " },
@@ -342,9 +367,78 @@ describe("RealOpenCodeClient", () => {
 
     expect(events).toEqual([
       { type: "message.delta", delta: "Hello world" },
-      { type: "message.completed", content: "Hello world" },
+      {
+        type: "message.completed",
+        content: "Hello world",
+        externalModel: {
+          provider: "opencode",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4",
+          providerName: "Anthropic",
+          modelName: "Claude Sonnet 4",
+        },
+      },
     ])
     expect(extractAssistantText([{ type: "text", text: "a" } as any])).toBe("a")
+  })
+
+  test("keeps prompt output when OpenCode provider catalog cannot resolve model names", async () => {
+    const workspaceRoot = await createWorkspace()
+    const apiClient = createHealthyClient(workspaceRoot, {
+      providerList: async () => {
+        throw new Error("provider catalog unavailable")
+      },
+      sessionPrompt: async () => response({
+        info: {
+          id: "message_assistant",
+          role: "assistant",
+          sessionID: "session_prompt",
+          providerID: "anthropic",
+          modelID: "claude-sonnet-4",
+        },
+        parts: [
+          { type: "text", text: "Hello without names" },
+        ],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_prompt_catalog_error",
+      conversationId: "conv_prompt_catalog_error",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_prompt_catalog_error",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const events = []
+    for await (const event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Say hello",
+      },
+      signal: new AbortController().signal,
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { type: "message.delta", delta: "Hello without names" },
+      {
+        type: "message.completed",
+        content: "Hello without names",
+        externalModel: {
+          provider: "opencode",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4",
+        },
+      },
+    ])
   })
 
   test("aborts the OpenCode session when the run signal is cancelled", async () => {

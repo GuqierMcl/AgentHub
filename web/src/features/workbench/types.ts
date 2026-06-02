@@ -4,7 +4,11 @@ import type {
   AgentOrigin,
   AgentResolvedModel,
 } from "@/features/agents/types"
-import type { RuntimeGeneration, RuntimeRunStatus } from "./api/runtime-runs"
+import type {
+  RuntimeExternalModel,
+  RuntimeGeneration,
+  RuntimeRunStatus,
+} from "./api/runtime-runs"
 
 export type AgentStatus = "online" | "busy" | "idle"
 
@@ -83,6 +87,7 @@ export type WorkbenchTimelineChatMessageItem = {
   status?: WorkbenchTimelineStatus
   error?: string
   generation?: RuntimeGeneration
+  externalModel?: RuntimeExternalModel
   reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
   toolItems?: WorkbenchTimelineToolItem[]
   permissionItems?: WorkbenchTimelinePermissionItem[]

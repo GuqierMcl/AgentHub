@@ -367,6 +367,7 @@ const PROJECTION_MAX_BUFFERED_ITEMS = 500
 const RUNTIME_EVENT_STREAM_MAX_RETRIES = 2
 const RUNTIME_EVENT_STREAM_RETRY_DELAY_MS = 250
 const BASH_OUTPUT_UI_PREVIEW_CHARS = 12_000
+const runPersistenceLogger = logger.child({ module: 'run-persistence' })
 
 export class RunPersistenceService {
   private consumers = new Map<string, AbortController>()
@@ -396,6 +397,17 @@ export class RunPersistenceService {
       conversation,
       options.addressedAgentIds,
     )
+    const isOpenCodeRun = resolveDirectExternalAgentId(conversation, addressedAgentIds) === 'opencode'
+    if (isOpenCodeRun) {
+      runPersistenceLogger.info({
+        externalProvider: 'opencode',
+        conversationId,
+        mode: conversation.mode,
+        participantAgentIds: conversation.agents.map((agent) => agent.agentId),
+        addressedAgentIds,
+        contentLength: trimmed.length,
+      }, 'OpenCode Hub send request accepted')
+    }
     await this.ensureConversationProjectionCaughtUp(conversationId)
 
     const existingActiveRun = await this.findActiveRun(conversationId)
@@ -430,6 +442,15 @@ export class RunPersistenceService {
       firstEventSequence: 0,
       lastEventSequence: 0,
     })
+    if (isOpenCodeRun) {
+      runPersistenceLogger.info({
+        externalProvider: 'opencode',
+        conversationId,
+        userMessageId: userMessage.id,
+        userMessagePartId: userMessagePart.id,
+        contentLength: trimmed.length,
+      }, 'OpenCode user message persisted')
+    }
     await updateConversation(conversationId, {
       lastMessageId: userMessage.id,
       lastMessageAt: userMessage.createdAt,
@@ -452,11 +473,28 @@ export class RunPersistenceService {
     this.publishRunStatusChanged(run, 'queued')
     await updateMessage(userMessage.id, { runId: run.id })
     await updateMessagePart(userMessagePart.id, { runId: run.id })
+    if (isOpenCodeRun) {
+      runPersistenceLogger.info({
+        externalProvider: 'opencode',
+        conversationId,
+        runId: run.id,
+        triggerMessageId: userMessage.id,
+      }, 'OpenCode local run created')
+    }
 
     const externalSessionHints = await resolveExternalSessionHints(
       conversation,
       addressedAgentIds,
     )
+    if (isOpenCodeRun) {
+      runPersistenceLogger.info({
+        externalProvider: 'opencode',
+        conversationId,
+        runId: run.id,
+        externalSessionHintCount: externalSessionHints.length,
+        providerSessionIds: externalSessionHints.map((hint) => hint.providerSessionId),
+      }, 'OpenCode external session hints resolved')
+    }
     const input = buildRuntimeRunInput(
       conversation,
       trimmed,
@@ -475,6 +513,15 @@ export class RunPersistenceService {
       })
       this.publishRunStatusChanged(run, 'failed')
       this.publishTerminalRunStatus(run, 'failed')
+      if (isOpenCodeRun) {
+        runPersistenceLogger.error({
+          externalProvider: 'opencode',
+          conversationId,
+          runId: run.id,
+          status: response.status,
+          error: normalizeRuntimeError(response.data),
+        }, 'OpenCode Runtime run creation failed')
+      }
       throw new AppError(response.status as ContentfulStatusCode, 'RUNTIME_RUN_CREATE_FAILED', getRuntimeErrorMessage(response.data))
     }
 
@@ -487,6 +534,16 @@ export class RunPersistenceService {
       { ...run, runtimeId: runtimeRun.runId },
       runtimeRun.status,
     )
+    if (isOpenCodeRun) {
+      runPersistenceLogger.info({
+        externalProvider: 'opencode',
+        conversationId,
+        runId: run.id,
+        runtimeRunId: runtimeRun.runId,
+        status: runtimeRun.status,
+        eventsUrl: runtimeRun.eventsUrl,
+      }, 'OpenCode Runtime run created')
+    }
     this.startRuntimeConsumer(run.id, runtimeRun.runId)
 
     return this.listConversationMessages(conversationId)
@@ -502,7 +559,14 @@ export class RunPersistenceService {
     }
     await this.ensureConversationProjectionCaughtUp(conversationId)
 
-    const messages = await listMessagesWithParts(conversationId, opts)
+    const page = {
+      limit: opts?.limit ?? 50,
+      offset: opts?.offset ?? 0,
+    }
+    const messages = await listMessagesWithParts(conversationId, {
+      ...page,
+      order: 'desc',
+    })
     const activeRun = await this.findActiveRun(conversationId)
     const activeRunSnapshot = activeRun
       ? await this.toActiveRunSnapshot(activeRun)
@@ -510,7 +574,7 @@ export class RunPersistenceService {
     const latestPlanRun = await findLatestRunPlanByConversation(conversationId)
     const latestPlanRunRecord = latestPlanRun ? await findRunById(latestPlanRun.runId) : null
     const runItems = await this.listConversationRunItems(conversationId)
-    const timelineRuns = await this.listConversationTimelineRuns(conversationId, opts)
+    const timelineRuns = await this.listConversationTimelineRuns(conversationId, page)
 
     return {
       messages: messages.map(toPersistedMessage).sort(comparePersistedMessages),
@@ -799,7 +863,7 @@ export class RunPersistenceService {
       conversationId,
       limit: opts?.limit ?? 50,
       offset: opts?.offset ?? 0,
-      order: 'asc',
+      order: 'desc',
     })
 
     const snapshots = await Promise.all(
@@ -847,6 +911,15 @@ export class RunPersistenceService {
   ): Promise<void> {
     const run = await findRunById(runId)
     if (!run) return
+    const isOpenCodeRun = isRunForOpenCode(run)
+    if (isOpenCodeRun) {
+      runPersistenceLogger.info({
+        externalProvider: 'opencode',
+        conversationId: run.conversationId,
+        runId,
+        runtimeRunId,
+      }, 'OpenCode Runtime event consumer starting')
+    }
 
     const persistenceState: RuntimeEventPersistenceState = {
       run,
@@ -894,7 +967,25 @@ export class RunPersistenceService {
               runId,
               `Runtime event stream failed (${response.status})`,
             )
+            if (isOpenCodeRun) {
+              runPersistenceLogger.error({
+                externalProvider: 'opencode',
+                conversationId: run.conversationId,
+                runId,
+                runtimeRunId,
+                status: response.status,
+              }, 'OpenCode Runtime event stream failed to open')
+            }
             return
+          }
+          if (isOpenCodeRun) {
+            runPersistenceLogger.info({
+              externalProvider: 'opencode',
+              conversationId: run.conversationId,
+              runId,
+              runtimeRunId,
+              retryCount,
+            }, 'OpenCode Runtime event stream connected')
           }
 
           for await (const event of readSseRuntimeEvents(response.body)) {
@@ -909,7 +1000,7 @@ export class RunPersistenceService {
 
           await rawBatcher.flush()
           await projectionBatcher.flush()
-          if (reachedTerminal || await this.isLocalRunTerminal(runId)) {
+          if (reachedTerminal || await this.hasPersistedTerminalRunEvent(runId)) {
             break
           }
 
@@ -940,7 +1031,7 @@ export class RunPersistenceService {
             return
           }
 
-          if (await this.isLocalRunTerminal(runId)) {
+          if (await this.hasPersistedTerminalRunEvent(runId)) {
             logger.warn(
               { err: error, runId, runtimeRunId },
               'Runtime event stream interrupted after terminal event was persisted',
@@ -978,12 +1069,20 @@ export class RunPersistenceService {
       }
       this.projectionBatchers.delete(runId)
       this.consumers.delete(runId)
+      if (isOpenCodeRun) {
+        runPersistenceLogger.info({
+          externalProvider: 'opencode',
+          conversationId: run.conversationId,
+          runId,
+          runtimeRunId,
+        }, 'OpenCode Runtime event consumer stopped')
+      }
     }
   }
 
-  private async isLocalRunTerminal(runId: string): Promise<boolean> {
-    const run = await findRunById(runId)
-    return this.isTerminalRunStatus(run?.status)
+  private async hasPersistedTerminalRunEvent(runId: string): Promise<boolean> {
+    const events = await listRunEventsByRun(runId)
+    return events.some(isPersistedTerminalRuntimeEvent)
   }
 
   private async failRuntimeConsumerRun(runId: string, message: string): Promise<void> {
@@ -1060,6 +1159,19 @@ export class RunPersistenceService {
     state.run = await updateRun(state.run.id, { lastEventSequence: latestSequence })
     for (const event of newEvents) {
       state.seenEventIds.add(event.id)
+    }
+    if (isRunForOpenCode(state.run) || newEvents.some(isOpenCodeEvent)) {
+      const terminalEvent = newEvents.find((event) => this.isTerminalRunEvent(event))
+      runPersistenceLogger.debug({
+        externalProvider: 'opencode',
+        conversationId: state.run.conversationId,
+        runId: state.run.id,
+        runtimeRunId: state.run.runtimeId,
+        persistedEventCount: stored.length,
+        eventTypes: newEvents.map((event) => event.type),
+        lastSequence: latestSequence,
+        terminalEventType: terminalEvent?.type,
+      }, 'OpenCode Runtime events persisted')
     }
 
     return {
@@ -1259,9 +1371,7 @@ export class RunPersistenceService {
   }
 
   private isTerminalRunEvent(event: RuntimeRunEvent): boolean {
-    return event.type === 'run.completed' ||
-      event.type === 'run.failed' ||
-      event.type === 'run.cancelled'
+    return isTerminalRuntimeEventType(event.type)
   }
 
   private publish(runId: string, envelope: HubRunEventEnvelope): void {
@@ -1323,6 +1433,9 @@ async function projectRuntimeMessageEvent(
   const text = event.type === 'message.delta'
     ? getString(data.delta)
     : getString(data.content)
+  const externalModel = event.type === 'message.completed'
+    ? getExternalModelFromEvent(event)
+    : undefined
 
   if (event.type === 'message.delta' && !text) {
     return
@@ -1424,6 +1537,7 @@ async function projectRuntimeMessageEvent(
       surface,
       firstEventSequence: message.firstEventSequence ?? sequence,
       lastEventSequence: sequence,
+      ...(externalModel ? { externalModel } : {}),
     }),
   })
 
@@ -1433,6 +1547,19 @@ async function projectRuntimeMessageEvent(
       lastMessageAt: event.timestamp,
     })
     if (event.type === 'message.completed') {
+      if (event.agentId === 'opencode') {
+        runPersistenceLogger.info({
+          externalProvider: 'opencode',
+          conversationId: run.conversationId,
+          runId: run.id,
+          runtimeRunId: event.runId,
+          runtimeMessageId,
+          messageId: message.id,
+          sequence,
+          contentLength: persistedText.length,
+          externalModel,
+        }, 'OpenCode assistant message projected')
+      }
       hubEventBus.publish('conversation.last_message.updated', {
         conversationId: run.conversationId,
         runId: run.id,
@@ -1490,6 +1617,19 @@ async function projectExternalAgentSessionEvent(
       providerRunId: typeof link.runId === 'string' ? link.runId : null,
     },
   })
+  if (provider === 'opencode') {
+    runPersistenceLogger.info({
+      externalProvider: 'opencode',
+      conversationId,
+      runId: run.id,
+      runtimeRunId: event.runId,
+      eventId: event.id,
+      agentId,
+      providerSessionId,
+      workspaceIdentity,
+      scope,
+    }, 'OpenCode external session link projected')
+  }
 }
 
 function isExternalSessionScope(value: string): value is ExternalSessionScope {
@@ -2415,6 +2555,18 @@ function getParticipantAgentIds(run: RunOutput): Set<string> {
   return new Set(participantAgentIds.filter((candidate): candidate is string => typeof candidate === 'string'))
 }
 
+function isRunForOpenCode(run: RunOutput): boolean {
+  return getParticipantAgentIds(run).has('opencode') || run.orchestratorAgentId === 'opencode'
+}
+
+function isOpenCodeEvent(event: RuntimeRunEvent): boolean {
+  if (event.agentId === 'opencode') return true
+  const data = getEventDataRecord(event)
+  if (getString(data.externalProvider) === 'opencode') return true
+  const externalSession = getRecord(data.externalSession)
+  return getString(externalSession?.provider) === 'opencode'
+}
+
 function mergeRuntimeMetadata(
   metadata: Record<string, unknown>,
   runtime: Record<string, unknown>,
@@ -2426,6 +2578,29 @@ function mergeRuntimeMetadata(
       ...currentRuntime,
       ...runtime,
     },
+  }
+}
+
+function getExternalModelFromEvent(event: RuntimeRunEvent): Record<string, unknown> | undefined {
+  const data = getEventDataRecord(event)
+  const externalModel = getRecord(data.externalModel)
+  if (!externalModel) return undefined
+
+  const provider = getString(externalModel.provider)
+  const providerId = getString(externalModel.providerId)
+  const modelId = getString(externalModel.modelId)
+  const providerName = getString(externalModel.providerName)
+  const modelName = getString(externalModel.modelName)
+  if (!provider || !providerId || !modelId) {
+    return undefined
+  }
+
+  return {
+    provider,
+    providerId,
+    modelId,
+    ...(providerName ? { providerName } : {}),
+    ...(modelName ? { modelName } : {}),
   }
 }
 
@@ -2824,6 +2999,24 @@ function toSequencedRuntimeEvent(event: RunEventOutput): SequencedRuntimeEvent[]
   const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
   if (!runtimeEvent) return []
   return [{ sequence: event.sequence, event: runtimeEvent }]
+}
+
+export function isPersistedTerminalRuntimeEvent(
+  record: { type?: string | null; payloadJson?: unknown },
+): boolean {
+  if (isTerminalRuntimeEventType(getString(record.type))) {
+    return true
+  }
+
+  const payload = getRecord(record.payloadJson)
+  const event = getRecord(payload?.event)
+  return isTerminalRuntimeEventType(getString(event?.type))
+}
+
+function isTerminalRuntimeEventType(type: string | undefined): boolean {
+  return type === 'run.completed' ||
+    type === 'run.failed' ||
+    type === 'run.cancelled'
 }
 
 export function isRetryableRuntimeEventStreamError(error: unknown): boolean {

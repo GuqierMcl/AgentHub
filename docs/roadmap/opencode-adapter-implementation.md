@@ -142,6 +142,7 @@ OpenCode Adapter V1
 - 阶段 1 已落地：Runtime 将 `external-adapter` 路由到 `ExternalAdapterExecutor`，OpenCode fake client 可以覆盖 direct 与 delegated task 两条路径。
 - 阶段 2 基础契约已落地：Runtime 接收 `externalSessionHints`，HubServer 可从 `agent.started.data.externalSession` upsert `ExternalAgentSession`，并在 direct OpenCode run 中注入 conversation-visible session hint。
 - 阶段 3 基础接入已落地：`@opencode-ai/sdk` 已加入 Runtime；默认 OpenCodeAdapter 使用真实 client；`ManagedOpenCodeServer` 会在 SDK 暴露安全 workspace 选项时走 `createOpencode()`，当前 SDK 版本未暴露该选项时走 CLI fallback，并校验 `project.current` / `path.get`；`RealOpenCodeClient` 支持 session hint 复用、缺失重建、`session.prompt()` 文本投影和 Run cancel 时 `session.abort()`。
+- OpenCode 模型只读展示 V1.1 已落地：Runtime 从 `session.prompt()` response 的 `providerID/modelID` 生成 `message.completed.data.externalModel`，并通过只读 provider catalog 尽量补齐 `providerName/modelName`；HubServer 保留并投影该消息级 metadata，Web 在聊天消息 action 行优先展示 OpenCode 实际回复模型名。
 - 尚无 OpenCode event stream 权限桥接、Diff 投影和 handoff summary 生成。
 
 ## 已完成
@@ -153,12 +154,13 @@ OpenCode Adapter V1
 - 阶段 1：Runtime Adapter 骨架与 fake-client 垂直测试。
 - 阶段 2：外部 Session 持久化基础契约、Prisma model、repository、Runtime input hint 注入和 Runtime contract 文档。
 - 阶段 3：真实 OpenCode SDK client、workspace-correct managed server fallback、session/prompt/abort 基础链路和 mock unit tests。
+- V1.1：OpenCode 每条回复实际模型的 Runtime event、HubServer message metadata 投影和 Web action 行模型名展示。
 
 ## 待办
 
 - 阶段 4：权限桥接、Diff 与 Handoff。
 - 阶段 5：集成硬化。
-- OpenCode 模型展示 UI：先展示最近一次回复实际使用的 `providerID/modelID`，后续再考虑只读默认模型状态；AgentHub 仍不接管 OpenCode 模型配置。
+- OpenCode 会话头部默认模型只读状态：后续再考虑读取 OpenCode provider/config 默认值；AgentHub 仍不接管 OpenCode 模型配置。
 
 ## 风险与待确认点
 
@@ -173,3 +175,6 @@ OpenCode Adapter V1
 - 2026-06-01：完成 Phase 1 fake-client adapter seam 与 Phase 2 外部 Session 基础持久化契约；真实 OpenCode SDK/server、权限、Diff 和 handoff 进入后续阶段。
 - 2026-06-01：完成 Phase 3 基础实现：默认真实 OpenCode client、SDK workspace 选项检测、CLI workspace-correct fallback、session/prompt/abort 单测；权限、Diff、handoff 留在 Phase 4。
 - 2026-06-01：前置补充 OpenCode Runtime 可观测性：server lifecycle、workspace validation、session hint/reuse/creation、prompt/abort 日志；模型 UI 记录为只读展示方向，暂不实现前端。
+- 2026-06-02：落地 OpenCode 模型只读展示 V1.1：`message.completed.data.externalModel`、HubServer metadata 投影和 Web 消息 action 行展示实际回复模型；随后补齐 `providerName/modelName` 展示增强，旧消息无 display name 时前端降级为可读化 model id。
+- 2026-06-02：修复 OpenCode 输出链路暴露出的通用 Runtime SSE 尾部事件竞态：Runtime SSE 先订阅再 replay 并 terminal-drain；HubServer consumer 只在 Runtime terminal event 已持久化后停止补连。
+- 2026-06-02：修复真实 OpenCode 长 prompt 暴露出的 Runtime SSE idle timeout：Runtime 与 HubServer run SSE 增加 keepalive comment，Agent Runtime Bun server idle timeout 调整为 60 秒，并澄清连接 `cancel()` 日志不是用户取消 Run。

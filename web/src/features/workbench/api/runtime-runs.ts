@@ -40,6 +40,14 @@ export type RuntimeGeneration = {
   durationMs?: number
 }
 
+export type RuntimeExternalModel = {
+  provider: string
+  providerId: string
+  modelId: string
+  providerName?: string
+  modelName?: string
+}
+
 export type RuntimeRunInput = {
   conversationId: string
   mode: RuntimeConversationMode

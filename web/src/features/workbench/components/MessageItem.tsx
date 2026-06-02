@@ -101,6 +101,7 @@ type TimelineItemProps = {
 }
 
 type GenerationMetadata = NonNullable<WorkbenchTimelineChatMessageItem["generation"]>
+type ExternalModelMetadata = NonNullable<WorkbenchTimelineChatMessageItem["externalModel"]>
 
 export const TimelineItem = memo(function TimelineItem({
   agentProfiles,
@@ -222,8 +223,11 @@ function ChatMessageItem({
               <MessageActions
                 className={item.role === "user" ? "justify-end" : undefined}
               >
-                {item.role === "assistant" && item.generation ? (
-                  <MessageGenerationLabel generation={item.generation} />
+                {item.role === "assistant" ? (
+                  <MessageModelLabel
+                    externalModel={item.externalModel}
+                    generation={item.generation}
+                  />
                 ) : null}
                 <MessageAction label="Copy message" tooltip={copied ? "Copied!" : "Copy"} onClick={handleCopy}>
                   {copied ? <CheckIcon /> : <CopyIcon className="![&_svg]:size-4" size={16} />}
@@ -244,17 +248,27 @@ function ChatMessageItem({
   )
 }
 
-function MessageGenerationLabel({
+function MessageModelLabel({
+  externalModel,
   generation,
 }: {
-  generation: GenerationMetadata
+  externalModel?: ExternalModelMetadata
+  generation?: GenerationMetadata
 }) {
-  const label = formatGenerationLabel(generation)
+  const label = generation
+    ? formatGenerationLabel(generation)
+    : externalModel
+      ? formatExternalModelLabel(externalModel)
+      : null
   if (!label) {
     return null
   }
 
-  const rows = getGenerationTooltipRows(generation)
+  const rows = generation
+    ? getGenerationTooltipRows(generation)
+    : externalModel
+      ? getExternalModelTooltipRows(externalModel)
+      : []
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -290,6 +304,10 @@ function formatGenerationLabel(generation: GenerationMetadata): string | null {
   }
 
   return modelName
+}
+
+function formatExternalModelLabel(model: ExternalModelMetadata): string {
+  return `${formatExternalProvider(model.provider)} · ${getExternalModelDisplayName(model)}`
 }
 
 function getGenerationTooltipRows(
@@ -330,6 +348,63 @@ function getGenerationTooltipRows(
   }
 
   return rows
+}
+
+function getExternalModelTooltipRows(
+  model: ExternalModelMetadata
+): Array<{ label: string; value: string }> {
+  return [
+    { label: "External", value: formatExternalProvider(model.provider) },
+    { label: "Provider", value: model.providerName ?? model.providerId },
+    { label: "Model", value: getExternalModelDisplayName(model) },
+    { label: "Model ID", value: `${model.providerId}/${model.modelId}` },
+  ]
+}
+
+function getExternalModelDisplayName(model: ExternalModelMetadata): string {
+  return model.modelName ?? humanizeModelId(model.modelId)
+}
+
+function formatExternalProvider(provider: string): string {
+  if (provider === "opencode") {
+    return "OpenCode"
+  }
+  return provider
+}
+
+function humanizeModelId(modelId: string): string {
+  const knownParts: Record<string, string> = {
+    gpt: "GPT",
+    claude: "Claude",
+    sonnet: "Sonnet",
+    opus: "Opus",
+    haiku: "Haiku",
+    gemini: "Gemini",
+    deepseek: "DeepSeek",
+    qwen: "Qwen",
+    llama: "Llama",
+    mistral: "Mistral",
+    mini: "Mini",
+    turbo: "Turbo",
+    pro: "Pro",
+    flash: "Flash",
+  }
+
+  return modelId
+    .split(/[-_/]+/)
+    .filter(Boolean)
+    .map((part) => knownParts[part.toLowerCase()] ?? titleCaseModelIdPart(part))
+    .join(" ")
+}
+
+function titleCaseModelIdPart(part: string): string {
+  if (/^\d+(?:\.\d+)?[a-z]?$/i.test(part)) {
+    return part
+  }
+  if (part.length <= 3 && part === part.toUpperCase()) {
+    return part
+  }
+  return `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`
 }
 
 function formatTokenCount(value: number): string {

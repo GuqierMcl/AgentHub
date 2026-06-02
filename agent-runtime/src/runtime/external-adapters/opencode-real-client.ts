@@ -13,6 +13,7 @@ import {
 } from "./opencode-server"
 import type {
   OpenCodeClient,
+  OpenCodeExternalModel,
   OpenCodePromptEvent,
   OpenCodePromptRequest,
   OpenCodeSessionRequest,
@@ -27,6 +28,8 @@ type SessionState = {
 type OpenCodeModelInfo = {
   providerId?: string
   modelId?: string
+  providerName?: string
+  modelName?: string
 }
 
 export type RealOpenCodeClientDependencies = {
@@ -237,7 +240,13 @@ export class RealOpenCodeClient implements OpenCodeClient {
       }
 
       const content = extractAssistantText(message.parts)
-      const model = getAssistantModelInfo(message.info)
+      const rawModel = getAssistantModelInfo(message.info)
+      const model = await this.resolveModelDisplayInfo(
+        state.connection.client,
+        state.connection.directory,
+        rawModel,
+        request
+      )
       this.log.info(
         {
           externalProvider: "opencode",
@@ -251,10 +260,13 @@ export class RealOpenCodeClient implements OpenCodeClient {
           contentLength: content.length,
           providerId: model.providerId,
           modelId: model.modelId,
+          providerName: model.providerName,
+          modelName: model.modelName,
           finish: getRecordString(message.info, "finish"),
         },
         "OpenCode prompt completed"
       )
+      const externalModel = toExternalModel(model)
       if (content) {
         yield {
           type: "message.delta",
@@ -264,6 +276,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
       yield {
         type: "message.completed",
         content,
+        ...(externalModel ? { externalModel } : {}),
       }
     } catch (error) {
       if (request.signal.aborted) {
@@ -566,6 +579,78 @@ export class RealOpenCodeClient implements OpenCodeClient {
       )
     }
   }
+
+  private async resolveModelDisplayInfo(
+    client: OpenCodeApiClient,
+    directory: string,
+    model: OpenCodeModelInfo,
+    request: OpenCodePromptRequest
+  ): Promise<OpenCodeModelInfo> {
+    if (!model.providerId || !model.modelId) {
+      return model
+    }
+
+    try {
+      const response = await client.provider.list({
+        query: { directory },
+      })
+      const catalog = unwrapOpenCodeResponse<unknown>(
+        response,
+        "ADAPTER_PROMPT_FAILED",
+        "OpenCode provider list failed"
+      )
+      const names = lookupOpenCodeModelNames(catalog, model.providerId, model.modelId)
+      if (names.providerName || names.modelName) {
+        this.log.info(
+          {
+            externalProvider: "opencode",
+            runId: request.session.runId,
+            conversationId: request.session.conversationId,
+            workspaceId: request.session.workspaceId,
+            providerSessionId: request.session.providerSessionId,
+            providerId: model.providerId,
+            modelId: model.modelId,
+            providerName: names.providerName,
+            modelName: names.modelName,
+          },
+          "OpenCode model display info resolved"
+        )
+        return {
+          ...model,
+          ...names,
+        }
+      }
+
+      this.log.warn(
+        {
+          externalProvider: "opencode",
+          runId: request.session.runId,
+          conversationId: request.session.conversationId,
+          workspaceId: request.session.workspaceId,
+          providerSessionId: request.session.providerSessionId,
+          providerId: model.providerId,
+          modelId: model.modelId,
+        },
+        "OpenCode model display info not found in provider catalog"
+      )
+      return model
+    } catch (error) {
+      this.log.warn(
+        {
+          externalProvider: "opencode",
+          runId: request.session.runId,
+          conversationId: request.session.conversationId,
+          workspaceId: request.session.workspaceId,
+          providerSessionId: request.session.providerSessionId,
+          providerId: model.providerId,
+          modelId: model.modelId,
+          error: describeError(error),
+        },
+        "OpenCode model display info unavailable"
+      )
+      return model
+    }
+  }
 }
 
 export function createDefaultOpenCodeClient(): OpenCodeClient {
@@ -593,6 +678,51 @@ function getAssistantModelInfo(info: unknown): OpenCodeModelInfo {
     providerId: getRecordString(info, "providerID"),
     modelId: getRecordString(info, "modelID"),
   }
+}
+
+function toExternalModel(
+  model: OpenCodeModelInfo
+): OpenCodeExternalModel | undefined {
+  if (!model.providerId || !model.modelId) {
+    return undefined
+  }
+  return {
+    provider: "opencode",
+    providerId: model.providerId,
+    modelId: model.modelId,
+    ...(model.providerName ? { providerName: model.providerName } : {}),
+    ...(model.modelName ? { modelName: model.modelName } : {}),
+  }
+}
+
+function lookupOpenCodeModelNames(
+  catalog: unknown,
+  providerId: string,
+  modelId: string
+): Pick<OpenCodeModelInfo, "providerName" | "modelName"> {
+  const catalogRecord = getRecord(catalog)
+  const providers = Array.isArray(catalogRecord?.all) ? catalogRecord.all : []
+  const provider = providers
+    .map((candidate) => getRecord(candidate))
+    .find((candidate) => getRecordString(candidate, "id") === providerId)
+  if (!provider) {
+    return {}
+  }
+
+  const models = getRecord(provider.models)
+  const keyedModel = getRecord(models?.[modelId])
+  const model = keyedModel ?? Object.values(models ?? {})
+    .map((candidate) => getRecord(candidate))
+    .find((candidate) => getRecordString(candidate, "id") === modelId)
+
+  return {
+    providerName: getRecordString(provider, "name"),
+    modelName: getRecordString(model, "name"),
+  }
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined
 }
 
 function getRecordString(record: unknown, key: string): string | undefined {

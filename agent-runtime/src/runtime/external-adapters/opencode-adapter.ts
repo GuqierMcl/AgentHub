@@ -120,6 +120,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
           })
         : createRunEvent(context.runId, "message.completed", context.agent.id, {
             content: chunk.content,
+            ...(chunk.externalModel ? { externalModel: chunk.externalModel } : {}),
           })
 
       event.messageId = messageId

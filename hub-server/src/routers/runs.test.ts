@@ -174,4 +174,27 @@ describe('runs router', () => {
     expect(output.bodyOmittedForUi).toBe(true)
     expect(envelope.event.data.data.body).toHaveLength(20_000)
   })
+
+  it('sends keepalive comments while product run SSE waits for events', async () => {
+    let unsubscribed = false
+    const app = createApp({
+      getRunStatus: async () => 'running',
+      listRunEventsAfter: async () => [],
+      isTerminalRunStatus: (status?: string | null) =>
+        status === 'completed' || status === 'failed' || status === 'cancelled',
+      subscribe: () => () => {
+        unsubscribed = true
+      },
+    })
+
+    const response = await app.request('/api/runs/run_1/events')
+    const reader = response.body!.getReader()
+    const first = await reader.read()
+    const payload = new TextDecoder().decode(first.value)
+    await reader.cancel()
+
+    expect(response.status).toBe(200)
+    expect(payload).toContain(': keepalive\n\n')
+    expect(unsubscribed).toBe(true)
+  })
 })

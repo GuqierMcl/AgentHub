@@ -158,6 +158,13 @@ describe("external adapter executor", () => {
       .toStartWith("fake_opencode_")
     expect((message?.data as { content?: string }).content).toContain("OpenCode fake adapter received")
     expect((message?.data as { content?: string }).content).not.toBe("OpenCode received the task.")
+    expect((message?.data as {
+      externalModel?: { provider?: string; providerId?: string; modelId?: string }
+    }).externalModel).toEqual({
+      provider: "opencode",
+      providerId: "fake-provider",
+      modelId: "fake-model",
+    })
     expect(message?.messageIndex).toBe(0)
   })
 
@@ -273,6 +280,13 @@ describe("external adapter executor", () => {
     expect(message?.groupId).toBe("group_opencode_delegated")
     expect((message?.data as { content?: string }).content)
       .toContain("OpenCode fake adapter completed delegated task")
+    expect((message?.data as {
+      externalModel?: { provider?: string; providerId?: string; modelId?: string }
+    }).externalModel).toEqual({
+      provider: "opencode",
+      providerId: "fake-provider",
+      modelId: "fake-model",
+    })
     expect(events.some((event) => event.type === "task.completed" && event.taskId === "task_opencode_delegated"))
       .toBe(true)
   })

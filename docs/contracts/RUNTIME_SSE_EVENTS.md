@@ -20,6 +20,12 @@ data: {"id":"evt_xxx","runId":"run_xxx","type":"message.delta","timestamp":"2026
 - 收到 `run.completed`、`run.failed` 或 `run.cancelled` 后关闭流。
 - Run 不存在时返回 `RUN_NOT_FOUND`。
 
+实现约束：
+
+- SSE handler 必须避免 replay 快照与 live subscribe 之间的尾部事件竞态。推荐先注册 live subscription，再 replay 当前事件表，并用 event id 去重；如果 replay 后发现 Run 已是 terminal 状态，应再次 drain 当前事件表，确保 terminal 事件和其前面的 `message.*` / `agent.completed` 已进入本次响应后再关闭。
+- SSE handler 在等待长时间外部执行或模型输出时必须发送 keepalive comment，例如 `: keepalive`，间隔应短于 server idle timeout。业务消费者必须忽略 comment，只处理带 `data:` 的事件。
+- HubServer 消费 Runtime SSE 时，不能只因为本地 Run 状态已是 terminal 就停止补连；只有确认 Runtime terminal event 已经持久化，才能把流结束视为正常完成。
+
 基础字段：
 
 ```ts
@@ -125,6 +131,7 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 - 工具、权限或问答事件如果发生在当前模型输出上下文中，也复用当前 `messageId`；缺少明确当前消息时 Runtime 会为该工具/权限/问答上下文创建新的 `messageId`。
 - `messageIndex` 由 RunManager 在首次看到新 `messageId` 时按实际 emit 顺序分配，是 run-local 递增序号；同一 `messageId` 下的 reasoning、tool、permission 和 message 事件共享同一个 `messageIndex`。
 - `message.delta` / `message.completed` 可以在 `data.generation` 中携带本次 execution 的轻量模型元信息；`message.completed.data.content` 仍是最终文本事实。
+- 外部智能体的 `message.completed` 可以在 `data.externalModel` 中携带本条回复实际使用的外部平台模型，例如 `{ provider: "opencode", providerId: "anthropic", modelId: "claude-sonnet-4", providerName: "Anthropic", modelName: "Claude Sonnet 4" }`。`providerName/modelName` 是只读展示增强，拿不到时可以省略；该字段不表示 AgentHub 接管外部平台的模型配置。
 - `agent.completed` 仍表示一次 agent execution 完成；兼容字段 `usage`、`finishReason`、`resolvedModel` 继续保留在 `agent.completed.data`，同时 `agent.completed.data.generation` 提供面向 UI 和后续统计的轻量结构化入口。
 
 示例：
@@ -193,6 +200,24 @@ type RuntimeGeneration = {
 - `agent.completed` 携带完整 `generation`，包含可用的 `usage`、`finishReason` 与 `durationMs`；旧字段 `resolvedModel`、`usage`、`finishReason` 保持不变。
 - 没有可用模型或用量信息的 mock / external fallback 可以不写 `generation`。
 - Tokens 语义是本次 agent execution 的生成用量；如果一次 execution 产生多条可见 assistant message，UI 可以把 usage 标到该 execution 的最后一条可见消息上。
+
+外部智能体的实际回复模型使用独立的 `externalModel` 字段，不复用 `generation`，因为 AgentHub 不解析或管理外部平台的完整 provider/model catalog。
+
+```ts
+type RuntimeExternalModel = {
+  provider: "opencode" | string
+  providerId: string
+  modelId: string
+  providerName?: string
+  modelName?: string
+}
+```
+
+事件规则：
+
+- `message.completed.data.externalModel` 只在外部平台返回了可确认的 provider/model id 时出现。display name 字段只在 Runtime 能从外部平台只读 catalog 中解析时出现。
+- HubServer 可将该值投影到 assistant `Message.metadataJson.runtime.externalModel`，并在产品 Run replay 中原样保留。
+- Web 展示时优先使用 `modelName`；若缺失，可将 `modelId` 人类可读化作为 fallback。未出现 `externalModel` 时应保持未知或不展示，不能从 AgentHub 当前 agent 绑定推断。
 
 ## 6. AI SDK Part Passthrough
 

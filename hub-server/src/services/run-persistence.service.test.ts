@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   RuntimeEventBatcher,
+  isPersistedTerminalRuntimeEvent,
   isRetryableRuntimeEventStreamError,
   resolveAddressedAgentIds,
   toProductHubRunEventEnvelope,
@@ -73,6 +74,38 @@ describe('isRetryableRuntimeEventStreamError', () => {
   })
 })
 
+describe('isPersistedTerminalRuntimeEvent', () => {
+  it('recognizes terminal runtime events by stored type', () => {
+    expect(isPersistedTerminalRuntimeEvent({
+      type: 'run.completed',
+      payloadJson: {},
+    })).toBe(true)
+  })
+
+  it('recognizes terminal runtime events by payload event type', () => {
+    expect(isPersistedTerminalRuntimeEvent({
+      type: 'unknown',
+      payloadJson: {
+        event: {
+          type: 'run.cancelled',
+        },
+      },
+    })).toBe(true)
+  })
+
+  it('does not treat local run status as a persisted terminal event', () => {
+    expect(isPersistedTerminalRuntimeEvent({
+      type: 'agent.started',
+      payloadJson: {
+        status: 'completed',
+        event: {
+          type: 'agent.started',
+        },
+      },
+    })).toBe(false)
+  })
+})
+
 describe('toProductHubRunEventEnvelope', () => {
   it('preserves generation metadata on message events', () => {
     const generation = {
@@ -111,6 +144,35 @@ describe('toProductHubRunEventEnvelope', () => {
 
     const eventData = envelope.event.data as { generation?: unknown }
     expect(eventData.generation).toEqual(generation)
+  })
+
+  it('preserves external model metadata on external message events', () => {
+    const externalModel = {
+      provider: 'opencode',
+      providerId: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      providerName: 'Anthropic',
+      modelName: 'Claude Sonnet 4',
+    }
+    const envelope = toProductHubRunEventEnvelope({
+      sequence: 1,
+      event: {
+        id: 'event_external_message_completed',
+        runId: 'run_external_message',
+        type: 'message.completed',
+        timestamp: new Date().toISOString(),
+        agentId: 'opencode',
+        messageId: 'msg_run_external_message_opencode_0',
+        messageIndex: 0,
+        data: {
+          content: 'hello from OpenCode',
+          externalModel,
+        },
+      },
+    })
+
+    const eventData = envelope.event.data as { externalModel?: unknown }
+    expect(eventData.externalModel).toEqual(externalModel)
   })
 
   it('projects bash tool output to a bounded UI preview', () => {

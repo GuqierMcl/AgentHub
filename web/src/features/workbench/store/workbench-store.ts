@@ -16,7 +16,9 @@ import {
 } from "../runtime/timeline-projection"
 import type {
   WorkbenchTimelineItem,
+  WorkbenchTimelineChatMessageItem,
   WorkbenchTimelinePlanItem,
+  WorkbenchTimelineStatus,
 } from "../types"
 
 export type RunConnectionStatus =
@@ -45,6 +47,7 @@ type WorkbenchStore = {
   setDraft: (conversationId: string, draft: string) => void
   hydrateTimelineFromReplay: (
     conversationId: string,
+    messages: PersistedMessage[],
     timelineRuns: ConversationTimelineRunSnapshot[],
     activeRun: ActiveRunSnapshot | null
   ) => void
@@ -253,13 +256,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     })
   },
 
-  hydrateTimelineFromReplay: (conversationId, timelineRuns, activeRun) => {
+  hydrateTimelineFromReplay: (conversationId, messages, timelineRuns, activeRun) => {
     set((state) => {
       const current = getOrCreateState(state.conversations, conversationId)
       const activeRuntimeRunId = activeRun?.id ?? null
       const runStatus = activeRun?.status ?? "idle"
       const replayed = replayTimelineRuns(
         timelineRuns,
+        messages,
         current.chatSpeakerIds
       )
 
@@ -406,18 +410,22 @@ type EnvelopeApplicationResult = {
 
 function replayTimelineRuns(
   timelineRuns: ConversationTimelineRunSnapshot[],
+  messages: PersistedMessage[],
   chatSpeakerIds: Record<string, true>
 ): Pick<ConversationRuntimeState, "timelineItems" | "receivedEventIds" | "events"> {
   let timelineItems: WorkbenchTimelineItem[] = []
   let receivedEventIds = new Set<string>()
   let events: RuntimeRunEvent[] = []
+  const persistedMessagesByRunId = groupPersistedChatMessagesByRun(messages)
+  const replayedRunIds = new Set<string>()
 
   for (const timelineRun of sortTimelineRuns(timelineRuns)) {
+    replayedRunIds.add(timelineRun.run.id)
     if (timelineRun.triggerMessage) {
-      timelineItems = [
-        ...timelineItems,
-        ...toTimelineItemFromPersistedMessage(timelineRun.triggerMessage),
-      ]
+      timelineItems = mergePersistedChatMessages(
+        timelineItems,
+        [timelineRun.triggerMessage]
+      )
     }
 
     const replayState: ConversationRuntimeState = {
@@ -439,7 +447,16 @@ function replayTimelineRuns(
     timelineItems = next.timelineItems
     receivedEventIds = next.receivedEventIds
     events = next.events
+    timelineItems = mergePersistedChatMessages(
+      timelineItems,
+      persistedMessagesByRunId.get(timelineRun.run.id) ?? []
+    )
   }
+
+  const messagesOutsideReplay = sortPersistedChatMessages(messages).filter((message) =>
+    !message.runId || !replayedRunIds.has(message.runId)
+  )
+  timelineItems = mergePersistedChatMessages(timelineItems, messagesOutsideReplay)
 
   return { timelineItems, receivedEventIds, events }
 }
@@ -597,22 +614,257 @@ function getLatestPlanSignature(items: WorkbenchTimelineItem[]): string | null {
 function toTimelineItemFromPersistedMessage(
   message: PersistedMessage
 ): WorkbenchTimelineItem[] {
-  if (message.role !== "user") return []
+  if (message.surface !== "chat") return []
+  if (message.role !== "user" && message.role !== "assistant") return []
 
   const text = message.parts
     .filter((part) => part.type === "text" && part.text)
     .map((part) => part.text)
     .join("\n")
 
-  return [{
+  if (!text && message.role === "assistant" && message.status !== "streaming") {
+    return []
+  }
+
+  const runtimeMessageId = getPersistedRuntimeMessageId(message)
+  const item: WorkbenchTimelineChatMessageItem = {
     kind: "chat_message",
-    id: message.id,
-    role: "user",
+    id: getPersistedTimelineMessageId(message, runtimeMessageId),
+    role: message.role,
     runId: message.runId ?? undefined,
+    runtimeMessageId: runtimeMessageId ?? undefined,
+    messageIndex: message.messageIndex ?? undefined,
+    agentId: message.agentId ?? undefined,
     text,
     time: formatPersistedMessageTime(message.createdAt),
-    status: "completed",
-  }]
+    status: toTimelineStatus(message.status, message.role),
+  }
+  const externalModel = getPersistedExternalModel(message)
+  return [externalModel ? { ...item, externalModel } : item]
+}
+
+function groupPersistedChatMessagesByRun(
+  messages: PersistedMessage[]
+): Map<string, PersistedMessage[]> {
+  const groups = new Map<string, PersistedMessage[]>()
+  for (const message of sortPersistedChatMessages(messages)) {
+    if (!isPersistedChatMessage(message) || !message.runId) continue
+    const current = groups.get(message.runId) ?? []
+    current.push(message)
+    groups.set(message.runId, current)
+  }
+  return groups
+}
+
+function mergePersistedChatMessages(
+  items: WorkbenchTimelineItem[],
+  messages: PersistedMessage[]
+): WorkbenchTimelineItem[] {
+  let nextItems = items
+
+  for (const message of sortPersistedChatMessages(messages)) {
+    const [persistedItem] = toTimelineItemFromPersistedMessage(message)
+    if (!persistedItem || persistedItem.kind !== "chat_message") continue
+
+    const existingIndex = findMatchingChatMessageIndex(nextItems, persistedItem)
+    if (existingIndex < 0) {
+      nextItems = [...nextItems, persistedItem]
+      continue
+    }
+
+    const existing = nextItems[existingIndex]
+    if (existing?.kind !== "chat_message") continue
+    const merged = mergePersistedChatMessage(existing, persistedItem)
+    if (merged !== existing) {
+      nextItems = nextItems.map((item, index) =>
+        index === existingIndex ? merged : item
+      )
+    }
+  }
+
+  return nextItems
+}
+
+function mergePersistedChatMessage(
+  current: WorkbenchTimelineChatMessageItem,
+  persisted: WorkbenchTimelineChatMessageItem
+): WorkbenchTimelineChatMessageItem {
+  if (current.role !== persisted.role) return current
+
+  const persistedIsTerminal =
+    persisted.status === "completed" ||
+    persisted.status === "failed" ||
+    persisted.status === "cancelled"
+  const shouldUsePersistedText =
+    !current.text ||
+    (
+      persistedIsTerminal &&
+      persisted.text.length > current.text.length
+    )
+  const nextStatus = getMergedTimelineStatus(current.status, persisted.status)
+  const next: WorkbenchTimelineChatMessageItem = {
+    ...current,
+    runId: current.runId ?? persisted.runId,
+    runtimeMessageId: current.runtimeMessageId ?? persisted.runtimeMessageId,
+    messageIndex: current.messageIndex ?? persisted.messageIndex,
+    agentId: current.agentId ?? persisted.agentId,
+    text: shouldUsePersistedText ? persisted.text : current.text,
+    status: nextStatus,
+    generation: current.generation ?? persisted.generation,
+    externalModel: current.externalModel ?? persisted.externalModel,
+  }
+
+  return isSameChatMessage(current, next) ? current : next
+}
+
+function findMatchingChatMessageIndex(
+  items: WorkbenchTimelineItem[],
+  message: WorkbenchTimelineChatMessageItem
+): number {
+  return items.findIndex((item) => {
+    if (item.kind !== "chat_message") return false
+    if (item.id === message.id) return true
+    return Boolean(
+      item.runId &&
+      message.runId &&
+      item.runtimeMessageId &&
+      message.runtimeMessageId &&
+      item.runId === message.runId &&
+      item.runtimeMessageId === message.runtimeMessageId
+    )
+  })
+}
+
+function isPersistedChatMessage(message: PersistedMessage): boolean {
+  return message.surface === "chat" &&
+    (message.role === "user" || message.role === "assistant")
+}
+
+function sortPersistedChatMessages(messages: PersistedMessage[]): PersistedMessage[] {
+  return messages.filter(isPersistedChatMessage).sort(comparePersistedMessages)
+}
+
+function comparePersistedMessages(
+  left: PersistedMessage,
+  right: PersistedMessage
+): number {
+  if (left.runId && right.runId && left.runId === right.runId) {
+    const leftSequence = getPersistedMessageOrderSequence(left)
+    const rightSequence = getPersistedMessageOrderSequence(right)
+    if (leftSequence !== rightSequence) {
+      return leftSequence - rightSequence
+    }
+  }
+
+  const leftTime = Date.parse(left.createdAt)
+  const rightTime = Date.parse(right.createdAt)
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    return leftTime - rightTime
+  }
+  return left.id.localeCompare(right.id)
+}
+
+function getPersistedMessageOrderSequence(message: PersistedMessage): number {
+  if (typeof message.firstEventSequence === "number") {
+    return message.firstEventSequence
+  }
+  if (message.role === "user") {
+    return 0
+  }
+  if (typeof message.messageIndex === "number") {
+    return message.messageIndex + 1
+  }
+  return Number.MAX_SAFE_INTEGER
+}
+
+function getPersistedTimelineMessageId(
+  message: PersistedMessage,
+  runtimeMessageId: string | null
+): string {
+  if (message.role === "assistant" && message.runId && runtimeMessageId) {
+    return `chat:${message.runId}:${runtimeMessageId}`
+  }
+  return message.id
+}
+
+function getPersistedRuntimeMessageId(message: PersistedMessage): string | null {
+  return message.runtimeMessageId ?? getString(getPersistedRuntimeMetadata(message).messageId) ?? null
+}
+
+function getPersistedRuntimeMetadata(message: PersistedMessage): Record<string, unknown> {
+  return getRecord(message.metadataJson.runtime) ?? {}
+}
+
+function getPersistedExternalModel(
+  message: PersistedMessage
+): WorkbenchTimelineChatMessageItem["externalModel"] | undefined {
+  const externalModel = getRecord(getPersistedRuntimeMetadata(message).externalModel)
+  if (!externalModel) return undefined
+
+  const provider = getString(externalModel.provider)
+  const providerId = getString(externalModel.providerId)
+  const modelId = getString(externalModel.modelId)
+  if (!provider || !providerId || !modelId) {
+    return undefined
+  }
+
+  const providerName = getString(externalModel.providerName)
+  const modelName = getString(externalModel.modelName)
+  return {
+    provider,
+    providerId,
+    modelId,
+    ...(providerName ? { providerName } : {}),
+    ...(modelName ? { modelName } : {}),
+  }
+}
+
+function toTimelineStatus(
+  status: PersistedMessage["status"],
+  role: PersistedMessage["role"]
+): WorkbenchTimelineStatus | undefined {
+  if (status === "streaming" || status === "completed" || status === "failed" || status === "cancelled") {
+    return status
+  }
+  return role === "user" ? "completed" : undefined
+}
+
+function getMergedTimelineStatus(
+  current: WorkbenchTimelineStatus | undefined,
+  persisted: WorkbenchTimelineStatus | undefined
+): WorkbenchTimelineStatus | undefined {
+  if (!current) return persisted
+  if (!persisted) return current
+  if (current === "streaming" && persisted !== "streaming") {
+    return persisted
+  }
+  return current
+}
+
+function isSameChatMessage(
+  left: WorkbenchTimelineChatMessageItem,
+  right: WorkbenchTimelineChatMessageItem
+): boolean {
+  return left.runId === right.runId &&
+    left.runtimeMessageId === right.runtimeMessageId &&
+    left.messageIndex === right.messageIndex &&
+    left.agentId === right.agentId &&
+    left.text === right.text &&
+    left.status === right.status &&
+    left.generation === right.generation &&
+    left.externalModel === right.externalModel
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined
 }
 
 function formatPersistedMessageTime(timestamp: string): string {

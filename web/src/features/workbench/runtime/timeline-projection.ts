@@ -1,4 +1,8 @@
-import type { RuntimeGeneration, RuntimeRunEvent } from "../api/runtime-runs"
+import type {
+  RuntimeExternalModel,
+  RuntimeGeneration,
+  RuntimeRunEvent,
+} from "../api/runtime-runs"
 import type {
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
@@ -168,6 +172,7 @@ function upsertChatMessage(
 ): WorkbenchTimelineItem[] {
   const id = getChatMessageId(event)
   const eventGeneration = getEventGeneration(event)
+  const eventExternalModel = getEventExternalModel(event)
   const created: WorkbenchTimelineChatMessageItem = {
     kind: "chat_message",
     id,
@@ -182,7 +187,7 @@ function upsertChatMessage(
   }
 
   return upsertItem(items, id, (item) =>
-    mergeChatMessageGeneration(
+    mergeChatMessageMetadata(
       update(
         item?.kind === "chat_message"
           ? {
@@ -193,7 +198,8 @@ function upsertChatMessage(
             }
           : created
       ),
-      eventGeneration
+      eventGeneration,
+      eventExternalModel
     )
   )
 }
@@ -252,6 +258,15 @@ function mergeChatMessageGeneration(
   }
   const nextGeneration = mergeRuntimeGeneration(item.generation, generation)
   return nextGeneration ? { ...item, generation: nextGeneration } : item
+}
+
+function mergeChatMessageMetadata(
+  item: WorkbenchTimelineChatMessageItem,
+  generation: RuntimeGeneration | undefined,
+  externalModel: RuntimeExternalModel | undefined
+): WorkbenchTimelineChatMessageItem {
+  const withGeneration = mergeChatMessageGeneration(item, generation)
+  return externalModel ? { ...withGeneration, externalModel } : withGeneration
 }
 
 function upsertTask(
@@ -1212,6 +1227,10 @@ function getEventGeneration(event: RuntimeRunEvent): RuntimeGeneration | undefin
   return toRuntimeGeneration(getEventDataObject(event).generation)
 }
 
+function getEventExternalModel(event: RuntimeRunEvent): RuntimeExternalModel | undefined {
+  return toRuntimeExternalModel(getEventDataObject(event).externalModel)
+}
+
 function toRuntimeGeneration(value: unknown): RuntimeGeneration | undefined {
   const data = getRecord(value)
   if (!data) return undefined
@@ -1267,6 +1286,28 @@ function toRuntimeGenerationUsage(
   return Object.values(usage).some((usageValue) => usageValue !== undefined)
     ? usage
     : undefined
+}
+
+function toRuntimeExternalModel(value: unknown): RuntimeExternalModel | undefined {
+  const data = getRecord(value)
+  if (!data) return undefined
+
+  const provider = getString(data.provider)
+  const providerId = getString(data.providerId)
+  const modelId = getString(data.modelId)
+  const providerName = getString(data.providerName)
+  const modelName = getString(data.modelName)
+  if (!provider || !providerId || !modelId) {
+    return undefined
+  }
+
+  return {
+    provider,
+    providerId,
+    modelId,
+    ...(providerName ? { providerName } : {}),
+    ...(modelName ? { modelName } : {}),
+  }
 }
 
 function mergeRuntimeGeneration(

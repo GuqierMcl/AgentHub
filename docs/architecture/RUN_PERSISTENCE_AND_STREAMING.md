@@ -44,8 +44,8 @@ sequenceDiagram
 - 高频 `message.delta` / `reasoning.delta` 的结构化投影合并写入，默认约 150ms flush 一次；`message.completed`、`reasoning.completed` 和 terminal event 会强制追平。
 - `Run.lastProjectedSequence` 记录结构化投影进度。读取会话消息或组装 Runtime history 前，HubServer 会从 raw `RunEvent` 补齐落后的 projection。
 - `system_agent.completed(systemAgentId="title")` 会在 `Conversation.metadataJson.titleSource !== "manual"` 时更新 `Conversation.title`，并写入 `titleSource = "auto"`。
-- `GET /api/conversations/:conversationId/messages` 返回消息快照、active run 快照、latest plan、runItems 和 `timelineRuns`。
-- `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes；大工具结果可能已被投影为 UI 摘要，完整 raw event 留在 `RunEvent.payloadJson`。
+- `GET /api/conversations/:conversationId/messages` 返回最近窗口的消息快照、active run 快照、latest plan、runItems 和 `timelineRuns`；默认读取最新 50 条消息 / 50 个 run，再按正序返回给 UI，避免刷新或重启后回到会话开头。
+- `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes；大工具结果可能已被投影为 UI 摘要，完整 raw event 留在 `RunEvent.payloadJson`。`messages` 中的 `surface="chat"` user/assistant 记录是聊天气泡的持久化兜底，Web 在 event replay 后按 `runId + runtimeMessageId` 去重合并，修复 raw event replay 窗口缺失或历史事件不完整时的 assistant 消息恢复。
 - 权限请求先作为 raw Runtime event 落库，再投影到 `PermissionRequest`；投影优先使用事件 payload 中的 `permissionType`，例如 `web_fetch` 的 `network_access` 和 `bash` 的 `command_execute`。
 - 用户问答请求不新增 Prisma 表；`question.requested`、`question.answered`、`question.cancelled` 原样作为 raw event 落库，并由 Web 通过 `timelineRuns` replay 恢复 pending/answered/cancelled 状态。HubServer 在 `question.requested` 时将本地 Run 投影为 `waiting_input`，在 `question.answered` / `question.cancelled` 后按 Runtime 后续事件恢复运行态或终态。
 - 产品 cancel API 会在 Runtime cancel 成功返回后立即把本地 Run 标记为终态，发布全局 `run.status.changed`，并 finalize 本地 streaming message/task/permission 投影；如果 Runtime 因重启或不可用丢失了该 run，HubServer 也会把本地 Run 收口为 `cancelled`，解除产品侧 active run 阻塞。后续 Runtime SSE 的 `question.cancelled` / `run.cancelled` 事件仍会落库和幂等投影。
@@ -53,7 +53,7 @@ sequenceDiagram
 ## 恢复规则
 
 - 切会话时只关闭前端 EventSource，不 cancel Runtime run。
-- 切回时先强制重新加载 `timelineRuns`，Web 先插入每个 run 的 trigger user message，再用与 live SSE 相同的 projection reducer 重放产品 event envelopes。
+- 切回时先强制重新加载最近窗口的 `timelineRuns` 和 `messages`，Web 先插入每个 run 的 trigger user message，再用与 live SSE 相同的 projection reducer 重放产品 event envelopes，最后合并持久化 chat 消息作为兜底。
 - 若 active run 非终态，Web 用 fresh snapshot 中的 `activeRun.lastEventSequence` 续订 `/api/runs/:runId/events?afterSequence=`；HubServer 会 replay sequence 更大的已持久化事件并继续推送 live events。切换会话时 Web 必须关闭旧 EventSource，但不得 cancel Run。
 - 如果 run 在切走期间完成，`timelineRuns` 已包含最终产品 event envelopes，前端不再保持连接。
 - 结构化投影行的 `firstEventSequence` 仍用于查询和非聊天 UI 排序；聊天主 UI 恢复顺序以产品 event replay 为准。

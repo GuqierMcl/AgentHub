@@ -31,10 +31,15 @@ const QuestionAnswerSchema = z.object({
 const QuestionAnswerRequestSchema = z.object({
   answers: z.array(QuestionAnswerSchema).min(1),
 }).strict()
+const SSE_KEEPALIVE_INTERVAL_MS = 5_000
 
 export function encodeHubRunEvent(envelope: HubRunEventEnvelope): Uint8Array {
   const payload = `event: run.event\ndata: ${JSON.stringify(toProductHubRunEventEnvelope(envelope))}\n\n`
   return new TextEncoder().encode(payload)
+}
+
+function encodeSseComment(comment: string): Uint8Array {
+  return new TextEncoder().encode(`: ${comment}\n\n`)
 }
 
 runs.get('/api/runs/:runId/events', async (c: Context) => {
@@ -45,6 +50,7 @@ runs.get('/api/runs/:runId/events', async (c: Context) => {
   await service.getRunStatus(runId)
 
   let unsubscribe: (() => void) | undefined
+  let keepAliveTimer: ReturnType<typeof setInterval> | undefined
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false
@@ -55,7 +61,15 @@ runs.get('/api/runs/:runId/events', async (c: Context) => {
         if (closed) return
         closed = true
         unsubscribe?.()
+        if (keepAliveTimer) {
+          clearInterval(keepAliveTimer)
+          keepAliveTimer = undefined
+        }
         controller.close()
+      }
+      const sendKeepAlive = () => {
+        if (closed) return
+        controller.enqueue(encodeSseComment('keepalive'))
       }
       const send = (envelope: HubRunEventEnvelope) => {
         if (closed) return
@@ -66,6 +80,9 @@ runs.get('/api/runs/:runId/events', async (c: Context) => {
           close()
         }
       }
+
+      sendKeepAlive()
+      keepAliveTimer = setInterval(sendKeepAlive, SSE_KEEPALIVE_INTERVAL_MS)
 
       unsubscribe = service.subscribe(runId, (envelope: HubRunEventEnvelope) => {
         if (replaying) {
@@ -93,6 +110,10 @@ runs.get('/api/runs/:runId/events', async (c: Context) => {
     },
     cancel() {
       unsubscribe?.()
+      if (keepAliveTimer) {
+        clearInterval(keepAliveTimer)
+        keepAliveTimer = undefined
+      }
     },
   })
 
