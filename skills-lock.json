@@ -13,6 +13,12 @@
       "skillPath": "skills/use-ai-sdk/SKILL.md",
       "computedHash": "c99d2a95b3a5f8fad218f288503f9e724ba0f12bf4e8aaf2c792a9f2bc318ab6"
     },
+    "comet": {
+      "source": "rpamis/comet",
+      "sourceType": "github",
+      "skillPath": "assets/skills/comet/SKILL.md",
+      "computedHash": "49e73cfde2de3b9ab2f5680cf3295b21527ce47770d7284fe3a5f235506d6f4d"
+    },
     "shadcn": {
       "source": "shadcn/ui",
       "sourceType": "github",
