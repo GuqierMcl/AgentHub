@@ -3,6 +3,7 @@ import { FileTextIcon } from "lucide-react"
 
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
+import { FullscreenPreview } from "./FullscreenPreview"
 
 import { workspaceBrowserApi } from "../api/workspace-browser"
 import type { WorkspaceFilePreviewResponse } from "../types"
@@ -29,6 +30,7 @@ export function WorkspacePreviewPane({ conversationId, selectedPath, refreshTrig
   const [preview, setPreview] = useState<WorkspaceFilePreviewResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const loading = preview === null && error === null
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   useEffect(() => {
     if (!selectedPath) return
@@ -73,8 +75,16 @@ export function WorkspacePreviewPane({ conversationId, selectedPath, refreshTrig
           {error}
         </div>
       ) : preview ? (
-        <PreviewRenderer preview={preview} conversationId={conversationId} />
+        <PreviewRenderer preview={preview} conversationId={conversationId} onFullscreen={() => setIsFullscreen(true)} />
       ) : null}
+
+      <FullscreenPreview
+        open={isFullscreen}
+        onClose={() => setIsFullscreen(false)}
+        name={preview?.name ?? ""}
+      >
+        {preview && <PreviewRenderer preview={preview} conversationId={conversationId} />}
+      </FullscreenPreview>
     </div>
   )
 }
@@ -82,13 +92,14 @@ export function WorkspacePreviewPane({ conversationId, selectedPath, refreshTrig
 type PreviewRendererProps = {
   preview: WorkspaceFilePreviewResponse
   conversationId: string
+  onFullscreen?: () => void
 }
 
-function PreviewRenderer({ preview }: PreviewRendererProps) {
+export function PreviewRenderer({ preview, conversationId: _conversationId, onFullscreen }: PreviewRendererProps) {
   switch (preview.kind) {
     case "text":
       if (preview.language === "Markdown") {
-        return <MarkdownPreview content={preview.content} />
+        return <MarkdownPreview content={preview.content} name={preview.name} onFullscreen={onFullscreen} />
       }
       if (shouldUseMonaco({ path: preview.path, size: preview.size, truncated: preview.truncated, content: preview.content })) {
         return (
@@ -100,6 +111,7 @@ function PreviewRenderer({ preview }: PreviewRendererProps) {
               size={preview.size}
               language={preview.language}
               truncated={preview.truncated}
+              onFullscreen={onFullscreen}
             />
           </Suspense>
         )
@@ -110,22 +122,23 @@ function PreviewRenderer({ preview }: PreviewRendererProps) {
           language={preview.language}
           truncated={preview.truncated}
           name={preview.name}
+          onFullscreen={onFullscreen}
         />
       )
     case "image":
-      return <ImagePreview src={preview.base64} alt={preview.name} />
+      return <ImagePreview src={preview.base64} alt={preview.name} name={preview.name} onFullscreen={onFullscreen} />
     case "pdf":
-      return <PdfPreview url={preview.url} />
+      return <PdfPreview url={preview.url} name={preview.name} onFullscreen={onFullscreen} />
     case "office-word":
-      return <WordPreview url={preview.url} name={preview.name} />
+      return <WordPreview url={preview.url} name={preview.name} onFullscreen={onFullscreen} />
     case "audio":
-      return <AudioPreview url={preview.url} name={preview.name} mimeType={preview.mimeType} />
+      return <AudioPreview url={preview.url} name={preview.name} mimeType={preview.mimeType} onFullscreen={onFullscreen} />
     case "video":
-      return <VideoPreview url={preview.url} name={preview.name} mimeType={preview.mimeType} posterUrl={preview.posterUrl} />
+      return <VideoPreview url={preview.url} name={preview.name} mimeType={preview.mimeType} posterUrl={preview.posterUrl} onFullscreen={onFullscreen} />
     case "binary":
-      return <BinaryPreview name={preview.name} size={preview.size} mimeType={preview.mimeType} message={preview.message} />
+      return <BinaryPreview name={preview.name} size={preview.size} mimeType={preview.mimeType} message={preview.message} onFullscreen={onFullscreen} />
     case "unsupported":
-      return <UnsupportedPreview name={preview.name} size={preview.size} mimeType={preview.mimeType} message={preview.message} />
+      return <UnsupportedPreview name={preview.name} size={preview.size} mimeType={preview.mimeType} message={preview.message} onFullscreen={onFullscreen} />
     default:
       return null
   }

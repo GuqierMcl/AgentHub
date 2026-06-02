@@ -1,6 +1,8 @@
 import { useMemo } from "react"
 import Editor from "@monaco-editor/react"
+import { Maximize2Icon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useTheme } from "@/components/useTheme"
 import "../../utils/monaco-loader"
@@ -13,6 +15,7 @@ type CodePreviewProps = {
   size: number
   language?: string
   truncated?: boolean
+  onFullscreen?: () => void
 }
 
 const EDITOR_OPTIONS = {
@@ -27,7 +30,7 @@ const EDITOR_OPTIONS = {
   tabSize: 2,
 }
 
-export function CodePreview({ path, content }: CodePreviewProps) {
+export function CodePreview({ path, content, onFullscreen }: CodePreviewProps) {
   const { theme } = useTheme()
 
   const monacoLanguage = useMemo(() => {
@@ -60,6 +63,11 @@ export function CodePreview({ path, content }: CodePreviewProps) {
       <div className="flex shrink-0 items-center gap-2 border-border border-b px-3 py-1.5">
         {displayLanguage && <Badge variant="secondary">{displayLanguage}</Badge>}
         <Badge variant="outline" className="text-muted-foreground">只读</Badge>
+        {onFullscreen && (
+          <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={onFullscreen} aria-label="全屏预览">
+            <Maximize2Icon className="size-3.5" />
+          </Button>
+        )}
       </div>
       <div className="min-h-0 flex-1">
         <Editor

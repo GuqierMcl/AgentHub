@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { ChevronLeftIcon, ChevronRightIcon, Loader2Icon } from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, Loader2Icon, Maximize2Icon } from "lucide-react"
 
 type PdfPreviewProps = {
   url: string
+  name?: string
+  onFullscreen?: () => void
 }
 
 const ZOOM_OPTIONS = ["auto", 0.5, 0.75, 1, 1.25, 1.5] as const
@@ -20,7 +22,7 @@ function isAutoZoom(v: string): v is "auto" {
   return v === "auto"
 }
 
-export function PdfPreview({ url }: PdfPreviewProps) {
+export function PdfPreview({ url, name: _name, onFullscreen }: PdfPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const scrollAreaHostRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
@@ -177,18 +179,25 @@ export function PdfPreview({ url }: PdfPreviewProps) {
           </Button>
         </div>
 
-        <Select value={autoFit ? "auto" : String(scale)} onValueChange={handleZoomChange}>
-          <SelectTrigger className="h-7 w-20 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ZOOM_OPTIONS.map((z) => (
-              <SelectItem key={String(z)} value={String(z)} className="text-xs">
-                {z === "auto" ? "自适应" : `${Math.round(z * 100)}%`}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-1">
+          <Select value={autoFit ? "auto" : String(scale)} onValueChange={handleZoomChange}>
+            <SelectTrigger className="h-7 w-20 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ZOOM_OPTIONS.map((z) => (
+                <SelectItem key={String(z)} value={String(z)} className="text-xs">
+                  {z === "auto" ? "自适应" : `${Math.round(z * 100)}%`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {onFullscreen && (
+            <Button variant="ghost" size="icon-sm" onClick={onFullscreen} aria-label="全屏预览">
+              <Maximize2Icon className="size-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <div ref={scrollAreaHostRefCallback} className="min-h-0 flex-1">

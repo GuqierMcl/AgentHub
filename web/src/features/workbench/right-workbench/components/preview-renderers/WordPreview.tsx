@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { renderAsync } from "docx-preview"
+import { Maximize2Icon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 type WordPreviewProps = {
   url: string
   name: string
+  onFullscreen?: () => void
 }
 
-export function WordPreview({ url, name }: WordPreviewProps) {
+export function WordPreview({ url, name, onFullscreen }: WordPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const scaledFrameRef = useRef<HTMLDivElement>(null)
   const scrollAreaHostRef = useRef<HTMLDivElement | null>(null)
@@ -151,8 +154,13 @@ export function WordPreview({ url, name }: WordPreviewProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center border-border border-b px-3 py-1.5 text-xs text-muted-foreground">
-        Word 预览
+      <div className="flex shrink-0 items-center justify-between border-border border-b px-3 py-1.5 text-xs text-muted-foreground">
+        <span>Word 预览</span>
+        {onFullscreen && (
+          <Button variant="ghost" size="icon-sm" onClick={onFullscreen} aria-label="全屏预览">
+            <Maximize2Icon className="size-3.5" />
+          </Button>
+        )}
       </div>
       <div className="min-h-0 flex-1" ref={scrollAreaHostRefCallback}>
         <ScrollArea className="size-full">
