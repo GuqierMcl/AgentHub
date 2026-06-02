@@ -59,7 +59,7 @@ export function ConversationStatusPanel({
     : null
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background w-full">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
       <div className="shrink-0 border-border border-b p-3">
         <div className="flex items-center gap-2">
           <ListChecksIcon className="size-4 text-primary" />
@@ -72,8 +72,11 @@ export function ConversationStatusPanel({
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 p-3">
+      <ScrollArea
+        className="min-h-0 min-w-0 flex-1"
+        viewportClassName="min-w-0 overflow-x-hidden [&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full"
+      >
+        <div className="min-w-0 w-full space-y-4 p-3">
           <section className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <h4 className="font-medium text-sm">执行计划</h4>
@@ -94,7 +97,7 @@ export function ConversationStatusPanel({
 
           <Separator />
 
-          <section className="grid grid-cols-2 gap-2">
+          <section className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
             <StatusMetric
               icon={<TimerIcon className="size-4" />}
               label="Run 状态"
@@ -124,13 +127,13 @@ export function ConversationStatusPanel({
               Git 信息
             </SectionTitle>
             <div className="rounded-md border bg-muted/20 p-3 text-xs">
-              <div className="flex justify-between gap-2">
+              <div className="flex items-start justify-between gap-2">
                 <span className="text-muted-foreground">当前分支</span>
-                <span>未接入</span>
+                <span className="text-right">未接入</span>
               </div>
-              <div className="mt-2 flex justify-between gap-2">
+              <div className="mt-2 flex items-start justify-between gap-2">
                 <span className="text-muted-foreground">工作区状态</span>
-                <span>静态占位</span>
+                <span className="text-right">静态占位</span>
               </div>
             </div>
           </section>
@@ -140,13 +143,13 @@ export function ConversationStatusPanel({
               Token 信息
             </SectionTitle>
             <div className="rounded-md border bg-muted/20 p-3 text-xs">
-              <div className="flex justify-between gap-2">
+              <div className="flex items-start justify-between gap-2">
                 <span className="text-muted-foreground">输入 Token</span>
-                <span>待统计</span>
+                <span className="text-right">待统计</span>
               </div>
-              <div className="mt-2 flex justify-between gap-2">
+              <div className="mt-2 flex items-start justify-between gap-2">
                 <span className="text-muted-foreground">输出 Token</span>
-                <span>待统计</span>
+                <span className="text-right">待统计</span>
               </div>
             </div>
           </section>
@@ -155,7 +158,7 @@ export function ConversationStatusPanel({
             <SectionTitle icon={<NetworkIcon className="size-4" />}>
               工作区
             </SectionTitle>
-            <div className="rounded-md border bg-muted/20 p-3 text-muted-foreground text-xs">
+            <div className="rounded-md border bg-muted/20 p-3 text-muted-foreground text-xs break-all">
               {conversation?.workspace || "当前会话未绑定工作区"}
             </div>
           </section>
@@ -167,18 +170,17 @@ export function ConversationStatusPanel({
 
 function PlanQueue({ item }: { item: WorkbenchTimelinePlanItem }) {
   return (
-    <Queue>
+    <Queue className="min-w-0">
       <QueueSection defaultOpen>
         <QueueSectionTrigger className="flex flex-col flex-1 items-start gap-1">
-   
           <QueueSectionLabel count={item.tasks.length} label="个任务" />
-          <span className="min-w-0 truncate pl-2 text-right text-muted-foreground text-xs">
+          <span className="w-full pl-2 text-left text-muted-foreground text-xs whitespace-normal break-words">
             {item.title}
           </span>
         </QueueSectionTrigger>
         <QueueSectionContent>
           {item.description ? (
-            <div className="px-3 pt-2 text-muted-foreground text-xs">
+            <div className="px-3 pt-2 text-muted-foreground text-xs whitespace-normal break-words">
               {item.description}
             </div>
           ) : null}
@@ -189,7 +191,7 @@ function PlanQueue({ item }: { item: WorkbenchTimelinePlanItem }) {
 
                 return (
                   <QueueItem key={task.taskId}>
-                    <span className="flex min-w-0 items-start gap-3">
+                    <span className="flex min-w-0 w-full flex-wrap items-start gap-2">
                       <QueueItemIndicator
                         className={
                           statusMeta.failed
@@ -199,14 +201,17 @@ function PlanQueue({ item }: { item: WorkbenchTimelinePlanItem }) {
                         completed={statusMeta.completed}
                       />
                       <QueueItemContent
-                        className={statusMeta.failed ? "text-destructive" : undefined}
+                        className={cn(
+                          "min-w-0 flex-1 basis-0 whitespace-normal break-words",
+                          statusMeta.failed ? "text-destructive" : undefined
+                        )}
                         completed={statusMeta.completed}
                       >
                         {task.title}
                       </QueueItemContent>
                       {task.status ? (
                         <Badge
-                          className={cn("shrink-0", statusMeta.className)}
+                          className={cn("shrink-0 self-start", statusMeta.className)}
                           variant="outline"
                         >
                           {statusMeta.label}
@@ -332,12 +337,12 @@ function StatusMetric({
   value: string
 }) {
   return (
-    <div className="rounded-md border bg-muted/20 p-3">
+    <div className="min-w-0 rounded-md border bg-muted/20 p-3">
       <div className="flex items-center gap-2 text-muted-foreground">
         {icon}
         <span className="text-xs">{label}</span>
       </div>
-      <div className="mt-2 truncate font-medium text-sm">{value}</div>
+      <div className="mt-2 whitespace-normal break-words font-medium text-sm">{value}</div>
     </div>
   )
 }
