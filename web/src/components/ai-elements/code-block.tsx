@@ -28,6 +28,7 @@ import type {
   ThemedToken,
 } from "shiki";
 import { createHighlighter } from "shiki";
+import { useEditorSettings } from "@/hooks/useEditorSettings";
 
 // Shiki uses bitflags for font styles: 1=italic, 2=bold, 4=underline
 // oxlint-disable-next-line eslint(no-bitwise)
@@ -374,12 +375,14 @@ export const CodeBlockActions = ({
 export const CodeBlockContent = ({
   code,
   language,
-  showLineNumbers = false,
+  showLineNumbers,
 }: {
   code: string;
   language: BundledLanguage;
   showLineNumbers?: boolean;
 }) => {
+  const editorSettings = useEditorSettings()
+  const effectiveShowLineNumbers = showLineNumbers ?? editorSettings.codeBlockLineNumbers
   // Memoized raw tokens for immediate display
   const rawTokens = useMemo(() => createRawTokens(code), [code]);
 
@@ -420,7 +423,7 @@ export const CodeBlockContent = ({
 
   return (
     <div className="relative overflow-auto">
-      <CodeBlockBody showLineNumbers={showLineNumbers} tokenized={tokenized} />
+      <CodeBlockBody showLineNumbers={effectiveShowLineNumbers} tokenized={tokenized} />
     </div>
   );
 };
@@ -428,7 +431,7 @@ export const CodeBlockContent = ({
 export const CodeBlock = ({
   code,
   language,
-  showLineNumbers = false,
+  showLineNumbers,
   className,
   children,
   ...props

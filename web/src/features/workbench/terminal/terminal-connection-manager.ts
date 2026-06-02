@@ -32,11 +32,18 @@ type ActiveConnection = {
   retryTimer?: ReturnType<typeof setTimeout>
 }
 
-const MAX_RECONNECT_ATTEMPTS = 3
-const RECONNECT_DELAYS_MS = [1000, 2000, 3000]
+const DEFAULT_MAX_RECONNECT_ATTEMPTS = 3
+const DEFAULT_RECONNECT_DELAYS_MS = [1000, 2000, 3000]
 
 class TerminalConnectionManager {
   private connections = new Map<string, ActiveConnection>()
+  private reconnectMaxAttempts = DEFAULT_MAX_RECONNECT_ATTEMPTS
+  private reconnectDelaysMs = DEFAULT_RECONNECT_DELAYS_MS
+
+  updateReconnectConfig(maxAttempts: number, delaysMs: number[]): void {
+    this.reconnectMaxAttempts = maxAttempts
+    this.reconnectDelaysMs = delaysMs
+  }
 
   private closeConnection(
     conn: ActiveConnection,
@@ -130,7 +137,7 @@ class TerminalConnectionManager {
   }
 
   private tryReconnect(conn: ActiveConnection): void {
-    if (conn.retryCount >= MAX_RECONNECT_ATTEMPTS) {
+    if (conn.retryCount >= this.reconnectMaxAttempts) {
       conn.closed = true
       this.connections.delete(conn.sessionId)
       conn.events.onError?.("重连失败，已达最大重试次数")
@@ -140,7 +147,7 @@ class TerminalConnectionManager {
     conn.retryCount++
     conn.events.onReconnecting?.()
 
-    const delay = RECONNECT_DELAYS_MS[conn.retryCount - 1] ?? 3000
+    const delay = this.reconnectDelaysMs[conn.retryCount - 1] ?? 3000
     conn.retryTimer = setTimeout(() => {
       if (conn.closed) return
 

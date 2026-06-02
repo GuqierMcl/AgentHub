@@ -1,58 +1,34 @@
 import { useState, useEffect, useCallback } from "react"
 import { toast } from "sonner"
 import { Switch } from "@/components/animate-ui/components/radix/switch"
+import { settingsApi, type DiagnosticsSettings } from "../api/settings-api"
 
-type DiagnosticsConfig = {
-  includeModelStream: boolean
-  includeReasoning: boolean
-  includeRawModelChunks: boolean
-}
-
-const defaults: DiagnosticsConfig = {
+const defaults: DiagnosticsSettings = {
   includeModelStream: true,
   includeReasoning: true,
   includeRawModelChunks: false,
 }
 
-async function fetchDiagnostics(): Promise<DiagnosticsConfig> {
-  const res = await fetch("/api/settings/diagnostics")
-  if (!res.ok) return { ...defaults }
-  return res.json()
-}
-
-async function updateDiagnostics(data: Partial<DiagnosticsConfig>): Promise<DiagnosticsConfig> {
-  const res = await fetch("/api/settings/diagnostics", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) throw new Error("更新失败")
-  return res.json()
-}
-
 export function DiagnosticsContent() {
-  const [config, setConfig] = useState<DiagnosticsConfig>(defaults)
+  const [config, setConfig] = useState<DiagnosticsSettings>(defaults)
   const [loading, setLoading] = useState(true)
   const [toggling, setToggling] = useState<string | null>(null)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      fetchDiagnostics().then((data) => {
-        setConfig(data)
-        setLoading(false)
-      }).catch(() => {
-        setLoading(false)
-      })
-    }, 0)
-    return () => window.clearTimeout(timer)
+    let cancelled = false
+    settingsApi.fetchDiagnostics()
+      .then((data) => { if (!cancelled) setConfig({ ...defaults, ...data }) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [])
 
-  const handleToggle = useCallback(async (key: keyof DiagnosticsConfig, value: boolean) => {
+  const handleToggle = useCallback(async (key: keyof DiagnosticsSettings, value: boolean) => {
     setToggling(key)
     const prev = config
     setConfig((prev) => ({ ...prev, [key]: value }))
     try {
-      await updateDiagnostics({ [key]: value })
+      await settingsApi.updateDiagnostics({ [key]: value })
     } catch (err) {
       setConfig(prev)
       toast.error(err instanceof Error ? err.message : "保存失败")

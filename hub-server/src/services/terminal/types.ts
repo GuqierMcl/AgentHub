@@ -25,10 +25,14 @@ export type TerminalConfig = {
   replayBufferMaxBytes: number
 }
 
-export const DEFAULT_TERMINAL_CONFIG: TerminalConfig = {
-  maxSessionsPerConversation: 3,
-  idleTimeoutMs: 300_000,
-  replayBufferMaxBytes: 4_194_304,
+export function extractTerminalConfig(settings: {
+  terminal: { maxSessions: number; idleTimeoutMs: number; replayBufferBytes: number }
+}): TerminalConfig {
+  return {
+    maxSessionsPerConversation: settings.terminal.maxSessions,
+    idleTimeoutMs: settings.terminal.idleTimeoutMs,
+    replayBufferMaxBytes: settings.terminal.replayBufferBytes,
+  }
 }
 
 export type TerminalWsMessage =

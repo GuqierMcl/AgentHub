@@ -55,6 +55,27 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
+          <SidebarGroupLabel>界面设置</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem key="editor">
+              <SidebarMenuButton
+                isActive={activeTab === "editor"}
+                onClick={() => onTabChange("editor")}
+              >
+                编辑器
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem key="terminal">
+              <SidebarMenuButton
+                isActive={activeTab === "terminal"}
+                onClick={() => onTabChange("terminal")}
+              >
+                终端
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+        <SidebarGroup>
           <SidebarGroupLabel>AI 能力</SidebarGroupLabel>
           <SidebarMenu>
             {menuItems.map((item) => (

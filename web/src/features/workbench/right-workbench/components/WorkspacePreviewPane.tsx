@@ -8,6 +8,7 @@ import { FullscreenPreview } from "./FullscreenPreview"
 import { workspaceBrowserApi } from "../api/workspace-browser"
 import type { WorkspaceFilePreviewResponse } from "../types"
 import { shouldUseMonaco } from "../utils/code-preview"
+import { useEditorSettings } from "@/hooks/useEditorSettings"
 import { TextPreview } from "./preview-renderers/TextPreview"
 import { MarkdownPreview } from "./preview-renderers/MarkdownPreview"
 import { ImagePreview } from "./preview-renderers/ImagePreview"
@@ -96,12 +97,21 @@ type PreviewRendererProps = {
 }
 
 export function PreviewRenderer({ preview, conversationId: _conversationId, onFullscreen }: PreviewRendererProps) {
+  const editorSettings = useEditorSettings()
   switch (preview.kind) {
     case "text":
       if (preview.language === "Markdown") {
         return <MarkdownPreview content={preview.content} name={preview.name} onFullscreen={onFullscreen} />
       }
-      if (shouldUseMonaco({ path: preview.path, size: preview.size, truncated: preview.truncated, content: preview.content })) {
+      if (shouldUseMonaco({
+        path: preview.path,
+        size: preview.size,
+        truncated: preview.truncated,
+        content: preview.content,
+        maxSize: editorSettings.maxPreviewFileSize,
+        maxLineCount: editorSettings.maxLineCount,
+        maxLineLength: editorSettings.maxLineLength,
+      })) {
         return (
           <Suspense fallback={<div className="flex h-full flex-col gap-3 p-4"><Skeleton className="h-5 w-48" /><Skeleton className="min-h-0 flex-1 rounded" /></div>}>
             <CodePreview

@@ -111,6 +111,7 @@ import {
 } from '../repositories/artifact.repo'
 import { createArtifactVersion } from '../repositories/artifact-version.repo'
 import type { HubEventBus } from './hub-event-bus.service'
+import { loadSettings } from '../routers/settings'
 
 export type RuntimeRunEvent = {
   id: string
@@ -3043,11 +3044,7 @@ function buildRuntimeRunInput(
         ? { titleSeedUserMessage }
         : {}),
     },
-    diagnostics: {
-      includeModelStream: false,
-      includeReasoning: true,
-      includeRawModelChunks: false,
-    },
+    diagnostics: loadSettings().diagnostics,
     ...(workspace ? { workspace } : {}),
     ...(externalSessionHints.length > 0 ? { externalSessionHints } : {}),
     ...(externalContext.length > 0 ? { externalContext } : {}),

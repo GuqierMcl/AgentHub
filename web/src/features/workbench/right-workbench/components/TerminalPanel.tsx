@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils"
 import { XTermView, type XTermViewHandle } from "../../terminal/components/XTermView"
 import { useTerminalSession } from "../../terminal/use-terminal-session"
 import type { TerminalViewStatus } from "../../terminal/types"
+import { useTerminalSettings } from "@/hooks/useTerminalSettings"
+import { terminalConnectionManager } from "../../terminal/terminal-connection-manager"
 
 type TerminalPanelProps = {
   uid: string
@@ -69,6 +71,14 @@ function StatusOverlay({
 export function TerminalPanel({ uid, payload }: TerminalPanelProps) {
   const xtermRef = useRef<XTermViewHandle>(null)
   const updateTabPayload = useTabStore((s) => s.updateTabPayload)
+  const terminalSettings = useTerminalSettings()
+
+  useEffect(() => {
+    terminalConnectionManager.updateReconnectConfig(
+      terminalSettings.reconnectMaxAttempts,
+      terminalSettings.reconnectDelaysMs,
+    )
+  }, [terminalSettings.reconnectMaxAttempts, terminalSettings.reconnectDelaysMs])
 
   const {
     status,
@@ -155,6 +165,7 @@ export function TerminalPanel({ uid, payload }: TerminalPanelProps) {
           )}
           onData={handleData}
           onResize={handleResize}
+          terminalSettings={terminalSettings}
         />
       </div>
     </div>

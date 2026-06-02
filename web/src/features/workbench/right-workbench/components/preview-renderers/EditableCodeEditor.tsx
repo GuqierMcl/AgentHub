@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import Editor from "@monaco-editor/react"
 import * as monaco from "monaco-editor"
 import { useTheme } from "@/components/useTheme"
+import { useEditorSettings } from "@/hooks/useEditorSettings"
 import { getCodePreviewMeta } from "../../utils/code-preview"
 import "../../utils/monaco-loader"
 
@@ -14,6 +15,7 @@ type EditableCodeEditorProps = {
 
 export function EditableCodeEditor({ path, content, language, onChange }: EditableCodeEditorProps) {
   const { theme } = useTheme()
+  const editorSettings = useEditorSettings()
 
   const monacoLanguage = useMemo(() => {
     if (language === "Markdown") return "markdown"
@@ -29,19 +31,21 @@ export function EditableCodeEditor({ path, content, language, onChange }: Editab
 
   const isMarkdown = language === "Markdown" || path.endsWith(".md")
 
-  const options = {
+  const options = useMemo(() => ({
     readOnly: false,
-    minimap: { enabled: false },
+    minimap: { enabled: editorSettings.minimapEnabled },
     scrollBeyondLastLine: false,
     automaticLayout: true,
     renderValidationDecorations: "on" as const,
     lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
-    wordWrap: (isMarkdown ? "on" : "off") as "on" | "off",
-    renderWhitespace: "selection" as const,
-    lineNumbers: "on" as const,
-    folding: true,
-    tabSize: 2,
-  }
+    wordWrap: (isMarkdown ? "on" : editorSettings.wordWrap) as "on" | "off" | "wordWrapColumn" | "bounded",
+    renderWhitespace: editorSettings.renderWhitespace,
+    lineNumbers: editorSettings.lineNumbers,
+    folding: editorSettings.folding,
+    tabSize: editorSettings.tabSize,
+    fontSize: editorSettings.fontSize,
+    fontFamily: editorSettings.fontFamily || undefined,
+  }), [editorSettings, isMarkdown])
 
   return (
     <Editor

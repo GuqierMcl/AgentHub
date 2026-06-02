@@ -9,6 +9,7 @@ import { Terminal } from "xterm"
 import { FitAddon } from "@xterm/addon-fit"
 
 import "xterm/css/xterm.css"
+import type { TerminalSettings } from "@/features/settings/api/settings-api"
 
 export type XTermViewHandle = {
   write: (text: string) => void
@@ -21,10 +22,11 @@ type XTermViewProps = {
   onData?: (data: string) => void
   onResize?: (cols: number, rows: number) => void
   className?: string
+  terminalSettings: TerminalSettings
 }
 
 export const XTermView = forwardRef<XTermViewHandle, XTermViewProps>(
-  function XTermView({ onData, onResize, className }, ref) {
+  function XTermView({ onData, onResize, className, terminalSettings }, ref) {
     const containerRef = useRef<HTMLDivElement>(null)
     const terminalRef = useRef<Terminal | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
@@ -68,8 +70,6 @@ export const XTermView = forwardRef<XTermViewHandle, XTermViewProps>(
       []
     )
 
-    // Initialize terminal — deferred to next animation frame to ensure
-    // the container has been fully laid out by the browser.
     useEffect(() => {
       const container = containerRef.current
       if (!container) return
@@ -94,11 +94,10 @@ export const XTermView = forwardRef<XTermViewHandle, XTermViewProps>(
 
         try {
           term = new Terminal({
-            cursorBlink: true,
-            cursorStyle: "bar",
-            fontSize: 13,
-            fontFamily:
-              "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace",
+            cursorBlink: terminalSettings.cursorBlink,
+            cursorStyle: terminalSettings.cursorStyle,
+            fontSize: terminalSettings.fontSize,
+            fontFamily: terminalSettings.fontFamily,
             allowTransparency: true,
             theme: {
               background: "transparent",
@@ -131,7 +130,6 @@ export const XTermView = forwardRef<XTermViewHandle, XTermViewProps>(
         terminalRef.current = term
         fitAddonRef.current = fitAddon
 
-        // Delay fit to next frame so xterm's renderer is fully initialized
         requestAnimationFrame(() => {
           if (disposed) return
           doFit()
@@ -220,7 +218,7 @@ export const XTermView = forwardRef<XTermViewHandle, XTermViewProps>(
         if (f) f.dispose()
         if (t) t.dispose()
       }
-    }, [])
+    }, [terminalSettings.fontSize, terminalSettings.fontFamily, terminalSettings.cursorBlink, terminalSettings.cursorStyle])
 
     return (
       <div

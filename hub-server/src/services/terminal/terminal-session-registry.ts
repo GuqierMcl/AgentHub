@@ -3,10 +3,10 @@ import type { TerminalSessionInfo, TerminalConfig } from "./types"
 
 export class TerminalSessionRegistry {
   private sessions = new Map<string, TerminalSession>()
-  private config: TerminalConfig
+  private getConfig: () => TerminalConfig
 
-  constructor(config: TerminalConfig) {
-    this.config = config
+  constructor(getConfig: () => TerminalConfig) {
+    this.getConfig = getConfig
   }
 
   create(
@@ -25,7 +25,7 @@ export class TerminalSessionRegistry {
       workspaceRoot,
       cols,
       rows,
-      this.config.replayBufferMaxBytes,
+      this.getConfig().replayBufferMaxBytes,
       shellOverride,
     )
     this.sessions.set(sessionId, session)
@@ -54,12 +54,22 @@ export class TerminalSessionRegistry {
     return result
   }
 
+  listActiveByConversation(conversationId: string): TerminalSession[] {
+    const result: TerminalSession[] = []
+    for (const session of this.sessions.values()) {
+      if (session.conversationId === conversationId && (session.status === "running" || session.status === "starting")) {
+        result.push(session)
+      }
+    }
+    return result
+  }
+
   countByConversation(conversationId: string): number {
     return this.listByConversation(conversationId).length
   }
 
   hasReachedLimit(conversationId: string): boolean {
-    return this.countByConversation(conversationId) >= this.config.maxSessionsPerConversation
+    return this.listActiveByConversation(conversationId).length >= this.getConfig().maxSessionsPerConversation
   }
 
   getAll(): TerminalSession[] {

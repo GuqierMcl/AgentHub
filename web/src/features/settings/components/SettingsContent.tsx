@@ -5,6 +5,8 @@ import { ProviderContent } from "./provider/ProviderContent"
 import { ModelContent } from "./model/ModelContent"
 import { ArchivedContent } from "./ArchivedContent"
 import { DiagnosticsContent } from "./DiagnosticsContent"
+import { EditorSettingsContent } from "./EditorSettingsContent"
+import { TerminalSettingsContent } from "./TerminalSettingsContent"
 
 type SettingsContentProps = {
   activeTab: SettingsTabId
@@ -16,10 +18,12 @@ const tabLabels: Record<SettingsTabId, string> = {
   model: "模型",
   archived: "已归档对话",
   diagnostics: "诊断配置",
+  editor: "编辑器",
+  terminal: "终端",
 }
 
 export function SettingsContent({ activeTab }: SettingsContentProps) {
-  const isPinnable = activeTab === "provider" || activeTab === "model" || activeTab === "archived" || activeTab === "diagnostics"
+  const isPinnable = activeTab === "provider" || activeTab === "model" || activeTab === "archived" || activeTab === "diagnostics" || activeTab === "editor" || activeTab === "terminal"
 
   return (
     <div className="flex flex-col h-full border-l border-border/50">
@@ -35,6 +39,8 @@ export function SettingsContent({ activeTab }: SettingsContentProps) {
           {activeTab === "model" && <ModelContent />}
           {activeTab === "archived" && <ArchivedContent />}
           {activeTab === "diagnostics" && <DiagnosticsContent />}
+          {activeTab === "editor" && <EditorSettingsContent />}
+          {activeTab === "terminal" && <TerminalSettingsContent />}
         </div>
       </ScrollArea>
     </div>

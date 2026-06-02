@@ -1,6 +1,6 @@
-const MAX_MONACO_SIZE = 500 * 1024
-const MAX_LINE_COUNT = 20000
-const MAX_LINE_LENGTH = 20000
+export const DEFAULT_MAX_MONACO_SIZE = 500 * 1024
+export const DEFAULT_MAX_LINE_COUNT = 20000
+export const DEFAULT_MAX_LINE_LENGTH = 20000
 
 type CodePreviewMeta = {
   isCodeLike: boolean
@@ -74,21 +74,32 @@ export type ShouldUseMonacoParams = {
   size: number
   truncated?: boolean
   content?: string
+  maxSize?: number
+  maxLineCount?: number
+  maxLineLength?: number
 }
 
-export function shouldUseMonaco({ path, size, truncated, content }: ShouldUseMonacoParams): boolean {
+export function shouldUseMonaco({
+  path,
+  size,
+  truncated,
+  content,
+  maxSize = DEFAULT_MAX_MONACO_SIZE,
+  maxLineCount = DEFAULT_MAX_LINE_COUNT,
+  maxLineLength = DEFAULT_MAX_LINE_LENGTH,
+}: ShouldUseMonacoParams): boolean {
   const meta = getCodePreviewMeta(path)
   if (!meta.isCodeLike) return false
 
   if (truncated) return false
 
-  if (size > MAX_MONACO_SIZE) return false
+  if (size > maxSize) return false
 
   if (content) {
     const lines = content.split("\n")
-    if (lines.length > MAX_LINE_COUNT) return false
+    if (lines.length > maxLineCount) return false
     for (const line of lines) {
-      if (line.length > MAX_LINE_LENGTH) return false
+      if (line.length > maxLineLength) return false
     }
   }
 

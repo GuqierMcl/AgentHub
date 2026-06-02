@@ -17,12 +17,12 @@ export class TerminalService {
   private registry: TerminalSessionRegistry
   private attached = new Map<string, AttachedEntry>()
   private idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  private config: TerminalConfig
+  private getConfig: () => TerminalConfig
   private cleanupInterval: ReturnType<typeof setInterval> | null = null
 
-  constructor(config: TerminalConfig) {
-    this.config = config
-    this.registry = new TerminalSessionRegistry(config)
+  constructor(getConfig: () => TerminalConfig) {
+    this.getConfig = getConfig
+    this.registry = new TerminalSessionRegistry(getConfig)
   }
 
   startCleanup(): void {
@@ -41,10 +41,6 @@ export class TerminalService {
 
   get registryInstance(): TerminalSessionRegistry {
     return this.registry
-  }
-
-  get configInstance(): TerminalConfig {
-    return this.config
   }
 
   createSession(
@@ -199,7 +195,7 @@ export class TerminalService {
     const timer = setTimeout(() => {
       this.idleTimers.delete(sessionId)
       this.closeSession(sessionId)
-    }, this.config.idleTimeoutMs)
+    }, this.getConfig().idleTimeoutMs)
 
     this.idleTimers.set(sessionId, timer)
   }
@@ -214,6 +210,7 @@ export class TerminalService {
 
   private evictExpiredSessions(): void {
     const now = Date.now()
+    const config = this.getConfig()
     for (const session of this.registry.getAll()) {
       if (session.status === "closed" || session.status === "error") {
         this.closeSession(session.sessionId)
@@ -221,7 +218,7 @@ export class TerminalService {
       }
 
       const lastActive = new Date(session.lastActiveAt).getTime()
-      if (now - lastActive > this.config.idleTimeoutMs && !this.attached.has(session.sessionId)) {
+      if (now - lastActive > config.idleTimeoutMs && !this.attached.has(session.sessionId)) {
         this.closeSession(session.sessionId)
       }
     }

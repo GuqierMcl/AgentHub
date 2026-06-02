@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useTheme } from "@/components/useTheme"
+import { useEditorSettings } from "@/hooks/useEditorSettings"
 import "../../utils/monaco-loader"
 import { getCodePreviewMeta } from "../../utils/code-preview"
 
@@ -19,22 +20,9 @@ type CodePreviewProps = {
   onFullscreen?: () => void
 }
 
-const EDITOR_OPTIONS = {
-  readOnly: true,
-  minimap: { enabled: false },
-  scrollBeyondLastLine: false,
-  automaticLayout: true,
-  renderValidationDecorations: "on" as const,
-  lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
-  wordWrap: "off" as const,
-  renderWhitespace: "selection" as const,
-  lineNumbers: "on" as const,
-  folding: true,
-  tabSize: 2,
-}
-
 export function CodePreview({ path, content, onFullscreen }: CodePreviewProps) {
   const { theme } = useTheme()
+  const editorSettings = useEditorSettings()
 
   const monacoLanguage = useMemo(() => {
     return getCodePreviewMeta(path).monacoLanguage ?? "plaintext"
@@ -52,6 +40,22 @@ export function CodePreview({ path, content, onFullscreen }: CodePreviewProps) {
   }, [theme])
 
   const monacoTheme = resolvedTheme === "dark" ? "vs-dark" : "vs"
+
+  const options = useMemo(() => ({
+    readOnly: true,
+    minimap: { enabled: editorSettings.minimapEnabled },
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+    renderValidationDecorations: "on" as const,
+    lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
+    wordWrap: editorSettings.wordWrap,
+    renderWhitespace: editorSettings.renderWhitespace,
+    lineNumbers: editorSettings.lineNumbers,
+    folding: editorSettings.folding,
+    tabSize: editorSettings.tabSize,
+    fontSize: editorSettings.fontSize,
+    fontFamily: editorSettings.fontFamily || undefined,
+  }), [editorSettings])
 
   if (!content) {
     return (
@@ -77,7 +81,7 @@ export function CodePreview({ path, content, onFullscreen }: CodePreviewProps) {
           language={monacoLanguage}
           value={content}
           theme={monacoTheme}
-          options={EDITOR_OPTIONS}
+          options={options}
           loading={
             <div className="flex h-full flex-col gap-3 p-4">
               <Skeleton className="h-5 w-48" />
