@@ -955,7 +955,22 @@ function createWorkspaceDiffArtifact(event: RuntimeRunEvent): Artifact | undefin
     title: formatWorkspaceDiffTitle(),
     description: formatWorkspaceDiffDescription(workspaceDiff, changedFileCount),
     meta: formatWorkspaceDiffArtifactMeta(workspaceDiff, changedFileCount),
+    detail: {
+      kind: "workspace-diff",
+      workspaceDiff,
+      ...(resolveWorkspaceDiffPatchText(workspaceDiff) ? {
+        patchText: resolveWorkspaceDiffPatchText(workspaceDiff),
+      } : {}),
+    },
   }
+}
+
+function resolveWorkspaceDiffPatchText(
+  workspaceDiff: Record<string, unknown>
+): string | undefined {
+  const patch = getRecord(workspaceDiff.patch)
+  const patchText = getString(patch?.text)
+  return patchText === undefined ? undefined : patchText
 }
 
 function findWorkspaceDiffArtifactTargetIndex(

@@ -23,12 +23,21 @@ export type Agent = {
 
 export type ArtifactKind = "code" | "preview" | "diff" | "deploy"
 
+export type WorkspaceDiffArtifactDetail = {
+  kind: "workspace-diff"
+  workspaceDiff: Record<string, unknown>
+  patchText?: string
+}
+
 export type Artifact = {
   id: string
   type: ArtifactKind
   title: string
   description: string
   meta: string
+  sourceArtifactId?: string
+  conversationId?: string
+  detail?: WorkspaceDiffArtifactDetail
 }
 
 export type MessageVersion = {

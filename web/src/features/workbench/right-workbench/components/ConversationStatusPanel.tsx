@@ -1,4 +1,5 @@
 import {
+  FileDiffIcon,
   GitBranchIcon,
   ListChecksIcon,
   NetworkIcon,
@@ -26,6 +27,7 @@ import type { RuntimeRunStatus } from "@/features/workbench/api/runtime-runs"
 import type { RunConnectionStatus } from "@/features/workbench/store/workbench-store"
 import type {
   Conversation,
+  WorkbenchTimelineChatMessageItem,
   WorkbenchTimelinePlanItem,
 } from "@/features/workbench/types"
 import { cn } from "@/lib/utils"
@@ -50,6 +52,9 @@ export function ConversationStatusPanel({
   const taskCount = latestPlan?.tasks.length ?? 0
   const completedTaskCount =
     latestPlan?.tasks.filter((task) => task.status === "completed").length ?? 0
+  const latestWorkspaceDiff = getLatestWorkspaceDiff(conversation)
+  const gitSummary = getGitSummary(latestWorkspaceDiff)
+  const tokenSummary = getTokenSummary(conversation)
 
   const planAggregateStatus = latestPlan
     ? getPlanAggregateStatus(latestPlan.tasks)
@@ -126,36 +131,38 @@ export function ConversationStatusPanel({
             <SectionTitle icon={<GitBranchIcon className="size-4" />}>
               Git 信息
             </SectionTitle>
-            <div className="rounded-md border bg-muted/20 p-3 text-xs">
-              <div className="flex items-start justify-between gap-2">
-                <span className="text-muted-foreground">当前分支</span>
-                <span className="text-right">未接入</span>
+            <InfoBlock
+              emptyText="产生一次工作区变更后显示 Git 摘要"
+              rows={gitSummary.rows}
+            />
+            {gitSummary.badges.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {gitSummary.badges.map((badge) => (
+                  <Badge key={badge} variant="secondary">{badge}</Badge>
+                ))}
               </div>
-              <div className="mt-2 flex items-start justify-between gap-2">
-                <span className="text-muted-foreground">工作区状态</span>
-                <span className="text-right">静态占位</span>
-              </div>
-            </div>
+            ) : null}
           </section>
 
           <section className="space-y-2">
             <SectionTitle icon={<SigmaIcon className="size-4" />}>
               Token 信息
             </SectionTitle>
-            <div className="rounded-md border bg-muted/20 p-3 text-xs">
-              <div className="flex items-start justify-between gap-2">
-                <span className="text-muted-foreground">输入 Token</span>
-                <span className="text-right">待统计</span>
+            <InfoBlock
+              emptyText="暂无可统计的模型用量"
+              rows={tokenSummary.rows}
+            />
+            {tokenSummary.badges.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {tokenSummary.badges.map((badge) => (
+                  <Badge key={badge} variant="secondary">{badge}</Badge>
+                ))}
               </div>
-              <div className="mt-2 flex items-start justify-between gap-2">
-                <span className="text-muted-foreground">输出 Token</span>
-                <span className="text-right">待统计</span>
-              </div>
-            </div>
+            ) : null}
           </section>
 
           <section className="space-y-2">
-            <SectionTitle icon={<NetworkIcon className="size-4" />}>
+            <SectionTitle icon={<FileDiffIcon className="size-4" />}>
               工作区
             </SectionTitle>
             <div className="rounded-md border bg-muted/20 p-3 text-muted-foreground text-xs break-all">
@@ -347,6 +354,33 @@ function StatusMetric({
   )
 }
 
+function InfoBlock({
+  emptyText,
+  rows,
+}: {
+  emptyText: string
+  rows: Array<{ label: string; value: string }>
+}) {
+  if (!rows.length) {
+    return (
+      <div className="rounded-md border bg-muted/20 p-3 text-muted-foreground text-xs">
+        {emptyText}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border bg-muted/20 p-3 text-xs">
+      {rows.map((row) => (
+        <div className="flex items-start justify-between gap-3" key={row.label}>
+          <span className="shrink-0 text-muted-foreground">{row.label}</span>
+          <span className="min-w-0 text-right break-words">{row.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function SectionTitle({
   children,
   icon,
@@ -360,6 +394,161 @@ function SectionTitle({
       <h4 className="font-medium text-sm text-foreground">{children}</h4>
     </div>
   )
+}
+
+function getLatestWorkspaceDiff(
+  conversation: Conversation | null
+): Record<string, unknown> | undefined {
+  const items = conversation?.timelineItems ?? []
+  for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+    const item = items[itemIndex]
+    if (item.kind !== "chat_message") continue
+    const artifacts = item.artifacts ?? []
+    for (let artifactIndex = artifacts.length - 1; artifactIndex >= 0; artifactIndex -= 1) {
+      const artifact = artifacts[artifactIndex]
+      if (artifact.type !== "diff") continue
+      if (artifact.detail?.workspaceDiff) {
+        return artifact.detail.workspaceDiff
+      }
+    }
+  }
+  return undefined
+}
+
+function getGitSummary(workspaceDiff: Record<string, unknown> | undefined): {
+  rows: Array<{ label: string; value: string }>
+  badges: string[]
+} {
+  if (!workspaceDiff) return { rows: [], badges: [] }
+
+  const baseline = getRecord(workspaceDiff.baseline)
+  const final = getRecord(workspaceDiff.final)
+  const stats = getRecord(workspaceDiff.stats)
+  const changedFileCount = getNumber(stats?.filesChanged) ??
+    (Array.isArray(workspaceDiff.changedFiles) ? workspaceDiff.changedFiles.length : undefined)
+  const additions = getNumber(stats?.additions)
+  const deletions = getNumber(stats?.deletions)
+  const branch = getString(final?.branch) ?? getString(baseline?.branch)
+  const head = getString(final?.head) ?? getString(baseline?.head)
+  const limitations = getStringArray(workspaceDiff.limitations)
+  const status = getString(workspaceDiff.status)
+
+  const rows = [
+    { label: "Diff 状态", value: formatWorkspaceDiffStatus(status) },
+    { label: "当前分支", value: branch ?? "未读取" },
+    { label: "HEAD", value: head ? shortCommit(head) : limitations.includes("head_unavailable") ? "尚未首次提交" : "未读取" },
+    { label: "运行前状态", value: baseline?.dirty === true ? "已有未提交变更" : "干净" },
+    { label: "最终状态", value: final?.dirty === true ? "存在未提交变更" : "干净" },
+    {
+      label: "变更统计",
+      value: formatGitChangeStats(changedFileCount, additions, deletions),
+    },
+  ]
+
+  const badges = [
+    workspaceDiff.baselineDirty === true ? "运行前已有变更" : undefined,
+    workspaceDiff.runOnlyReliable === false ? "非精确 Run Diff" : undefined,
+    status && status !== "available" ? formatWorkspaceDiffStatus(status) : undefined,
+  ].filter((badge): badge is string => Boolean(badge))
+
+  return { rows, badges }
+}
+
+function getTokenSummary(conversation: Conversation | null): {
+  rows: Array<{ label: string; value: string }>
+  badges: string[]
+} {
+  const messages = (conversation?.timelineItems ?? []).filter(
+    (item): item is WorkbenchTimelineChatMessageItem =>
+      item.kind === "chat_message" && item.role === "assistant"
+  )
+  const generations = messages
+    .map((message) => message.generation)
+    .filter((generation): generation is NonNullable<WorkbenchTimelineChatMessageItem["generation"]> =>
+      Boolean(generation?.usage)
+    )
+
+  if (!generations.length) return { rows: [], badges: [] }
+
+  const usage = generations.reduce(
+    (acc, generation) => ({
+      inputTokens: acc.inputTokens + (generation.usage?.inputTokens ?? 0),
+      outputTokens: acc.outputTokens + (generation.usage?.outputTokens ?? 0),
+      totalTokens: acc.totalTokens + (
+        generation.usage?.totalTokens ??
+        (generation.usage?.inputTokens ?? 0) + (generation.usage?.outputTokens ?? 0)
+      ),
+      reasoningTokens: acc.reasoningTokens + (generation.usage?.reasoningTokens ?? 0),
+      cachedInputTokens: acc.cachedInputTokens + (generation.usage?.cachedInputTokens ?? 0),
+    }),
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+    }
+  )
+  const latestGeneration = [...generations].reverse()
+    .find((generation) => generation.model?.modelName || generation.model?.modelId)
+  const rows = [
+    { label: "累计 Token", value: formatTokenCount(usage.totalTokens) },
+    { label: "输入 Token", value: formatTokenCount(usage.inputTokens) },
+    { label: "输出 Token", value: formatTokenCount(usage.outputTokens) },
+    ...(usage.reasoningTokens > 0
+      ? [{ label: "推理 Token", value: formatTokenCount(usage.reasoningTokens) }]
+      : []),
+    ...(usage.cachedInputTokens > 0
+      ? [{ label: "缓存输入", value: formatTokenCount(usage.cachedInputTokens) }]
+      : []),
+    ...(latestGeneration?.model
+      ? [{ label: "最近模型", value: latestGeneration.model.modelName || latestGeneration.model.modelId }]
+      : []),
+  ]
+
+  return {
+    rows,
+    badges: [
+      `${generations.length} 条回复有用量`,
+      latestGeneration?.model?.providerName,
+    ].filter((badge): badge is string => Boolean(badge)),
+  }
+}
+
+function formatWorkspaceDiffStatus(status: string | undefined): string {
+  switch (status) {
+    case "available":
+      return "可用"
+    case "degraded":
+      return "已降级"
+    case "unavailable":
+      return "不可用"
+    case "failed":
+      return "失败"
+    default:
+      return status ?? "未知"
+  }
+}
+
+function formatGitChangeStats(
+  files: number | undefined,
+  additions: number | undefined,
+  deletions: number | undefined
+): string {
+  const filePart = files !== undefined ? `${files} 个文件` : "未知文件数"
+  const lineParts = [
+    additions !== undefined && additions > 0 ? `+${additions}` : undefined,
+    deletions !== undefined && deletions > 0 ? `-${deletions}` : undefined,
+  ].filter(Boolean)
+  return lineParts.length ? `${filePart}（${lineParts.join(" / ")}）` : filePart
+}
+
+function shortCommit(value: string): string {
+  return value.length > 8 ? value.slice(0, 8) : value
+}
+
+function formatTokenCount(value: number): string {
+  return `${new Intl.NumberFormat().format(value)} tokens`
 }
 
 function runStatusLabel(status: ConversationStatusPanelProps["runStatus"]) {
@@ -398,4 +587,24 @@ function connectionStatusLabel(status: RunConnectionStatus) {
     default:
       return "空闲"
   }
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function getStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : []
 }

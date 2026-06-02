@@ -63,6 +63,7 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 
 - `POST /api/conversations/:conversationId/messages/send`
 - `GET /api/conversations/:conversationId/messages`
+- `GET /api/conversations/:conversationId/artifacts/:artifactId`
 - `GET /api/runs/:runId/events?afterSequence=`
 - `POST /api/runs/:runId/cancel`
 
@@ -81,6 +82,7 @@ HubServer 的职责：
 - 将 `agent.started.data.externalSession` 投影到 `ExternalAgentSession`，持久化 provider session link，供后续 direct 外部智能体调用续接正确的 conversation-visible session。
 - 消费 `system_agent.completed(systemAgentId="title")`，仅当 `Conversation.metadataJson.titleSource` 不是 `manual` 时更新 `Conversation.title`，并把 `titleSource` 标记为 `auto`。
 - 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes，供 Web 聊天主 UI 恢复；完整 raw Runtime event 留在 `RunEvent.payloadJson`。
+- 通过 `GET /api/conversations/:conversationId/artifacts/:artifactId` 提供 conversation-scoped Artifact Detail；Diff artifact 返回 current version、`ArtifactVersion.diffJson` 派生的文件摘要、bounded patch 文本、dirty baseline、runOnlyReliable、truncated 和 limitations，供 Web 右侧只读 Diff Viewer 恢复。跨会话或不存在的 artifact 返回稳定 `ARTIFACT_NOT_FOUND`。
 - 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。
 - 通过 `GET /api/events` 发布非持久化、无 replay 的全局产品状态事件，用于会话标题、最近消息和 Run 状态等低频 UI 通知。
 

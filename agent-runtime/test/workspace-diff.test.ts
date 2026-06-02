@@ -88,6 +88,34 @@ describe("WorkspaceDiffService", () => {
     expect(summary.patch?.text).toContain("changed")
   })
 
+  test("builds a fallback patch for untracked files when the git repository has no HEAD", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runtime-workspace-diff-unborn-"))
+    await runGit(root, ["init"])
+    const workspaceService = new WorkspaceService({
+      workdir: root,
+      workspaceId: "workspace_diff_unborn",
+      runId: "run_workspace_diff_unborn",
+    })
+    const service = new WorkspaceDiffService()
+    const baseline = await service.captureBaseline(workspaceService)
+
+    await writeFile(join(root, "hello.txt"), "hello\nworld\n", "utf8")
+    const summary = await service.summarize(workspaceService, baseline)
+
+    expect(summary.status).toBe("degraded")
+    expect(summary.baselineDirty).toBe(false)
+    expect(summary.runOnlyReliable).toBe(true)
+    expect(summary.limitations).toContain("head_unavailable")
+    expect(summary.limitations).not.toContain("branch_unavailable")
+    expect(summary.limitations).not.toContain("numstat_unavailable")
+    expect(summary.limitations).not.toContain("patch_unavailable")
+    expect(summary.changedFiles[0]?.path).toBe("hello.txt")
+    expect(summary.changedFiles[0]?.additions).toBe(2)
+    expect(summary.patch?.text).toContain("--- /dev/null")
+    expect(summary.patch?.text).toContain("+++ b/hello.txt")
+    expect(summary.patch?.text).toContain("+hello")
+  })
+
   test("summarizes deleted and renamed tracked files", async () => {
     const { root, workspaceService } = await createGitWorkspace()
     const service = new WorkspaceDiffService()

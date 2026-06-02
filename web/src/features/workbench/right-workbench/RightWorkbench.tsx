@@ -78,7 +78,7 @@ export function RightWorkbench({
       if (
         tab?.type === "terminal" &&
         tab.payload &&
-        "conversationId" in tab.payload &&
+        "workspaceId" in tab.payload &&
         typeof tab.payload.sessionId === "string"
       ) {
         terminalApi

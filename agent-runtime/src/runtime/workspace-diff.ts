@@ -180,15 +180,22 @@ export class WorkspaceDiffService {
       finalResult.fingerprintByPath,
       baselineDirty
     )
-    const numstat = finalResult.snapshot.repository === "available"
+    const numstat = finalResult.snapshot.repository === "available" && finalResult.snapshot.head
       ? await this.readNumstat(rootPath, limitations)
       : new Map<string, GitNumstatEntry>()
     applyNumstat(changedFiles, numstat)
     await applyMissingLineStats(rootPath, changedFiles, limitations)
     const stats = buildStats(changedFiles)
-    const patch = finalResult.snapshot.repository === "available"
+    let patch = finalResult.snapshot.repository === "available"
       ? await this.readPatch(rootPath, limitations)
       : undefined
+    if (finalResult.snapshot.repository === "available" && (!patch || patch.text.length === 0)) {
+      const fallbackPatch = await this.buildUntrackedPatch(rootPath, changedFiles, limitations)
+      if (fallbackPatch) {
+        patch = fallbackPatch
+        removeLimitation(limitations, "patch_unavailable")
+      }
+    }
 
     const status = finalResult.snapshot.repository === "available"
       ? limitations.length > 0 ? "degraded" : "available"
@@ -207,7 +214,7 @@ export class WorkspaceDiffService {
       baseline: effectiveBaseline.snapshot,
       final: finalResult.snapshot,
       baselineDirty,
-      runOnlyReliable: !baselineDirty && status === "available",
+      runOnlyReliable: !baselineDirty && finalResult.snapshot.repository === "available",
       changedFiles,
       stats,
       ...(patch ? { patch } : {}),
@@ -250,7 +257,7 @@ export class WorkspaceDiffService {
       "rev-parse",
       "--abbrev-ref",
       "HEAD",
-    ], "branch_unavailable", degradedReasons)
+    ], "branch_unavailable", degradedReasons, { recordDegradation: false })
 
     return {
       snapshot: {
@@ -323,11 +330,14 @@ export class WorkspaceDiffService {
     workspaceRoot: string,
     args: string[],
     degradedReason: string,
-    degradedReasons: string[]
+    degradedReasons: string[],
+    options: { recordDegradation?: boolean } = {}
   ): Promise<string | undefined> {
     const result = await this.runGit(workspaceRoot, args, { allowFailure: true })
     if (result.exitCode !== 0) {
-      degradedReasons.push(degradedReason)
+      if (options.recordDegradation !== false) {
+        degradedReasons.push(degradedReason)
+      }
       return undefined
     }
     const value = result.stdout.trim()
@@ -385,6 +395,42 @@ export class WorkspaceDiffService {
     limitations.push("patch_truncated")
     return {
       text: truncateUtf8(result.stdout, PATCH_MAX_BYTES),
+      bytes,
+      maxBytes: PATCH_MAX_BYTES,
+      truncated: true,
+      omittedReason: "patch_exceeded_budget",
+    }
+  }
+
+  private async buildUntrackedPatch(
+    workspaceRoot: string,
+    changedFiles: WorkspaceDiffFile[],
+    limitations: string[]
+  ): Promise<WorkspaceDiffPatch | undefined> {
+    const chunks: string[] = []
+    for (const file of changedFiles) {
+      if (file.statusAfter !== "??" || file.binary === true) continue
+      const chunk = await buildUntrackedFilePatch(workspaceRoot, file.path, limitations)
+      if (chunk) {
+        chunks.push(chunk)
+      }
+    }
+    if (chunks.length === 0) return undefined
+
+    const text = chunks.join("\n")
+    const bytes = Buffer.byteLength(text, "utf8")
+    if (bytes <= PATCH_MAX_BYTES) {
+      return {
+        text,
+        bytes,
+        maxBytes: PATCH_MAX_BYTES,
+        truncated: false,
+      }
+    }
+
+    limitations.push("patch_truncated")
+    return {
+      text: truncateUtf8(text, PATCH_MAX_BYTES),
       bytes,
       maxBytes: PATCH_MAX_BYTES,
       truncated: true,
@@ -596,6 +642,42 @@ async function applyMissingLineStats(
   }
 }
 
+async function buildUntrackedFilePatch(
+  workspaceRoot: string,
+  path: string,
+  limitations: string[]
+): Promise<string | undefined> {
+  try {
+    const fullPath = join(workspaceRoot, path)
+    const fileStat = await stat(fullPath)
+    if (!fileStat.isFile()) {
+      return undefined
+    }
+    const content = await readFile(fullPath)
+    if (content.includes(0)) {
+      return undefined
+    }
+    const text = content.toString("utf8")
+    const lines = text.length === 0
+      ? []
+      : text.replace(/\r?\n$/, "").split(/\r?\n/)
+    const hunkLength = Math.max(lines.length, 0)
+    return [
+      `diff --git a/${path} b/${path}`,
+      "new file mode 100644",
+      "--- /dev/null",
+      `+++ b/${path}`,
+      `@@ -0,0 +1,${hunkLength} @@`,
+      ...lines.map((line) => `+${line}`),
+      ...(text.length > 0 && !text.endsWith("\n") ? ["\\ No newline at end of file"] : []),
+      "",
+    ].join("\n")
+  } catch {
+    limitations.push("untracked_patch_unavailable")
+    return undefined
+  }
+}
+
 function countTextLines(content: Buffer): number {
   if (content.length === 0) return 0
   let lines = 0
@@ -678,6 +760,14 @@ function normalizeGitPath(path: string): string {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))]
+}
+
+function removeLimitation(limitations: string[], limitation: string): void {
+  let index = limitations.indexOf(limitation)
+  while (index >= 0) {
+    limitations.splice(index, 1)
+    index = limitations.indexOf(limitation)
+  }
 }
 
 function truncateUtf8(text: string, maxBytes: number): string {
