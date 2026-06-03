@@ -54,7 +54,9 @@ export function ServiceStatusPanel({ collapsed }: ServiceStatusPanelProps) {
 
   useEffect(() => {
     const controller = new AbortController()
-    void refresh(controller.signal)
+    const idle = window.setTimeout(() => {
+      void refresh(controller.signal)
+    }, 0)
     const timer = window.setInterval(() => {
       void refresh()
     }, POLL_INTERVAL_MS)
@@ -62,6 +64,7 @@ export function ServiceStatusPanel({ collapsed }: ServiceStatusPanelProps) {
     return () => {
       controller.abort()
       window.clearInterval(timer)
+      window.clearTimeout(idle)
     }
   }, [refresh])
 

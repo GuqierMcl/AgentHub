@@ -11,6 +11,7 @@ import preview from './preview'
 import terminal from './terminal'
 import artifacts from './artifacts'
 import system from './system'
+import avatarOverrides from './avatar-overrides'
 
 const router = new Hono()
 
@@ -35,5 +36,6 @@ router.route('/', preview)
 router.route('/', terminal)
 router.route('/', artifacts)
 router.route('/', system)
+router.route('/', avatarOverrides)
 
 export default router

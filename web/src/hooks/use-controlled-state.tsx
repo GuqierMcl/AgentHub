@@ -17,6 +17,13 @@ export function useControlledState<T, Rest extends any[] = []>(
     value !== undefined ? value : (defaultValue as T),
   );
 
+  React.useEffect(() => {
+    if (value !== undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setInternalState(value);
+    }
+  }, [value]);
+
   const setState = React.useCallback(
     (next: T, ...args: Rest) => {
       setInternalState(next);
@@ -25,5 +32,5 @@ export function useControlledState<T, Rest extends any[] = []>(
     [onChange],
   );
 
-  return [value !== undefined ? value : state, setState] as const;
+  return [state, setState] as const;
 }

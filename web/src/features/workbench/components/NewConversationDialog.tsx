@@ -19,6 +19,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { agentsApi } from "@/features/agents/api/agents"
+import { useAvatarOverrides } from "@/features/agents/hooks/use-avatar-overrides"
 import { workbenchQueryKeys } from "../api/query-keys"
 import type { ConversationDetail, ConversationListItem, CreateConversationBody } from "../types"
 import type { AgentSummary } from "@/features/agents/types"
@@ -58,6 +59,8 @@ export function NewConversationDialog({
   })
 
   const agents = agentsQuery.data?.agents ?? EMPTY_AGENTS
+  const { data: avatarManifest } = useAvatarOverrides()
+  const avatarOverrides = avatarManifest?.agents ?? {}
 
   useEffect(() => {
     if (!open) return
@@ -275,7 +278,7 @@ export function NewConversationDialog({
                             onCheckedChange={() => toggleAgent(agent.id)}
                             size="sm"
                           />
-                          <AgentAvatar agent={agent} size="sm" />
+                           <AgentAvatar agent={agent} override={avatarOverrides[agent.id]} size="sm" />
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium truncate">{agent.name}</div>
                             <div className="text-[10px] text-muted-foreground truncate">{agent.description}</div>

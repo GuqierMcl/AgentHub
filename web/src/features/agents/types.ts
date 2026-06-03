@@ -130,3 +130,36 @@ export type UserAgentUpdateRequest = {
   permissionPolicy?: AgentPermissionPolicy
   enabled?: boolean
 }
+
+export type AvatarOverrideTone = "amber" | "blue" | "emerald" | "rose" | "slate" | "teal" | "violet"
+
+export type AvatarOverrideShape = "circle" | "rounded"
+
+export type AvatarOverrideImageFile = {
+  relativePath: string
+  mimeType: string
+  width: number
+  height: number
+  size: number
+}
+
+export type AvatarOverrideHistoryEntry = {
+  id: string
+  relativePath: string
+  mimeType: string
+  width: number
+  height: number
+  size: number
+  createdAt: string
+}
+
+export type AgentOverride =
+  | { source: "image"; file: AvatarOverrideImageFile; history?: AvatarOverrideHistoryEntry[] }
+  | { source: "icon"; icon: string; tone: AvatarOverrideTone }
+  | { source: "initials"; text: string; tone: AvatarOverrideTone; shape: AvatarOverrideShape }
+
+export type AvatarOverridesManifest = {
+  version: number
+  updatedAt: string
+  agents: Record<string, AgentOverride>
+}

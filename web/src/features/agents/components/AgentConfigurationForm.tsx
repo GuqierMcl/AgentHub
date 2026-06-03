@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { PlusIcon, XIcon } from "lucide-react"
+import { PlusIcon, XIcon, CameraIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox"
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
+import { AgentAvatar } from "@/components/agent-avatar"
 
 import { agentsApi } from "../api/agents"
 import type {
@@ -27,6 +28,8 @@ import type {
   UserAgentUpdateRequest,
 } from "../types"
 import { AgentModelControl } from "./AgentModelControl"
+import { AvatarEditDialog } from "./AvatarEditDialog"
+import { useAvatarOverrides } from "../hooks/use-avatar-overrides"
 
 type AgentConfigurationFormProps = {
   active: boolean
@@ -122,6 +125,9 @@ export function AgentConfigurationForm({
     agent?.permissionPolicy ?? DEFAULT_POLICY
   )
   const [saving, setSaving] = useState(false)
+  const [avatarEditOpen, setAvatarEditOpen] = useState(false)
+  const { data: avatarManifest } = useAvatarOverrides()
+  const currentOverride = agent ? (avatarManifest?.agents[agent.id] ?? null) : null
 
   useEffect(() => {
     if (!active) {
@@ -306,6 +312,24 @@ export function AgentConfigurationForm({
             小写字母开头，仅允许小写字母、数字、下划线和连字符。
           </p>
         )}
+      </div>
+
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+        <AgentAvatar agent={agent ?? { id: agentId, name: name || "?" }} override={currentOverride} size="lg" />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-sm font-medium">自定义头像</span>
+          <span className="text-xs text-muted-foreground">为智能体设置本地显示的自定义头像</span>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => setAvatarEditOpen(true)}>
+          <CameraIcon className="mr-1 size-3.5" />
+          更换头像
+        </Button>
+        <AvatarEditDialog
+          agent={agent ?? { id: agentId, name: name || "?" }}
+          currentOverride={currentOverride}
+          open={avatarEditOpen}
+          onOpenChange={setAvatarEditOpen}
+        />
       </div>
 
       <div className="flex flex-col gap-2">

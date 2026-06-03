@@ -5,6 +5,29 @@ import {
   PenLineIcon,
   RouteIcon,
   ShieldCheckIcon,
+  BotIcon,
+  SearchIcon,
+  EyeIcon,
+  FileTextIcon,
+  ImageIcon,
+  MusicIcon,
+  VideoIcon,
+  GlobeIcon,
+  DatabaseIcon,
+  CloudIcon,
+  ServerIcon,
+  BookOpenIcon,
+  MessageSquareIcon,
+  SparklesIcon,
+  ZapIcon,
+  BrainIcon,
+  CogIcon,
+  UsersIcon,
+  UserIcon,
+  WandSparklesIcon,
+  BlocksIcon,
+  WorkflowIcon,
+  GitBranchIcon,
   type LucideIcon,
 } from "lucide-react"
 
@@ -14,6 +37,7 @@ import {
   AvatarImage,
 } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
+import type { AgentOverride } from "@/features/agents/types"
 
 export type AgentAvatarAgent = {
   id: string
@@ -64,6 +88,7 @@ export type AgentAvatarProps = Omit<
 > & {
   agent: AgentAvatarAgent
   size?: "default" | "lg" | "sm"
+  override?: AgentOverride | null
 }
 
 const avatarPresets: Record<string, AgentAvatarSpec> = {
@@ -124,6 +149,37 @@ const avatarToneClassNames: Record<AgentAvatarTone, string> = {
   violet: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
 }
 
+const iconNameToComponent: Record<string, LucideIcon> = {
+  bot: BotIcon,
+  code2: Code2Icon,
+  search: SearchIcon,
+  eye: EyeIcon,
+  "pen-line": PenLineIcon,
+  "shield-check": ShieldCheckIcon,
+  route: RouteIcon,
+  "list-checks": ListChecksIcon,
+  "file-text": FileTextIcon,
+  image: ImageIcon,
+  music: MusicIcon,
+  video: VideoIcon,
+  globe: GlobeIcon,
+  database: DatabaseIcon,
+  cloud: CloudIcon,
+  server: ServerIcon,
+  "book-open": BookOpenIcon,
+  "message-square": MessageSquareIcon,
+  sparkles: SparklesIcon,
+  zap: ZapIcon,
+  brain: BrainIcon,
+  cog: CogIcon,
+  users: UsersIcon,
+  user: UserIcon,
+  "wand-sparkles": WandSparklesIcon,
+  blocks: BlocksIcon,
+  workflow: WorkflowIcon,
+  "git-branch": GitBranchIcon,
+}
+
 function takeCharacters(value: string, count: number) {
   return Array.from(value.trim()).slice(0, count).join("")
 }
@@ -158,7 +214,50 @@ function hashAgentSeed(agent: AgentAvatarAgent) {
   return hash
 }
 
-function resolveAgentAvatar(agent: AgentAvatarAgent): AgentAvatarSpec {
+function resolveOverrideSpec(
+  override: AgentOverride,
+  agent: AgentAvatarAgent,
+): AgentAvatarSpec | null {
+  if (override.source === "image") {
+    return {
+      kind: "image",
+      initials: resolveInitials(agent),
+      src: `/api/avatar-overrides/${encodeURIComponent(agent.id)}/file`,
+      tone: "slate",
+    }
+  }
+
+  if (override.source === "icon") {
+    const IconComponent = iconNameToComponent[override.icon]
+    if (!IconComponent) return null
+    return {
+      kind: "icon",
+      icon: IconComponent,
+      initials: resolveInitials(agent),
+      tone: override.tone,
+    }
+  }
+
+  if (override.source === "initials") {
+    return {
+      kind: "initials",
+      initials: takeCharacters(override.text, 2).toUpperCase(),
+      tone: override.tone,
+    }
+  }
+
+  return null
+}
+
+function resolveAgentAvatar(
+  agent: AgentAvatarAgent,
+  override?: AgentOverride | null,
+): AgentAvatarSpec {
+  if (override) {
+    const spec = resolveOverrideSpec(override, agent)
+    if (spec) return spec
+  }
+
   const preset = avatarPresets[agent.id.toLowerCase()]
 
   if (preset) {
@@ -176,9 +275,10 @@ export function AgentAvatar({
   agent,
   className,
   size = "default",
+  override,
   ...props
 }: AgentAvatarProps) {
-  const avatar = resolveAgentAvatar(agent)
+  const avatar = resolveAgentAvatar(agent, override)
   const fallbackClassName = cn(
     "font-semibold group-data-[size=lg]/avatar:text-base [&>svg]:size-4 group-data-[size=lg]/avatar:[&>svg]:size-5 group-data-[size=sm]/avatar:[&>svg]:size-3",
     avatarToneClassNames[avatar.tone]

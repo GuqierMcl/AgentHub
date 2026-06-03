@@ -12,4 +12,7 @@ export const workbenchQueryKeys = {
     all: ["runtime-agents"] as const,
     primaryEnabled: ["runtime-agents", "primary", "enabled"] as const,
   },
+  avatarOverrides: {
+    all: ["avatar-overrides"] as const,
+  },
 }

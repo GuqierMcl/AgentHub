@@ -25,6 +25,7 @@ import type { RuntimeRunStatus } from "../api/runtime-runs"
 import type { RunConnectionStatus } from "../store/workbench-store"
 import { getConversationAgentProfiles } from "../utils/conversation-agents"
 import { ConversationAvatar } from "./AgentAvatar"
+import { useAvatarOverrides } from "@/features/agents/hooks/use-avatar-overrides"
 
 type ChatHeaderProps = {
   conversation: Conversation
@@ -48,11 +49,13 @@ export function ChatHeader({
   const workspaceLabel = getWorkspaceLabel(conversation.workspace)
   const missingModelCount = conversationAgents.filter(needsModelBinding).length
   const showRunProgress = shouldShowRunProgress(runStatus, connectionStatus)
+  const { data: avatarManifest } = useAvatarOverrides()
+  const overrides = avatarManifest?.agents ?? {}
 
   return (
     <header className="relative flex min-h-20 shrink-0 items-center justify-between gap-4 border-border border-b bg-background px-5">
       <div className="flex min-w-0 items-center gap-3">
-        <ConversationAvatar conversation={conversation} />
+        <ConversationAvatar conversation={conversation} overrides={overrides} />
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="truncate text-base font-semibold">

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 
 import type { AgentSummary } from "../types"
 import { AgentModelIcon } from "./AgentModelControl"
+import { useAgentOverride } from "../hooks/use-avatar-overrides"
 
 type AgentCardProps = {
   agent: AgentSummary
@@ -26,6 +27,7 @@ export function AgentCard({
   selected,
 }: AgentCardProps) {
   const canToggleEnabled = agent.origin === "user"
+  const override = useAgentOverride(agent.id)
 
   return (
     <div
@@ -48,7 +50,7 @@ export function AgentCard({
       tabIndex={0}
     >
       <span className="flex min-w-0 items-center gap-2">
-        <AgentAvatar agent={agent} />
+        <AgentAvatar agent={agent} override={override} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{agent.name}</span>
           <span className="block truncate text-muted-foreground text-xs">

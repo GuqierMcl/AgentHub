@@ -37,6 +37,7 @@ import { AgentConfigurationForm } from "./components/AgentConfigurationForm"
 import { AgentDetailsPanel } from "./components/AgentDetailsPanel"
 import { AgentFormDialog } from "./components/AgentFormDialog"
 import { ModelBindingDialog } from "./components/ModelBindingDialog"
+import { useAgentOverride } from "./hooks/use-avatar-overrides"
 import type { AgentDetail, AgentOrigin, AgentSummary } from "./types"
 
 type OriginFilter = "all" | AgentOrigin
@@ -57,6 +58,7 @@ export function AgentsWorkspace() {
   )
   const [deleteTarget, setDeleteTarget] = useState<AgentDetail | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const selectedAgentOverride = useAgentOverride(selectedAgent?.id ?? "")
 
   const clearSelection = useCallback(() => {
     selectedAgentIdRef.current = null
@@ -318,7 +320,7 @@ export function AgentsWorkspace() {
                   {selectedAgent ? (
                       <header className="flex min-h-16 shrink-0 items-center justify-between gap-3 border-border border-b px-6">
                           <div className="flex min-w-0 items-center gap-3">
-                              <AgentAvatar agent={selectedAgent} />
+                              <AgentAvatar agent={selectedAgent} override={selectedAgentOverride} />
                               <div className="min-w-0">
                                   <p className="truncate text-sm font-medium">
                                       {selectedAgent.name}

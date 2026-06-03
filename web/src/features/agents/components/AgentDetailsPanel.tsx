@@ -1,5 +1,5 @@
-import type { ReactNode } from "react"
-import { BotIcon } from "lucide-react"
+import { useState, type ReactNode } from "react"
+import { BotIcon, CameraIcon } from "lucide-react"
 
 import { AgentAvatar } from "@/components/agent-avatar"
 import { Badge } from "@/components/ui/badge"
@@ -13,9 +13,10 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-
 import type { AgentDetail } from "../types"
 import { AgentModelControl } from "./AgentModelControl"
+import { AvatarEditDialog } from "./AvatarEditDialog"
+import { useAvatarOverrides } from "../hooks/use-avatar-overrides"
 
 type AgentDetailsPanelProps = {
   agent: AgentDetail | null
@@ -341,6 +342,10 @@ export function AgentDetailsPanel({
   loading,
   onConfigureModel,
 }: AgentDetailsPanelProps) {
+  const [avatarEditOpen, setAvatarEditOpen] = useState(false)
+  const { data: avatarManifest } = useAvatarOverrides()
+  const currentOverride = agent ? (avatarManifest?.agents[agent.id] ?? null) : null
+
   if (loading) {
     return <LoadingDetails />
   }
@@ -363,7 +368,17 @@ export function AgentDetailsPanel({
     <ScrollArea className="min-h-0 flex-1">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-7">
         <div className="flex items-start gap-4">
-          <AgentAvatar agent={agent} size="lg" />
+          <button
+            type="button"
+            className="group relative shrink-0"
+            onClick={() => setAvatarEditOpen(true)}
+            title="自定义头像"
+          >
+            <AgentAvatar agent={agent} override={currentOverride} size="lg" />
+            <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 transition-colors group-hover:bg-black/40">
+              <CameraIcon className="size-4 text-white opacity-0 transition-opacity group-hover:opacity-100" />
+            </div>
+          </button>
           <div className="flex min-w-0 flex-1 flex-col gap-3">
             <div className="flex min-w-0 flex-col gap-2">
               <h2 className="min-w-0 truncate text-xl font-semibold">
@@ -388,6 +403,13 @@ export function AgentDetailsPanel({
         <Separator />
 
         <DetailRows agent={agent} />
+
+        <AvatarEditDialog
+          agent={agent}
+          currentOverride={currentOverride}
+          open={avatarEditOpen}
+          onOpenChange={setAvatarEditOpen}
+        />
       </div>
     </ScrollArea>
   )

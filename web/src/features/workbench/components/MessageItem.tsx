@@ -95,6 +95,7 @@ import type {
 import { conversationMessagesApi } from "../api/messages"
 import { AgentAvatar } from "./AgentAvatar"
 import { ArtifactPreview } from "./ArtifactPreview"
+import { useAgentOverride } from "@/features/agents/hooks/use-avatar-overrides"
 
 type TimelineItemProps = {
   item: WorkbenchTimelineItem
@@ -978,9 +979,10 @@ function AgentHeader({
   agent: ConversationAgentProfile
   time: string
 }) {
+  const override = useAgentOverride(agent.id)
   return (
     <div className="flex items-center gap-2">
-      <AgentAvatar agent={agent} />
+      <AgentAvatar agent={agent} override={override} />
       <div className="min-w-0">
         <div className="truncate text-sm font-medium">{agent.name}</div>
         <div className="text-muted-foreground text-xs">{time}</div>
