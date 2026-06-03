@@ -1,20 +1,54 @@
 import { describe, expect, test } from "bun:test"
+import { execFile } from "node:child_process"
 import { EventEmitter } from "node:events"
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { PassThrough } from "node:stream"
+import { promisify } from "node:util"
 import {
   ExternalAdapterError,
   ManagedOpenCodeServer,
   RealOpenCodeClient,
+  WorkspaceDiffService,
+  WorkspaceService,
   extractAssistantText,
   type OpenCodeApiClient,
   type OpenCodeWorkspaceConnection,
 } from "../src/runtime"
 
+const execFileAsync = promisify(execFile)
+
 async function createWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), "agent-runtime-real-opencode-"))
+}
+
+async function runGit(workspaceRoot: string, args: string[]): Promise<void> {
+  await execFileAsync("git", ["-C", workspaceRoot, ...args], {
+    encoding: "utf8",
+    windowsHide: true,
+  })
+}
+
+async function createGitWorkspace(): Promise<{
+  workspaceRoot: string
+  workspaceService: WorkspaceService
+}> {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(join(workspaceRoot, "README.md"), "AgentHub OpenCode smoke workspace\n", "utf8")
+  await runGit(workspaceRoot, ["init"])
+  await runGit(workspaceRoot, ["config", "user.email", "agenthub@example.local"])
+  await runGit(workspaceRoot, ["config", "user.name", "AgentHub Test"])
+  await runGit(workspaceRoot, ["add", "."])
+  await runGit(workspaceRoot, ["commit", "-m", "initial"])
+  return {
+    workspaceRoot,
+    workspaceService: new WorkspaceService({
+      workdir: workspaceRoot,
+      workspaceId: "workspace_opencode_write_smoke",
+      runId: "run_opencode_write_smoke",
+    }),
+  }
 }
 
 function response<T>(data: T): { data: T; error: undefined } {
@@ -1299,6 +1333,55 @@ describe("RealOpenCodeClient", () => {
     ])
   })
 
+  test("falls back to prompt response when OpenCode event stream throws", async () => {
+    const workspaceRoot = await createWorkspace()
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* failingOpenCodeEventStream() {
+          throw new Error("event stream disconnected")
+        })(),
+      }),
+      sessionPrompt: async () => response({
+        info: {
+          id: "message_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "Fallback after stream error" }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_event_stream_error",
+      conversationId: "conv_event_stream_error",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_event_stream_error",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const events = []
+    for await (const event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Use fallback after event stream error",
+      },
+      signal: new AbortController().signal,
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { type: "message.delta", delta: "Fallback after stream error" },
+      { type: "message.completed", content: "Fallback after stream error" },
+    ])
+  })
+
   test("forces Build agent for AgentHub-originated prompts", async () => {
     const workspaceRoot = await createWorkspace()
     let promptAgent: string | undefined
@@ -1496,6 +1579,7 @@ describe("RealOpenCodeClient", () => {
 
 const opencodeSmokeTest = process.env.AGENTHUB_OPENCODE_SMOKE === "1" ? test : test.skip
 const opencodePromptSmokeTest = process.env.AGENTHUB_OPENCODE_PROMPT_SMOKE === "1" ? test : test.skip
+const opencodeWriteSmokeTest = process.env.AGENTHUB_OPENCODE_WRITE_SMOKE === "1" ? test : test.skip
 
 describe("OpenCode optional smoke tests", () => {
   opencodeSmokeTest("starts a real workspace-scoped OpenCode server and validates project/path", async () => {
@@ -1538,6 +1622,53 @@ describe("OpenCode optional smoke tests", () => {
       }
 
       expect(events.some((event) => event.type === "message.completed" && event.content.length > 0)).toBe(true)
+    } finally {
+      await server.closeAll()
+    }
+  })
+
+  opencodeWriteSmokeTest("runs a real OpenCode write prompt and records workspace diff", async () => {
+    const { workspaceRoot, workspaceService } = await createGitWorkspace()
+    const diffService = new WorkspaceDiffService()
+    const baseline = await diffService.captureBaseline(workspaceService)
+    const server = new ManagedOpenCodeServer()
+    const client = new RealOpenCodeClient({ server })
+    const targetFile = "agenthub-opencode-smoke.txt"
+    const targetContent = "AgentHub OpenCode write smoke"
+
+    try {
+      const session = await client.ensureSession({
+        runId: "run_opencode_write_smoke",
+        conversationId: "conv_opencode_write_smoke",
+        agentId: "opencode",
+        scope: "conversation-visible",
+        workspaceId: "workspace_opencode_write_smoke",
+        workspaceRootPath: workspaceRoot,
+      })
+      const events = []
+      for await (const event of client.streamPrompt({
+        session,
+        prompt: {
+          scope: "conversation-visible",
+          content: [
+            `Create a file named ${targetFile} in the current workspace.`,
+            `The file content must include exactly this text: ${targetContent}.`,
+            "Reply briefly after the file is written.",
+          ].join("\n"),
+        },
+        signal: new AbortController().signal,
+      })) {
+        events.push(event)
+      }
+
+      const fileContent = await readFile(join(workspaceRoot, targetFile), "utf8")
+      const summary = await diffService.summarize(workspaceService, baseline)
+
+      expect(fileContent).toContain(targetContent)
+      expect(events.some((event) => event.type === "message.completed" && event.content.length > 0)).toBe(true)
+      expect(summary.changedFiles.some((file) => file.path === targetFile)).toBe(true)
+      expect(summary.stats.filesChanged).toBeGreaterThan(0)
+      expect(summary.patch?.text ?? "").toContain(targetContent)
     } finally {
       await server.closeAll()
     }

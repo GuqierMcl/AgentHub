@@ -554,7 +554,7 @@ describe('workspace diff artifact projection', () => {
 })
 
 describe('tool message projection', () => {
-  it('backfills OpenCode tool parts when tool events arrive before the assistant message', async () => {
+  it('backfills OpenCode tool parts and keeps diff artifacts on the assistant message', async () => {
     const { service, conversationId, runId } = await createProjectionFixture({
       inputJson: {
         participantAgentIds: ['opencode'],
@@ -618,6 +618,19 @@ describe('tool message projection', () => {
           },
         },
       },
+      {
+        sequence: 4,
+        event: {
+          id: `event_workspace_diff_${randomUUID()}`,
+          runId: 'runtime_opencode_tool_order',
+          type: 'run.completed',
+          timestamp: '2026-06-03T00:00:03.000Z',
+          data: {
+            status: 'completed',
+            workspaceDiff: createWorkspaceDiffSummary(),
+          },
+        },
+      },
     ])
 
     const response = await service.listConversationMessages(conversationId)
@@ -636,6 +649,13 @@ describe('tool message projection', () => {
       externalProvider: 'opencode',
       output: {
         title: 'Edited src/index.ts',
+      },
+    })
+    expect(assistantMessage?.artifacts?.[0]).toMatchObject({
+      type: 'diff',
+      createdByAgentId: 'opencode',
+      currentVersion: {
+        summary: '1 workspace file changed (+3/-1)',
       },
     })
   })

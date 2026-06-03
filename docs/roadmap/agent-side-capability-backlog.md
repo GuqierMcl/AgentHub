@@ -41,19 +41,19 @@ Agent-side Capability Backlog
 
 ### 2. OpenCode Event Stream 与工具 timeline
 
-状态：已接入 Phase 4C，仍需真实长任务 smoke 与恢复投影硬化。
+状态：已接入 Phase 4C，并完成基础集成硬化；仍可继续观察真实长任务表现。
 
 当前 OpenCode Adapter 使用 `@opencode-ai/sdk/v2` 订阅 OpenCode event stream，并把主路径 `message.part.*` 以及前向兼容的 `session.next.*` 归一为 AgentHub `message.*`、`reasoning.*` 和 `tool.*`。Web 复用既有消息和 timeline 渲染逻辑，不为 OpenCode 单独建立浏览器直连或专属 UI 通道。
 
-后续重点：观察真实 OpenCode 长任务、断流和高频 tool event 表现；补齐完整产品级 MessagePart 持久化恢复。
+后续重点：在真实 OpenCode 长任务中继续观察高频 tool event 表现；基础断流 fallback 和 OpenCode tool MessagePart 恢复已经进入 hardening 回归。
 
 ### 3. OpenCode Permission Bridge
 
-状态：已接入 Phase 4D，仍需真实 permission kind smoke 和长任务取消硬化。
+状态：已接入 Phase 4D，并完成基础集成硬化；真实 permission kind smoke 依赖用户 OpenCode 配置。
 
 OpenCode 原生 `permission.updated` 已映射到 AgentHub `permission.*`，HubServer/Web 复用现有权限投影和 decision API，旧 `permission.asked` 作为 provider 兼容输入继续支持。AgentHub approve 固定回写 OpenCode `reply: "once"`；deny 和 Run cancel 固定回写 `reply: "reject"`。该能力不把 OpenCode 原生工具注册成 AgentHub Runtime Tool。
 
-下一阶段：OpenCode V1 集成硬化与真实 smoke，重点验证不同 permission kind、拒绝后的 OpenCode agent loop 行为和取消时 pending permission 清理。
+OpenCode V1 基础集成硬化已补齐 mock 回归与 gated real smoke。不同 permission kind 的真实触发依赖用户 OpenCode permission 配置，后续作为可选验收记录继续补充。
 
 ### 4. 第二个外部 Agent 平台
 
@@ -121,7 +121,7 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 
 ## 建议执行顺序
 
-1. OpenCode V1 集成硬化：真实 smoke、permission kind 覆盖、event stream 长任务和 replay 恢复检查。
+1. AgentHub Native Patch Review Phase 2：Workspace ChangeSet 与 agent/task/tool 归因。
 2. Artifact Projection V1：把文件、网页预览、部署状态等结构化产物接到真实消息卡片；Diff 已作为首个 artifact 闭环。
 3. 第二个外部 Agent Adapter：优先选择 Codex 或 Claude Code。
 4. 用户自建 Agent 产品化：HubServer API、Web Authoring UI、工具集授权。
@@ -134,7 +134,7 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 
 - 第二个外部 Agent 选 Codex 还是 Claude Code，需要根据本地安装、SDK/CLI 可控性、事件流能力和权限桥接难度决定。
 - Workspace Diff 的 agent/task 归因在多智能体并发写入时只能近似；V0 应先提供 aggregate summary，后续再细化。
-- OpenCode permission bridge 已有 mock 覆盖，但真实 OpenCode server 的不同 permission kind、拒绝后 agent loop 表现和长任务取消仍需 smoke。
+- OpenCode permission bridge 已有 mock 覆盖；真实 OpenCode server 的不同 permission kind、拒绝后 agent loop 表现仍依赖用户 permission 配置，可作为可选 smoke。
 - Artifact Projection 会跨 Runtime contract、HubServer persistence 和 Web UI，需单独路线图或扩展 `runs-chat-integration` roadmap。
 - Pin 关键消息需要限制注入预算，避免与普通历史、external context 和 future summary/compaction 互相重复。
 - Deploy 能力涉及真实外部服务或本机命令，应优先设计审批、环境隔离、凭据处理和失败回滚。
@@ -143,3 +143,4 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 
 - 2026-06-02：创建本文档，对照原始需求梳理智能体侧尚未接入或尚未闭环的能力，并确定 Phase 4B-4D 后续执行顺序。
 - 2026-06-03：同步 OpenCode 4B/4C/4D 进度：通用 Workspace Diff V0、OpenCode Event Stream/Tool Timeline 与 Permission Bridge 均已落地；下一步转向 OpenCode V1 集成硬化和 Artifact Projection V1。
+- 2026-06-03：同步 OpenCode V1 基础集成硬化：新增真实 write smoke 开关、event stream fallback 回归和产品级 replay 回归；下一步建议转向 AgentHub Native Patch Review Phase 2。

@@ -93,6 +93,47 @@ describe("workbench persisted message replay", () => {
           updatedAt: "2026-06-03T10:00:01.000Z",
         },
       ],
+      artifacts: [
+        {
+          id: "art_diff",
+          conversationId,
+          runId: "run_tools",
+          messageId: "msg_assistant",
+          createdByAgentId: "opencode",
+          type: "diff",
+          title: "Workspace changes",
+          status: "ready",
+          currentVersionId: "ver_diff",
+          metadataJson: {
+            source: "runtime.workspaceDiff",
+            changedFileCount: 1,
+            baselineDirty: false,
+            status: "available",
+          },
+          createdAt: "2026-06-03T10:00:01.000Z",
+          updatedAt: "2026-06-03T10:00:01.000Z",
+          currentVersion: {
+            id: "ver_diff",
+            artifactId: "art_diff",
+            version: 1,
+            source: "agent",
+            language: "diff",
+            content: "diff --git a/hello.txt b/hello.txt",
+            summary: "1 workspace file changed (+1/-0)",
+            diffJson: {
+              version: 1,
+              status: "available",
+              changedFiles: [{ path: "hello.txt", additions: 1, deletions: 0 }],
+              stats: { filesChanged: 1, additions: 1, deletions: 0 },
+              baselineDirty: false,
+              runOnlyReliable: true,
+              limitations: [],
+            },
+            createdByAgentId: "opencode",
+            createdAt: "2026-06-03T10:00:01.000Z",
+          },
+        },
+      ],
     })
 
     useWorkbenchStore.getState().hydrateTimelineFromReplay(
@@ -117,6 +158,18 @@ describe("workbench persisted message replay", () => {
           output: {
             title: "Edited hello.txt",
             output: "updated file",
+          },
+        },
+      ],
+      artifacts: [
+        {
+          id: "art_diff",
+          type: "diff",
+          sourceArtifactId: "art_diff",
+          conversationId,
+          detail: {
+            kind: "workspace-diff",
+            patchText: "diff --git a/hello.txt b/hello.txt",
           },
         },
       ],

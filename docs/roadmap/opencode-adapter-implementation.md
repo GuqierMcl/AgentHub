@@ -207,15 +207,18 @@ OpenCode Adapter V1
 
 目标：
 
-- 增加真实 OpenCode 可用时的 smoke test，默认跳过本机缺失 OpenCode 的环境。
-- 补齐错误码、日志、redaction、contract 文档和阶段 4B-4D 的端到端验收记录。
-- 验证 HubServer projection 不因 external metadata 破坏现有聊天恢复。
+- 增加真实 OpenCode 可用时的 smoke test，默认跳过本机缺失 OpenCode 或 provider 未配置的环境。
+- 补齐 server、prompt、write 三类真实 smoke 开关：`AGENTHUB_OPENCODE_SMOKE`、`AGENTHUB_OPENCODE_PROMPT_SMOKE`、`AGENTHUB_OPENCODE_WRITE_SMOKE`。
+- 补齐 event stream fallback、permission bridge、session replacement、workspace mismatch、abort 和产品级 replay 的 mocked hardening tests。
+- 验证 HubServer/Web projection 不因 OpenCode external metadata 破坏现有聊天恢复、Tool UI、permission UI 或 Diff Artifact。
+- 同步错误码、日志、redaction、contract 文档和阶段 4B-4D 的端到端验收记录。
 
 验收：
 
 - `cd agent-runtime && bun test` 通过。
 - `cd hub-server && bun test` 通过。
-- 涉及 Prisma model 时 `cd hub-server && bunx --bun prisma generate` 通过。
+- `cd web && bun test` 与 `cd web && bunx tsc --noEmit -p tsconfig.app.json` 通过。
+- 可选真实 smoke 通过对应环境变量手动启用；不作为默认 CI 要求。
 
 ## 当前进度
 
@@ -231,6 +234,7 @@ OpenCode Adapter V1
 - 阶段 4B 已落地：Runtime 通用 `WorkspaceDiffService` 在 Run 前后计算 git-based summary；HubServer 将终态 `workspaceDiff` 投影为 diff Artifact + ArtifactVersion；Web 支持 live 与 persisted diff 摘要卡片。
 - 阶段 4C 已落地：Runtime 订阅 OpenCode event stream，映射文本增量、reasoning 和原生 tool 调用到 AgentHub 稳定 RunEvent；HubServer/Web 复用现有 message/timeline 投影，不新增 OpenCode 专属前端通道。
 - 阶段 4D 已落地：OpenCode `permission.updated` 桥接到 AgentHub `permission.*`，旧 `permission.asked` 继续兼容；批准回写 `once`，拒绝和取消回写 `reject`，HubServer/Web 复用现有权限投影与审批 UI。
+- 阶段 5 基础集成硬化已落地：新增真实 write smoke 开关，补齐 event stream fallback 和产品级 replay 回归；真实 permission kind 仍作为用户配置相关的可选验收。
 
 ## 已完成
 
@@ -247,17 +251,18 @@ OpenCode Adapter V1
 - 阶段 4B：通用 Workspace Diff Summary V0、HubServer diff Artifact 投影和 Web diff 摘要卡片。
 - 阶段 4C：OpenCode Event Stream 与 Tool Timeline，包含文本增量、reasoning 和 provider tool trace 的 Runtime 归一化。
 - 阶段 4D：OpenCode Permission Bridge，复用 AgentHub permission lifecycle，并将用户 decision 回写 OpenCode。
+- 阶段 5：OpenCode V1 集成硬化基础闭环，包含 gated real smoke、mocked fallback/permission/session hardening 和 HubServer/Web replay 回归。
 
 ## 待办
 
-- 阶段 5：集成硬化。
 - OpenCode 会话头部默认模型只读状态：后续再考虑读取 OpenCode provider/config 默认值；AgentHub 仍不接管 OpenCode 模型配置。
+- 真实 permission kind smoke 可在用户显式配置 OpenCode permission 规则后继续补充验收记录。
 
 ## 风险与待确认点
 
 - 当前 `@opencode-ai/sdk@1.15.13` 的 `createOpencode()` ServerOptions 未暴露 cwd/workdir/projectPath；V1 不使用 `process.chdir()`，因此默认通过 `opencode serve` 子进程 cwd 绑定 workspace。若后续 SDK 增加进程局部 workspace 参数，可切回 SDK managed path。
-- OpenCode event stream 的文本 delta 与 tool part 已按 SDK 类型和 mock stream 覆盖；仍需要在真实 OpenCode smoke 中观察长任务、断流和高频事件表现。
-- OpenCode permission payload 和 reply API 已按本地 SDK v2 类型与 mock 覆盖实现；仍建议在 Phase 5 真实 smoke 中验证不同 permission kind、拒绝后的 OpenCode agent loop 行为和长任务取消表现。
+- OpenCode event stream 的文本 delta、tool part 和断流 fallback 已按 SDK 类型和 mock stream 覆盖；真实长任务和高频事件表现仍可在后续可选 smoke 中观察。
+- OpenCode permission payload 和 reply API 已按本地 SDK v2 类型与 mock 覆盖实现；不同 permission kind 的真实触发依赖用户 OpenCode permission 配置，后续作为可选验收记录。
 - 多个 OpenCode session 并发编辑同一 workspace 可能产生冲突；V1 只检测并标记，不自动合并。
 - 非 git workspace 的 Diff 能力需要 fallback 设计；V1 先以 unavailable summary 降级。
 - 通用 Workspace Diff V0 只保留 Run aggregate summary；内部智能体和外部智能体都可能写入同一 Run 时，后续仍需细化 agent/task 归因和冲突提示。
@@ -280,3 +285,4 @@ OpenCode Adapter V1
 - 2026-06-03：完成 Phase 4C OpenCode Event Stream 与 Tool Timeline：Runtime 订阅 OpenCode event stream，按 provider session 过滤并映射 `message.delta`、`reasoning.*` 与 `tool.*`；外部 provider tool 使用 `opencode:` toolCallId 命名空间和 `data.externalProvider` metadata，Web 继续复用现有 AgentHub timeline 渲染。
 - 2026-06-03：完成 Phase 4D OpenCode Permission Bridge：Runtime waitable external permission request、OpenCode `permission.updated` / legacy `permission.asked` 归一化、`once/reject` 回写、HubServer metadata 持久化和 Web 权限卡来源展示均已接入；下一步进入 OpenCode V1 集成硬化与真实 smoke。
 - 2026-06-03：修复 OpenCode Tool UI 对齐问题：确认 SDK `event.subscribe()` + `message.part.updated(part.type="tool")` 是事实来源；HubServer 支持 tool event 先于 assistant message 到达后的 MessagePart 回填，Web/HUB 同时兼容 `tool.completed.data.output`，外部工具继续复用 AgentHub 既有 Tool UI。
+- 2026-06-03：完成 OpenCode V1 基础集成硬化：新增 `AGENTHUB_OPENCODE_WRITE_SMOKE` 真实写入 smoke，补齐 event stream 抛错 fallback 回归，确认 OpenCode tool part 与 diff artifact 可在 HubServer/Web replay 中同时恢复；下一步优先进入 AgentHub Native Patch Review Phase 2。

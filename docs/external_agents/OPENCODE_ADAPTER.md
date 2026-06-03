@@ -380,6 +380,16 @@ OpenCode 相关日志必须明确带有 `externalProvider = "opencode"`，并使
 
 日志不应输出 OpenCode API key、认证 token、完整底层堆栈或完整用户 prompt 内容；prompt 只记录长度和追踪 id。
 
+### 12.2 V1 集成硬化与真实 smoke
+
+OpenCode V1 的默认自动化测试不得依赖本机已安装 OpenCode 或用户 provider 配置。真实 OpenCode 验收全部通过环境变量显式开启：
+
+- `AGENTHUB_OPENCODE_SMOKE=1`：启动真实 workspace-scoped OpenCode server，校验 localhost URL、Project/path 与 AgentHub 临时 workspace 一致，并关闭托管 server。
+- `AGENTHUB_OPENCODE_PROMPT_SMOKE=1`：使用用户已配置 provider 运行真实 direct prompt，验证能产生非空 `message.completed`。
+- `AGENTHUB_OPENCODE_WRITE_SMOKE=1`：在临时 git workspace 中运行真实写入 prompt，验证 AgentHub-originated prompt 仍使用 `build` execution agent，目标文件被创建或修改，并且通用 `WorkspaceDiffService` 能观测到变更。
+
+这些 smoke 只使用临时 workspace，不修改用户项目文件，不写入 OpenCode model/provider/Skill/MCP/plugin 配置。真实 permission kind 的触发依赖用户 OpenCode permission 配置；默认自动化用 mock 覆盖 approve、deny、cancel、reply failure 和 event stream fallback，真实环境只作为可选验收记录。
+
 ## 13. 直接调用与委派调用示例
 
 ### 13.1 直接 `@OpenCode`
