@@ -2,6 +2,7 @@ import { Hono, Context } from 'hono'
 import providers from './providers'
 import agents from './agents'
 import runs from './runs'
+import services from './services'
 
 const router = new Hono()
 
@@ -21,5 +22,6 @@ router.get('/health', (c: Context) => {
 router.route('/', providers)
 router.route('/', agents)
 router.route('/', runs)
+router.route('/', services)
 
 export default router

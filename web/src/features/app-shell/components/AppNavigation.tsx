@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { currentUser } from "../mock-data"
 import type { AppModuleDefinition, AppModuleId } from "../app-modules"
 import { CurrentUserBar } from "./CurrentUserBar"
+import { ServiceStatusPanel } from "./ServiceStatusPanel"
 
 type AppNavigationProps = {
   activeModuleId: AppModuleId
@@ -132,6 +133,8 @@ export function AppNavigation({
           )
         })}
       </nav>
+
+      <ServiceStatusPanel collapsed={collapsed} />
 
       <CurrentUserBar
         collapsed={collapsed}

@@ -48,6 +48,12 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 - 开发环境下，Agent Runtime 可手动独立启动（`cd agent-runtime && bun dev`）。
 - HubServer 应支持通过环境变量或配置跳过自动拉起 Sidecar 的逻辑，允许连接到已独立运行的 Agent Runtime。
 
+## 系统服务状态
+
+HubServer 暴露 `GET /api/system/services/status` 作为 Web 的唯一系统服务状态入口。浏览器不直接访问 Agent Runtime 或 OpenCode server。
+
+该接口聚合 Agent Runtime 自身健康状态、Runtime 管理的外部智能体状态，以及 HubServer 侧的未接入占位项。响应服务顺序固定为 `agent-runtime`、`opencode`、`codex`、`claude-code`。当 Agent Runtime 不可达时，接口仍返回 200，`agent-runtime` 与已实现但依赖 Runtime 的外部服务标记为 `error`，未接入服务保持 `not_integrated`，这样 Web 可以稳定渲染系统状态栏。
+
 ## 规则
 
 - `web` 必须把 `hub-server` 视为唯一后端入口。

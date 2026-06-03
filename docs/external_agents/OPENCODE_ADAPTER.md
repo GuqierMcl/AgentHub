@@ -351,6 +351,8 @@ OpenCodeAdapter 负责启动或连接 OpenCode server。
 
 当前 Phase 3 已实现 `session.prompt()` 的基础文本投影：Adapter 从 assistant message `parts` 中提取非 ignored text part，输出 AgentHub `message.delta` 与 `message.completed`；当 OpenCode response 暴露 `providerID/modelID` 时，`message.completed` 同步携带 `externalModel` 供 UI 只读展示，并在可用时附带 OpenCode provider catalog 中的显示名。
 
+Runtime 默认 `OpenCodeAdapter` 与 `GET /runtime/services/status` 共用同一个默认 `ManagedOpenCodeServer`。服务状态只读，不会主动启动 OpenCode。`idle` 表示待命，`starting` 表示至少一个 workspace connection 正在启动，`running` 表示至少一个 workspace connection 已就绪，`error` 表示最近一次启动或 workspace 校验失败且当前没有更高优先级状态。该快照只暴露连接计数、连接模式和脱敏错误摘要，不暴露 workspace root 真实路径、OpenCode 凭据或 prompt 内容。
+
 后续阶段拆分：
 
 - Phase 4B：通用 Workspace Diff Summary V0 已落地。Diff 不做 OpenCode 私有实现，而是由内部智能体和外部智能体共享同一套 workspace baseline / changed files / diffstat / bounded patch summary 逻辑，并通过 HubServer 投影为 diff Artifact。

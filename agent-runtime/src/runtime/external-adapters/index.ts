@@ -5,6 +5,7 @@ export { FakeOpenCodeClient } from "./opencode-client"
 export {
   createDefaultOpenCodeClient,
   extractAssistantText,
+  getDefaultOpenCodeServer,
   RealOpenCodeClient,
 } from "./opencode-real-client"
 export {
@@ -25,6 +26,8 @@ export type {
   OpenCodeApiClient,
   OpenCodeClientFactory,
   OpenCodeConnectionMode,
+  OpenCodeManagedServerLifecycleStatus,
+  OpenCodeManagedServerStatus,
   OpenCodeProcessLauncher,
   OpenCodeSdkManagedFactory,
   OpenCodeSdkWorkspaceOption,

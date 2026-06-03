@@ -81,6 +81,8 @@ Agent Runtime 必须暴露 `/health` 端点，用于 HubServer 判断其是否�
 3. Agent Runtime 返回 `200 OK` 且响应体包含 `"status": "ok"` 时，视为就绪。
 4. 超时（默认 10 秒）未就绪则标记启动失败，HubServer 应上报错误并决定是否重试。
 
+Runtime 另外暴露 `GET /runtime/services/status` 供 HubServer 读取服务状态快照。该端点只读，不会启动 OpenCode server、创建外部 Session 或修改 workspace。当前返回 OpenCode、Codex、Claude Code 三类服务状态，其中 Codex 与 Claude Code 在未接入前返回 `not_integrated`。OpenCode 状态来自默认 `ManagedOpenCodeServer`：`idle` 表示待命，`starting` 表示 workspace server 启动中，`running` 表示至少一个 workspace connection 已就绪，`error` 表示最近一次启动或 workspace 校验失败。
+
 健康检查响应格式：
 
 ```json

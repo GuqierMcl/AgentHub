@@ -922,7 +922,11 @@ export class RealOpenCodeClient implements OpenCodeClient {
 }
 
 export function createDefaultOpenCodeClient(): OpenCodeClient {
-  return new RealOpenCodeClient()
+  return defaultOpenCodeClient
+}
+
+export function getDefaultOpenCodeServer(): ManagedOpenCodeServer {
+  return defaultOpenCodeServer
 }
 
 export function extractAssistantText(parts: Array<Part> | unknown): string {
@@ -1394,3 +1398,8 @@ function describeError(error: unknown): unknown {
   }
   return error
 }
+
+const defaultOpenCodeServer = new ManagedOpenCodeServer()
+const defaultOpenCodeClient = new RealOpenCodeClient({
+  server: defaultOpenCodeServer,
+})

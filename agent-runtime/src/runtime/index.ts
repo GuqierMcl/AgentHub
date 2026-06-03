@@ -11,7 +11,11 @@ export {
   RealOpenCodeClient,
   createDefaultOpenCodeClient,
   extractAssistantText,
+  getDefaultOpenCodeServer,
 } from "./external-adapters"
+export {
+  createRuntimeServicesStatus,
+} from "./service-status"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
@@ -63,6 +67,8 @@ export type {
   OpenCodeClient,
   OpenCodeConnectionMode,
   OpenCodeExecutionAgent,
+  OpenCodeManagedServerLifecycleStatus,
+  OpenCodeManagedServerStatus,
   OpenCodeProcessLauncher,
   OpenCodePromptEvent,
   OpenCodePromptRequest,
@@ -72,6 +78,11 @@ export type {
   OpenCodeSessionRequest,
   OpenCodeWorkspaceConnection,
 } from "./external-adapters"
+export type {
+  RuntimeServiceStatus,
+  RuntimeServiceStatusItem,
+  RuntimeServicesStatusResponse,
+} from "./service-status"
 export type {
   RuntimeConversationMode,
   RuntimeMessage,

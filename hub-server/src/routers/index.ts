@@ -10,6 +10,7 @@ import events from './events'
 import preview from './preview'
 import terminal from './terminal'
 import artifacts from './artifacts'
+import system from './system'
 
 const router = new Hono()
 
@@ -33,5 +34,6 @@ router.route('/', events)
 router.route('/', preview)
 router.route('/', terminal)
 router.route('/', artifacts)
+router.route('/', system)
 
 export default router

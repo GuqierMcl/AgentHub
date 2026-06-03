@@ -16,6 +16,16 @@ import { ExternalAdapterError } from "./types"
 
 export type OpenCodeConnectionMode = "managed-by-runtime" | "existing-local-server"
 
+export type OpenCodeManagedServerLifecycleStatus = "idle" | "starting" | "running" | "error"
+
+export type OpenCodeManagedServerStatus = {
+  status: OpenCodeManagedServerLifecycleStatus
+  mode: OpenCodeConnectionMode
+  activeWorkspaceCount: number
+  pendingWorkspaceCount: number
+  lastError?: unknown
+}
+
 export type OpenCodeApiClient = Pick<OpencodeClient, "project" | "path" | "session" | "provider" | "event">
 
 export type OpenCodeServerHandle = {
@@ -81,6 +91,7 @@ export class ManagedOpenCodeServer {
   private readonly launchProcess: OpenCodeProcessLauncher
   private readonly connections = new Map<string, OpenCodeWorkspaceConnection>()
   private readonly pending = new Map<string, Promise<OpenCodeWorkspaceConnection>>()
+  private lastError: unknown
   private cleanupRegistered = false
 
   constructor(dependencies: ManagedOpenCodeServerDependencies = {}) {
@@ -131,6 +142,7 @@ export class ManagedOpenCodeServer {
     const next = this.start(workspaceRoot)
       .then((connection) => {
         this.connections.set(workspaceRoot, connection)
+        this.lastError = undefined
         this.registerProcessCleanup()
         log.info(
           {
@@ -143,11 +155,35 @@ export class ManagedOpenCodeServer {
         )
         return connection
       })
+      .catch((error) => {
+        this.lastError = sanitizeStatusError(error)
+        throw error
+      })
       .finally(() => {
         this.pending.delete(workspaceRoot)
       })
     this.pending.set(workspaceRoot, next)
     return next
+  }
+
+  getStatus(): OpenCodeManagedServerStatus {
+    const activeWorkspaceCount = this.connections.size
+    const pendingWorkspaceCount = this.pending.size
+    const status: OpenCodeManagedServerLifecycleStatus = pendingWorkspaceCount > 0
+      ? "starting"
+      : activeWorkspaceCount > 0
+        ? "running"
+        : this.lastError
+          ? "error"
+          : "idle"
+
+    return {
+      status,
+      mode: "managed-by-runtime",
+      activeWorkspaceCount,
+      pendingWorkspaceCount,
+      ...(this.lastError ? { lastError: this.lastError } : {}),
+    }
   }
 
   async closeAll(): Promise<void> {
@@ -753,4 +789,14 @@ function describeError(error: unknown): unknown {
     }
   }
   return error
+}
+
+function sanitizeStatusError(error: unknown): unknown {
+  if (error instanceof ExternalAdapterError) {
+    return {
+      code: error.code,
+      message: error.message,
+    }
+  }
+  return describeError(error)
 }

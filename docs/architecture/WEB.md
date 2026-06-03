@@ -38,6 +38,7 @@
 - 当前 Diff Viewer 是只读的 Phase 1 能力：展示文件列表、hunk、增删行、binary、truncated、dirty baseline 和 runOnlyReliable 提示；不提供 apply、revert、accept/reject hunk 操作。dirty baseline 下必须明确提示“不是精确 run-only patch”。“代码审查”标签页内容必须随右侧产物工作台父容器宽度弹性变化：文件列表与 Diff 保持上下排列并占满父容器宽度，父容器变窄时内容继续压缩，文本路径截断，长代码行只在 Diff 区内部横向滚动，不能撑破父容器。
 - Web 通过 HubServer 的产品级 `/api/conversations/:conversationId/messages*` 与 `/api/runs/:runId/*` API 发送消息、续订事件流和取消 Run；浏览器仍不得直接调用 `agent-runtime`。`/api/runtime/runs*` 仅保留为调试代理，不是聊天主路径。HubServer 创建 Runtime Run 时默认设置 `diagnostics.includeModelStream=false`，避免高频 `model.stream.part` 诊断事件进入前端热路径；需要调试模型原始 part 时再显式打开诊断。
 - Web 在 `App` 根部维护一条全局 `EventSource("/api/events")`，用于消费 HubServer 的 best-effort 产品状态通知。该通道只处理 conversation 标题、最近消息和 Run 状态等低频事件；不用于聊天 timeline，不做 replay，不做断线期间漏事件补偿。收到 conversation 事件后刷新 TanStack Query；收到 run 状态事件后只更新已打开 conversation 的 Zustand runtime state。
+- 左侧一级导航在模块导航下方、用户栏上方展示系统服务状态面板。Web 只轮询 `GET /api/system/services/status`，不直接访问 Agent Runtime 或 OpenCode server。展开导航时显示 AgentRuntime、OpenCode、Codex、Claude Code 的紧凑中文状态；折叠导航时显示聚合状态点与 tooltip。OpenCode `idle` 显示为“待命”，Codex/Claude Code 未接入时显示“未接入”。
 - 当前智能体头像 V1 由前端共享 resolver 根据 agent id/origin 解析：系统预设使用图标库，外部智能体可使用静态资源，未知或用户自定义智能体使用 initials/hash 兜底；API 契约暂不包含头像字段。
 - 页面根容器填满视口，不产生 `body` 级滚动；模块内的列表、消息流、详情表单与产物内容各自在内部滚动。
 - 当同一 Web 应用运行在 Electrobun 桌面壳内时，`AppShell` 可以通过 Electrobun 注入的 `window.__electrobunWindowId` 与 `window.__electrobunWebviewId` 检测桌面运行时，并渲染自定义 `DesktopTitleBar`。普通浏览器不显示该标题栏，保持原 Web 布局。

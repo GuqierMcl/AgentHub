@@ -58,6 +58,47 @@ HubServer 启动 Agent Runtime 时，传入以下命令行参数：
 
 HubServer 通过轮询此端点判断 Agent Runtime 是否就绪。超时（默认 10 秒）未返回 `200` 则视为启动失败。
 
+### Runtime 服务状态快照
+
+**端点**：`GET /runtime/services/status`
+
+本端点只面向 HubServer，用于读取 Runtime 内部可观测服务状态。它不得触发 OpenCode server 启动、外部 Session 创建、模型调用或任何 workspace 写入。
+
+成功响应：
+
+```ts
+type RuntimeServiceStatus =
+  | "running"
+  | "starting"
+  | "idle"
+  | "error"
+  | "not_integrated"
+
+type RuntimeServiceStatusItem = {
+  id: "opencode" | "codex" | "claude-code"
+  label: string
+  kind: "external-agent"
+  status: RuntimeServiceStatus
+  implemented: boolean
+  checkedAt: string
+  activeWorkspaceCount?: number
+  pendingWorkspaceCount?: number
+  details?: Record<string, unknown>
+}
+
+type RuntimeServicesStatusResponse = {
+  checkedAt: string
+  services: RuntimeServiceStatusItem[]
+}
+```
+
+当前语义：
+
+- `opencode` 已接入，状态来自 Runtime 默认 `ManagedOpenCodeServer` 的只读快照。
+- `idle` 表示待命；`starting` 表示至少一个 workspace server 正在启动；`running` 表示至少一个 workspace server 已连接；`error` 表示最近一次启动或 workspace 校验失败。
+- `codex` 与 `claude-code` 当前只返回 `not_integrated` 占位，避免误导为故障。
+- 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt 或 provider 凭据。
+
 ### 内部调用鉴权
 
 HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服务凭证。MVP 阶段可使用共享密钥（通过环境变量或启动参数传递），后续可升级为更安全的鉴权机制。
