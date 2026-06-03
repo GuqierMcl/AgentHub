@@ -53,31 +53,6 @@ export function getPrismaClient(): PrismaClient {
   return prisma
 }
 
-function runMigrations(dbUrl: string): void {
-  const MAX_RETRIES = 3
-  const RETRY_DELAY_MS = 1500
-
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      execSync('bunx --bun prisma migrate deploy', {
-        cwd: PROJECT_ROOT,
-        env: { ...process.env, DATABASE_URL: dbUrl },
-        stdio: 'inherit',
-      })
-      return
-    } catch (err: any) {
-      const isLocked = err?.stderr?.includes('database is locked') ||
-        err?.message?.includes('database is locked')
-      if (isLocked && attempt < MAX_RETRIES - 1) {
-        console.warn(`Database locked during migration, retrying in ${RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_RETRIES})`)
-        Bun.sleepSync(RETRY_DELAY_MS)
-        continue
-      }
-      throw err
-    }
-  }
-}
-
 export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
   if (prisma) {
     return prisma
@@ -85,8 +60,6 @@ export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
 
   process.env.DATABASE_URL = dbUrl
   ensureSqliteFile(dbUrl)
-
-  runMigrations(dbUrl)
 
   if (!isPrismaClientUpToDate()) {
     execSync('bunx --bun prisma generate', {

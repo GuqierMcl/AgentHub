@@ -158,12 +158,13 @@ Hub Server 使用 Prisma 管理 SQLite 的 Schema、迁移和数据访问。
 
 - 数据模型定义在 `prisma/schema.prisma` 中，以 Prisma Schema 作为数据建模的唯一来源。
 - Prisma ORM 7 使用 `generator client { provider = "prisma-client" output = "../src/generated/prisma" }`，由 `src/lib/db.ts` 动态加载生成的 client。
-- `prisma.config.ts` 负责 Prisma CLI 配置，包含 `schema`、`migrations.path`、datasource URL 和本地 SQLite 文件初始化。
-- Prisma CLI 命令通过 `bunx --bun prisma ...` 运行，确保在 Bun 运行时执行。
+- `prisma.config.ts` 负责 Prisma CLI 配置，包含 `schema`、`migrations.path`、datasource URL 和本地 SQLite 文件初始化；CLI 默认 datasource 仍指向 `prisma/data-tmp/dev.db`，可通过 `DATABASE_URL` 显式覆盖。
+- Prisma CLI 命令通过 `hub-server/package.json` scripts 运行，确保开发工作流入口集中管理。
+- 当前阶段 `bun dev` 会先执行 `bun run dev:migrate`，由该 helper 按 Hub Server 数据目录注入 `DATABASE_URL` 后运行 `prisma:migrate:deploy`，再启动 Hub Server；应用运行时代码不得直接执行 `prisma migrate deploy`。
 - SQLite 在 Bun 下通过 `@prisma/adapter-libsql` 适配到 Prisma Client。
 - 初始化连接后启用 `journal_mode = WAL`、`synchronous = NORMAL` 和 `busy_timeout = 5000`，降低 Runtime SSE 高频持久化时的写锁阻塞。
 - 启动时不得删除、截断或重建 `hub.db-wal` / `hub.db-shm`。WAL 文件可能包含已提交但尚未 checkpoint 到主库的消息、Run 和 RunEvent；SQLite 会在打开数据库时完成恢复。HubServer 正常关闭时会尝试执行 `PRAGMA wal_checkpoint(TRUNCATE)`，但异常退出后必须保留 WAL 供下次启动恢复。
-- 通过 `prisma migrate` 管理迁移文件和部署；应用运行时代码不拼接或执行业务 DDL。
+- 通过 `prisma migrate` 管理迁移文件和开发环境部署；应用运行时代码不拼接或执行业务 DDL，也不直接 shell 执行迁移命令。
 - 数据访问统一通过 Prisma Client 进行，不使用原生 SQL 拼接。
 - Prisma 的 datasource URL 应动态指向数据目录下的 `hub.db`，不硬编码路径。
 - 新增或修改数据模型时，必须同步更新 `docs/architecture/DATA_MODEL.md`。
@@ -187,14 +188,15 @@ Hub Server 在启动时必须完成数据库初始化：
 
 1. **解析数据目录**：通过 `getAppDataDir()` 获取数据目录路径。
 2. **确保目录和 SQLite 文件存在**：若数据目录不存在，使用 `fs.mkdir(path, { recursive: true })` 递归创建；若 `file:` URL 指向的 SQLite 文件不存在，先创建空文件。
-3. **执行 Prisma 迁移和生成 Prisma Client**：运行 `bunx --bun prisma migrate deploy` 和 `bunx --bun prisma generate`，确保表结构与生成代码都与应用版本一致。
+3. **生成 Prisma Client**：若生成产物缺失或落后于 schema，运行 `bunx --bun prisma generate`，确保生成代码与应用版本一致。
 4. **初始化 Prisma Client**：使用 `@prisma/adapter-libsql` 创建 Prisma Client 实例并验证连接。
 
 初始化顺序约束：
 
 - 数据库初始化必须在 Hono 路由注册之前完成。
 - 若初始化失败，服务应终止启动并输出明确错误信息，不允许在无数据库状态下运行。
-- Prisma 7 的 SQLite migrate/status 流程要求目标数据库文件已存在，Hub Server 启动时必须先 touch 文件再执行迁移。
+- Prisma 7 的 SQLite migrate/status 流程要求目标数据库文件已存在；开发迁移由 `dev:migrate` / `prisma.config.ts` 在 CLI 执行前确保文件存在，`initDatabase()` 仅在 Prisma Client 连接前确保文件存在。
+- 当前阶段迁移由开发脚本在 Hub Server 进程启动前完成，`initDatabase()` 不承担迁移职责。
 - Prisma 迁移应幂等，重复执行不应导致数据丢失或冲突。
 
 ### 数据目录
@@ -265,3 +267,7 @@ Hub Server 使用 Pino 作为结构化日志库，禁止直接使用 `console.lo
 ```bash
 cd hub-server && bun dev
 ```
+
+`bun dev` 会先运行 `bun run dev:migrate`，再以 hot reload 方式启动 `src/index.ts`。`dev:migrate` 会按 `DATABASE_URL` 优先、`AGENTHUB_DATA_DIR` 次之、平台默认数据目录兜底的顺序解析目标 `hub.db`，再执行 `prisma:migrate:deploy`。这是开发阶段临时迁移策略；生产环境迁移 runner 暂不实现。
+
+开发环境若要使用自定义数据目录，应优先设置 `AGENTHUB_DATA_DIR`，确保 Prisma CLI 前导迁移和 Hub Server 运行时解析到同一个 `hub.db`。当前临时脚本不会把 `bun dev -- --data-dir ...` 参数转译为 `DATABASE_URL`。

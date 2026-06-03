@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeDatabase, initDatabase } from '../lib/db'
+import { prepareTestDatabase } from '../test-utils/database'
 import { createConversation } from '../repositories/conversation.repo'
 import { createMessage } from '../repositories/message.repo'
 import { createMessagePart } from '../repositories/message-part.repo'
@@ -25,7 +26,9 @@ let tempDir: string
 beforeAll(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'hub-server-run-persistence-'))
   const dbPath = join(tempDir, 'hub.db').replace(/\\/g, '/')
-  await initDatabase(`file:${dbPath}`)
+  const dbUrl = `file:${dbPath}`
+  prepareTestDatabase(dbUrl)
+  await initDatabase(dbUrl)
 })
 
 afterAll(async () => {

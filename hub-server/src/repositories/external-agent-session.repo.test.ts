@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeDatabase, initDatabase } from '../lib/db'
+import { prepareTestDatabase } from '../test-utils/database'
 import { createConversation } from './conversation.repo'
 import {
   findExternalAgentSessionHint,
@@ -16,7 +17,9 @@ let tempDir: string
 beforeAll(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'hub-server-external-agent-session-'))
   const dbPath = join(tempDir, 'hub.db').replace(/\\/g, '/')
-  await initDatabase(`file:${dbPath}`)
+  const dbUrl = `file:${dbPath}`
+  prepareTestDatabase(dbUrl)
+  await initDatabase(dbUrl)
 })
 
 afterAll(async () => {
