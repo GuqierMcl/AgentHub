@@ -98,7 +98,7 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
   const stats = getLineStats(detail)
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-background">
       <div className="shrink-0 border-border border-b p-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -150,9 +150,12 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
         ) : null}
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 p-3">
-          <section className="space-y-2">
+      <ScrollArea
+        className="min-h-0 w-full min-w-0 flex-1"
+        viewportClassName="[&>div]:!block"
+      >
+        <div className="w-full min-w-0 space-y-4 p-3">
+          <section className="min-w-0 space-y-2">
             <div className="flex items-center gap-2">
               <FileSearchIcon className="size-4 text-muted-foreground" />
               <h4 className="font-medium text-sm">变更文件</h4>
@@ -161,7 +164,7 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
               {files.map((file) => (
                 <button
                   className={cn(
-                    "flex w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-left transition-colors",
+                    "flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden rounded-md border px-2.5 py-2 text-left transition-colors",
                     file.path === selectedFile?.path
                       ? "border-primary/50 bg-primary/5"
                       : "bg-background hover:bg-muted/40"
@@ -170,7 +173,7 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
                   onClick={() => setSelectedPath(file.path)}
                   type="button"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-xs">{file.path}</div>
                     {file.oldPath ? (
                       <div className="truncate text-muted-foreground text-[11px]">
@@ -187,7 +190,7 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
             </div>
           </section>
 
-          <section className="space-y-2">
+          <section className="min-w-0 space-y-2">
             <div className="flex items-center gap-2">
               <FileTextIcon className="size-4 text-muted-foreground" />
               <h4 className="font-medium text-sm">文件 Diff</h4>
@@ -230,14 +233,14 @@ function ReviewShell({
   title: string
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-background">
       <div className="shrink-0 border-border border-b p-3">
         <div className="flex items-center gap-2">
           <FileSearchIcon className="size-4 text-primary" />
           <h3 className="font-semibold text-sm">{title}</h3>
         </div>
       </div>
-      <div className="min-h-0 flex-1 p-3 text-muted-foreground text-xs">
+      <div className="min-h-0 w-full min-w-0 flex-1 p-3 text-muted-foreground text-xs">
         {children}
       </div>
     </div>
@@ -262,10 +265,10 @@ function FilePatchView({ file }: { file: ViewerFile }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-md border bg-background">
+    <div className="w-full min-w-0 overflow-hidden rounded-md border bg-background">
       {file.parsed.hunks.map((hunk) => (
         <div key={`${file.path}:${hunk.header}`}>
-          <div className="border-border border-b bg-muted/50 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+          <div className="truncate border-border border-b bg-muted/50 px-2 py-1 font-mono text-[11px] text-muted-foreground">
             {hunk.header}
           </div>
           <div className="overflow-x-auto">
