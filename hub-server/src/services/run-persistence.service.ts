@@ -1706,6 +1706,7 @@ async function projectRuntimeMessageEvent(
       ...(externalModel ? { externalModel } : {}),
     }),
   })
+  await backfillToolMessagePartsForRuntimeMessage(run, message, runtimeMessageId)
 
   if (surface === 'chat') {
     await updateConversation(run.conversationId, {
@@ -2226,6 +2227,7 @@ async function projectRuntimeMessageDeltaEvents(
       lastEventSequence: lastSequence,
     }),
   })
+  await backfillToolMessagePartsForRuntimeMessage(run, message, runtimeMessageId)
 }
 
 async function projectSystemAgentCompletedEvent(
@@ -2314,7 +2316,7 @@ async function projectToolEvent(
       riskLevel: getString(data.riskLevel) ?? null,
       summary: getString(data.summary) ?? null,
       inputJson: getRecord(data.input) ?? getRecord(data.parameters) ?? null,
-      outputJson: getRecord(data.data) ?? getRecord(data.result) ?? null,
+      outputJson: resolveToolOutputJson(data),
       errorJson: getRecord(data.error) ?? null,
       payloadJson: data,
       firstEventSequence: sequence,
@@ -2337,7 +2339,7 @@ async function projectToolEvent(
       riskLevel: getString(data.riskLevel) ?? toolCall.riskLevel,
       summary: getString(data.summary) ?? toolCall.summary,
       inputJson: getRecord(data.input) ?? getRecord(data.parameters) ?? toolCall.inputJson,
-      outputJson: getRecord(data.data) ?? getRecord(data.result) ?? toolCall.outputJson,
+      outputJson: resolveToolOutputJson(data) ?? toolCall.outputJson,
       errorJson: getRecord(data.error) ?? toolCall.errorJson,
       payloadJson: data,
       firstEventSequence: toolCall.firstEventSequence ?? sequence,
@@ -2365,9 +2367,79 @@ async function projectToolEvent(
     'tool_call',
     event.toolCallId,
     state,
-    getString(data.summary) ?? getString(data.message) ?? getString(getRecord(data.data)?.summary) ?? getString(getRecord(data.result)?.summary) ?? undefined,
+    resolveToolDisplayText(data),
     true,
   )
+}
+
+async function backfillToolMessagePartsForRuntimeMessage(
+  run: RunOutput,
+  message: MessageOutput,
+  runtimeMessageId: string,
+): Promise<void> {
+  const toolCalls = await listRunToolCallsByRun(run.id)
+  for (const toolCall of toolCalls) {
+    if (toolCall.displayPolicy === 'event_log_only') continue
+    if (toolCall.messageId !== runtimeMessageId) continue
+
+    const sequence = toolCall.lastEventSequence ?? toolCall.firstEventSequence ?? 0
+    const event = runtimeEventFromToolCall(run, toolCall, runtimeMessageId)
+    await upsertMessagePartForRuntimeEvent(
+      run,
+      message,
+      event,
+      sequence,
+      'tool',
+      `tool:${toolCall.toolCallId}`,
+      'tool_call',
+      toolCall.toolCallId,
+      toolCall.state,
+      resolveToolDisplayText(toolCall.payloadJson) ?? toolCall.summary ?? undefined,
+      true,
+      toolCall.firstEventSequence ?? sequence,
+    )
+  }
+}
+
+function runtimeEventFromToolCall(
+  run: RunOutput,
+  toolCall: RunToolCallOutput,
+  runtimeMessageId: string,
+): RuntimeRunEvent {
+  const type = toolCall.state === 'output-error'
+    ? 'tool.failed'
+    : toolCall.state === 'output-available'
+      ? 'tool.completed'
+      : 'tool.started'
+  return {
+    id: `tool_backfill_${toolCall.id}`,
+    runId: run.runtimeId ?? run.id,
+    type,
+    timestamp: toolCall.completedAt ?? toolCall.startedAt ?? toolCall.updatedAt,
+    agentId: toolCall.agentId ?? undefined,
+    parentAgentId: toolCall.parentAgentId ?? undefined,
+    parentTaskId: toolCall.parentTaskId ?? undefined,
+    taskId: toolCall.taskId ?? undefined,
+    groupId: toolCall.groupId ?? undefined,
+    toolCallId: toolCall.toolCallId,
+    toolName: toolCall.toolName,
+    messageId: runtimeMessageId,
+    messageIndex: toolCall.messageIndex ?? undefined,
+    data: toolCall.payloadJson,
+  }
+}
+
+function resolveToolOutputJson(data: Record<string, unknown>): Record<string, unknown> | null {
+  return getRecord(data.data) ?? getRecord(data.result) ?? getRecord(data.output) ?? null
+}
+
+function resolveToolDisplayText(data: Record<string, unknown>): string | undefined {
+  const output = resolveToolOutputJson(data)
+  return getString(data.summary) ??
+    getString(data.message) ??
+    getString(output?.summary) ??
+    getString(output?.title) ??
+    undefined
 }
 
 async function projectReasoningEvent(
@@ -2561,6 +2633,13 @@ async function projectPermissionEvent(
     getString(requestData?.host) ??
     event.toolName ??
     'tool'
+  const metadataJson = buildPermissionMetadata(
+    undefined,
+    requestData,
+    data,
+    requestId,
+    event.type,
+  )
 
   let request = await findPermissionRequestByRunAndRuntimeRequestId(run.id, requestId)
   if (!request) {
@@ -2589,12 +2668,7 @@ async function projectPermissionEvent(
       payloadJson: data,
       firstEventSequence: sequence,
       lastEventSequence: sequence,
-      metadataJson: {
-        runtime: {
-          requestId,
-          eventType: event.type,
-        },
-      },
+      metadataJson,
       expiresAt: getString(data.expiresAt) ?? null,
     })
   } else {
@@ -2608,7 +2682,13 @@ async function projectPermissionEvent(
       payloadJson: data,
       firstEventSequence: request.firstEventSequence ?? sequence,
       lastEventSequence: sequence,
-      metadataJson: request.metadataJson,
+      metadataJson: buildPermissionMetadata(
+        request.metadataJson,
+        requestData,
+        data,
+        requestId,
+        event.type,
+      ),
     })
   }
 
@@ -3080,6 +3160,49 @@ function getExternalModelFromEvent(event: RuntimeRunEvent): Record<string, unkno
   }
 }
 
+function buildPermissionMetadata(
+  existing: Record<string, unknown> | undefined,
+  requestData: Record<string, unknown> | undefined,
+  payloadData: Record<string, unknown>,
+  requestId: string,
+  eventType: RuntimeRunEvent['type'],
+): Record<string, unknown> {
+  const current = existing ?? {}
+  const next: Record<string, unknown> = {
+    ...current,
+    runtime: {
+      ...(getRecord(current.runtime) ?? {}),
+      requestId,
+      eventType,
+    },
+  }
+  const externalProvider = getString(requestData?.externalProvider) ?? getString(current.externalProvider)
+  const providerSessionId = getString(requestData?.providerSessionId) ?? getString(current.providerSessionId)
+  const providerPermissionId =
+    getString(requestData?.providerPermissionId) ?? getString(current.providerPermissionId)
+  const permissionKind = getString(requestData?.permissionKind) ?? getString(current.permissionKind)
+  const providerToolCallId =
+    getString(requestData?.providerToolCallId) ?? getString(current.providerToolCallId)
+  const providerMessageId =
+    getString(requestData?.providerMessageId) ?? getString(current.providerMessageId)
+
+  for (const [key, value] of Object.entries({
+    externalProvider,
+    providerSessionId,
+    providerPermissionId,
+    permissionKind,
+    providerToolCallId,
+    providerMessageId,
+    permissionType: getString(requestData?.permissionType) ?? getString(payloadData.permissionType) ?? getString(current.permissionType),
+  })) {
+    if (value !== undefined) {
+      next[key] = value
+    }
+  }
+
+  return next
+}
+
 function mapPermissionStatus(eventType: RuntimeRunEvent['type']) {
   switch (eventType) {
     case 'permission.requested':
@@ -3549,8 +3672,10 @@ function resolveTitleSeedUserMessage(
   return current || undefined
 }
 
-function safeJsonParse(value: string | undefined, fallback: unknown = {}): unknown {
+function safeJsonParse(value: unknown, fallback: unknown = {}): unknown {
   if (!value) return fallback
+  if (typeof value === 'object') return value
+  if (typeof value !== 'string') return fallback
   try {
     return JSON.parse(value)
   } catch {
@@ -3562,13 +3687,13 @@ function toPersistedMessage(record: Record<string, unknown>): PersistedMessage {
   const parts = ((record.parts as Record<string, unknown>[] | undefined) ?? [])
     .map((part) => ({
       ...part,
-      payloadJson: safeJsonParse(part.payloadJson as string | undefined, {}),
+      payloadJson: safeJsonParse(part.payloadJson, {}),
     })) as PersistedMessagePart[]
 
   return {
     ...record,
-    metadataJson: safeJsonParse(record.metadataJson as string | undefined, {}),
-    uiMessageJson: record.uiMessageJson ? safeJsonParse(record.uiMessageJson as string, null) : null,
+    metadataJson: safeJsonParse(record.metadataJson, {}),
+    uiMessageJson: record.uiMessageJson ? safeJsonParse(record.uiMessageJson, null) : null,
     parts,
   } as PersistedMessage
 }
@@ -3627,7 +3752,13 @@ function toProductRuntimeEvent(event: RuntimeRunEvent): RuntimeRunEvent {
   const data = getRecord(event.data)
   if (!data) return event
 
-  const outputKey = getRecord(data.data) ? 'data' : getRecord(data.result) ? 'result' : null
+  const outputKey = getRecord(data.data)
+    ? 'data'
+    : getRecord(data.result)
+      ? 'result'
+      : getRecord(data.output)
+        ? 'output'
+        : null
   if (!outputKey) return event
 
   const output = getRecord(data[outputKey])

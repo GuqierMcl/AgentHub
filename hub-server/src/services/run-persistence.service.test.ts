@@ -11,6 +11,7 @@ import { createMessagePart } from '../repositories/message-part.repo'
 import { createRun } from '../repositories/run.repo'
 import { createArtifact, listArtifacts, updateArtifact } from '../repositories/artifact.repo'
 import { createArtifactVersion, listArtifactVersionsByArtifact } from '../repositories/artifact-version.repo'
+import { listPermissionRequests } from '../repositories/permission-request.repo'
 import {
   buildOpenCodeExternalContextPacket,
   RuntimeEventBatcher,
@@ -549,6 +550,169 @@ describe('workspace diff artifact projection', () => {
 
     const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
     expect(artifacts).toHaveLength(0)
+  })
+})
+
+describe('tool message projection', () => {
+  it('backfills OpenCode tool parts when tool events arrive before the assistant message', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture({
+      inputJson: {
+        participantAgentIds: ['opencode'],
+      },
+    })
+
+    await (service as any).projectRuntimeEventsBatch(runId, [
+      {
+        sequence: 1,
+        event: {
+          id: `event_tool_started_${randomUUID()}`,
+          runId: 'runtime_opencode_tool_order',
+          type: 'tool.started',
+          timestamp: '2026-06-03T00:00:00.000Z',
+          agentId: 'opencode',
+          messageId: 'msg_opencode_tool_order',
+          toolCallId: 'opencode:call_edit',
+          toolName: 'edit',
+          data: {
+            summary: 'OpenCode · edit',
+            externalProvider: 'opencode',
+            input: {
+              filePath: 'src/index.ts',
+            },
+          },
+        },
+      },
+      {
+        sequence: 2,
+        event: {
+          id: `event_tool_completed_${randomUUID()}`,
+          runId: 'runtime_opencode_tool_order',
+          type: 'tool.completed',
+          timestamp: '2026-06-03T00:00:01.000Z',
+          agentId: 'opencode',
+          messageId: 'msg_opencode_tool_order',
+          toolCallId: 'opencode:call_edit',
+          toolName: 'edit',
+          data: {
+            summary: 'OpenCode · edit',
+            externalProvider: 'opencode',
+            output: {
+              title: 'Edited src/index.ts',
+              output: 'updated file',
+            },
+          },
+        },
+      },
+      {
+        sequence: 3,
+        event: {
+          id: `event_message_completed_${randomUUID()}`,
+          runId: 'runtime_opencode_tool_order',
+          type: 'message.completed',
+          timestamp: '2026-06-03T00:00:02.000Z',
+          agentId: 'opencode',
+          messageId: 'msg_opencode_tool_order',
+          messageIndex: 0,
+          data: {
+            content: 'Done.',
+          },
+        },
+      },
+    ])
+
+    const response = await service.listConversationMessages(conversationId)
+    const assistantMessage = response.messages.find((message) =>
+      message.role === 'assistant' &&
+      message.runtimeMessageId === 'msg_opencode_tool_order'
+    )
+    expect(assistantMessage).toBeTruthy()
+    const toolPart = assistantMessage?.parts.find((part) =>
+      part.type === 'tool' &&
+      part.partKey === 'tool:opencode:call_edit'
+    )
+    expect(toolPart).toBeTruthy()
+    expect(toolPart?.state).toBe('output-available')
+    expect(toolPart?.payloadJson).toMatchObject({
+      externalProvider: 'opencode',
+      output: {
+        title: 'Edited src/index.ts',
+      },
+    })
+  })
+})
+
+describe('permission projection', () => {
+  it('persists OpenCode external permission metadata without treating it as an internal tool approval', async () => {
+    const { service, runId } = await createProjectionFixture({
+      inputJson: {
+        participantAgentIds: ['opencode'],
+      },
+    })
+
+    await (service as any).projectRuntimeEventsBatch(runId, [
+      {
+        sequence: 1,
+        event: {
+          id: `event_permission_requested_${randomUUID()}`,
+          runId: 'runtime_permission_requested',
+          type: 'permission.requested',
+          timestamp: '2026-06-03T00:00:00.000Z',
+          agentId: 'opencode',
+          messageId: 'msg_opencode_permission',
+          toolCallId: 'opencode:call_edit',
+          toolName: 'edit',
+          data: {
+            requestId: 'permission_opencode_edit',
+            riskLevel: 'high',
+            reason: 'OpenCode wants to edit src/index.ts',
+            data: {
+              externalProvider: 'opencode',
+              providerSessionId: 'ses_opencode',
+              providerPermissionId: 'perm_edit',
+              permissionKind: 'edit',
+              permissionType: 'file_write',
+              patterns: ['src/index.ts'],
+              providerToolCallId: 'call_edit',
+              providerMessageId: 'msg_provider',
+              providerMetadata: {
+                title: 'Edit file',
+              },
+            },
+          },
+        },
+      },
+    ])
+
+    const permissions = await listPermissionRequests({ runId })
+    expect(permissions).toHaveLength(1)
+    expect(permissions[0]?.runtimeRequestId).toBe('permission_opencode_edit')
+    expect(permissions[0]?.toolCallId).toBe('opencode:call_edit')
+    expect(permissions[0]?.permissionType).toBe('file_write')
+    expect(permissions[0]?.dataJson).toMatchObject({
+      externalProvider: 'opencode',
+      providerSessionId: 'ses_opencode',
+      providerPermissionId: 'perm_edit',
+      permissionKind: 'edit',
+      patterns: ['src/index.ts'],
+    })
+    expect(permissions[0]?.payloadJson).toMatchObject({
+      requestId: 'permission_opencode_edit',
+      data: {
+        externalProvider: 'opencode',
+      },
+    })
+    expect(permissions[0]?.metadataJson).toMatchObject({
+      runtime: {
+        requestId: 'permission_opencode_edit',
+        eventType: 'permission.requested',
+      },
+      externalProvider: 'opencode',
+      providerSessionId: 'ses_opencode',
+      providerPermissionId: 'perm_edit',
+      permissionKind: 'edit',
+      providerToolCallId: 'call_edit',
+      providerMessageId: 'msg_provider',
+    })
   })
 })
 

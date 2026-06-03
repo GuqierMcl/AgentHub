@@ -2,7 +2,11 @@ import { createRunEvent } from "../run-events"
 import type { RunEvent } from "../types"
 import type { WorkspaceService } from "../workspace"
 import type { ToolApprovalDraft, ToolExecutionContext } from "../tools"
-import type { RuntimePermissionDecision, RuntimePermissionRequest } from "./types"
+import type {
+  RuntimeExternalPermissionApprovalDraft,
+  RuntimePermissionDecision,
+  RuntimePermissionRequest,
+} from "./types"
 
 export class RuntimePermissionError extends Error {
   constructor(
@@ -22,6 +26,10 @@ export class RuntimePermissionError extends Error {
 export class RuntimePermissionService {
   private requests = new Map<string, RuntimePermissionRequest>()
   private requestsByToolCall = new Map<string, string>()
+  private externalWaiters = new Map<string, {
+    promise: Promise<RuntimePermissionDecision>
+    resolve: (decision: RuntimePermissionDecision) => void
+  }>()
 
   constructor(private workspaceService?: WorkspaceService) {}
 
@@ -75,6 +83,59 @@ export class RuntimePermissionService {
     return request
   }
 
+  stageExternalApproval(
+    draft: RuntimeExternalPermissionApprovalDraft,
+    emitEvent: (event: RunEvent) => void
+  ): Promise<RuntimePermissionDecision> {
+    const key = `${draft.runId}|${draft.toolCallId}`
+    const existingId = this.requestsByToolCall.get(key)
+    if (existingId) {
+      const existingWaiter = this.externalWaiters.get(existingId)
+      if (existingWaiter) {
+        return existingWaiter.promise
+      }
+      const existingRequest = this.requests.get(existingId)
+      if (existingRequest && existingRequest.status !== "pending") {
+        return Promise.resolve({
+          approved: existingRequest.status === "approved",
+          reason: existingRequest.decisionReason,
+        })
+      }
+    }
+
+    const request: RuntimePermissionRequest = {
+      requestId: `permission_${crypto.randomUUID()}`,
+      runId: draft.runId,
+      agentId: draft.agentId,
+      toolCallId: draft.toolCallId,
+      toolName: draft.toolName,
+      riskLevel: draft.riskLevel,
+      status: "pending",
+      reason: draft.reason,
+      executionId: draft.executionId,
+      messageId: draft.messageId,
+      parentAgentId: draft.parentAgentId,
+      taskId: draft.taskId,
+      groupId: draft.groupId,
+      parentTaskId: draft.parentTaskId,
+      data: draft.data,
+      createdAt: new Date().toISOString(),
+    }
+
+    let resolveDecision!: (decision: RuntimePermissionDecision) => void
+    const promise = new Promise<RuntimePermissionDecision>((resolve) => {
+      resolveDecision = resolve
+    })
+    this.requests.set(request.requestId, request)
+    this.requestsByToolCall.set(key, request.requestId)
+    this.externalWaiters.set(request.requestId, {
+      promise,
+      resolve: resolveDecision,
+    })
+    emitEvent(this.createEvent(request, "permission.requested"))
+    return promise
+  }
+
   listRequests(runId: string): RuntimePermissionRequest[] {
     return Array.from(this.requests.values()).filter((request) => request.runId === runId)
   }
@@ -86,6 +147,14 @@ export class RuntimePermissionService {
   getRequestForToolCall(runId: string, toolCallId: string): RuntimePermissionRequest | null {
     const requestId = this.requestsByToolCall.get(`${runId}|${toolCallId}`)
     return requestId ? this.requests.get(requestId) ?? null : null
+  }
+
+  isExternalRequest(requestId: string): boolean {
+    if (this.externalWaiters.has(requestId)) {
+      return true
+    }
+    const request = this.requests.get(requestId)
+    return typeof request?.data?.externalProvider === "string"
   }
 
   decide(
@@ -125,6 +194,14 @@ export class RuntimePermissionService {
     request.decisionReason = decision.reason
     request.resolvedAt = new Date().toISOString()
     emitEvent(this.createEvent(request, decision.approved ? "permission.approved" : "permission.denied"))
+    const waiter = this.externalWaiters.get(requestId)
+    if (waiter) {
+      this.externalWaiters.delete(requestId)
+      waiter.resolve({
+        approved: decision.approved,
+        reason: decision.reason,
+      })
+    }
     return request
   }
 
@@ -133,6 +210,14 @@ export class RuntimePermissionService {
       request.status = "cancelled"
       request.resolvedAt = new Date().toISOString()
       emitEvent(this.createEvent(request, "permission.cancelled"))
+      const waiter = this.externalWaiters.get(request.requestId)
+      if (waiter) {
+        this.externalWaiters.delete(request.requestId)
+        waiter.resolve({
+          approved: false,
+          reason: "Run cancelled",
+        })
+      }
     }
   }
 

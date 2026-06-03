@@ -122,6 +122,9 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `ADAPTER_SESSION_FAILED` | 502 | 外部 agent session 查找或创建失败 |
 | `ADAPTER_PROMPT_FAILED` | 502 | 外部 agent prompt 执行失败 |
 | `ADAPTER_ABORT_FAILED` | 502 | 外部 agent abort/cancel 回写失败 |
+| `ADAPTER_PERMISSION_FAILED` | 502 | 外部 agent 权限桥接不可用或权限请求无法进入 AgentHub 审批链路 |
+| `ADAPTER_PERMISSION_REPLY_FAILED` | 502 | 外部 agent 权限决定回写失败 |
+| `ADAPTER_PERMISSION_CANCELLED` | 499 | 外部 agent pending 权限请求被 Run 取消 |
 | `ADAPTER_EXECUTION_FAILED` | 502 | 外部 adapter 未分类执行失败 |
 | `AGENT_NOT_FOUND` | 404 | 指定的 Agent 不存在，或隐藏 Agent 未授权查看 |
 | `AGENT_INVALID_FILTER` | 400 | Agent 查询参数无效 |
@@ -1308,17 +1311,20 @@ HubServer 消费终态事件后，对 `changedFiles.length > 0` 或 `stats.files
 - OpenCode delegated task 完成时可在 `agent.completed.data.handoffSummary` 与 `agent.completed.data.externalSession.handoffSummary` 携带 handoff summary。该 summary 用于后续 direct context bridge，不应包含原始 delegated prompt 或 Orchestrator 私有计划。
 - `agent.completed` 仍表示 execution 完成；兼容字段 usage、finishReason、resolvedModel 继续保留在 `agent.completed.data`。Web 展示模型名、compact tokens 和 tooltip 详情时优先从 Runtime event replay/live SSE 的 `generation` 或 `externalModel` 字段恢复，而不是读取当前 agent 绑定状态。
 - Workspace Diff V0 统一挂在 `run.completed` / `run.failed` / `run.cancelled` 的 `data.workspaceDiff`，不挂在外部智能体私有 `agent.completed` 字段上；V0 只要求摘要卡片、变更文件列表和 bounded patch 持久化，不提供完整 diff viewer、apply 或 rollback UI。
-- HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。
+- HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。工具事件可能早于 `message.delta` / `message.completed` 到达，HubServer 必须先持久化 `RunToolCall`，并在同一 `messageId` 的 assistant message 创建或更新后回填 tool `MessagePart`，避免外部工具 UI 只在 live 流里短暂闪现而无法恢复。
 
 工具事件的附加约束：
 
 - `tool.started`、`tool.completed`、`tool.failed` 必须携带 `toolCallId` 与 `toolName`；当工具调用来自某个模型输出上下文时，还应携带对应 `messageId/messageIndex`。
 - 外部智能体的原生工具调用可以归一为同一组 `tool.*` 事件，但不表示这些工具属于 AgentHub Runtime Tool Catalog。外部工具事件的 `toolCallId` 必须使用 provider 命名空间，例如 `opencode:<providerToolCallId>`；`data.externalProvider` 必须标记 provider，并可携带 `providerSessionId`、`providerEventId`、`providerToolCallId`、`providerToolName`、`providerExecuted`、`providerMetadata`、脱敏后的 `input` / `output` / `error`。
-- OpenCode Phase 4C 中，Runtime 会把 `session.next.tool.called/success/failed` 映射为 `tool.started/completed/failed`，把 `session.next.text.delta` 映射为 `message.delta`，把 `session.next.reasoning.delta/ended` 映射为 `reasoning.delta/completed`。这些事件应复用当前 OpenCode assistant message 的 `messageId/messageIndex`，让 Web 按现有消息和 timeline 逻辑渲染；权限相关 OpenCode events 仍留到 Phase 4D。
+- `tool.completed` 的可展示输出优先从 `data.data`、`data.result`、`data.output` 中提取；外部 provider 若使用 `output` 包裹原生 ToolPart 输出，HubServer 和 Web 必须保留并渲染该对象，不能降级成仅展示 `summary`。
+- OpenCode Phase 4C 中，Runtime 主路径把 OpenCode `message.part.delta(field="text")` 映射为 `message.delta` 或 `reasoning.delta`，把 `message.part.updated(part.type="tool")` 按 ToolPart state 映射为 `tool.started/completed/failed`，把 `message.part.updated(part.type="reasoning")` 的完成状态映射为 `reasoning.completed`。`session.next.*` 分支只作为未来 OpenCode v2 agent loop 的兼容路径保留。这些事件应复用当前 OpenCode assistant message 的 `messageId/messageIndex`，让 Web 按现有消息和 timeline 逻辑渲染。
 - `tool.started` 不回显原始文件路径入参；workspace 类工具的普通事件和成功结果只使用 workspace-relative 路径或 `mounts/<mountId>/...` 逻辑路径。
 - `tool.failed` 的 `data` 应尽量包含结构化错误码、错误消息和可调试细节。
 - `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 携带 `toolCallId`、`toolName`，其 `data` 为权限请求记录，包含 `requestId`、`riskLevel`、`status` 与可选 grant 信息；当权限请求来自某个模型输出上下文时，还应携带对应 `messageId/messageIndex`。
-- 工具进入审批时先产生 `permission.requested` 而不产生 `tool.started`；批准后恢复工具并发送正常工具事件，拒绝后发送 `tool.failed`，错误码为 `TOOL_EXECUTION_DENIED`。
+- 内部 Runtime Tool 进入审批时先产生 `permission.requested` 而不产生 `tool.started`；批准后恢复工具并发送正常工具事件，拒绝后发送 `tool.failed`，错误码为 `TOOL_EXECUTION_DENIED`。
+- 外部智能体原生权限请求也复用 `permission.*`，但不表示该操作是 AgentHub Runtime Tool Catalog 工具。其 `data.data` 必须带 `externalProvider`，并可携带 `providerSessionId`、`providerPermissionId`、`permissionKind`、`permissionType`、`patterns`、`providerToolCallId`、`providerMessageId`、`providerMetadata`。`RunManager.decidePermission()` 对这类请求只 resolve external waiter，不触发 AI SDK approval continuation，也不在拒绝时合成内部 `tool.failed(TOOL_EXECUTION_DENIED)`。
+- OpenCode Phase 4D 中，当前官方 `permission.updated` 映射为 AgentHub `permission.requested`，旧 `permission.asked` 作为 provider 兼容输入继续支持；AgentHub approve 回写 OpenCode `reply: "once"`，deny 和 Run cancel 回写 `reply: "reject"`。OpenCode permission reply 失败使用 `ADAPTER_PERMISSION_REPLY_FAILED`，且不应被普通 event stream fallback 吞掉。
 - `question.requested`、`question.answered`、`question.cancelled` 携带 `requestId`、`toolCallId`、`toolName = "question"`、`questions` 或 `answers/status`，并在来自模型输出上下文时携带同一 `messageId/messageIndex`。
 - `model.stream.part` 通过 `data.partType` 和 `data.part` 薄封装 AI SDK `fullStream` part；默认过滤 `raw`，除非 RunInput 设置 `diagnostics.includeRawModelChunks = true`。
 - `reasoning.started`、`reasoning.delta`、`reasoning.completed` 仅表示 provider/AI SDK 显式暴露的 reasoning/thinking 内容；默认开启，可通过 `diagnostics.includeReasoning = false` 关闭；当 reasoning 属于当前智能体输出时，应携带同一条消息的 `messageId/messageIndex`。
@@ -1601,6 +1607,8 @@ type BashResult = {
 
 AI SDK 续跑采用新的生成调用：Runtime 保存原始 response messages，追加 `tool-approval-response` 后再次运行原执行分支，而不是保持原始 HTTP/模型 stream 挂起。若同一 continuation frame 包含多个审批请求，全部决定后只恢复一次。
 
+外部智能体权限请求不走 AI SDK 续跑。Runtime 将用户决定 resolve 给对应 Adapter，Adapter 再调用外部平台的 permission reply API。例如 OpenCode approve 固定回写 `reply: "once"`；deny 与 Run cancel 固定回写 `reply: "reject"`。
+
 ### 回答 Run 问题请求
 
 **端点**：`POST /runtime/runs/:runId/questions/:requestId/answer`
@@ -1630,6 +1638,7 @@ AI SDK 续跑采用新的生成调用：Runtime 保存原始 response messages�
 
 - `queued` / `running` / `waiting_approval` / `waiting_input` Run 会转为 `cancelled` 并输出 `run.cancelled`。
 - 等待审批的 Run 被取消时，pending 请求先输出 `permission.cancelled`，之后不再接受决定。
+- 如果 pending 请求来自外部智能体，Runtime 还会 resolve external waiter；Adapter 应 best-effort 将取消回写到外部平台，例如 OpenCode `reply: "reject"`，并 abort active prompt。
 - 等待用户回答的 Run 被取消时，pending question 先输出 `question.cancelled` 与对应 `tool.failed(QUESTION_CANCELLED)`，之后不再接受答案。
 - 已经是 `completed`、`failed`、`cancelled` 的 Run 保持原状态。
 - 不存在时返回 `RUN_NOT_FOUND`。

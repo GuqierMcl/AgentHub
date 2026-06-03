@@ -292,6 +292,10 @@ export class RunManager {
     if (!currentRequest || currentRequest.runId !== runId) {
       throw new RuntimePermissionError("PERMISSION_NOT_FOUND", `Permission request ${requestId} not found`, 404)
     }
+    if (state.permissionService.isExternalRequest(requestId)) {
+      return state.permissionService.decide(requestId, { approved, reason }, (event) => this.emit(event))
+    }
+
     const frame = Array.from(state.continuations.values()).find((candidate) =>
       candidate.kind === "approval" &&
       candidate.status === "waiting" &&

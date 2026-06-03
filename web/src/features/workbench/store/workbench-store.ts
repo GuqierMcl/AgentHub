@@ -22,6 +22,7 @@ import type {
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelinePlanItem,
   WorkbenchTimelineStatus,
+  WorkbenchTimelineToolItem,
 } from "../types"
 import {
   formatWorkspaceDiffDescription,
@@ -630,10 +631,12 @@ function toTimelineItemFromPersistedMessage(
     .map((part) => part.text)
     .join("\n")
   const artifacts = mapPersistedArtifacts(message)
+  const toolItems = mapPersistedToolItems(message)
 
   if (
     !text &&
     artifacts.length === 0 &&
+    toolItems.length === 0 &&
     message.role === "assistant" &&
     message.status !== "streaming"
   ) {
@@ -653,6 +656,7 @@ function toTimelineItemFromPersistedMessage(
     time: formatPersistedMessageTime(message.createdAt),
     status: toTimelineStatus(message.status, message.role),
     ...(artifacts.length ? { artifacts } : {}),
+    ...(toolItems.length ? { toolItems } : {}),
   }
   const externalModel = getPersistedExternalModel(message)
   return [externalModel ? { ...item, externalModel } : item]
@@ -728,6 +732,7 @@ function mergePersistedChatMessage(
     generation: current.generation ?? persisted.generation,
     externalModel: current.externalModel ?? persisted.externalModel,
     artifacts: mergeArtifacts(current.artifacts, persisted.artifacts),
+    toolItems: mergeToolItems(current.toolItems, persisted.toolItems),
   }
 
   return isSameChatMessage(current, next) ? current : next
@@ -847,6 +852,77 @@ function mapPersistedArtifacts(message: PersistedMessage): Artifact[] {
   })
 }
 
+function mapPersistedToolItems(message: PersistedMessage): WorkbenchTimelineToolItem[] {
+  return message.parts.flatMap((part) => {
+    if (part.type !== "tool") return []
+    const payload = part.payloadJson ?? {}
+    const toolCallId = getPersistedToolCallId(part)
+    const toolName =
+      getString(payload.providerToolName) ??
+      getString(payload.toolName) ??
+      getPersistedToolNameFromCallId(toolCallId) ??
+      "tool"
+    const status = toPersistedToolStatus(part.state)
+    const output = status === "output-available"
+      ? payload.data ?? payload.result ?? payload.output ?? payload.summary ?? payload
+      : undefined
+
+    return [{
+      kind: "tool" as const,
+      id: `tool:${message.runId ?? message.id}:${toolCallId}`,
+      runId: message.runId ?? message.id,
+      agentId: message.agentId ?? undefined,
+      externalProvider: getString(payload.externalProvider),
+      toolCallId,
+      toolName,
+      title: getString(part.text) ?? getString(payload.summary) ?? toolName,
+      time: formatPersistedMessageTime(part.createdAt),
+      status,
+      input: payload.input ?? payload.parameters,
+      output,
+      errorText: status === "output-error" ? getPersistedToolErrorText(payload) : undefined,
+      order: part.partIndex,
+    }]
+  })
+}
+
+function getPersistedToolCallId(part: PersistedMessage["parts"][number]): string {
+  const payload = part.payloadJson ?? {}
+  return getString(part.entityId) ??
+    getString(payload.toolCallId) ??
+    getString(payload.providerToolCallId) ??
+    (part.partKey.startsWith("tool:") ? part.partKey.slice("tool:".length) : part.partKey) ??
+    part.id
+}
+
+function getPersistedToolNameFromCallId(toolCallId: string): string | undefined {
+  const [provider] = toolCallId.split(":")
+  return provider && provider !== toolCallId ? provider : undefined
+}
+
+function toPersistedToolStatus(state: string): WorkbenchTimelineToolItem["status"] {
+  if (
+    state === "input-streaming" ||
+    state === "input-available" ||
+    state === "approval-requested" ||
+    state === "approval-responded" ||
+    state === "output-available" ||
+    state === "output-error" ||
+    state === "output-denied"
+  ) {
+    return state
+  }
+  if (state === "done") return "output-available"
+  return "input-available"
+}
+
+function getPersistedToolErrorText(payload: Record<string, unknown>): string | undefined {
+  const error = payload.error
+  if (typeof error === "string") return error
+  const errorRecord = getRecord(error)
+  return getString(errorRecord?.message) ?? getString(errorRecord?.code)
+}
+
 function resolvePersistedDiffPatchText(
   version: PersistedArtifact["currentVersion"] | undefined
 ): string | undefined {
@@ -949,6 +1025,38 @@ function mergeArtifacts(
   return merged
 }
 
+function mergeToolItems(
+  current: WorkbenchTimelineToolItem[] | undefined,
+  persisted: WorkbenchTimelineToolItem[] | undefined
+): WorkbenchTimelineToolItem[] | undefined {
+  if (!current?.length) return persisted
+  if (!persisted?.length) return current
+
+  const byId = new Map(current.map((item) => [item.id, item]))
+  for (const item of persisted) {
+    const existing = byId.get(item.id)
+    byId.set(item.id, existing ? {
+      ...existing,
+      ...item,
+      input: existing.input ?? item.input,
+      output: item.output ?? existing.output,
+      externalProvider: existing.externalProvider ?? item.externalProvider,
+      order: existing.order ?? item.order,
+    } : item)
+  }
+
+  const merged = [...byId.values()].sort((left, right) =>
+    (left.order ?? 0) - (right.order ?? 0)
+  )
+  if (
+    merged.length === current.length &&
+    merged.every((item, index) => item === current[index])
+  ) {
+    return current
+  }
+  return merged
+}
+
 function getPersistedExternalModel(
   message: PersistedMessage
 ): WorkbenchTimelineChatMessageItem["externalModel"] | undefined {
@@ -1007,6 +1115,7 @@ function isSameChatMessage(
     left.status === right.status &&
     left.generation === right.generation &&
     left.externalModel === right.externalModel &&
+    left.toolItems === right.toolItems &&
     left.artifacts === right.artifacts
 }
 

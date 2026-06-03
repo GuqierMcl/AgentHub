@@ -445,6 +445,7 @@ function createToolItem(
     id,
     runId: event.runId,
     agentId: event.agentId,
+    externalProvider: getString(data.externalProvider) ?? current?.externalProvider,
     toolCallId: event.toolCallId ?? current?.toolCallId ?? id,
     toolName: event.toolName ?? current?.toolName ?? "tool",
     title: getString(data.summary) ?? current?.title ?? event.toolName ?? "Tool",
@@ -467,7 +468,7 @@ function getToolDisplayOutput(
     return current?.output
   }
 
-  const output = data.data ?? data.result ?? data.summary ?? data
+  const output = data.data ?? data.result ?? data.output ?? data.summary ?? data
   if (event.toolName === "web_fetch") {
     return formatWebFetchDisplayOutput(output)
   }
@@ -589,7 +590,21 @@ function createPermissionItem(
   order?: number
 ): WorkbenchTimelinePermissionItem {
   const data = getEventDataObject(event)
+  const requestData = getRecord(data.data)
   const requestId = getPermissionRequestId(event)
+  const externalProvider =
+    getString(data.externalProvider) ??
+    getString(requestData?.externalProvider) ??
+    current?.externalProvider
+  const permissionKind =
+    getString(data.permissionKind) ??
+    getString(requestData?.permissionKind) ??
+    current?.permissionKind
+  const permissionType =
+    getString(data.permissionType) ??
+    getString(requestData?.permissionType) ??
+    current?.permissionType
+  const target = resolvePermissionTarget(data, requestData, event, current)
   return {
     kind: "permission",
     id: `permission:${event.runId}:${requestId}`,
@@ -598,15 +613,56 @@ function createPermissionItem(
     agentId: event.agentId,
     toolCallId: event.toolCallId,
     toolName: event.toolName,
-    title: event.toolName
-      ? `Permission required for ${event.toolName}`
-      : "Permission required",
+    externalProvider,
+    permissionKind,
+    permissionType,
+    target,
+    title: formatPermissionTitle({
+      externalProvider,
+      permissionKind,
+      toolName: event.toolName,
+      target,
+    }),
     reason: getString(data.reason) ?? getString(data.approvalReason) ?? current?.reason,
     time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
     status,
     approved,
     order: current?.order ?? order,
   }
+}
+
+function formatPermissionTitle(input: {
+  externalProvider?: string
+  permissionKind?: string
+  toolName?: string
+  target?: string
+}): string {
+  const action = input.permissionKind ?? input.toolName
+  if (input.externalProvider === "opencode") {
+    return `OpenCode 权限请求${action ? `：${action}` : ""}`
+  }
+  if (input.toolName) {
+    return `Permission required for ${input.toolName}`
+  }
+  return "Permission required"
+}
+
+function resolvePermissionTarget(
+  data: Record<string, unknown>,
+  requestData: Record<string, unknown> | undefined,
+  event: RuntimeRunEvent,
+  current?: WorkbenchTimelinePermissionItem
+): string | undefined {
+  return (
+    getString(data.target) ??
+    getString(requestData?.logicalPath) ??
+    getString(requestData?.url) ??
+    getString(requestData?.host) ??
+    firstString(requestData?.patterns) ??
+    firstString(data.patterns) ??
+    current?.target ??
+    event.toolName
+  )
 }
 
 function applyQuestionEvent(
@@ -1538,6 +1594,11 @@ function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value
     : undefined
+}
+
+function firstString(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.find((item): item is string => typeof item === "string" && item.trim().length > 0)
 }
 
 function getNumber(value: unknown): number | undefined {

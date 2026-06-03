@@ -146,6 +146,78 @@ describe("Runtime permissions", () => {
     expect(cancelledHarness.manager.getEvents(cancelledRunId)?.some((event) => event.type === "permission.cancelled")).toBe(true)
   })
 
+  test("external permission requests resolve without an AI SDK approval continuation", async () => {
+    const { app, manager } = await createHarness()
+    ;(manager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
+        const decision = await (context.permissionService as any).stageExternalApproval({
+          runId: context.runId,
+          agentId: context.agent.id,
+          toolCallId: "opencode:perm_edit",
+          toolName: "OpenCode edit",
+          riskLevel: "high",
+          reason: "OpenCode wants to edit src/index.ts",
+          messageId: context.getCurrentMessageId?.(),
+          data: {
+            externalProvider: "opencode",
+            providerSessionId: "ses_external_permission",
+            providerPermissionId: "perm_edit",
+            permissionKind: "edit",
+            permissionType: "file_write",
+            patterns: ["src/index.ts"],
+          },
+        }, context.emitEvent ?? (() => {}))
+
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: decision.approved ? "OpenCode permission approved." : "OpenCode permission denied.",
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    const response = await app.request("/runtime/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        conversationId: "conv_external_permission",
+        mode: "single",
+        participantAgentIds: ["coder"],
+        addressedAgentIds: ["coder"],
+        userMessage: { role: "user", content: "Let OpenCode edit." },
+        history: [],
+      }),
+    })
+    const { runId } = await response.json() as { runId: string }
+
+    for (let attempt = 0; attempt < 50 && manager.listPermissions(runId).length === 0; attempt += 1) {
+      await sleep(5)
+    }
+    const request = manager.listPermissions(runId)[0]!
+    expect(request.data?.externalProvider).toBe("opencode")
+    expect(request.data?.providerPermissionId).toBe("perm_edit")
+
+    const decisionResponse = await app.request(`/runtime/runs/${runId}/permissions/${request.requestId}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ approved: true, reason: "Approved once" }),
+    })
+    expect(decisionResponse.status).toBe(200)
+
+    for (let attempt = 0; attempt < 50 && manager.getRun(runId)?.status !== "completed"; attempt += 1) {
+      await sleep(5)
+    }
+    expect(manager.getRun(runId)?.status).toBe("completed")
+    const events = manager.getEvents(runId) ?? []
+    expect(events.some((event) => event.type === "permission.approved")).toBe(true)
+    expect(events.some((event) =>
+      event.type === "tool.failed" &&
+      (event.data as { error?: { code?: string } }).error?.code === "TOOL_EXECUTION_DENIED"
+    )).toBe(false)
+  })
+
   test("resumes an approval requested by a delegated task branch", async () => {
     const { app, manager } = await createHarness()
     ;(manager as any).orchestratorExecutor = {
