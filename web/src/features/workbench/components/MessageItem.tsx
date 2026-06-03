@@ -86,6 +86,7 @@ import type {
   WorkbenchTimelineItem,
   WorkbenchTimelinePermissionItem,
   WorkbenchTimelineQuestionItem,
+  WorkbenchTimelineReasoningBlock,
   WorkbenchTimelineReasoningItem,
   WorkbenchTimelineRunStatusItem,
   WorkbenchTimelineTaskItem,
@@ -102,6 +103,71 @@ type TimelineItemProps = {
 
 type GenerationMetadata = NonNullable<WorkbenchTimelineChatMessageItem["generation"]>
 type ExternalModelMetadata = NonNullable<WorkbenchTimelineChatMessageItem["externalModel"]>
+
+type NestedBlock =
+  | { kind: "reasoning"; order: number; key: string; block: WorkbenchTimelineReasoningBlock }
+  | { kind: "permission"; order: number; key: string; item: WorkbenchTimelinePermissionItem }
+  | { kind: "question"; order: number; key: string; item: WorkbenchTimelineQuestionItem }
+  | { kind: "tool"; order: number; key: string; item: WorkbenchTimelineToolItem }
+
+// Merge a message/task's nested blocks into a single list ordered by their
+// projection `order`, so reasoning and tool calls render in the real sequence
+// they happened (think -> tool -> think -> tool) instead of bucketed by kind.
+// Falls back to the legacy bucket order when `order` is absent (older data).
+function mergeNestedBlocks(parent: {
+  id: string
+  reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
+  permissionItems?: WorkbenchTimelinePermissionItem[]
+  questionItems?: WorkbenchTimelineQuestionItem[]
+  toolItems?: WorkbenchTimelineToolItem[]
+}): NestedBlock[] {
+  const blocks: NestedBlock[] = []
+  let fallback = 0
+
+  for (const block of parent.reasoningBlocks ?? []) {
+    blocks.push({
+      kind: "reasoning",
+      order: block.order ?? fallback,
+      key: `${block.messageId ?? parent.id}:${block.reasoningId}`,
+      block,
+    })
+    fallback += 1
+  }
+  for (const item of parent.permissionItems ?? []) {
+    blocks.push({ kind: "permission", order: item.order ?? fallback, key: item.id, item })
+    fallback += 1
+  }
+  for (const item of parent.questionItems ?? []) {
+    blocks.push({ kind: "question", order: item.order ?? fallback, key: item.id, item })
+    fallback += 1
+  }
+  for (const item of parent.toolItems ?? []) {
+    blocks.push({ kind: "tool", order: item.order ?? fallback, key: item.id, item })
+    fallback += 1
+  }
+
+  return blocks
+    .map((block, index) => ({ block, index }))
+    .sort((left, right) =>
+      left.block.order !== right.block.order
+        ? left.block.order - right.block.order
+        : left.index - right.index
+    )
+    .map(({ block }) => block)
+}
+
+function NestedBlockView({ block }: { block: NestedBlock }) {
+  switch (block.kind) {
+    case "reasoning":
+      return <ReasoningBlockView block={block.block} />
+    case "permission":
+      return <PermissionBlockView item={block.item} />
+    case "question":
+      return <QuestionBlockView item={block.item} />
+    case "tool":
+      return <ToolBlockView item={block.item} />
+  }
+}
 
 export const TimelineItem = memo(function TimelineItem({
   agentProfiles,
@@ -182,23 +248,8 @@ function ChatMessageItem({
                 </Sources>
               ) : null}
 
-              {item.reasoningBlocks?.map((reasoning) => (
-                <ReasoningBlockView
-                  block={reasoning}
-                  key={`${reasoning.messageId ?? item.id}:${reasoning.reasoningId}`}
-                />
-              ))}
-
-              {item.permissionItems?.map((permission) => (
-                <PermissionBlockView item={permission} key={permission.id} />
-              ))}
-
-              {item.questionItems?.map((question) => (
-                <QuestionBlockView item={question} key={question.id} />
-              ))}
-
-              {item.toolItems?.map((tool) => (
-                <ToolBlockView item={tool} key={tool.id} />
+              {mergeNestedBlocks(item).map((block) => (
+                <NestedBlockView block={block} key={block.key} />
               ))}
 
               <MessageContent className="max-w-[min(680px,100%)]">
@@ -455,24 +506,9 @@ function TaskTimelineItem({ item }: { item: WorkbenchTimelineTaskItem }) {
           {item.text ? (
             <TaskItem className="whitespace-pre-wrap">{item.text}</TaskItem>
           ) : null}
-          {item.reasoningBlocks?.map((reasoning) => (
-            <TaskItem key={`${reasoning.messageId ?? item.id}:${reasoning.reasoningId}`}>
-              <ReasoningBlockView block={reasoning} />
-            </TaskItem>
-          ))}
-          {item.permissionItems?.map((permission) => (
-            <TaskItem key={permission.id}>
-              <PermissionBlockView item={permission} />
-            </TaskItem>
-          ))}
-          {item.questionItems?.map((question) => (
-            <TaskItem key={question.id}>
-              <QuestionBlockView item={question} />
-            </TaskItem>
-          ))}
-          {item.toolItems?.map((tool) => (
-            <TaskItem key={tool.id}>
-              <ToolBlockView item={tool} />
+          {mergeNestedBlocks(item).map((block) => (
+            <TaskItem key={block.key}>
+              <NestedBlockView block={block} />
             </TaskItem>
           ))}
           {item.error ? (

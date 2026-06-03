@@ -359,14 +359,14 @@ function applyToolEvent(
     return upsertChatMessage(items, event, (item) => ({
       ...item,
       text: item.text,
-      toolItems: upsertToolNestedItem(item.toolItems, event, status),
+      toolItems: upsertToolNestedItem(item.toolItems, event, status, nextNestedOrder(item)),
     }))
   }
 
   if (event.taskId || event.parentTaskId) {
     return upsertTaskNestedItem(items, event, (task) => ({
       ...task,
-      toolItems: upsertToolNestedItem(task.toolItems, event, status),
+      toolItems: upsertToolNestedItem(task.toolItems, event, status, nextNestedOrder(task)),
     }))
   }
 
@@ -433,7 +433,8 @@ function upsertTool(
 function createToolItem(
   event: RuntimeRunEvent,
   status: WorkbenchTimelineToolItem["status"],
-  current?: WorkbenchTimelineToolItem
+  current?: WorkbenchTimelineToolItem,
+  order?: number
 ): WorkbenchTimelineToolItem {
   const id = `tool:${event.runId}:${event.toolCallId ?? event.id}`
   const data = getEventDataObject(event)
@@ -452,6 +453,7 @@ function createToolItem(
     input: current?.input ?? data.input ?? data.parameters,
     output: getToolDisplayOutput(event, data, status, current),
     errorText: errorText ?? current?.errorText,
+    order: current?.order ?? order,
   }
 }
 
@@ -557,7 +559,8 @@ function applyPermissionEvent(
         item.permissionItems,
         event,
         status,
-        approved
+        approved,
+        nextNestedOrder(item)
       ),
     }))
   }
@@ -569,7 +572,8 @@ function applyPermissionEvent(
         task.permissionItems,
         event,
         status,
-        approved
+        approved,
+        nextNestedOrder(task)
       ),
     }))
   }
@@ -581,7 +585,8 @@ function createPermissionItem(
   event: RuntimeRunEvent,
   status: WorkbenchTimelinePermissionItem["status"],
   approved?: boolean,
-  current?: WorkbenchTimelinePermissionItem
+  current?: WorkbenchTimelinePermissionItem,
+  order?: number
 ): WorkbenchTimelinePermissionItem {
   const data = getEventDataObject(event)
   const requestId = getPermissionRequestId(event)
@@ -600,6 +605,7 @@ function createPermissionItem(
     time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
     status,
     approved,
+    order: current?.order ?? order,
   }
 }
 
@@ -613,14 +619,14 @@ function applyQuestionEvent(
     return upsertChatMessage(items, event, (item) => ({
       ...item,
       text: item.text,
-      questionItems: upsertQuestionNestedItem(item.questionItems, event, status),
+      questionItems: upsertQuestionNestedItem(item.questionItems, event, status, nextNestedOrder(item)),
     }))
   }
 
   if (event.taskId || event.parentTaskId) {
     return upsertTaskNestedItem(items, event, (task) => ({
       ...task,
-      questionItems: upsertQuestionNestedItem(task.questionItems, event, status),
+      questionItems: upsertQuestionNestedItem(task.questionItems, event, status, nextNestedOrder(task)),
     }))
   }
 
@@ -644,7 +650,8 @@ function upsertQuestion(
 function createQuestionItem(
   event: RuntimeRunEvent,
   status: WorkbenchTimelineQuestionItem["status"],
-  current?: WorkbenchTimelineQuestionItem
+  current?: WorkbenchTimelineQuestionItem,
+  order?: number
 ): WorkbenchTimelineQuestionItem {
   const data = getEventDataObject(event)
   const requestId = getQuestionRequestId(event)
@@ -667,6 +674,7 @@ function createQuestionItem(
     answers,
     time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
     status,
+    order: current?.order ?? order,
   }
 }
 
@@ -724,13 +732,23 @@ function applyReasoningEvent(
     return upsertChatMessage(items, event, (item) => ({
       ...item,
       text: item.text,
-      reasoningBlocks: upsertReasoningBlock(item.reasoningBlocks, block, delta !== undefined),
+      reasoningBlocks: upsertReasoningBlock(
+        item.reasoningBlocks,
+        block,
+        delta !== undefined,
+        nextNestedOrder(item)
+      ),
     }))
   }
 
   return upsertTaskNestedItem(items, event, (task) => ({
     ...task,
-    reasoningBlocks: upsertReasoningBlock(task.reasoningBlocks, block, delta !== undefined),
+    reasoningBlocks: upsertReasoningBlock(
+      task.reasoningBlocks,
+      block,
+      delta !== undefined,
+      nextNestedOrder(task)
+    ),
   }))
 }
 
@@ -1129,41 +1147,51 @@ function upsertNestedItem<T extends { id: string }>(
 function upsertToolNestedItem(
   items: WorkbenchTimelineToolItem[] | undefined,
   event: RuntimeRunEvent,
-  status: WorkbenchTimelineToolItem["status"]
+  status: WorkbenchTimelineToolItem["status"],
+  order: number
 ): WorkbenchTimelineToolItem[] {
   const id = `tool:${event.runId}:${event.toolCallId ?? event.id}`
   const currentItems = items ?? []
   const current = currentItems.find((item) => item.id === id)
-  return upsertNestedItem(currentItems, createToolItem(event, status, current))
+  return upsertNestedItem(currentItems, createToolItem(event, status, current, order))
 }
 
 function upsertPermissionNestedItem(
   items: WorkbenchTimelinePermissionItem[] | undefined,
   event: RuntimeRunEvent,
   status: WorkbenchTimelinePermissionItem["status"],
-  approved?: boolean
+  approved: boolean | undefined,
+  order: number
 ): WorkbenchTimelinePermissionItem[] {
   const id = `permission:${event.runId}:${getPermissionRequestId(event)}`
   const currentItems = items ?? []
   const current = currentItems.find((item) => item.id === id)
-  return upsertNestedItem(currentItems, createPermissionItem(event, status, approved, current))
+  return upsertNestedItem(
+    currentItems,
+    createPermissionItem(event, status, approved, current, order)
+  )
 }
 
 function upsertQuestionNestedItem(
   items: WorkbenchTimelineQuestionItem[] | undefined,
   event: RuntimeRunEvent,
-  status: WorkbenchTimelineQuestionItem["status"]
+  status: WorkbenchTimelineQuestionItem["status"],
+  order: number
 ): WorkbenchTimelineQuestionItem[] {
   const id = `question:${event.runId}:${getQuestionRequestId(event)}`
   const currentItems = items ?? []
   const current = currentItems.find((item) => item.id === id)
-  return upsertNestedItem(currentItems, createQuestionItem(event, status, current))
+  return upsertNestedItem(
+    currentItems,
+    createQuestionItem(event, status, current, order)
+  )
 }
 
 function upsertReasoningBlock(
   blocks: WorkbenchTimelineReasoningBlock[] | undefined,
   nextBlock: WorkbenchTimelineReasoningBlock,
-  append: boolean
+  append: boolean,
+  order: number
 ): WorkbenchTimelineReasoningBlock[] {
   const currentBlocks = blocks ?? []
   const index = currentBlocks.findIndex((block) =>
@@ -1171,7 +1199,7 @@ function upsertReasoningBlock(
     block.messageId === nextBlock.messageId
   )
   if (index < 0) {
-    return [...currentBlocks, nextBlock]
+    return [...currentBlocks, { ...nextBlock, order }]
   }
 
   return currentBlocks.map((block, blockIndex) =>
@@ -1179,6 +1207,33 @@ function upsertReasoningBlock(
       ? mergeReasoningBlock(block, nextBlock, append)
       : block
   )
+}
+
+// Next interleave position among a message/task's nested blocks. Assigned once
+// on creation so reasoning, tools, permissions and questions render in the real
+// order they happened (think -> tool -> think -> tool) rather than bucketed by
+// kind. Shared by internal and external (e.g. OpenCode) agent runs.
+function nextNestedOrder(parent: {
+  reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
+  toolItems?: WorkbenchTimelineToolItem[]
+  permissionItems?: WorkbenchTimelinePermissionItem[]
+  questionItems?: WorkbenchTimelineQuestionItem[]
+}): number {
+  let max = 0
+  const groups = [
+    parent.reasoningBlocks,
+    parent.toolItems,
+    parent.permissionItems,
+    parent.questionItems,
+  ]
+  for (const group of groups) {
+    for (const block of group ?? []) {
+      if (typeof block.order === "number" && block.order > max) {
+        max = block.order
+      }
+    }
+  }
+  return max + 1
 }
 
 function mergeReasoningBlock(

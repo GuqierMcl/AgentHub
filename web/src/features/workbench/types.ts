@@ -81,6 +81,10 @@ export type WorkbenchTimelineReasoningBlock = {
   completedAt?: string
   duration?: number
   status: "streaming" | "completed"
+  // Monotonic position among sibling nested blocks (reasoning/tool/permission/
+  // question) of the same message or task, assigned on first creation so the UI
+  // can render them in genuine interleaved order rather than bucketed by kind.
+  order?: number
 }
 
 export type WorkbenchTimelineChatMessageItem = {
@@ -145,6 +149,7 @@ export type WorkbenchTimelineToolItem = {
   input?: unknown
   output?: unknown
   errorText?: string
+  order?: number
 }
 
 export type WorkbenchTimelinePermissionItem = {
@@ -160,6 +165,7 @@ export type WorkbenchTimelinePermissionItem = {
   time: string
   status: ToolUIPart["state"]
   approved?: boolean
+  order?: number
 }
 
 export type WorkbenchTimelineQuestionOption = {
@@ -200,6 +206,7 @@ export type WorkbenchTimelineQuestionItem = {
   answers?: WorkbenchTimelineQuestionAnswer[]
   time: string
   status: "pending" | "answered" | "cancelled"
+  order?: number
 }
 
 export type WorkbenchTimelineReasoningItem = {
