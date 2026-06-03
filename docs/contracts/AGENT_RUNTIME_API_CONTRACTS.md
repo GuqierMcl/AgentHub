@@ -1272,6 +1272,8 @@ HubServer 消费终态事件后，对 `changedFiles.length > 0` 或 `stats.files
 工具事件的附加约束：
 
 - `tool.started`、`tool.completed`、`tool.failed` 必须携带 `toolCallId` 与 `toolName`；当工具调用来自某个模型输出上下文时，还应携带对应 `messageId/messageIndex`。
+- 外部智能体的原生工具调用可以归一为同一组 `tool.*` 事件，但不表示这些工具属于 AgentHub Runtime Tool Catalog。外部工具事件的 `toolCallId` 必须使用 provider 命名空间，例如 `opencode:<providerToolCallId>`；`data.externalProvider` 必须标记 provider，并可携带 `providerSessionId`、`providerEventId`、`providerToolCallId`、`providerToolName`、`providerExecuted`、`providerMetadata`、脱敏后的 `input` / `output` / `error`。
+- OpenCode Phase 4C 中，Runtime 会把 `session.next.tool.called/success/failed` 映射为 `tool.started/completed/failed`，把 `session.next.text.delta` 映射为 `message.delta`，把 `session.next.reasoning.delta/ended` 映射为 `reasoning.delta/completed`。这些事件应复用当前 OpenCode assistant message 的 `messageId/messageIndex`，让 Web 按现有消息和 timeline 逻辑渲染；权限相关 OpenCode events 仍留到 Phase 4D。
 - `tool.started` 不回显原始文件路径入参；workspace 类工具的普通事件和成功结果只使用 workspace-relative 路径或 `mounts/<mountId>/...` 逻辑路径。
 - `tool.failed` 的 `data` 应尽量包含结构化错误码、错误消息和可调试细节。
 - `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 携带 `toolCallId`、`toolName`，其 `data` 为权限请求记录，包含 `requestId`、`riskLevel`、`status` 与可选 grant 信息；当权限请求来自某个模型输出上下文时，还应携带对应 `messageId/messageIndex`。

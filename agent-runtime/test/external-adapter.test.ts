@@ -129,6 +129,42 @@ class PromptCapturingOpenCodeClient extends FakeOpenCodeClient {
   }
 }
 
+class ToolStreamingOpenCodeClient extends FakeOpenCodeClient {
+  async *streamPrompt(_request: OpenCodePromptRequest) {
+    yield {
+      type: "tool.started",
+      providerEventId: "evt_tool_called",
+      providerToolCallId: "call_edit",
+      providerToolName: "edit",
+      input: {
+        file: "src/index.ts",
+      },
+    } as any
+    yield {
+      type: "tool.completed",
+      providerEventId: "evt_tool_success",
+      providerToolCallId: "call_edit",
+      providerToolName: "edit",
+      output: {
+        content: "Updated src/index.ts",
+      },
+    } as any
+    yield {
+      type: "message.delta" as const,
+      delta: "Edited src/index.ts.",
+    }
+    yield {
+      type: "message.completed" as const,
+      content: "Edited src/index.ts.",
+      externalModel: {
+        provider: "opencode",
+        providerId: "fake-provider",
+        modelId: "fake-model",
+      },
+    }
+  }
+}
+
 describe("external adapter executor", () => {
   test("direct OpenCode run uses the external adapter instead of the mock executor", async () => {
     const registry = await createInitializedRegistry()
@@ -307,6 +343,48 @@ describe("external adapter executor", () => {
       .toBe("provider_session_existing")
   })
 
+  test("direct OpenCode tool events reuse the assistant message identity", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachOpenCodeClient(runManager, new ToolStreamingOpenCodeClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_opencode_tool_events",
+      mode: "single",
+      participantAgentIds: ["opencode"],
+      addressedAgentIds: ["opencode"],
+      userMessage: {
+        role: "user",
+        content: "Edit the file.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_opencode_tool_events",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const message = events.find((event) => event.type === "message.completed" && event.agentId === "opencode")
+    const toolStarted = events.find((event) => event.type === "tool.started" && event.agentId === "opencode")
+    const toolCompleted = events.find((event) => event.type === "tool.completed" && event.agentId === "opencode")
+
+    expect(toolStarted?.messageId).toBe(message?.messageId)
+    expect(toolCompleted?.messageId).toBe(message?.messageId)
+    expect(toolStarted?.toolCallId).toBe("opencode:call_edit")
+    expect(toolStarted?.toolName).toBe("edit")
+    expect((toolStarted?.data as { externalProvider?: string; providerToolCallId?: string }).externalProvider)
+      .toBe("opencode")
+    expect((toolStarted?.data as { providerToolCallId?: string }).providerToolCallId)
+      .toBe("call_edit")
+    expect((toolCompleted?.data as { output?: { content?: string } }).output?.content)
+      .toBe("Updated src/index.ts")
+  })
+
   test("delegated OpenCode task keeps task identity on visible message events", async () => {
     const registry = await createInitializedRegistry()
     const runManager = new RunManager(registry, {} as ProviderService)
@@ -397,6 +475,70 @@ describe("external adapter executor", () => {
     expect(completedData.handoffSummary).toContain("Visible response:")
     expect(completedData.handoffSummary).not.toContain("Use OpenCode for this delegated task.")
     expect(completedData.externalSession?.handoffSummary).toBe(completedData.handoffSummary)
+  })
+
+  test("delegated OpenCode tool events keep delegated task identity", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachOpenCodeClient(runManager, new ToolStreamingOpenCodeClient())
+    const rootPath = await createWorkspace()
+
+    ;(runManager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+        runTask?: (task: OrchestratorTask, options?: { groupId?: string }) => Promise<{
+          status: "completed" | "failed" | "cancelled"
+          summary: string
+        }>
+      }): AsyncIterable<RunEvent> {
+        await context.runTask?.({
+          taskId: "task_opencode_tool_events",
+          targetAgentId: "opencode",
+          title: "Ask OpenCode to edit",
+          instruction: "Use OpenCode for this delegated edit.",
+          expectedOutput: "An OpenCode response",
+          requiredCapabilities: ["external-agent"],
+          riskLevel: "low",
+          dependsOn: [],
+        }, {
+          groupId: "group_opencode_tool_events",
+        })
+
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_opencode_delegated_tool_events",
+      mode: "group",
+      participantAgentIds: ["orchestrator", "opencode"],
+      addressedAgentIds: [],
+      userMessage: {
+        role: "user",
+        content: "Delegate an edit to OpenCode.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_opencode_delegated_tool_events",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const message = events.find((event) => event.type === "message.completed" && event.agentId === "opencode")
+    const toolStarted = events.find((event) => event.type === "tool.started" && event.agentId === "opencode")
+
+    expect(toolStarted?.messageId).toBe(message?.messageId)
+    expect(toolStarted?.taskId).toBe("task_opencode_tool_events")
+    expect(toolStarted?.parentAgentId).toBe("orchestrator")
+    expect(toolStarted?.groupId).toBe("group_opencode_tool_events")
   })
 
   test("OpenCode adapter fails clearly without a bound workspace", async () => {

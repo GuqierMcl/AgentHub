@@ -225,7 +225,7 @@ Agent Runtime 智能体架构
 - 实现外部智能体 Adapter 骨架。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
 - 后续扩展 Patch / diff artifact、一键 apply、版本历史、回滚和更复杂的写入冲突处理。
-- 智能体侧尚未接入或尚未闭环能力的完整 backlog 见 `docs/roadmap/agent-side-capability-backlog.md`；近期优先级为通用 Workspace Diff Summary V0、OpenCode Event Stream / Tool Timeline、OpenCode Permission Bridge。
+- 智能体侧尚未接入或尚未闭环能力的完整 backlog 见 `docs/roadmap/agent-side-capability-backlog.md`；通用 Workspace Diff Summary V0 与 OpenCode Event Stream / Tool Timeline 已落地，近期优先级转为 OpenCode Permission Bridge、真实长任务 smoke、产品级 MessagePart 恢复与第二个外部 Agent Adapter。
 
 ## 风险与待确认点
 

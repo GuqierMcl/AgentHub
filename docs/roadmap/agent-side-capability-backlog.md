@@ -40,11 +40,11 @@ Agent-side Capability Backlog
 
 ### 2. OpenCode Event Stream 与工具 timeline
 
-状态：未接入。
+状态：已接入 Phase 4C，仍需真实长任务 smoke 与恢复投影硬化。
 
-当前 OpenCode Adapter 主要通过 `session.prompt()` 获取最终 assistant message parts；UI 能展示最终文本和模型信息，但无法稳定展示 OpenCode 内部执行过程、工具调用、真实增量输出或 provider 状态。需要订阅 OpenCode event stream，并映射为 AgentHub `message.*`、`tool.*`、`reasoning.*` 和 trace metadata。
+当前 OpenCode Adapter 使用 `@opencode-ai/sdk/v2` 订阅 OpenCode event stream，并把 `session.next.text.delta`、`session.next.reasoning.*`、`session.next.tool.*` 归一为 AgentHub `message.*`、`reasoning.*` 和 `tool.*`。Web 复用既有消息和 timeline 渲染逻辑，不为 OpenCode 单独建立浏览器直连或专属 UI 通道。
 
-下一阶段：Phase 4C：OpenCode Event Stream 与 Tool Timeline。
+后续重点：观察真实 OpenCode 长任务、断流和高频 tool event 表现；补齐完整产品级 MessagePart 持久化恢复。
 
 ### 3. OpenCode Permission Bridge
 

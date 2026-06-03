@@ -39,6 +39,45 @@ export type OpenCodePromptEvent =
       content: string
       externalModel?: OpenCodeExternalModel
     }
+  | {
+      type: "reasoning.delta"
+      reasoningId: string
+      delta: string
+    }
+  | {
+      type: "reasoning.completed"
+      reasoningId: string
+      content: string
+    }
+  | {
+      type: "tool.started"
+      providerEventId?: string
+      providerToolCallId: string
+      providerToolName: string
+      input?: unknown
+      providerExecuted?: boolean
+      providerMetadata?: Record<string, unknown>
+    }
+  | {
+      type: "tool.completed"
+      providerEventId?: string
+      providerToolCallId: string
+      providerToolName: string
+      input?: unknown
+      output?: unknown
+      providerExecuted?: boolean
+      providerMetadata?: Record<string, unknown>
+    }
+  | {
+      type: "tool.failed"
+      providerEventId?: string
+      providerToolCallId: string
+      providerToolName: string
+      input?: unknown
+      error?: unknown
+      providerExecuted?: boolean
+      providerMetadata?: Record<string, unknown>
+    }
 
 export type OpenCodeClient = {
   ensureSession(request: OpenCodeSessionRequest): Promise<ExternalSessionLink>

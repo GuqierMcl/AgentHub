@@ -126,16 +126,67 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         return
       }
 
-      const event = chunk.type === "message.delta"
-        ? createRunEvent(context.runId, "message.delta", context.agent.id, {
-            delta: chunk.delta,
-          })
-        : createRunEvent(context.runId, "message.completed", context.agent.id, {
-            content: chunk.content,
-            ...(chunk.externalModel ? { externalModel: chunk.externalModel } : {}),
-          })
-      if (chunk.type === "message.completed") {
-        completedContent = chunk.content
+      const event = (() => {
+        switch (chunk.type) {
+          case "message.delta":
+            return createRunEvent(context.runId, "message.delta", context.agent.id, {
+              delta: chunk.delta,
+            })
+          case "message.completed":
+            completedContent = chunk.content
+            return createRunEvent(context.runId, "message.completed", context.agent.id, {
+              content: chunk.content,
+              ...(chunk.externalModel ? { externalModel: chunk.externalModel } : {}),
+            })
+          case "reasoning.delta":
+            return createRunEvent(context.runId, "reasoning.delta", context.agent.id, {
+              reasoningId: chunk.reasoningId,
+              delta: chunk.delta,
+              externalProvider: this.provider,
+              providerSessionId: session.providerSessionId,
+            })
+          case "reasoning.completed":
+            return createRunEvent(context.runId, "reasoning.completed", context.agent.id, {
+              reasoningId: chunk.reasoningId,
+              content: chunk.content,
+              externalProvider: this.provider,
+              providerSessionId: session.providerSessionId,
+            })
+          case "tool.started": {
+            const event = createRunEvent(context.runId, "tool.started", context.agent.id, {
+              ...this.buildExternalToolData(session.providerSessionId, chunk),
+              input: chunk.input,
+            })
+            event.toolCallId = this.formatExternalToolCallId(chunk.providerToolCallId)
+            event.toolName = chunk.providerToolName
+            return event
+          }
+          case "tool.completed": {
+            const event = createRunEvent(context.runId, "tool.completed", context.agent.id, {
+              ...this.buildExternalToolData(session.providerSessionId, chunk),
+              ...(chunk.input !== undefined ? { input: chunk.input } : {}),
+              output: chunk.output,
+              data: chunk.output,
+            })
+            event.toolCallId = this.formatExternalToolCallId(chunk.providerToolCallId)
+            event.toolName = chunk.providerToolName
+            return event
+          }
+          case "tool.failed": {
+            const event = createRunEvent(context.runId, "tool.failed", context.agent.id, {
+              ...this.buildExternalToolData(session.providerSessionId, chunk),
+              ...(chunk.input !== undefined ? { input: chunk.input } : {}),
+              error: chunk.error,
+            })
+            event.toolCallId = this.formatExternalToolCallId(chunk.providerToolCallId)
+            event.toolName = chunk.providerToolName
+            return event
+          }
+        }
+      })()
+
+      if (!event) {
+        continue
       }
 
       event.messageId = messageId
@@ -204,6 +255,32 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
 
   private resolveExecutionAgent(_context: ExternalAdapterContext): OpenCodeExecutionAgent {
     return DEFAULT_OPENCODE_EXECUTION_AGENT
+  }
+
+  private buildExternalToolData(
+    providerSessionId: string,
+    chunk: {
+      providerEventId?: string
+      providerToolCallId: string
+      providerToolName: string
+      providerExecuted?: boolean
+      providerMetadata?: Record<string, unknown>
+    }
+  ): Record<string, unknown> {
+    return {
+      summary: `OpenCode · ${chunk.providerToolName}`,
+      externalProvider: this.provider,
+      providerSessionId,
+      providerEventId: chunk.providerEventId,
+      providerToolCallId: chunk.providerToolCallId,
+      providerToolName: chunk.providerToolName,
+      providerExecuted: chunk.providerExecuted,
+      providerMetadata: chunk.providerMetadata,
+    }
+  }
+
+  private formatExternalToolCallId(providerToolCallId: string): string {
+    return `opencode:${providerToolCallId}`
   }
 
   private buildPrompt(

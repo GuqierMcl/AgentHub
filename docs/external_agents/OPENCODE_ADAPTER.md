@@ -279,21 +279,38 @@ OpenCode 的权限请求应桥接到 AgentHub 权限 UI。
 
 OpenCodeAdapter 应订阅 OpenCode event stream，并按 session / task 过滤。
 
-建议映射：
+Phase 4C 已实现的映射：
 
 | OpenCode 事件类别 | AgentHub 投影 |
 | --- | --- |
-| assistant text part | `message.delta` / `message.completed` |
-| reasoning part | `reasoning.*`，仅当 OpenCode 显式暴露 |
-| tool part pending/running | `tool.started` |
-| tool part completed | `tool.completed` |
-| tool part error | `tool.failed` |
-| permission updated | `permission.requested` |
-| permission replied | `permission.approved` / `permission.denied` |
-| session busy/idle | agent/run 状态判断 |
-| session error | `agent.completed` error 或 `run.failed` |
-| file edited/session diff | Diff / Artifact 投影，首版可先保留 trace |
-| todo updated | 可作为 trace，暂不等同于 AgentHub `write_plan` |
+| `session.next.text.delta` | `message.delta` |
+| `session.prompt()` final assistant parts | `message.completed`；当 event stream 未给出文本增量时也补 `message.delta` |
+| `session.next.reasoning.delta` | `reasoning.delta` |
+| `session.next.reasoning.ended` | `reasoning.completed` |
+| `session.next.tool.called` | `tool.started` |
+| `session.next.tool.success` | `tool.completed` |
+| `session.next.tool.failed` | `tool.failed` |
+
+实现规则：
+
+- Runtime OpenCode Adapter 必须从 `@opencode-ai/sdk/v2` 导入 SDK 类型和 client factory。`@opencode-ai/sdk` 默认入口当前仍是 v1，其 event stream 使用 `message.part.updated` 等旧事件形态，不能用于 Phase 4C 的 `session.next.*` 映射。
+- Adapter 使用 `client.event.subscribe({ directory })` 订阅 OpenCode event stream，并在发送 prompt 前短暂有界等待 subscription ready；事件过滤只接受 `properties.sessionID` 等于当前 `providerSessionId` 的事件。
+- OpenCode 原生 tool 调用不是 AgentHub Runtime Tool Catalog 的工具调用，但会复用 `tool.started` / `tool.completed` / `tool.failed` 事件，供 HubServer/Web 继续使用现有 timeline 和消息聚合逻辑。
+- OpenCode tool 事件的 `toolCallId` 必须带 provider 命名空间，例如 `opencode:<callID>`；`toolName` 使用 OpenCode provider tool name。
+- OpenCode tool 事件的 `data` 至少包含 `externalProvider = "opencode"`、`providerSessionId`、`providerEventId`、`providerToolCallId`、`providerToolName`、`providerExecuted`、`providerMetadata`，以及脱敏后的 `input` / `output` / `error`。
+- Adapter 会复用当前 OpenCode assistant message 的 `messageId`，让文本、reasoning 和 tool trace 聚合到同一条 AgentHub 消息中；delegated task 事件还会保留 `taskId`、`parentAgentId`、`groupId`。
+- 如果 event stream 提供了 assistant text delta，Adapter 不再从最终 `session.prompt()` response 重复输出同一段 delta，只输出 `message.completed` 作为最终文本事实。
+- prompt 完成后 Adapter 会做短暂 bounded drain，尽量接住 OpenCode event stream 的尾部 tool 事件；随后停止 subscription，避免长期事件流阻塞 Run 终态。
+- event stream 不可用、订阅启动或停止超时、断开或出现无法识别的 provider event 时，Adapter 记录 OpenCode 日志并降级到最终 prompt response，不让事件流问题破坏普通聊天回复。
+
+尚未实现的映射：
+
+| OpenCode 事件类别 | 后续阶段 |
+| --- | --- |
+| permission asked/replied | Phase 4D 映射到 AgentHub `permission.*` 并回写用户决定 |
+| session error / status / idle | 可作为后续执行状态增强，当前仍由 prompt success/failure 与 Run terminal 事件表达 |
+| file edited / session diff | 当前使用 Phase 4B 通用 Workspace Diff，不使用 OpenCode 私有 diff 事件作为事实来源 |
+| todo updated | 可作为 trace，暂不等同于 AgentHub Orchestrator `write_plan` |
 
 OpenCode 的 todo 与 AgentHub Orchestrator 的 `write_plan` 语义不同，首版不应混为同一事实来源。
 
@@ -337,7 +354,7 @@ OpenCodeAdapter 负责启动或连接 OpenCode server。
 后续阶段拆分：
 
 - Phase 4B：通用 Workspace Diff Summary V0 已落地。Diff 不做 OpenCode 私有实现，而是由内部智能体和外部智能体共享同一套 workspace baseline / changed files / diffstat / bounded patch summary 逻辑，并通过 HubServer 投影为 diff Artifact。
-- Phase 4C：OpenCode Event Stream 与 Tool Timeline。Adapter 订阅 OpenCode event stream，将执行状态、工具调用和可用的文本增量映射成 AgentHub RunEvent，供 HubServer/Web 使用现有 timeline 和消息投影展示。
+- Phase 4C：OpenCode Event Stream 与 Tool Timeline 已落地。Adapter 订阅 OpenCode event stream，将工具调用、reasoning 和可用的文本增量映射成 AgentHub RunEvent，供 HubServer/Web 使用现有 timeline 和消息投影展示。
 - Phase 4D：OpenCode Permission Bridge。在 event stream 基础上把 OpenCode permission request 映射到 AgentHub `permission.*`，并将用户决定回写 OpenCode。
 
 ### 12.1 Runtime 可观测性
@@ -351,6 +368,7 @@ OpenCode 相关日志必须明确带有 `externalProvider = "opencode"`，并使
 - workspace 校验：`project.current` / `path.get` 的关键结果，以及 mismatch 详情。
 - session：scope、conversationId、taskId、hint lookup、hint reuse、hint 丢失后的 replacement session、新 session 标题和 providerSessionId。
 - prompt：prompt dispatch、abort request、prompt completed、assistant message id、输出长度、OpenCode 返回的 `providerID/modelID`，以及可解析到的 `providerName/modelName`。
+- event stream：subscription start/stop、providerSessionId、断流或 provider event 解析失败的降级 warning。
 
 日志不应输出 OpenCode API key、认证 token、完整底层堆栈或完整用户 prompt 内容；prompt 只记录长度和追踪 id。
 

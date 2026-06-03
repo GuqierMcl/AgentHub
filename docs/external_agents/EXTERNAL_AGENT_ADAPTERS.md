@@ -217,10 +217,19 @@ Adapter 负责把外部平台事件转换成 AgentHub 稳定 RunEvent。
 
 Adapter 应保留足够的 raw provider event 供调试，但面向 HubServer 和 Web 的产品投影应优先使用 AgentHub 稳定事件。
 
+外部平台原生工具不应注册成 AgentHub Runtime Tool Catalog 项。Adapter 可以把它们归一为 AgentHub `tool.started` / `tool.completed` / `tool.failed`，但必须保留外部来源边界：
+
+- `toolCallId` 使用 provider 命名空间，例如 `opencode:<providerToolCallId>`。
+- `toolName` 使用外部平台的原生 tool name，UI 可按普通工具卡片展示，但不能把它当作 AgentHub 内部工具授权事实。
+- `data.externalProvider` 标记 provider，例如 `"opencode"`。
+- `data` 保留 provider session、provider event id、provider tool id/name、provider metadata，以及脱敏后的 input/output/error。
+- 能归属到一次外部 assistant 输出时，`messageId/messageIndex` 应与同一条 `message.*`、`reasoning.*` 复用，供 Web 使用现有消息聚合和 timeline 渲染。
+- 权限桥接仍应走 `permission.*`，不应通过伪造内部 Runtime Tool permission 来表达外部平台审批。
+
 OpenCode V1 的后续阶段拆分为：
 
 - Phase 4B：通用 Workspace Diff Summary V0 已作为平台能力实现，不依赖外部 provider event stream。
-- Phase 4C：接入 OpenCode event stream，将外部执行状态和工具调用映射到 AgentHub timeline。
+- Phase 4C：接入 OpenCode event stream，将文本增量、reasoning 和外部工具调用映射到 AgentHub timeline；Web 复用既有 RunEvent/message projection，不新增 OpenCode 专属渲染链路。
 - Phase 4D：在 event stream 基础上桥接 OpenCode permission request。
 
 其他外部智能体接入时也应优先复用这些公共层：workspace diff 属于平台能力，event stream 和 permission bridge 属于 adapter 能力。

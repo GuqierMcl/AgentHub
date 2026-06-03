@@ -163,6 +163,22 @@ OpenCode Adapter V1
 - 文本消息仍作为普通 `opencode` assistant message 持久化和恢复。
 - Event stream 断开、provider event 格式不支持或事件过量时有稳定降级，不影响最终文本消息投影。
 
+当前落地：
+
+- SDK 入口使用 `@opencode-ai/sdk/v2`。`@opencode-ai/sdk` 默认入口当前仍是 v1，事件流协议不同。
+- `RealOpenCodeClient` 在 `session.prompt()` 前启动 `client.event.subscribe({ directory })`，并短暂有界等待 subscription ready；事件流只接受 `properties.sessionID` 匹配当前 provider session 的事件。
+- 重要：`client.session.prompt()`（v2 包里的 `Session2.prompt`，即 legacy "Send message" agent loop）实际只发出 `message.part.delta` / `message.part.updated` / `message.updated` 事件，**不会**发出 `session.next.*`。`session.next.*` 是 `client.v2.session.prompt()`（`Session3`，v2 agent loop，需要 queue + `wait`）才会发的事件。经 OpenCode server 1.15.13 实测确认。因此归一化必须以 `message.part.*` 为主路径。
+- 归一化主路径（实测 server 1.15.13）：
+  - `message.part.delta`（`field=="text"`）→ 按 `partID` 路由：若该 part 之前在 `message.part.updated` 中登记为 `reasoning` 则归一化为 `reasoning.delta`，否则为 `message.delta`（assistant 文本）。
+  - `message.part.updated`（`part.type=="tool"`）→ 按 `state.status` 映射工具生命周期：`pending`/`running` 首次出现（且已带非空 input）发 `tool.started`，`completed` 发 `tool.completed`，`error` 发 `tool.failed`；同一 `callID` 每个阶段只发一次，避免 legacy 流重复整 part 造成重复卡片。
+  - `message.part.updated`（`part.type=="reasoning"` 且 `part.time.end` 出现）→ 发 `reasoning.completed`（`reasoningId = partID`，与 `reasoning.delta` 对齐），用于关闭前端"思考中"状态；同一 `partID` 只发一次。legacy 流不发 `session.next.reasoning.ended`，这个 updated 事件是唯一的完成信号。
+  - `message.part.updated`（其它 part type）只用于登记 `partID -> type`，不直接产出事件。
+- 仍保留 `session.next.text.delta`、`session.next.reasoning.delta/ended`、`session.next.tool.called/success/failed` 的归一化分支，作为未来切换到 v2 agent loop 的前向兼容。
+- OpenCode tool 事件复用 AgentHub `tool.started` / `tool.completed` / `tool.failed`，但 `toolCallId` 使用 `opencode:<providerToolCallId>` 命名空间，`data.externalProvider = "opencode"`，避免被误认为 AgentHub Runtime Tool Catalog 中的内部工具。
+- 如果 event stream 已提供文本增量，最终 `session.prompt()` response 只输出 `message.completed`，避免重复追加同一段文本；没有 event stream 文本时继续用最终 assistant parts 生成 `message.delta` + `message.completed`。
+- prompt 完成后有短暂 bounded drain，用于收集 OpenCode event stream 尾部 tool 事件；随后 abort subscription，不让长期 event stream 阻塞 Run 结束。
+- event stream 失败、缺失或订阅启动/停止超时时只降级为日志 warning，并保留最终 prompt response 作为文本事实来源。
+
 ### 阶段 4D：OpenCode Permission Bridge
 
 目标：
@@ -205,7 +221,8 @@ OpenCode Adapter V1
 - OpenCode execution agent 控制已落地：AgentHub-originated prompt 显式传 `agent = "build"`，不继承 OpenCode 原生 UI 上一次 Plan/Build 状态；AgentHub 仍不管理 OpenCode model/provider/Skill/MCP/plugin/command。
 - 阶段 4A 已落地：HubServer 生成 OpenCode direct `externalContext` packet，Runtime OpenCodeAdapter 将其作为结构化 prompt 前缀发送；delegated task 完成后生成 handoff summary；HubServer 用 `ExternalAgentSession.metadataJson.contextBridge` 保存成功同步状态。
 - 阶段 4B 已落地：Runtime 通用 `WorkspaceDiffService` 在 Run 前后计算 git-based summary；HubServer 将终态 `workspaceDiff` 投影为 diff Artifact + ArtifactVersion；Web 支持 live 与 persisted diff 摘要卡片。
-- 尚无 OpenCode event stream/tool timeline 和 OpenCode permission bridge。
+- 阶段 4C 已落地：Runtime 订阅 OpenCode event stream，映射文本增量、reasoning 和原生 tool 调用到 AgentHub 稳定 RunEvent；HubServer/Web 复用现有 message/timeline 投影，不新增 OpenCode 专属前端通道。
+- 尚无 OpenCode permission bridge。
 
 ## 已完成
 
@@ -220,10 +237,10 @@ OpenCode Adapter V1
 - OpenCode execution agent 固定为 `build` 的回归修复：AgentHub prompt 不继承外部 OpenCode 客户端上一次 Plan/Build 选择。
 - 阶段 4A：Context Bridge、metadata cursor 与 delegated handoff summary。
 - 阶段 4B：通用 Workspace Diff Summary V0、HubServer diff Artifact 投影和 Web diff 摘要卡片。
+- 阶段 4C：OpenCode Event Stream 与 Tool Timeline，包含文本增量、reasoning 和 provider tool trace 的 Runtime 归一化。
 
 ## 待办
 
-- 阶段 4C：OpenCode Event Stream 与 Tool Timeline。
 - 阶段 4D：OpenCode Permission Bridge。
 - 阶段 5：集成硬化。
 - OpenCode 会话头部默认模型只读状态：后续再考虑读取 OpenCode provider/config 默认值；AgentHub 仍不接管 OpenCode 模型配置。
@@ -231,7 +248,8 @@ OpenCode Adapter V1
 ## 风险与待确认点
 
 - 当前 `@opencode-ai/sdk@1.15.13` 的 `createOpencode()` ServerOptions 未暴露 cwd/workdir/projectPath；V1 不使用 `process.chdir()`，因此默认通过 `opencode serve` 子进程 cwd 绑定 workspace。若后续 SDK 增加进程局部 workspace 参数，可切回 SDK managed path。
-- OpenCode event stream 的真实文本 delta、tool part 和 permission payload 需要在 Phase 4C/4D 结合 SDK/Server 实测验证。
+- OpenCode event stream 的文本 delta 与 tool part 已按 SDK 类型和 mock stream 覆盖；仍需要在真实 OpenCode smoke 中观察长任务、断流和高频事件表现。
+- OpenCode permission payload 仍需在 Phase 4D 结合 SDK/Server 实测验证。
 - OpenCode 权限回写 API 的精确 payload 需要在 Phase 4D 权限桥接阶段验证。
 - 多个 OpenCode session 并发编辑同一 workspace 可能产生冲突；V1 只检测并标记，不自动合并。
 - 非 git workspace 的 Diff 能力需要 fallback 设计；V1 先以 unavailable summary 降级。
@@ -252,3 +270,4 @@ OpenCode Adapter V1
 - 2026-06-02：收紧 dirty baseline 行为：Runtime 用 baseline/final 脏文件 fingerprint 尽量过滤本轮未变化的既有脏文件，避免卡片把 pre-existing dirty files 误报为本轮修改；bounded patch 仍保持 final-vs-HEAD 保守语义。
 - 2026-06-02：修复 OpenCode Plan/Build 状态继承问题：AgentHub-originated `session.prompt()` 显式传入 `agent = "build"`，并在日志中记录 `executionAgent`；文档同步区分“不管理 OpenCode agent 配置”和“控制本轮执行 agent”。
 - 2026-06-02：修正 Diff 卡片行数语义：Runtime 对未跟踪文本文件 best-effort 统计新增行数；Web 在没有有效增删行时不再展示 `+0/-0`，避免把未知统计误导为 0 行变化。
+- 2026-06-03：完成 Phase 4C OpenCode Event Stream 与 Tool Timeline：Runtime 订阅 OpenCode event stream，按 provider session 过滤并映射 `message.delta`、`reasoning.*` 与 `tool.*`；外部 provider tool 使用 `opencode:` toolCallId 命名空间和 `data.externalProvider` metadata，Web 继续复用现有 AgentHub timeline 渲染。

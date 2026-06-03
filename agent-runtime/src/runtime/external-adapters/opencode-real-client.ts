@@ -1,4 +1,4 @@
-import type { Part, Session, SessionPromptResponse } from "@opencode-ai/sdk"
+import type { Part, Session, SessionPromptResponse } from "@opencode-ai/sdk/v2"
 import type {
   ExternalAdapterPrompt,
   ExternalSessionLink,
@@ -34,6 +34,13 @@ type OpenCodeModelInfo = {
 }
 
 const DEFAULT_OPENCODE_EXECUTION_AGENT: OpenCodeExecutionAgent = "build"
+const MAX_EXTERNAL_EVENT_TEXT_CHARS = 12_000
+const MAX_EXTERNAL_EVENT_ARRAY_ITEMS = 50
+const MAX_EXTERNAL_EVENT_OBJECT_KEYS = 80
+const OPENCODE_EVENT_STREAM_READY_TIMEOUT_MS = 250
+const OPENCODE_EVENT_STREAM_DRAIN_IDLE_MS = 20
+const OPENCODE_EVENT_STREAM_DRAIN_MAX_MS = 250
+const OPENCODE_EVENT_STREAM_STOP_TIMEOUT_MS = 250
 
 export type RealOpenCodeClientDependencies = {
   server?: ManagedOpenCodeServer
@@ -215,18 +222,194 @@ export class RealOpenCodeClient implements OpenCodeClient {
         },
         "OpenCode prompt starting"
       )
-      const response = await state.connection.client.session.prompt({
-        path: { id: state.sessionId },
-        query: { directory: state.connection.directory },
-        body: {
-          agent: executionAgent,
-          parts: [{
-            type: "text",
-            text: request.prompt.content,
-          }],
-        },
-        signal: request.signal,
+
+      const eventController = new AbortController()
+      const stopEventStream = (): void => {
+        if (!eventController.signal.aborted) {
+          eventController.abort()
+        }
+      }
+      request.signal.addEventListener("abort", stopEventStream, { once: true })
+
+      const eventQueue: OpenCodePromptEvent[] = []
+      let eventStreamDone = false
+      let eventSubscriptionReady = false
+      let resolveEventSubscriptionReady: (() => void) | undefined
+      const eventSubscriptionReadyPromise = new Promise<void>((resolve) => {
+        resolveEventSubscriptionReady = resolve
       })
+      const markEventSubscriptionReady = (): void => {
+        if (eventSubscriptionReady) return
+        eventSubscriptionReady = true
+        resolveEventSubscriptionReady?.()
+      }
+      let wakeEventLoop: (() => void) | undefined
+      const wake = (): void => {
+        wakeEventLoop?.()
+        wakeEventLoop = undefined
+      }
+      const waitForWake = (timeoutMs?: number): Promise<void> => {
+        return new Promise((resolve) => {
+          let timeout: ReturnType<typeof setTimeout> | undefined
+          const resolveWake = (): void => {
+            if (timeout) {
+              clearTimeout(timeout)
+            }
+            if (wakeEventLoop === resolveWake) {
+              wakeEventLoop = undefined
+            }
+            resolve()
+          }
+          wakeEventLoop = resolveWake
+          if (timeoutMs !== undefined) {
+            timeout = setTimeout(resolveWake, Math.max(0, timeoutMs))
+          }
+        })
+      }
+      const eventPump = (async () => {
+        try {
+          for await (const event of this.streamOpenCodeSessionEvents(
+            state,
+            request,
+            eventController.signal,
+            markEventSubscriptionReady
+          )) {
+            eventQueue.push(event)
+            wake()
+          }
+        } catch (error) {
+          if (!eventController.signal.aborted && !request.signal.aborted) {
+            this.log.warn(
+              {
+                externalProvider: "opencode",
+                runId: request.session.runId,
+                conversationId: request.session.conversationId,
+                workspaceId: request.session.workspaceId,
+                scope: request.session.scope,
+                taskId: request.session.taskId,
+                providerSessionId: state.sessionId,
+                error: describeError(error),
+              },
+              "OpenCode event stream failed; continuing with prompt response fallback"
+            )
+          }
+        } finally {
+          markEventSubscriptionReady()
+          eventStreamDone = true
+          wake()
+        }
+      })()
+      const stopEventStreamAndWait = async (): Promise<void> => {
+        stopEventStream()
+        const stopped = await waitForBoundedPromise(
+          eventPump,
+          OPENCODE_EVENT_STREAM_STOP_TIMEOUT_MS
+        )
+        if (!stopped) {
+          this.log.warn(
+            {
+              externalProvider: "opencode",
+              runId: request.session.runId,
+              conversationId: request.session.conversationId,
+              workspaceId: request.session.workspaceId,
+              scope: request.session.scope,
+              taskId: request.session.taskId,
+              providerSessionId: state.sessionId,
+              timeoutMs: OPENCODE_EVENT_STREAM_STOP_TIMEOUT_MS,
+            },
+            "OpenCode event stream did not stop promptly; continuing with prompt response"
+          )
+        }
+      }
+
+      const eventStreamReady = await waitForBoundedPromise(
+        eventSubscriptionReadyPromise,
+        OPENCODE_EVENT_STREAM_READY_TIMEOUT_MS
+      )
+      if (!eventStreamReady) {
+        this.log.warn(
+          {
+            externalProvider: "opencode",
+            runId: request.session.runId,
+            conversationId: request.session.conversationId,
+            workspaceId: request.session.workspaceId,
+            scope: request.session.scope,
+            taskId: request.session.taskId,
+            providerSessionId: state.sessionId,
+            timeoutMs: OPENCODE_EVENT_STREAM_READY_TIMEOUT_MS,
+          },
+          "OpenCode event stream subscription not ready before prompt; continuing with prompt fallback"
+        )
+      }
+
+      if (request.signal.aborted) {
+        await stopEventStreamAndWait()
+        request.signal.removeEventListener("abort", stopEventStream)
+        return
+      }
+
+      let promptSettled = false
+      let promptSettledAt: number | undefined
+      const promptPromise = state.connection.client.session.prompt({
+        sessionID: state.sessionId,
+        directory: state.connection.directory,
+        agent: executionAgent,
+        parts: [{
+          type: "text",
+          text: request.prompt.content,
+        }],
+      }, {
+        signal: request.signal,
+      }).finally(() => {
+        promptSettled = true
+        promptSettledAt = Date.now()
+        wake()
+      })
+
+      let streamedTextDelta = false
+      let lastEventReceivedAt = Date.now()
+      while (true) {
+        const nextEvent = eventQueue.shift()
+        if (nextEvent) {
+          lastEventReceivedAt = Date.now()
+          if (nextEvent.type === "message.delta") {
+            streamedTextDelta = true
+          }
+          yield nextEvent
+          continue
+        }
+
+        if (request.signal.aborted) {
+          break
+        }
+
+        if (!promptSettled) {
+          if (eventStreamDone) {
+            break
+          }
+          await waitForWake()
+          continue
+        }
+
+        if (eventStreamDone) {
+          break
+        }
+
+        const now = Date.now()
+        const maxDrainDeadline = (promptSettledAt ?? now) + OPENCODE_EVENT_STREAM_DRAIN_MAX_MS
+        const idleDrainStart = Math.max(lastEventReceivedAt, promptSettledAt ?? now)
+        const idleDrainDeadline = idleDrainStart + OPENCODE_EVENT_STREAM_DRAIN_IDLE_MS
+        const waitMs = Math.min(maxDrainDeadline, idleDrainDeadline) - now
+        if (waitMs <= 0) {
+          break
+        }
+        await waitForWake(waitMs)
+      }
+
+      await stopEventStreamAndWait()
+      request.signal.removeEventListener("abort", stopEventStream)
+
+      const response = await promptPromise
 
       if (request.signal.aborted) {
         return
@@ -274,7 +457,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
         "OpenCode prompt completed"
       )
       const externalModel = toExternalModel(model)
-      if (content) {
+      if (content && !streamedTextDelta) {
         yield {
           type: "message.delta",
           delta: content,
@@ -369,6 +552,86 @@ export class RealOpenCodeClient implements OpenCodeClient {
     )
   }
 
+  private async *streamOpenCodeSessionEvents(
+    state: SessionState,
+    request: OpenCodePromptRequest,
+    signal: AbortSignal,
+    onSubscriptionReady?: () => void
+  ): AsyncIterable<OpenCodePromptEvent> {
+    const eventApi = state.connection.client.event
+    if (!eventApi?.subscribe) {
+      onSubscriptionReady?.()
+      return
+    }
+
+    this.log.info(
+      {
+        externalProvider: "opencode",
+        runId: request.session.runId,
+        conversationId: request.session.conversationId,
+        workspaceId: request.session.workspaceId,
+        scope: request.session.scope,
+        taskId: request.session.taskId,
+        providerSessionId: state.sessionId,
+      },
+      "OpenCode event stream subscription starting"
+    )
+
+    try {
+      const response = await eventApi.subscribe(
+        { directory: state.connection.directory },
+        { signal } as Parameters<typeof eventApi.subscribe>[1]
+      )
+      onSubscriptionReady?.()
+      const stream = (response as { stream?: AsyncIterable<unknown> }).stream
+      if (!stream) {
+        this.log.warn(
+          {
+            externalProvider: "opencode",
+            runId: request.session.runId,
+            conversationId: request.session.conversationId,
+            workspaceId: request.session.workspaceId,
+            providerSessionId: state.sessionId,
+          },
+          "OpenCode event stream subscription returned no stream"
+        )
+        return
+      }
+
+      const eventState = createOpenCodeEventNormalizationState()
+      for await (const providerEvent of stream) {
+        if (signal.aborted || request.signal.aborted) {
+          return
+        }
+
+        const normalized = normalizeOpenCodeProviderEvent(
+          providerEvent,
+          state.sessionId,
+          state.workspaceRootPath,
+          eventState
+        )
+        if (normalized) {
+          yield normalized
+        }
+      }
+    } finally {
+      onSubscriptionReady?.()
+      this.log.info(
+        {
+          externalProvider: "opencode",
+          runId: request.session.runId,
+          conversationId: request.session.conversationId,
+          workspaceId: request.session.workspaceId,
+          scope: request.session.scope,
+          taskId: request.session.taskId,
+          providerSessionId: state.sessionId,
+          aborted: signal.aborted || request.signal.aborted,
+        },
+        "OpenCode event stream subscription stopped"
+      )
+    }
+  }
+
   private async getSessionOrNull(
     client: OpenCodeApiClient,
     providerSessionId: string,
@@ -376,8 +639,8 @@ export class RealOpenCodeClient implements OpenCodeClient {
   ): Promise<Session | null> {
     try {
       const response = await client.session.get({
-        path: { id: providerSessionId },
-        query: { directory },
+        sessionID: providerSessionId,
+        directory,
       })
       if (isNotFoundResponse(response)) {
         this.log.warn(
@@ -459,10 +722,8 @@ export class RealOpenCodeClient implements OpenCodeClient {
         "OpenCode session creation starting"
       )
       const response = await connection.client.session.create({
-        query: { directory: connection.directory },
-        body: {
-          title,
-        },
+        directory: connection.directory,
+        title,
       })
       const session = unwrapOpenCodeResponse<Session>(
         response,
@@ -539,8 +800,8 @@ export class RealOpenCodeClient implements OpenCodeClient {
         "OpenCode session abort starting"
       )
       const response = await state.connection.client.session.abort({
-        path: { id: state.sessionId },
-        query: { directory: state.connection.directory },
+        sessionID: state.sessionId,
+        directory: state.connection.directory,
       })
       unwrapOpenCodeResponse<boolean>(
         response,
@@ -599,7 +860,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
 
     try {
       const response = await client.provider.list({
-        query: { directory },
+        directory,
       })
       const catalog = unwrapOpenCodeResponse<unknown>(
         response,
@@ -702,6 +963,336 @@ function toExternalModel(
   }
 }
 
+type OpenCodeEventNormalizationState = {
+  // partID -> part type (e.g. "text" | "reasoning" | "tool"), learned from
+  // message.part.updated so we can route message.part.delta correctly.
+  partTypes: Map<string, string>
+  // partID of reasoning parts already finished, so the legacy stream (which can
+  // re-emit a finished part) only yields one reasoning.completed each.
+  finishedReasoningParts: Set<string>
+  // callID -> tool name, so success/failure events can label the tool.
+  toolNames: Map<string, string>
+  // callID -> last emitted tool lifecycle phase, so the legacy
+  // message.part.updated stream (which re-emits the whole tool part on every
+  // transition) only yields a started/completed/failed event once each.
+  toolPhases: Map<string, "started" | "completed" | "failed">
+}
+
+function createOpenCodeEventNormalizationState(): OpenCodeEventNormalizationState {
+  return {
+    partTypes: new Map<string, string>(),
+    finishedReasoningParts: new Set<string>(),
+    toolNames: new Map<string, string>(),
+    toolPhases: new Map<string, "started" | "completed" | "failed">(),
+  }
+}
+
+function normalizeOpenCodeProviderEvent(
+  providerEvent: unknown,
+  providerSessionId: string,
+  workspaceRootPath: string,
+  state: OpenCodeEventNormalizationState
+): OpenCodePromptEvent | undefined {
+  const event = getRecord(providerEvent)
+  const type = getRecordString(event, "type")
+  const properties = getRecord(event?.properties)
+  const sessionId = getRecordString(properties, "sessionID") ?? getRecordString(properties, "sessionId")
+  if (!type || !properties || sessionId !== providerSessionId) {
+    return undefined
+  }
+
+  const providerEventId = getRecordString(event, "id")
+  switch (type) {
+    // --- Vocabulary emitted by the legacy session.prompt() agent loop. ---
+    case "message.part.updated":
+      return normalizeMessagePartUpdated(properties, workspaceRootPath, providerEventId, state)
+    case "message.part.delta":
+      return normalizeMessagePartDelta(properties, state)
+    // --- Forward-compatible session.next.* vocabulary. ---
+    case "session.next.text.delta": {
+      const delta = getRecordString(properties, "delta")
+      return delta ? { type: "message.delta", delta } : undefined
+    }
+    case "session.next.reasoning.delta": {
+      const reasoningId = getRecordString(properties, "reasoningID") ?? "opencode-reasoning"
+      const delta = getRecordString(properties, "delta")
+      return delta ? { type: "reasoning.delta", reasoningId, delta } : undefined
+    }
+    case "session.next.reasoning.ended": {
+      const reasoningId = getRecordString(properties, "reasoningID") ?? "opencode-reasoning"
+      const content = getRecordString(properties, "text") ?? ""
+      return { type: "reasoning.completed", reasoningId, content }
+    }
+    case "session.next.tool.called": {
+      const callId = getRecordString(properties, "callID")
+      const toolName = getRecordString(properties, "tool")
+      if (!callId || !toolName) return undefined
+      state.toolNames.set(callId, toolName)
+      const provider = getRecord(properties.provider)
+      return {
+        type: "tool.started",
+        providerEventId,
+        providerToolCallId: callId,
+        providerToolName: toolName,
+        input: sanitizeExternalProviderValue(properties.input, workspaceRootPath),
+        providerExecuted: getRecordBoolean(provider, "executed"),
+        providerMetadata: sanitizeExternalProviderRecord(provider?.metadata, workspaceRootPath),
+      }
+    }
+    case "session.next.tool.success": {
+      const callId = getRecordString(properties, "callID")
+      if (!callId) return undefined
+      const provider = getRecord(properties.provider)
+      return {
+        type: "tool.completed",
+        providerEventId,
+        providerToolCallId: callId,
+        providerToolName: state.toolNames.get(callId) ?? "tool",
+        output: {
+          structured: sanitizeExternalProviderValue(properties.structured, workspaceRootPath),
+          content: sanitizeExternalProviderValue(properties.content, workspaceRootPath),
+        },
+        providerExecuted: getRecordBoolean(provider, "executed"),
+        providerMetadata: sanitizeExternalProviderRecord(provider?.metadata, workspaceRootPath),
+      }
+    }
+    case "session.next.tool.failed": {
+      const callId = getRecordString(properties, "callID")
+      if (!callId) return undefined
+      const provider = getRecord(properties.provider)
+      return {
+        type: "tool.failed",
+        providerEventId,
+        providerToolCallId: callId,
+        providerToolName: state.toolNames.get(callId) ?? "tool",
+        error: sanitizeExternalProviderValue(properties.error, workspaceRootPath),
+        providerExecuted: getRecordBoolean(provider, "executed"),
+        providerMetadata: sanitizeExternalProviderRecord(provider?.metadata, workspaceRootPath),
+      }
+    }
+    default:
+      return undefined
+  }
+}
+
+function normalizeMessagePartDelta(
+  properties: Record<string, unknown>,
+  state: OpenCodeEventNormalizationState
+): OpenCodePromptEvent | undefined {
+  // Only text/reasoning fields stream as deltas; tool input deltas are surfaced
+  // via the tool lifecycle (message.part.updated) instead.
+  if (getRecordString(properties, "field") !== "text") {
+    return undefined
+  }
+  const delta = getRecordString(properties, "delta")
+  if (!delta) {
+    return undefined
+  }
+  const partId = getRecordString(properties, "partID")
+  const partType = partId ? state.partTypes.get(partId) : undefined
+  if (partType === "reasoning") {
+    return {
+      type: "reasoning.delta",
+      reasoningId: partId ?? "opencode-reasoning",
+      delta,
+    }
+  }
+  // Default unknown/text parts to assistant message text.
+  return { type: "message.delta", delta }
+}
+
+function normalizeMessagePartUpdated(
+  properties: Record<string, unknown>,
+  workspaceRootPath: string,
+  providerEventId: string | undefined,
+  state: OpenCodeEventNormalizationState
+): OpenCodePromptEvent | undefined {
+  const part = getRecord(properties.part)
+  const partType = getRecordString(part, "type")
+  const partId = getRecordString(part, "id")
+  if (part && partType && partId) {
+    state.partTypes.set(partId, partType)
+  }
+
+  // A reasoning part that carries time.end has finished thinking. The legacy
+  // stream never emits session.next.reasoning.ended, so this updated event is
+  // the only signal that lets the UI close the "thinking" block.
+  if (part && partType === "reasoning" && partId) {
+    const time = getRecord(part.time)
+    const ended = time !== undefined && time.end !== undefined
+    if (ended && !state.finishedReasoningParts.has(partId)) {
+      state.finishedReasoningParts.add(partId)
+      return {
+        type: "reasoning.completed",
+        reasoningId: partId,
+        content: getRecordString(part, "text") ?? "",
+      }
+    }
+    return undefined
+  }
+
+  if (!part || partType !== "tool") {
+    return undefined
+  }
+
+  const callId = getRecordString(part, "callID")
+  const toolName = getRecordString(part, "tool")
+  if (!callId || !toolName) {
+    return undefined
+  }
+  state.toolNames.set(callId, toolName)
+
+  const toolState = getRecord(part.state)
+  const status = getRecordString(toolState, "status")
+  const phase = state.toolPhases.get(callId)
+  const input = toolState ? sanitizeExternalProviderValue(toolState.input, workspaceRootPath) : undefined
+  const metadata = sanitizeExternalProviderRecord(toolState?.metadata, workspaceRootPath)
+
+  switch (status) {
+    case "completed": {
+      if (phase === "completed" || phase === "failed") return undefined
+      state.toolPhases.set(callId, "completed")
+      return {
+        type: "tool.completed",
+        providerEventId,
+        providerToolCallId: callId,
+        providerToolName: toolName,
+        input,
+        output: {
+          output: sanitizeExternalProviderValue(toolState?.output, workspaceRootPath),
+          title: sanitizeExternalProviderValue(toolState?.title, workspaceRootPath),
+        },
+        providerExecuted: true,
+        providerMetadata: metadata,
+      }
+    }
+    case "error": {
+      if (phase === "failed") return undefined
+      state.toolPhases.set(callId, "failed")
+      return {
+        type: "tool.failed",
+        providerEventId,
+        providerToolCallId: callId,
+        providerToolName: toolName,
+        input,
+        error: sanitizeExternalProviderValue(toolState?.error, workspaceRootPath),
+        providerExecuted: true,
+        providerMetadata: metadata,
+      }
+    }
+    case "pending":
+    case "running":
+    default: {
+      // The legacy stream re-emits the whole tool part on every transition and
+      // the pending snapshot carries an empty input. Hold the started event
+      // until we actually have input so the tool card shows real arguments, and
+      // only emit it once.
+      if (phase) return undefined
+      if (!hasMeaningfulToolInput(input) && status !== "running") return undefined
+      state.toolPhases.set(callId, "started")
+      return {
+        type: "tool.started",
+        providerEventId,
+        providerToolCallId: callId,
+        providerToolName: toolName,
+        input,
+        providerExecuted: true,
+        providerMetadata: metadata,
+      }
+    }
+  }
+}
+
+function hasMeaningfulToolInput(input: unknown): boolean {
+  if (input === undefined || input === null) return false
+  if (typeof input === "object") {
+    return Object.keys(input as Record<string, unknown>).length > 0
+  }
+  return true
+}
+
+function sanitizeExternalProviderRecord(
+  value: unknown,
+  workspaceRootPath: string
+): Record<string, unknown> | undefined {
+  const sanitized = sanitizeExternalProviderValue(value, workspaceRootPath)
+  return getRecord(sanitized)
+}
+
+function sanitizeExternalProviderValue(
+  value: unknown,
+  workspaceRootPath: string,
+  seen = new WeakSet<object>(),
+  depth = 0
+): unknown {
+  if (typeof value === "string") {
+    return truncateExternalProviderText(redactWorkspaceRoot(value, workspaceRootPath))
+  }
+  if (typeof value !== "object" || value === null) {
+    return value
+  }
+  if (seen.has(value)) {
+    return "[Circular]"
+  }
+  if (depth >= 6) {
+    return "[MaxDepth]"
+  }
+
+  seen.add(value)
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, MAX_EXTERNAL_EVENT_ARRAY_ITEMS)
+      .map((item) => sanitizeExternalProviderValue(item, workspaceRootPath, seen, depth + 1))
+    if (value.length > MAX_EXTERNAL_EVENT_ARRAY_ITEMS) {
+      items.push(`[${value.length - MAX_EXTERNAL_EVENT_ARRAY_ITEMS} items truncated]`)
+    }
+    return items
+  }
+
+  const entries = Object.entries(value).slice(0, MAX_EXTERNAL_EVENT_OBJECT_KEYS)
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, item] of entries) {
+    sanitized[key] = sanitizeExternalProviderValue(item, workspaceRootPath, seen, depth + 1)
+  }
+  if (Object.keys(value).length > MAX_EXTERNAL_EVENT_OBJECT_KEYS) {
+    sanitized.__truncatedKeys = Object.keys(value).length - MAX_EXTERNAL_EVENT_OBJECT_KEYS
+  }
+  return sanitized
+}
+
+function redactWorkspaceRoot(value: string, workspaceRootPath: string): string {
+  const normalizedRoot = workspaceRootPath.replace(/\\/g, "/")
+  return value
+    .split(workspaceRootPath).join("[workspace-root]")
+    .split(normalizedRoot).join("[workspace-root]")
+}
+
+function truncateExternalProviderText(value: string): string {
+  if (value.length <= MAX_EXTERNAL_EVENT_TEXT_CHARS) {
+    return value
+  }
+  return `${value.slice(0, MAX_EXTERNAL_EVENT_TEXT_CHARS)}...[truncated ${value.length - MAX_EXTERNAL_EVENT_TEXT_CHARS} chars]`
+}
+
+async function waitForBoundedPromise(
+  promise: Promise<void>,
+  timeoutMs: number
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+  }
+}
+
 function lookupOpenCodeModelNames(
   catalog: unknown,
   providerId: string,
@@ -736,6 +1327,12 @@ function getRecordString(record: unknown, key: string): string | undefined {
   if (!isRecord(record)) return undefined
   const value = record[key]
   return typeof value === "string" ? value : undefined
+}
+
+function getRecordBoolean(record: unknown, key: string): boolean | undefined {
+  if (!isRecord(record)) return undefined
+  const value = record[key]
+  return typeof value === "boolean" ? value : undefined
 }
 
 function createSessionLink(

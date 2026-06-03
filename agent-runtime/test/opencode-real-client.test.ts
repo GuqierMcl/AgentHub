@@ -34,6 +34,7 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
     agent?: string
   ) => Promise<unknown>
   sessionAbort: (id: string) => Promise<unknown>
+  eventSubscribe: (parameters?: unknown, options?: { signal?: AbortSignal }) => Promise<unknown>
   providerList: () => Promise<unknown>
   projectWorktree: string
   pathDirectory: string
@@ -56,25 +57,31 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
       }),
     },
     session: {
-      get: async (options: { path: { id: string } }) => {
+      get: async (options: { path?: { id?: string }; sessionID?: string }) => {
+        const id = options.sessionID ?? options.path?.id ?? ""
         if (overrides.sessionGet) {
-          return overrides.sessionGet(options.path.id)
+          return overrides.sessionGet(id)
         }
-        return response(createSession(options.path.id, "Existing"))
+        return response(createSession(id, "Existing"))
       },
-      create: async (options?: { body?: { title?: string } }) => {
+      create: async (options?: { body?: { title?: string }; title?: string }) => {
+        const title = options?.title ?? options?.body?.title
         if (overrides.sessionCreate) {
-          return overrides.sessionCreate(options?.body?.title)
+          return overrides.sessionCreate(title)
         }
-        return response(createSession("session_created", options?.body?.title ?? "Untitled"))
+        return response(createSession("session_created", title ?? "Untitled"))
       },
       prompt: async (options: {
+        agent?: string
+        parts?: Array<{ text?: string }>
         body?: { agent?: string; parts?: Array<{ text?: string }> }
         signal?: AbortSignal
-      }) => {
-        const text = options.body?.parts?.[0]?.text ?? ""
+      }, requestOptions?: { signal?: AbortSignal }) => {
+        const text = options.parts?.[0]?.text ?? options.body?.parts?.[0]?.text ?? ""
+        const signal = requestOptions?.signal ?? options.signal
+        const agent = options.agent ?? options.body?.agent
         if (overrides.sessionPrompt) {
-          return overrides.sessionPrompt(text, options.signal, options.body?.agent)
+          return overrides.sessionPrompt(text, signal, agent)
         }
         return response({
           info: {
@@ -88,9 +95,10 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
           }],
         })
       },
-      abort: async (options: { path: { id: string } }) => {
+      abort: async (options: { path?: { id?: string }; sessionID?: string }) => {
+        const id = options.sessionID ?? options.path?.id ?? ""
         if (overrides.sessionAbort) {
-          return overrides.sessionAbort(options.path.id)
+          return overrides.sessionAbort(id)
         }
         return response(true)
       },
@@ -115,6 +123,16 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
           default: {},
           connected: [],
         })
+      },
+    },
+    event: {
+      subscribe: async (parameters?: unknown, options?: { signal?: AbortSignal }) => {
+        if (overrides.eventSubscribe) {
+          return overrides.eventSubscribe(parameters, options)
+        }
+        return {
+          stream: (async function* emptyOpenCodeEventStream() {})(),
+        }
       },
     },
   } as unknown as OpenCodeApiClient
@@ -384,6 +402,480 @@ describe("RealOpenCodeClient", () => {
       },
     ])
     expect(extractAssistantText([{ type: "text", text: "a" } as any])).toBe("a")
+  })
+
+  test("maps OpenCode event stream text and tool events without duplicating final text", async () => {
+    const workspaceRoot = await createWorkspace()
+    const opencodeEvents = [
+      {
+        id: "evt_text_delta",
+        type: "session.next.text.delta",
+        properties: {
+          timestamp: Date.now(),
+          sessionID: "session_created",
+          delta: "Streamed answer",
+        },
+      },
+      {
+        id: "evt_other_session_tool",
+        type: "session.next.tool.called",
+        properties: {
+          timestamp: Date.now(),
+          sessionID: "session_other",
+          callID: "call_ignored",
+          tool: "edit",
+          input: { file: "ignored.ts" },
+          provider: { executed: true },
+        },
+      },
+      {
+        id: "evt_tool_called",
+        type: "session.next.tool.called",
+        properties: {
+          timestamp: Date.now(),
+          sessionID: "session_created",
+          callID: "call_edit",
+          tool: "edit",
+          input: { file: "src/index.ts" },
+          provider: { executed: true, metadata: { source: "opencode" } },
+        },
+      },
+      {
+        id: "evt_tool_success",
+        type: "session.next.tool.success",
+        properties: {
+          timestamp: Date.now(),
+          sessionID: "session_created",
+          callID: "call_edit",
+          structured: { changed: true },
+          content: [{ type: "text", text: "Updated src/index.ts" }],
+          provider: { executed: true },
+        },
+      },
+    ]
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* streamOpenCodeEvents() {
+          for (const event of opencodeEvents) {
+            yield event
+          }
+        })(),
+      }),
+      sessionPrompt: async () => response({
+        info: {
+          id: "message_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "Streamed answer" }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_event_stream",
+      conversationId: "conv_event_stream",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_event_stream",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const events = []
+    for await (const event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Stream and edit",
+      },
+      signal: new AbortController().signal,
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { type: "message.delta", delta: "Streamed answer" },
+      {
+        type: "tool.started",
+        providerEventId: "evt_tool_called",
+        providerToolCallId: "call_edit",
+        providerToolName: "edit",
+        input: { file: "src/index.ts" },
+        providerExecuted: true,
+        providerMetadata: { source: "opencode" },
+      },
+      {
+        type: "tool.completed",
+        providerEventId: "evt_tool_success",
+        providerToolCallId: "call_edit",
+        providerToolName: "edit",
+        output: {
+          structured: { changed: true },
+          content: [{ type: "text", text: "Updated src/index.ts" }],
+        },
+        providerExecuted: true,
+      },
+      {
+        type: "message.completed",
+        content: "Streamed answer",
+      },
+    ])
+  })
+
+  test("maps legacy message.part.* stream text and tool lifecycle without duplicating final text", async () => {
+    const workspaceRoot = await createWorkspace()
+    // Shapes captured from a real `opencode serve` 1.15.13 /event stream driven
+    // by the legacy session.prompt() agent loop.
+    const opencodeEvents = [
+      {
+        id: "evt_reasoning_part",
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session_created",
+          part: {
+            id: "prt_reasoning",
+            messageID: "msg_assistant",
+            sessionID: "session_created",
+            type: "reasoning",
+            text: "",
+            time: { start: 1 },
+          },
+        },
+      },
+      {
+        id: "evt_reasoning_delta",
+        type: "message.part.delta",
+        properties: {
+          sessionID: "session_created",
+          messageID: "msg_assistant",
+          partID: "prt_reasoning",
+          field: "text",
+          delta: "Thinking...",
+        },
+      },
+      {
+        id: "evt_reasoning_ended",
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session_created",
+          part: {
+            id: "prt_reasoning",
+            messageID: "msg_assistant",
+            sessionID: "session_created",
+            type: "reasoning",
+            text: "Thinking...",
+            time: { start: 1, end: 2 },
+          },
+        },
+      },
+      {
+        id: "evt_reasoning_ended_repeat",
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session_created",
+          part: {
+            id: "prt_reasoning",
+            messageID: "msg_assistant",
+            sessionID: "session_created",
+            type: "reasoning",
+            text: "Thinking...",
+            time: { start: 1, end: 2 },
+          },
+        },
+      },
+      {
+        id: "evt_text_part",
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session_created",
+          part: {
+            id: "prt_text",
+            messageID: "msg_assistant",
+            sessionID: "session_created",
+            type: "text",
+            text: "",
+          },
+        },
+      },
+      {
+        id: "evt_text_delta_other_session",
+        type: "message.part.delta",
+        properties: {
+          sessionID: "session_other",
+          messageID: "msg_other",
+          partID: "prt_other",
+          field: "text",
+          delta: "ignored",
+        },
+      },
+      {
+        id: "evt_text_delta",
+        type: "message.part.delta",
+        properties: {
+          sessionID: "session_created",
+          messageID: "msg_assistant",
+          partID: "prt_text",
+          field: "text",
+          delta: "Streamed answer",
+        },
+      },
+      {
+        id: "evt_tool_pending",
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session_created",
+          part: {
+            id: "prt_tool",
+            messageID: "msg_assistant",
+            sessionID: "session_created",
+            type: "tool",
+            tool: "read",
+            callID: "call_read",
+            state: { status: "pending", input: {}, raw: "" },
+          },
+        },
+      },
+      {
+        id: "evt_tool_running",
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session_created",
+          part: {
+            id: "prt_tool",
+            messageID: "msg_assistant",
+            sessionID: "session_created",
+            type: "tool",
+            tool: "read",
+            callID: "call_read",
+            state: {
+              status: "running",
+              input: { filePath: "src/index.ts" },
+              time: { start: 2 },
+            },
+          },
+        },
+      },
+      {
+        id: "evt_tool_completed",
+        type: "message.part.updated",
+        properties: {
+          sessionID: "session_created",
+          part: {
+            id: "prt_tool",
+            messageID: "msg_assistant",
+            sessionID: "session_created",
+            type: "tool",
+            tool: "read",
+            callID: "call_read",
+            state: {
+              status: "completed",
+              input: { filePath: "src/index.ts" },
+              output: "file contents",
+              title: "src/index.ts",
+              metadata: { truncated: false },
+              time: { start: 2, end: 3 },
+            },
+          },
+        },
+      },
+    ]
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* streamOpenCodeEvents() {
+          for (const event of opencodeEvents) {
+            yield event
+          }
+        })(),
+      }),
+      sessionPrompt: async () => response({
+        info: {
+          id: "msg_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "Streamed answer" }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_part_stream",
+      conversationId: "conv_part_stream",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_part_stream",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const events = []
+    for await (const event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Read and answer",
+      },
+      signal: new AbortController().signal,
+    })) {
+      events.push(event)
+    }
+
+    // Reasoning delta routed away from chat text; foreign-session delta dropped.
+    expect(events).toContainEqual({
+      type: "reasoning.delta",
+      reasoningId: "prt_reasoning",
+      delta: "Thinking...",
+    })
+    // Reasoning part finishing (time.end) closes the thinking block exactly once.
+    expect(events).toContainEqual({
+      type: "reasoning.completed",
+      reasoningId: "prt_reasoning",
+      content: "Thinking...",
+    })
+    expect(events.filter((event) => event.type === "reasoning.completed")).toHaveLength(1)
+    expect(events).toContainEqual({ type: "message.delta", delta: "Streamed answer" })
+    expect(events.filter((event) => event.type === "message.delta")).toHaveLength(1)
+
+    // Tool lifecycle: a single started (with real input, not the empty pending
+    // snapshot) plus a single completed.
+    const started = events.find((event) => event.type === "tool.started")
+    expect(started).toEqual({
+      type: "tool.started",
+      providerEventId: "evt_tool_running",
+      providerToolCallId: "call_read",
+      providerToolName: "read",
+      input: { filePath: "src/index.ts" },
+      providerExecuted: true,
+      providerMetadata: undefined,
+    })
+    expect(events.filter((event) => event.type === "tool.started")).toHaveLength(1)
+    const completed = events.find((event) => event.type === "tool.completed")
+    expect(completed?.providerToolName).toBe("read")
+    expect(completed?.providerToolCallId).toBe("call_read")
+    expect(events.filter((event) => event.type === "tool.completed")).toHaveLength(1)
+
+    // Final completed message carries the text once (no duplicate append since
+    // the part stream already produced the delta).
+    expect(events.at(-1)).toEqual({
+      type: "message.completed",
+      content: "Streamed answer",
+    })
+  })
+
+  test("waits for OpenCode event subscription before dispatching prompt", async () => {
+    const workspaceRoot = await createWorkspace()
+    let subscriptionReady = false
+    let promptSawSubscriptionReady = false
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        subscriptionReady = true
+        return {
+          stream: (async function* emptyOpenCodeEventStream() {})(),
+        }
+      },
+      sessionPrompt: async () => {
+        promptSawSubscriptionReady = subscriptionReady
+        return response({
+          info: {
+            id: "message_assistant",
+            role: "assistant",
+            sessionID: "session_created",
+          },
+          parts: [{ type: "text", text: "Ready after subscription" }],
+        })
+      },
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_event_stream_ready",
+      conversationId: "conv_event_stream_ready",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_event_stream_ready",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    for await (const _event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Wait for event stream",
+      },
+      signal: new AbortController().signal,
+    })) {
+      // drain prompt stream
+    }
+
+    expect(promptSawSubscriptionReady).toBe(true)
+  })
+
+  test("falls back to prompt response when OpenCode event subscription does not stop", async () => {
+    const workspaceRoot = await createWorkspace()
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => {
+        await new Promise(() => {})
+      },
+      sessionPrompt: async () => response({
+        info: {
+          id: "message_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "Fallback response" }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_event_stream_hung",
+      conversationId: "conv_event_stream_hung",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_event_stream_hung",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const controller = new AbortController()
+    const eventsPromise = (async () => {
+      const events = []
+      for await (const event of client.streamPrompt({
+        session,
+        prompt: {
+          scope: "conversation-visible",
+          content: "Use prompt fallback",
+        },
+        signal: controller.signal,
+      })) {
+        events.push(event)
+      }
+      return events
+    })()
+
+    const result = await Promise.race([
+      eventsPromise,
+      new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 700)),
+    ])
+    if (result === "timed-out") {
+      controller.abort()
+    }
+
+    expect(result).toEqual([
+      { type: "message.delta", delta: "Fallback response" },
+      { type: "message.completed", content: "Fallback response" },
+    ])
   })
 
   test("forces Build agent for AgentHub-originated prompts", async () => {

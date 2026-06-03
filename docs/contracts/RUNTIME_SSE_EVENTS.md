@@ -131,6 +131,7 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 - `messageId` 是 run 内稳定 id，当前形态为 `msg_${runId}_${executionId}_${blockIndex}`。
 - `reasoning-start` 可在 `text-start` 之前预留当前消息的 `messageId`；随后同一输出中的文本块复用该 `messageId`。
 - 工具、权限或问答事件如果发生在当前模型输出上下文中，也复用当前 `messageId`；缺少明确当前消息时 Runtime 会为该工具/权限/问答上下文创建新的 `messageId`。
+- 外部智能体的原生工具调用可以复用 `tool.started` / `tool.completed` / `tool.failed`，并与同一条外部 assistant 消息共享 `messageId/messageIndex`。这类事件不表示外部工具属于 AgentHub Runtime Tool Catalog；消费者应通过 `data.externalProvider` 和 provider 命名空间的 `toolCallId` 区分，例如 `toolCallId = "opencode:<providerToolCallId>"`。
 - `messageIndex` 由 RunManager 在首次看到新 `messageId` 时按实际 emit 顺序分配，是 run-local 递增序号；同一 `messageId` 下的 reasoning、tool、permission 和 message 事件共享同一个 `messageIndex`。
 - `message.delta` / `message.completed` 可以在 `data.generation` 中携带本次 execution 的轻量模型元信息；`message.completed.data.content` 仍是最终文本事实。
 - 外部智能体的 `message.completed` 可以在 `data.externalModel` 中携带本条回复实际使用的外部平台模型，例如 `{ provider: "opencode", providerId: "anthropic", modelId: "claude-sonnet-4", providerName: "Anthropic", modelName: "Claude Sonnet 4" }`。`providerName/modelName` 是只读展示增强，拿不到时可以省略；该字段不表示 AgentHub 接管外部平台的模型配置。
@@ -167,6 +168,7 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 
 - HubServer 后续消费 Runtime SSE 时，应把 `RunEvent.messageId` 保存为 `event.messageId`。
 - 同一 `messageId` 的 `reasoning.*`、`tool.*`、`permission.*`、`question.*`、`message.delta/completed` 投影到同一 assistant `Message`；文本进入 text `MessagePart`，reasoning/tool/permission/question 可进入对应 message parts 或 metadata。
+- 外部 provider tool events 的 `data` 可携带 `externalProvider`、`providerSessionId`、`providerEventId`、`providerToolCallId`、`providerToolName`、`providerExecuted`、`providerMetadata` 以及脱敏后的 `input` / `output` / `error`。Web 可以按普通 timeline 工具卡渲染，但不应把它们用于 AgentHub 内部工具授权或 Tool Catalog 配置。
 - `messageIndex` 可先落入 `Message.metadataJson.runtime.messageIndex`；若后续需要强排序字段，可以再做破坏性迁移。
 
 ## 5. Generation Metadata

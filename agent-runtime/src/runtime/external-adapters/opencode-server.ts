@@ -10,13 +10,13 @@ import {
   type OpencodeClient,
   type Path as OpenCodePath,
   type Project,
-} from "@opencode-ai/sdk"
+} from "@opencode-ai/sdk/v2"
 import { createChildLogger } from "../../logger"
 import { ExternalAdapterError } from "./types"
 
 export type OpenCodeConnectionMode = "managed-by-runtime" | "existing-local-server"
 
-export type OpenCodeApiClient = Pick<OpencodeClient, "project" | "path" | "session" | "provider">
+export type OpenCodeApiClient = Pick<OpencodeClient, "project" | "path" | "session" | "provider" | "event">
 
 export type OpenCodeServerHandle = {
   url: string
@@ -390,10 +390,10 @@ export class ManagedOpenCodeServer {
       )
       const [projectResponse, pathResponse] = await Promise.all([
         client.project.current({
-          query: { directory: workspaceRoot },
+          directory: workspaceRoot,
         }),
         client.path.get({
-          query: { directory: workspaceRoot },
+          directory: workspaceRoot,
         }),
       ])
       project = unwrapOpenCodeResponse<Project>(
