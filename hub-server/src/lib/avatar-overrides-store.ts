@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, rmSync, copyFileSync } from 'node:fs'
-import { resolve, dirname, relative } from 'node:path'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
+import { resolve, dirname } from 'node:path'
 import { config } from '../config'
 import { logger } from '../lib/logger'
 
@@ -15,18 +15,8 @@ export type AvatarOverrideImageFile = {
   size: number
 }
 
-export type AvatarOverrideHistoryEntry = {
-  id: string
-  relativePath: string
-  mimeType: string
-  width: number
-  height: number
-  size: number
-  createdAt: string
-}
-
 export type AgentOverride =
-  | { source: 'image'; file: AvatarOverrideImageFile; history?: AvatarOverrideHistoryEntry[] }
+  | { source: 'image'; file: AvatarOverrideImageFile }
   | { source: 'icon'; icon: string; tone: AvatarOverrideTone }
   | { source: 'initials'; text: string; tone: AvatarOverrideTone; shape: AvatarOverrideShape }
 
@@ -35,8 +25,6 @@ export type AvatarOverridesManifest = {
   updatedAt: string
   agents: Record<string, AgentOverride>
 }
-
-export const MAX_HISTORY = 10
 
 const AVATAR_DIR = resolve(config.dataDir, 'avatar-overrides')
 const MANIFEST_FILE = resolve(AVATAR_DIR, 'manifest.json')
@@ -111,63 +99,6 @@ export function ensureAgentFileDir(agentId: string): string {
   const dir = getAgentFileDir(agentId)
   ensureDir(dir)
   return dir
-}
-
-export function getHistoryDir(agentId: string): string {
-  return resolve(getAgentFileDir(agentId), 'history')
-}
-
-export function ensureHistoryDir(agentId: string): string {
-  const dir = getHistoryDir(agentId)
-  ensureDir(dir)
-  return dir
-}
-
-export function addHistoryEntry(agentId: string, entry: AvatarOverrideHistoryEntry): void {
-  const manifest = loadManifest()
-  const override = manifest.agents[agentId]
-  if (!override || override.source !== 'image') return
-  const history = override.history ?? []
-  history.push(entry)
-  if (history.length > MAX_HISTORY) {
-    const removed = history.shift()!
-    const removedPath = resolve(AVATAR_DIR, removed.relativePath)
-    if (existsSync(removedPath)) {
-      try { rmSync(removedPath, { force: true }) } catch { /* ignore */ }
-    }
-  }
-  override.history = history
-  saveManifest(manifest)
-}
-
-export function removeHistoryEntry(agentId: string, historyId: string): AvatarOverrideHistoryEntry | null {
-  const manifest = loadManifest()
-  const override = manifest.agents[agentId]
-  if (!override || override.source !== 'image' || !override.history) return null
-  const idx = override.history.findIndex(h => h.id === historyId)
-  if (idx === -1) return null
-  const removed = override.history.splice(idx, 1)[0]
-  const removedPath = resolve(AVATAR_DIR, removed.relativePath)
-  if (existsSync(removedPath)) {
-    try { rmSync(removedPath, { force: true }) } catch { /* ignore */ }
-  }
-  saveManifest(manifest)
-  return removed
-}
-
-export function getHistoryEntries(agentId: string): AvatarOverrideHistoryEntry[] {
-  const manifest = loadManifest()
-  const override = manifest.agents[agentId]
-  if (!override || override.source !== 'image' || !override.history) return []
-  return override.history
-}
-
-export function updateImageOverrideFile(agentId: string, file: AvatarOverrideImageFile): void {
-  const manifest = loadManifest()
-  const override = manifest.agents[agentId]
-  if (!override || override.source !== 'image') return
-  override.file = file
-  saveManifest(manifest)
 }
 
 export { AVATAR_DIR, MANIFEST_FILE, FILES_DIR }

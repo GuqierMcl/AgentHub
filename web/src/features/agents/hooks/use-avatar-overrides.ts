@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { workbenchQueryKeys } from "@/features/workbench/api/query-keys"
 import { avatarOverridesApi } from "@/features/agents/api/avatar-overrides"
-import type { AvatarOverridesManifest, AvatarOverrideHistoryEntry } from "@/features/agents/types"
+import type { AvatarOverridesManifest, AvatarLibraryItem } from "@/features/agents/types"
 
 export function useAvatarOverrides() {
   return useQuery<AvatarOverridesManifest>({
@@ -16,9 +16,10 @@ export function useAgentOverride(agentId: string) {
   return data?.agents[agentId] ?? null
 }
 
-export function useAvatarHistory(agentId: string) {
-  return useQuery<AvatarOverrideHistoryEntry[]>({
-    queryKey: [...workbenchQueryKeys.avatarOverrides.all, agentId, "history"],
-    queryFn: () => avatarOverridesApi.listHistory(agentId),
+export function useAvatarLibrary(agentId: string) {
+  return useQuery<AvatarLibraryItem[]>({
+    queryKey: [...workbenchQueryKeys.avatarOverrides.all, "library", agentId],
+    queryFn: () => avatarOverridesApi.listLibrary(agentId),
+    enabled: !!agentId,
   })
 }

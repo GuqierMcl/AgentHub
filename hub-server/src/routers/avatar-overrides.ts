@@ -1,7 +1,9 @@
 import { Hono, Context } from 'hono'
-import { existsSync, writeFileSync, unlinkSync, createReadStream, copyFileSync } from 'node:fs'
-import { resolve, relative } from 'node:path'
+import { existsSync, writeFileSync, unlinkSync, createReadStream, readdirSync, statSync } from 'node:fs'
+import { resolve, extname, relative } from 'node:path'
 import { z } from 'zod'
+import { nanoid } from 'nanoid'
+import sharp from 'sharp'
 import type { RuntimeClient } from '../lib/runtime'
 import { badRequest, notFound } from '../lib/errors'
 import type { Logger } from 'pino'
@@ -9,24 +11,22 @@ import {
   loadManifest,
   setAgentOverride,
   deleteAgentOverride,
+  saveManifest,
   getAgentFileDir,
   ensureAgentFileDir,
-  ensureHistoryDir,
-  addHistoryEntry,
-  removeHistoryEntry,
-  getHistoryEntries,
-  updateImageOverrideFile,
   AVATAR_DIR,
-  MAX_HISTORY,
+  FILES_DIR,
   type AvatarOverrideTone,
   type AvatarOverrideShape,
-  type AvatarOverrideHistoryEntry,
+  type AvatarOverrideImageFile,
 } from '../lib/avatar-overrides-store'
 import {
   isAllowedImageType,
   AVATAR_MAX_SIZE,
+  AVATAR_TARGET_SIZE,
   processBitmap,
   sanitizeAndSaveSvg,
+  extensionToMimeType,
 } from '../lib/avatar-image-processor'
 
 declare module 'hono' {
@@ -75,10 +75,6 @@ async function validateAgentId(agentId: string, runtimeClient: RuntimeClient, lo
     }
     throw err
   }
-}
-
-function getImageFilePath(agentId: string, mimeType: string): string {
-  return resolve(getAgentFileDir(agentId), `current.${mimeType === 'image/svg+xml' ? 'svg' : 'webp'}`)
 }
 
 const avatarOverrides = new Hono()
@@ -142,8 +138,10 @@ avatarOverrides.post('/api/avatar-overrides/:agentId/image', async (c: Context) 
 
   const outputDir = ensureAgentFileDir(agentId)
   const isSvg = mimeType === 'image/svg+xml'
-  const ext = isSvg ? 'svg' : 'webp'
-  const tempPath = resolve(outputDir, `upload-temp${isSvg ? '.svg' : '.bin'}`)
+  const ext = isSvg ? '.svg' : '.webp'
+  const outputFilename = `${nanoid(12)}${ext}`
+  const tempExt = isSvg ? '.svg' : '.bin'
+  const tempPath = resolve(outputDir, `upload-temp${tempExt}`)
 
   const buffer = Buffer.from(await file.arrayBuffer())
   writeFileSync(tempPath, buffer)
@@ -152,9 +150,9 @@ avatarOverrides.post('/api/avatar-overrides/:agentId/image', async (c: Context) 
 
   try {
     if (isSvg) {
-      dimensions = sanitizeAndSaveSvg(tempPath, outputDir)
+      dimensions = sanitizeAndSaveSvg(tempPath, outputDir, outputFilename)
     } else {
-      dimensions = await processBitmap(tempPath, outputDir)
+      dimensions = await processBitmap(tempPath, outputDir, outputFilename)
     }
   } finally {
     if (existsSync(tempPath)) {
@@ -163,33 +161,10 @@ avatarOverrides.post('/api/avatar-overrides/:agentId/image', async (c: Context) 
   }
 
   const outputMimeType = isSvg ? 'image/svg+xml' : 'image/webp'
-
-  const currentPath = resolve(outputDir, `current.${ext}`)
-  const existingOverride = loadManifest().agents[agentId]
-
-  if (existingOverride?.source === 'image' && existsSync(currentPath)) {
-    const historyDir = ensureHistoryDir(agentId)
-    const historyId = `his_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
-    const historyExt = existingOverride.file.mimeType === 'image/svg+xml' ? 'svg' : 'webp'
-    const historyFilename = `${historyId}.${historyExt}`
-    const historyPath = resolve(historyDir, historyFilename)
-    copyFileSync(currentPath, historyPath)
-
-    addHistoryEntry(agentId, {
-      id: historyId,
-      relativePath: `files/${agentId}/history/${historyFilename}`,
-      mimeType: existingOverride.file.mimeType,
-      width: existingOverride.file.width,
-      height: existingOverride.file.height,
-      size: existingOverride.file.size,
-      createdAt: new Date().toISOString(),
-    })
-  }
-
   setAgentOverride(agentId, {
     source: 'image',
     file: {
-      relativePath: `files/${agentId}/current.${ext}`,
+      relativePath: `files/${agentId}/${outputFilename}`,
       mimeType: outputMimeType,
       width: dimensions.width,
       height: dimensions.height,
@@ -212,6 +187,19 @@ avatarOverrides.delete('/api/avatar-overrides/:agentId', (c: Context) => {
   return c.json({ success: true })
 })
 
+async function getFileMetadata(filePath: string, mimeType: string): Promise<Pick<AvatarOverrideImageFile, 'width' | 'height' | 'size'>> {
+  const stat = statSync(filePath)
+  if (mimeType === 'image/svg+xml') {
+    return { width: AVATAR_TARGET_SIZE, height: AVATAR_TARGET_SIZE, size: stat.size }
+  }
+  const meta = await sharp(filePath).metadata()
+  return {
+    width: meta.width ?? AVATAR_TARGET_SIZE,
+    height: meta.height ?? AVATAR_TARGET_SIZE,
+    size: stat.size,
+  }
+}
+
 avatarOverrides.get('/api/avatar-overrides/:agentId/file', (c: Context) => {
   const agentId = c.req.param('agentId')!
   const manifest = loadManifest()
@@ -221,9 +209,10 @@ avatarOverrides.get('/api/avatar-overrides/:agentId/file', (c: Context) => {
     throw notFound('NOT_IMAGE_TYPE', 'Agent does not have an image avatar override')
   }
 
-  const filePath = getImageFilePath(agentId, override.file.mimeType)
+  const filePath = resolve(AVATAR_DIR, override.file.relativePath)
 
   if (!existsSync(filePath)) {
+    deleteAgentOverride(agentId)
     throw notFound('FILE_NOT_FOUND', 'Avatar image file not found')
   }
 
@@ -236,111 +225,119 @@ avatarOverrides.get('/api/avatar-overrides/:agentId/file', (c: Context) => {
   })
 })
 
-avatarOverrides.get('/api/avatar-overrides/:agentId/history', (c: Context) => {
+avatarOverrides.get('/api/avatar-overrides/:agentId/library', (c: Context) => {
   const agentId = c.req.param('agentId')!
-  const history = getHistoryEntries(agentId)
-  return c.json(history)
-})
+  const agentDir = getAgentFileDir(agentId)
 
-avatarOverrides.delete('/api/avatar-overrides/:agentId/history/:historyId', (c: Context) => {
-  const agentId = c.req.param('agentId')!
-  const historyId = c.req.param('historyId')!
-  const removed = removeHistoryEntry(agentId, historyId)
-  if (!removed) {
-    throw notFound('HISTORY_NOT_FOUND', 'History entry not found')
-  }
-  return c.json({ success: true })
-})
-
-avatarOverrides.get('/api/avatar-overrides/:agentId/history/:historyId/file', (c: Context) => {
-  const agentId = c.req.param('agentId')!
-  const historyId = c.req.param('historyId')!
-  const history = getHistoryEntries(agentId)
-  const entry = history.find(h => h.id === historyId)
-
-  if (!entry) {
-    throw notFound('HISTORY_NOT_FOUND', 'History entry not found')
+  if (!existsSync(agentDir)) {
+    return c.json([])
   }
 
-  const filePath = resolve(AVATAR_DIR, entry.relativePath)
+  const manifest = loadManifest()
+  const currentRelative = manifest.agents[agentId]?.source === 'image'
+    ? manifest.agents[agentId].file.relativePath
+    : null
+
+  const files = readdirSync(agentDir).filter((name) => {
+    const ext = extname(name).toLowerCase()
+    return ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext)
+  })
+
+  const items = files.map((filename) => {
+    const filePath = resolve(agentDir, filename)
+    const stat = statSync(filePath)
+    const mimeType = extensionToMimeType(filename) ?? 'application/octet-stream'
+    const relativePath = `files/${agentId}/${filename}`
+    return {
+      filename,
+      mimeType,
+      size: stat.size,
+      createdAt: stat.birthtime.toISOString(),
+      isCurrent: relativePath === currentRelative,
+    }
+  })
+
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+
+  return c.json(items)
+})
+
+avatarOverrides.get('/api/avatar-overrides/:agentId/library/:filename', (c: Context) => {
+  const agentId = c.req.param('agentId')!
+  const filename = c.req.param('filename')!
+
+  const filePath = resolve(getAgentFileDir(agentId), filename)
 
   if (!existsSync(filePath)) {
-    throw notFound('FILE_NOT_FOUND', 'History avatar image file not found')
+    throw notFound('FILE_NOT_FOUND', 'Library file not found')
   }
 
+  const mimeType = extensionToMimeType(filename) ?? 'application/octet-stream'
   const stream = createReadStream(filePath)
   return new Response(stream as unknown as ReadableStream, {
     headers: {
-      'Content-Type': entry.mimeType,
+      'Content-Type': mimeType,
       'Cache-Control': 'public, max-age=3600',
     },
   })
 })
 
-avatarOverrides.put('/api/avatar-overrides/:agentId/history/:historyId/restore', (c: Context) => {
+avatarOverrides.delete('/api/avatar-overrides/:agentId/library/:filename', (c: Context) => {
   const agentId = c.req.param('agentId')!
-  const historyId = c.req.param('historyId')!
+  const filename = c.req.param('filename')!
   const logger = c.get('logger')
-  const history = getHistoryEntries(agentId)
-  const entry = history.find(h => h.id === historyId)
 
-  if (!entry) {
-    throw notFound('HISTORY_NOT_FOUND', 'History entry not found')
+  const filePath = resolve(getAgentFileDir(agentId), filename)
+
+  if (!existsSync(filePath)) {
+    throw notFound('FILE_NOT_FOUND', 'Library file not found')
   }
 
-  const entryPath = resolve(AVATAR_DIR, entry.relativePath)
-  if (!existsSync(entryPath)) {
-    throw notFound('FILE_NOT_FOUND', 'History avatar image file not found')
-  }
+  unlinkSync(filePath)
+  logger.info({ agentId, filename }, 'Avatar library file deleted')
 
-  const outputDir = ensureAgentFileDir(agentId)
-  const currentExt = entry.mimeType === 'image/svg+xml' ? 'svg' : 'webp'
-  const currentPath = resolve(outputDir, `current.${currentExt}`)
-
-  if (existsSync(currentPath)) {
-    const historyDir = ensureHistoryDir(agentId)
-    const snapshotId = `his_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
-    const snapshotFilename = `${snapshotId}.${currentExt}`
-    const snapshotPath = resolve(historyDir, snapshotFilename)
-    const currentOverride = loadManifest().agents[agentId]
-
-    let snapshotMimeType = entry.mimeType
-    let snapshotWidth = entry.width
-    let snapshotHeight = entry.height
-    let snapshotSize = entry.size
-
-    if (currentOverride?.source === 'image' && existsSync(currentPath)) {
-      copyFileSync(currentPath, snapshotPath)
-      snapshotMimeType = currentOverride.file.mimeType
-      snapshotWidth = currentOverride.file.width
-      snapshotHeight = currentOverride.file.height
-      snapshotSize = currentOverride.file.size
-
-      addHistoryEntry(agentId, {
-        id: snapshotId,
-        relativePath: `files/${agentId}/history/${snapshotFilename}`,
-        mimeType: snapshotMimeType,
-        width: snapshotWidth,
-        height: snapshotHeight,
-        size: snapshotSize,
-        createdAt: new Date().toISOString(),
-      })
+  const manifest = loadManifest()
+  const currentOverride = manifest.agents[agentId]
+  if (currentOverride?.source === 'image') {
+    const expectedRelative = `files/${agentId}/${filename}`
+    if (currentOverride.file.relativePath === expectedRelative) {
+      delete manifest.agents[agentId]
+      saveManifest(manifest)
+      logger.info({ agentId }, 'Cleared avatar override because current image was deleted')
     }
   }
 
-  copyFileSync(entryPath, currentPath)
+  return c.json({ success: true })
+})
 
-  updateImageOverrideFile(agentId, {
-    relativePath: `files/${agentId}/current.${currentExt}`,
-    mimeType: entry.mimeType,
-    width: entry.width,
-    height: entry.height,
-    size: entry.size,
+avatarOverrides.put('/api/avatar-overrides/:agentId/library/:filename/activate', async (c: Context) => {
+  const agentId = c.req.param('agentId')!
+  const filename = c.req.param('filename')!
+  const logger = c.get('logger')
+
+  const filePath = resolve(getAgentFileDir(agentId), filename)
+
+  if (!existsSync(filePath)) {
+    throw notFound('FILE_NOT_FOUND', 'Library file not found')
+  }
+
+  const mimeType = extensionToMimeType(filename) ?? 'application/octet-stream'
+  const metadata = await getFileMetadata(filePath, mimeType)
+
+  const relativePath = `files/${agentId}/${filename}`
+  setAgentOverride(agentId, {
+    source: 'image',
+    file: {
+      relativePath,
+      mimeType: mimeType,
+      width: metadata.width,
+      height: metadata.height,
+      size: metadata.size,
+    },
   })
 
-  removeHistoryEntry(agentId, historyId)
+  logger.info({ agentId, filename }, 'Avatar activated from library')
 
-  logger.info({ agentId, historyId }, 'Avatar restored from history')
   return c.json({ success: true })
 })
 

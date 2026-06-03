@@ -30,8 +30,8 @@ import {
   WorkflowIcon,
   GitBranchIcon,
   UploadIcon,
-  CheckIcon,
   Trash2Icon,
+  CheckIcon,
   type LucideIcon,
 } from "lucide-react"
 
@@ -57,8 +57,8 @@ import type {
   AvatarOverrideTone,
   AvatarOverrideShape,
 } from "@/features/agents/types"
-import { useAvatarHistory } from "@/features/agents/hooks/use-avatar-overrides"
-import { useSetAvatarOverride, useUploadAvatarImage, useDeleteAvatarOverride, useDeleteAvatarHistory, useRestoreAvatarHistory } from "@/features/agents/hooks/use-mutation-avatar-override"
+import { useSetAvatarOverride, useUploadAvatarImage, useDeleteAvatarOverride, useDeleteAvatarLibraryItem, useActivateAvatarLibraryItem } from "@/features/agents/hooks/use-mutation-avatar-override"
+import { useAvatarLibrary } from "@/features/agents/hooks/use-avatar-overrides"
 
 type IconOption = {
   name: string
@@ -175,14 +175,14 @@ function AvatarEditDialogInner({
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null)
   const previewUrlRef = useRef<string | null>(null)
 
-  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
+  const [selectedLibraryFilename, setSelectedLibraryFilename] = useState<string | null>(null)
 
-  const { data: historyEntries = [] } = useAvatarHistory(agent.id)
   const setOverrideMutation = useSetAvatarOverride()
   const uploadImageMutation = useUploadAvatarImage()
   const deleteOverrideMutation = useDeleteAvatarOverride()
-  const deleteHistoryMutation = useDeleteAvatarHistory()
-  const restoreHistoryMutation = useRestoreAvatarHistory()
+  const deleteLibraryItemMutation = useDeleteAvatarLibraryItem()
+  const activateLibraryItemMutation = useActivateAvatarLibraryItem()
+  const { data: libraryItems } = useAvatarLibrary(agent.id)
 
   useEffect(() => {
     return () => {
@@ -202,16 +202,16 @@ function AvatarEditDialogInner({
     setSelectedTone(getInitialTone(currentOverride))
     setInitialsText(getInitialText(currentOverride))
     setSelectedShape(getInitialShape(currentOverride))
-    setSelectedHistoryId(null)
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current)
       previewUrlRef.current = null
     }
     setLocalPreviewUrl(
       currentOverride?.source === "image"
-        ? avatarOverridesApi.imageUrl(agent.id)
+        ? avatarOverridesApi.imageUrl(agent.id, currentOverride.file.relativePath)
         : null,
     )
+    setSelectedLibraryFilename(null)
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, currentOverride, agent.id])
 
@@ -252,19 +252,19 @@ function AvatarEditDialogInner({
     previewUrlRef.current = url
     setLocalPreviewUrl(url)
     setSelectedFile(file)
-    setSelectedHistoryId(null)
+    setSelectedLibraryFilename(null)
   }, [])
 
   const handleSave = useCallback(async () => {
     setSaving(true)
     try {
       if (activeTab === "image") {
-        if (selectedHistoryId) {
-          await restoreHistoryMutation.mutateAsync({ agentId: agent.id, historyId: selectedHistoryId })
-        } else if (selectedFile) {
+        if (selectedFile) {
           await uploadImageMutation.mutateAsync({ agentId: agent.id, file: selectedFile })
+        } else if (selectedLibraryFilename) {
+          await activateLibraryItemMutation.mutateAsync({ agentId: agent.id, filename: selectedLibraryFilename })
         } else {
-          toast.error("请选择要上传的图片或从历史记录中选择")
+          toast.error("请选择要上传的图片或从头像库中选择")
           setSaving(false)
           return
         }
@@ -296,31 +296,8 @@ function AvatarEditDialogInner({
     } finally {
       setSaving(false)
     }
-  }, [activeTab, selectedFile, selectedHistoryId, agent.id, selectedIcon, selectedTone, initialsText, selectedShape,
-    uploadImageMutation, setOverrideMutation, restoreHistoryMutation, onOpenChange])
-
-  const handleSelectHistory = useCallback((historyId: string) => {
-    setSelectedHistoryId(historyId)
-    setSelectedFile(null)
-    setLocalPreviewUrl(avatarOverridesApi.historyImageUrl(agent.id, historyId))
-  }, [agent.id])
-
-  const handleDeleteHistory = useCallback(async (historyId: string) => {
-    try {
-      await deleteHistoryMutation.mutateAsync({ agentId: agent.id, historyId })
-      if (selectedHistoryId === historyId) {
-        setSelectedHistoryId(null)
-        setLocalPreviewUrl(
-          currentOverride?.source === "image"
-            ? avatarOverridesApi.imageUrl(agent.id)
-            : null,
-        )
-      }
-      toast.success("历史头像已删除")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除失败")
-    }
-  }, [agent.id, deleteHistoryMutation, selectedHistoryId, currentOverride])
+  }, [activeTab, selectedFile, selectedLibraryFilename, agent.id, selectedIcon, selectedTone, initialsText, selectedShape,
+    uploadImageMutation, setOverrideMutation, activateLibraryItemMutation, onOpenChange])
 
   const handleReset = useCallback(async () => {
     setSaving(true)
@@ -334,8 +311,27 @@ function AvatarEditDialogInner({
     }
   }, [agent.id, deleteOverrideMutation, onOpenChange])
 
+  const handleSelectLibraryItem = useCallback((filename: string) => {
+    setSelectedLibraryFilename(filename)
+    setSelectedFile(null)
+    setLocalPreviewUrl(avatarOverridesApi.libraryImageUrl(agent.id, filename))
+  }, [agent.id])
+
+  const handleDeleteLibraryItem = useCallback(async (filename: string) => {
+    try {
+      await deleteLibraryItemMutation.mutateAsync({ agentId: agent.id, filename })
+      if (selectedLibraryFilename === filename) {
+        setSelectedLibraryFilename(null)
+        setLocalPreviewUrl(null)
+      }
+      toast.success("已删除")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败")
+    }
+  }, [agent.id, deleteLibraryItemMutation, selectedLibraryFilename])
+
   const hasSaveableContent =
-    activeTab === "image" ? (!!selectedFile || !!selectedHistoryId) :
+    activeTab === "image" ? !!(selectedFile || selectedLibraryFilename) :
     activeTab === "icon" ? true :
     !!initialsText.trim()
 
@@ -367,85 +363,81 @@ function AvatarEditDialogInner({
 
         <TabsContent value="image" className="min-h-0 flex-1">
           <ScrollArea className="h-full">
-            <div className="p-1 space-y-4">
-              <div
-                className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/25 p-8 cursor-pointer hover:border-muted-foreground/50 transition-colors"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {localPreviewUrl ? (
-                  <>
-                    <img
-                      src={localPreviewUrl}
-                      alt="预览"
-                      className="size-20 rounded-xl object-cover"
-                    />
-                    <span className="text-sm text-muted-foreground">点击重新选择</span>
-                  </>
-                ) : (
-                  <>
-                    <UploadIcon className="size-10 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">点击上传图片</span>
-                    <span className="text-xs text-muted-foreground">支持 PNG、JPG、WebP、GIF、SVG，最大 5MB</span>
-                  </>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".png,.jpg,.jpeg,.webp,.gif,.svg"
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
-              </div>
-
-              {historyEntries.length > 0 && (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-2 block">历史头像</label>
-                  <div className="grid grid-cols-5 gap-2">
-                    {historyEntries.map((entry) => {
-                      const isSelected = selectedHistoryId === entry.id
-                      return (
-                        <div
-                          key={entry.id}
-                          className={cn(
-                            "relative aspect-square rounded-lg overflow-hidden group cursor-pointer ring-2 ring-transparent transition-all",
-                            isSelected && "ring-ring",
-                          )}
-                        >
-                          <img
-                            src={avatarOverridesApi.historyImageUrl(agent.id, entry.id)}
-                            alt=""
-                            className="size-full object-cover"
-                          />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              title="选中"
-                              className={cn(
-                                "size-7 rounded-full flex items-center justify-center transition-all",
-                                isSelected
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-white/90 text-foreground opacity-0 group-hover:opacity-100 hover:scale-110",
-                              )}
-                              onClick={() => handleSelectHistory(entry.id)}
-                            >
-                              <CheckIcon className="size-4" />
-                            </button>
-                            <button
-                              type="button"
-                              title="删除"
-                              className="size-7 rounded-full bg-white/90 text-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 hover:bg-destructive hover:text-destructive-foreground transition-all"
-                              onClick={() => handleDeleteHistory(entry.id)}
-                            >
-                              <Trash2Icon className="size-4" />
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+            <div
+              className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/25 p-8 cursor-pointer hover:border-muted-foreground/50 transition-colors"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {localPreviewUrl ? (
+                <>
+                  <img
+                    src={localPreviewUrl}
+                    alt="预览"
+                    className="size-20 rounded-xl object-cover"
+                  />
+                  <span className="text-sm text-muted-foreground">点击重新选择</span>
+                </>
+              ) : (
+                <>
+                  <UploadIcon className="size-10 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">点击上传图片</span>
+                  <span className="text-xs text-muted-foreground">支持 PNG、JPG、WebP、GIF、SVG，最大 5MB</span>
+                </>
               )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp,.gif,.svg"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
             </div>
+
+            {libraryItems && libraryItems.length > 0 && (
+              <div className="mt-4">
+                <label className="text-xs font-medium text-muted-foreground mb-2 block">头像库</label>
+                <div className="grid grid-cols-5 gap-2">
+                  {libraryItems.map((item) => {
+                    const isSelected = selectedLibraryFilename === item.filename
+                    return (
+                      <div
+                        key={item.filename}
+                        className={cn(
+                          "relative group aspect-square rounded-lg overflow-hidden border-2 cursor-pointer",
+                          isSelected ? "border-ring" : "border-transparent hover:border-muted-foreground/30",
+                        )}
+                      >
+                        <img
+                          src={avatarOverridesApi.libraryImageUrl(agent.id, item.filename)}
+                          alt={item.filename}
+                          className="size-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            className="flex items-center justify-center size-7 rounded-full bg-white/90 text-foreground hover:bg-white transition-colors"
+                            onClick={(e) => { e.stopPropagation(); handleSelectLibraryItem(item.filename) }}
+                            title="选中"
+                          >
+                            <CheckIcon className="size-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className="flex items-center justify-center size-7 rounded-full bg-white/90 text-destructive hover:bg-white transition-colors"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteLibraryItem(item.filename) }}
+                            title="删除"
+                          >
+                            <Trash2Icon className="size-4" />
+                          </button>
+                        </div>
+                        {item.isCurrent && !isSelected && (
+                          <div className="absolute top-1 right-1 size-2 rounded-full bg-emerald-500 ring-1 ring-background" />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </ScrollArea>
         </TabsContent>
 

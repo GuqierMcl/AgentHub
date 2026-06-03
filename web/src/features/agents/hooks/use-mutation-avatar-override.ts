@@ -38,26 +38,28 @@ export function useDeleteAvatarOverride() {
   })
 }
 
-export function useDeleteAvatarHistory() {
+export function useDeleteAvatarLibraryItem() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ agentId, historyId }: { agentId: string; historyId: string }) =>
-      avatarOverridesApi.deleteHistory(agentId, historyId),
-    onSuccess: () => {
+    mutationFn: ({ agentId, filename }: { agentId: string; filename: string }) =>
+      avatarOverridesApi.deleteLibraryItem(agentId, filename),
+    onSuccess: (_data, { agentId }) => {
+      queryClient.invalidateQueries({ queryKey: [...workbenchQueryKeys.avatarOverrides.all, "library", agentId] })
       queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.avatarOverrides.all })
     },
   })
 }
 
-export function useRestoreAvatarHistory() {
+export function useActivateAvatarLibraryItem() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ agentId, historyId }: { agentId: string; historyId: string }) =>
-      avatarOverridesApi.restoreHistory(agentId, historyId),
-    onSuccess: () => {
+    mutationFn: ({ agentId, filename }: { agentId: string; filename: string }) =>
+      avatarOverridesApi.activateLibraryItem(agentId, filename),
+    onSuccess: (_data, { agentId }) => {
       queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.avatarOverrides.all })
+      queryClient.invalidateQueries({ queryKey: [...workbenchQueryKeys.avatarOverrides.all, "library", agentId] })
     },
   })
 }

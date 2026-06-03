@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import {
+  getAgentAvatarRenderKey,
   resolveInitials,
   hashAgentSeed,
   resolveOverrideSpec,
@@ -74,7 +75,29 @@ describe("resolveOverrideSpec", () => {
     expect(spec).not.toBeNull()
     expect(spec!.kind).toBe("image")
     if (spec!.kind === "image") {
-      expect(spec!.src).toBe("/api/avatar-overrides/coder/file")
+      expect(spec!.src).toBe("/api/avatar-overrides/coder/file?v=files%2Fcoder%2Fcurrent.webp")
+    }
+  })
+
+  it("changes image url when the active avatar file changes", () => {
+    const first: AgentOverride = {
+      source: "image",
+      file: { relativePath: "files/coder/first.webp", mimeType: "image/webp", width: 256, height: 256, size: 1000 },
+    }
+    const second: AgentOverride = {
+      source: "image",
+      file: { relativePath: "files/coder/second.webp", mimeType: "image/webp", width: 256, height: 256, size: 1000 },
+    }
+
+    const firstSpec = resolveOverrideSpec(first, agent)
+    const secondSpec = resolveOverrideSpec(second, agent)
+
+    expect(firstSpec).not.toBeNull()
+    expect(secondSpec).not.toBeNull()
+    expect(firstSpec!.kind).toBe("image")
+    expect(secondSpec!.kind).toBe("image")
+    if (firstSpec!.kind === "image" && secondSpec!.kind === "image") {
+      expect(firstSpec.src).not.toBe(secondSpec.src)
     }
   })
 
@@ -228,5 +251,38 @@ describe("resolveAgentAvatar", () => {
     if (spec.kind === "initials") {
       expect(spec.initials).toBe("XX")
     }
+  })
+})
+
+describe("getAgentAvatarRenderKey", () => {
+  it("changes key when avatar switches from image to icon", () => {
+    const imageSpec = resolveOverrideSpec({
+      source: "image",
+      file: { relativePath: "files/coder/current.webp", mimeType: "image/webp", width: 256, height: 256, size: 1000 },
+    }, agent)
+    const iconSpec = resolveOverrideSpec({
+      source: "icon",
+      icon: "code2",
+      tone: "blue",
+    }, agent)
+
+    expect(imageSpec).not.toBeNull()
+    expect(iconSpec).not.toBeNull()
+    expect(getAgentAvatarRenderKey(imageSpec!)).not.toBe(getAgentAvatarRenderKey(iconSpec!))
+  })
+
+  it("changes key when active image source changes", () => {
+    const firstImageSpec = resolveOverrideSpec({
+      source: "image",
+      file: { relativePath: "files/coder/first.webp", mimeType: "image/webp", width: 256, height: 256, size: 1000 },
+    }, agent)
+    const secondImageSpec = resolveOverrideSpec({
+      source: "image",
+      file: { relativePath: "files/coder/second.webp", mimeType: "image/webp", width: 256, height: 256, size: 1000 },
+    }, agent)
+
+    expect(firstImageSpec).not.toBeNull()
+    expect(secondImageSpec).not.toBeNull()
+    expect(getAgentAvatarRenderKey(firstImageSpec!)).not.toBe(getAgentAvatarRenderKey(secondImageSpec!))
   })
 })

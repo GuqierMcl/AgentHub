@@ -37,18 +37,14 @@ export function extensionToMimeType(filename: string): string | null {
   return map[extname(filename).toLowerCase()] ?? null
 }
 
-export async function processBitmap(inputPath: string, outputDir: string): Promise<{ width: number; height: number; size: number }> {
-  const outputFile = resolve(outputDir, 'current.webp')
+export async function processBitmap(inputPath: string, outputDir: string, filename: string): Promise<{ width: number; height: number; size: number }> {
+  const outputFile = resolve(outputDir, filename)
 
   const image = sharp(inputPath)
-  const metadata = await image.metadata()
-
   await image
     .resize(AVATAR_TARGET_SIZE, AVATAR_TARGET_SIZE, { fit: 'cover', position: 'centre' })
     .webp({ quality: 90 })
     .toFile(outputFile)
-
-  const stat = sharp.cache ?? { files: 0, items: 0, size: 0 }
 
   const result = await sharp(outputFile).metadata()
   return {
@@ -58,7 +54,7 @@ export async function processBitmap(inputPath: string, outputDir: string): Promi
   }
 }
 
-export function sanitizeAndSaveSvg(inputPath: string, outputDir: string): { width: number; height: number; size: number } {
+export function sanitizeAndSaveSvg(inputPath: string, outputDir: string, filename: string): { width: number; height: number; size: number } {
   const rawSvg = readFileSync(inputPath, 'utf-8')
 
   const cleanSvg = sanitizeHtml(rawSvg, {
@@ -114,7 +110,7 @@ export function sanitizeAndSaveSvg(inputPath: string, outputDir: string): { widt
     enforceHtmlBoundary: true,
   })
 
-  const outputFile = resolve(outputDir, 'current.svg')
+  const outputFile = resolve(outputDir, filename)
   writeFileSync(outputFile, cleanSvg, 'utf-8')
 
   const size = Buffer.byteLength(cleanSvg, 'utf-8')

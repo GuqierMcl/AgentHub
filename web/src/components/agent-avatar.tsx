@@ -37,6 +37,8 @@ import {
   AvatarImage,
 } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
+import { buildAgentAvatarImageUrl } from "@/lib/avatar-image-url"
+import { getAgentAvatarRenderKey } from "@/lib/avatar-resolve"
 import type { AgentOverride } from "@/features/agents/types"
 
 export type AgentAvatarAgent = {
@@ -222,7 +224,7 @@ function resolveOverrideSpec(
     return {
       kind: "image",
       initials: resolveInitials(agent),
-      src: `/api/avatar-overrides/${encodeURIComponent(agent.id)}/file`,
+      src: buildAgentAvatarImageUrl(agent.id, override.file.relativePath),
       tone: "slate",
     }
   }
@@ -286,6 +288,13 @@ export function AgentAvatar({
 
   return (
     <Avatar
+      key={getAgentAvatarRenderKey(
+        avatar.kind === "image"
+          ? { kind: "image", initials: avatar.initials, src: avatar.src, tone: avatar.tone }
+          : avatar.kind === "icon"
+            ? { kind: "icon", iconName: "icon", initials: avatar.initials, tone: avatar.tone }
+            : { kind: "initials", initials: avatar.initials, tone: avatar.tone }
+      )}
       aria-label={agent.name}
       className={className}
       size={size}

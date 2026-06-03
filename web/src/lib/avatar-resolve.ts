@@ -1,4 +1,5 @@
 import type { AgentOverride } from "@/features/agents/types"
+import { buildAgentAvatarImageUrl } from "@/lib/avatar-image-url"
 
 export type AgentAvatarAgent = {
   id: string
@@ -42,6 +43,14 @@ export type AgentAvatarSpec =
   | AgentAvatarIconSpec
   | AgentAvatarImageSpec
   | AgentAvatarInitialsSpec
+
+export function getAgentAvatarRenderKey(avatar: AgentAvatarSpec): string {
+  if (avatar.kind === "image") {
+    return `image:${avatar.src}`
+  }
+
+  return avatar.kind
+}
 
 const ALLOWED_ICONS = new Set([
   "bot", "code2", "search", "eye", "pen-line", "shield-check", "route",
@@ -97,7 +106,7 @@ export function resolveOverrideSpec(
     return {
       kind: "image",
       initials: resolveInitials(agent),
-      src: `/api/avatar-overrides/${encodeURIComponent(agent.id)}/file`,
+      src: buildAgentAvatarImageUrl(agent.id, override.file.relativePath),
       tone: "slate",
     }
   }

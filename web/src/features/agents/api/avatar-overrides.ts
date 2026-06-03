@@ -1,4 +1,5 @@
-import type { AgentOverride, AvatarOverrideHistoryEntry } from "../types"
+import type { AgentOverride, AvatarLibraryItem } from "../types"
+import { buildAgentAvatarImageUrl } from "@/lib/avatar-image-url"
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -52,27 +53,27 @@ export const avatarOverridesApi = {
     })
   },
 
-  imageUrl(agentId: string): string {
-    return `/api/avatar-overrides/${encodeURIComponent(agentId)}/file`
+  imageUrl(agentId: string, relativePath?: string): string {
+    return buildAgentAvatarImageUrl(agentId, relativePath)
   },
 
-  listHistory(agentId: string): Promise<AvatarOverrideHistoryEntry[]> {
-    return request(`/api/avatar-overrides/${encodeURIComponent(agentId)}/history`)
+  listLibrary(agentId: string): Promise<AvatarLibraryItem[]> {
+    return request(`/api/avatar-overrides/${encodeURIComponent(agentId)}/library`)
   },
 
-  deleteHistory(agentId: string, historyId: string): Promise<{ success: boolean }> {
-    return request(`/api/avatar-overrides/${encodeURIComponent(agentId)}/history/${encodeURIComponent(historyId)}`, {
+  libraryImageUrl(agentId: string, filename: string): string {
+    return `/api/avatar-overrides/${encodeURIComponent(agentId)}/library/${encodeURIComponent(filename)}`
+  },
+
+  async deleteLibraryItem(agentId: string, filename: string): Promise<{ success: boolean }> {
+    return request(`/api/avatar-overrides/${encodeURIComponent(agentId)}/library/${encodeURIComponent(filename)}`, {
       method: "DELETE",
     })
   },
 
-  restoreHistory(agentId: string, historyId: string): Promise<{ success: boolean }> {
-    return request(`/api/avatar-overrides/${encodeURIComponent(agentId)}/history/${encodeURIComponent(historyId)}/restore`, {
+  async activateLibraryItem(agentId: string, filename: string): Promise<{ success: boolean }> {
+    return request(`/api/avatar-overrides/${encodeURIComponent(agentId)}/library/${encodeURIComponent(filename)}/activate`, {
       method: "PUT",
     })
-  },
-
-  historyImageUrl(agentId: string, historyId: string): string {
-    return `/api/avatar-overrides/${encodeURIComponent(agentId)}/history/${encodeURIComponent(historyId)}/file`
   },
 }

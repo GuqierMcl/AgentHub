@@ -143,18 +143,16 @@ export type AvatarOverrideImageFile = {
   size: number
 }
 
-export type AvatarOverrideHistoryEntry = {
-  id: string
-  relativePath: string
+export type AvatarLibraryItem = {
+  filename: string
   mimeType: string
-  width: number
-  height: number
   size: number
   createdAt: string
+  isCurrent: boolean
 }
 
 export type AgentOverride =
-  | { source: "image"; file: AvatarOverrideImageFile; history?: AvatarOverrideHistoryEntry[] }
+  | { source: "image"; file: AvatarOverrideImageFile }
   | { source: "icon"; icon: string; tone: AvatarOverrideTone }
   | { source: "initials"; text: string; tone: AvatarOverrideTone; shape: AvatarOverrideShape }
 
