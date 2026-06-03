@@ -15,6 +15,7 @@ import type {
   OpenCodeClient,
   OpenCodeExecutionAgent,
   OpenCodeExternalModel,
+  OpenCodePermissionRequest,
   OpenCodePromptEvent,
   OpenCodePromptRequest,
   OpenCodeSessionRequest,
@@ -244,6 +245,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
         resolveEventSubscriptionReady?.()
       }
       let wakeEventLoop: (() => void) | undefined
+      let eventStreamError: unknown
       const wake = (): void => {
         wakeEventLoop?.()
         wakeEventLoop = undefined
@@ -278,7 +280,10 @@ export class RealOpenCodeClient implements OpenCodeClient {
             wake()
           }
         } catch (error) {
-          if (!eventController.signal.aborted && !request.signal.aborted) {
+          if (isPermissionAdapterError(error)) {
+            eventStreamError = error
+            wake()
+          } else if (!eventController.signal.aborted && !request.signal.aborted) {
             this.log.warn(
               {
                 externalProvider: "opencode",
@@ -369,6 +374,10 @@ export class RealOpenCodeClient implements OpenCodeClient {
       let streamedTextDelta = false
       let lastEventReceivedAt = Date.now()
       while (true) {
+        if (eventStreamError && eventQueue.length === 0) {
+          break
+        }
+
         const nextEvent = eventQueue.shift()
         if (nextEvent) {
           lastEventReceivedAt = Date.now()
@@ -408,6 +417,15 @@ export class RealOpenCodeClient implements OpenCodeClient {
 
       await stopEventStreamAndWait()
       request.signal.removeEventListener("abort", stopEventStream)
+
+      if (eventStreamError) {
+        startAbort()
+        if (abortPromise) {
+          await abortPromise.catch(() => {})
+        }
+        void promptPromise.catch(() => {})
+        throw eventStreamError
+      }
 
       const response = await promptPromise
 
@@ -610,6 +628,10 @@ export class RealOpenCodeClient implements OpenCodeClient {
           state.workspaceRootPath,
           eventState
         )
+        if (normalized?.type === "permission.requested") {
+          await this.handlePermissionRequest(state, request, normalized)
+          continue
+        }
         if (normalized) {
           yield normalized
         }
@@ -699,6 +721,159 @@ export class RealOpenCodeClient implements OpenCodeClient {
         "ADAPTER_SESSION_FAILED",
         "OpenCode session lookup failed",
         { provider: "opencode", providerSessionId, cause: describeError(error) }
+      )
+    }
+  }
+
+  private async handlePermissionRequest(
+    state: SessionState,
+    request: OpenCodePromptRequest,
+    permission: OpenCodePermissionRequest
+  ): Promise<void> {
+    if (!request.permissionHandler) {
+      this.log.error(
+        {
+          externalProvider: "opencode",
+          runId: request.session.runId,
+          conversationId: request.session.conversationId,
+          workspaceId: request.session.workspaceId,
+          scope: request.session.scope,
+          taskId: request.session.taskId,
+          providerSessionId: state.sessionId,
+          providerPermissionId: permission.providerPermissionId,
+          permissionKind: permission.permissionKind,
+        },
+        "OpenCode permission request received without AgentHub permission handler"
+      )
+      await this.replyToPermission(state, request, permission, false, "AgentHub permission bridge is unavailable")
+      throw new ExternalAdapterError(
+        "ADAPTER_PERMISSION_FAILED",
+        "OpenCode permission bridge is unavailable",
+        { provider: "opencode", providerPermissionId: permission.providerPermissionId }
+      )
+    }
+
+    this.log.info(
+      {
+        externalProvider: "opencode",
+        runId: request.session.runId,
+        conversationId: request.session.conversationId,
+        workspaceId: request.session.workspaceId,
+        scope: request.session.scope,
+        taskId: request.session.taskId,
+        providerSessionId: state.sessionId,
+        providerPermissionId: permission.providerPermissionId,
+        permissionKind: permission.permissionKind,
+        patternCount: permission.patterns.length,
+        providerToolCallId: permission.providerToolCallId,
+      },
+      "OpenCode permission request bridged to AgentHub"
+    )
+
+    const decision = await request.permissionHandler(permission)
+    await this.replyToPermission(
+      state,
+      request,
+      permission,
+      decision.approved,
+      decision.reason
+    )
+  }
+
+  private async replyToPermission(
+    state: SessionState,
+    request: OpenCodePromptRequest,
+    permission: OpenCodePermissionRequest,
+    approved: boolean,
+    message?: string
+  ): Promise<void> {
+    const reply = approved ? "once" : "reject"
+    try {
+      this.log.info(
+        {
+          externalProvider: "opencode",
+          runId: request.session.runId,
+          conversationId: request.session.conversationId,
+          workspaceId: request.session.workspaceId,
+          scope: request.session.scope,
+          taskId: request.session.taskId,
+          providerSessionId: state.sessionId,
+          providerPermissionId: permission.providerPermissionId,
+          permissionKind: permission.permissionKind,
+          reply,
+        },
+        "OpenCode permission reply starting"
+      )
+      const response = await state.connection.client.permission.reply({
+        requestID: permission.providerPermissionId,
+        directory: state.connection.directory,
+        reply,
+        ...(message ? { message } : {}),
+      })
+      unwrapOpenCodeResponse<boolean>(
+        response,
+        "ADAPTER_PERMISSION_REPLY_FAILED",
+        "OpenCode permission reply failed"
+      )
+      this.log.info(
+        {
+          externalProvider: "opencode",
+          runId: request.session.runId,
+          conversationId: request.session.conversationId,
+          workspaceId: request.session.workspaceId,
+          scope: request.session.scope,
+          taskId: request.session.taskId,
+          providerSessionId: state.sessionId,
+          providerPermissionId: permission.providerPermissionId,
+          permissionKind: permission.permissionKind,
+          reply,
+        },
+        "OpenCode permission reply completed"
+      )
+    } catch (error) {
+      if (error instanceof ExternalAdapterError) {
+        this.log.error(
+          {
+            externalProvider: "opencode",
+            runId: request.session.runId,
+            conversationId: request.session.conversationId,
+            workspaceId: request.session.workspaceId,
+            scope: request.session.scope,
+            taskId: request.session.taskId,
+            providerSessionId: state.sessionId,
+            providerPermissionId: permission.providerPermissionId,
+            permissionKind: permission.permissionKind,
+            code: error.code,
+            error: error.message,
+            details: error.details,
+          },
+          "OpenCode permission reply failed"
+        )
+        throw error
+      }
+      this.log.error(
+        {
+          externalProvider: "opencode",
+          runId: request.session.runId,
+          conversationId: request.session.conversationId,
+          workspaceId: request.session.workspaceId,
+          scope: request.session.scope,
+          taskId: request.session.taskId,
+          providerSessionId: state.sessionId,
+          providerPermissionId: permission.providerPermissionId,
+          permissionKind: permission.permissionKind,
+          error: describeError(error),
+        },
+        "OpenCode permission reply failed"
+      )
+      throw new ExternalAdapterError(
+        "ADAPTER_PERMISSION_REPLY_FAILED",
+        "OpenCode permission reply failed",
+        {
+          provider: "opencode",
+          providerPermissionId: permission.providerPermissionId,
+          cause: describeError(error),
+        }
       )
     }
   }
@@ -1012,6 +1187,10 @@ function normalizeOpenCodeProviderEvent(
       return normalizeMessagePartUpdated(properties, workspaceRootPath, providerEventId, state)
     case "message.part.delta":
       return normalizeMessagePartDelta(properties, state)
+    case "permission.asked":
+      return normalizePermissionAsked(properties, workspaceRootPath)
+    case "permission.updated":
+      return normalizePermissionUpdated(properties, workspaceRootPath)
     // --- Forward-compatible session.next.* vocabulary. ---
     case "session.next.text.delta": {
       const delta = getRecordString(properties, "delta")
@@ -1077,6 +1256,63 @@ function normalizeOpenCodeProviderEvent(
     default:
       return undefined
   }
+}
+
+function normalizePermissionAsked(
+  properties: Record<string, unknown>,
+  workspaceRootPath: string
+): OpenCodePromptEvent | undefined {
+  const providerPermissionId = getRecordString(properties, "id")
+  const permissionKind = getRecordString(properties, "permission")
+  if (!providerPermissionId || !permissionKind) {
+    return undefined
+  }
+
+  const tool = getRecord(properties.tool)
+  const metadata = sanitizeExternalProviderRecord(properties.metadata, workspaceRootPath)
+  return {
+    type: "permission.requested",
+    providerPermissionId,
+    permissionKind,
+    patterns: normalizePermissionPatterns(properties.patterns, workspaceRootPath),
+    always: normalizePermissionPatterns(properties.always, workspaceRootPath),
+    providerToolCallId: getRecordString(tool, "callID"),
+    providerMessageId: getRecordString(tool, "messageID"),
+    providerMetadata: metadata,
+    reason: getRecordString(metadata, "reason") ?? `OpenCode requested ${permissionKind} permission`,
+  }
+}
+
+function normalizePermissionUpdated(
+  properties: Record<string, unknown>,
+  workspaceRootPath: string
+): OpenCodePromptEvent | undefined {
+  const providerPermissionId = getRecordString(properties, "id")
+  const permissionKind = getRecordString(properties, "type") ?? getRecordString(properties, "permission")
+  if (!providerPermissionId || !permissionKind) {
+    return undefined
+  }
+
+  const metadata = sanitizeExternalProviderRecord(properties.metadata, workspaceRootPath)
+  return {
+    type: "permission.requested",
+    providerPermissionId,
+    permissionKind,
+    patterns: normalizePermissionPatterns(properties.pattern, workspaceRootPath),
+    providerToolCallId: getRecordString(properties, "callID"),
+    providerMessageId: getRecordString(properties, "messageID"),
+    providerMetadata: metadata,
+    reason: getRecordString(metadata, "reason") ??
+      getRecordString(properties, "title") ??
+      `OpenCode requested ${permissionKind} permission`,
+  }
+}
+
+function normalizePermissionPatterns(value: unknown, workspaceRootPath: string): string[] {
+  const patterns = Array.isArray(value) ? value : value === undefined ? [] : [value]
+  return patterns
+    .filter((pattern): pattern is string => typeof pattern === "string")
+    .map((pattern) => truncateExternalProviderText(redactWorkspaceRoot(pattern, workspaceRootPath)))
 }
 
 function normalizeMessagePartDelta(
@@ -1333,6 +1569,13 @@ function getRecordString(record: unknown, key: string): string | undefined {
   return typeof value === "string" ? value : undefined
 }
 
+function getRecordStringArray(record: unknown, key: string): string[] {
+  if (!isRecord(record)) return []
+  const value = record[key]
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === "string")
+}
+
 function getRecordBoolean(record: unknown, key: string): boolean | undefined {
   if (!isRecord(record)) return undefined
   const value = record[key]
@@ -1397,6 +1640,10 @@ function describeError(error: unknown): unknown {
     }
   }
   return error
+}
+
+function isPermissionAdapterError(error: unknown): error is ExternalAdapterError {
+  return error instanceof ExternalAdapterError && error.code.startsWith("ADAPTER_PERMISSION_")
 }
 
 const defaultOpenCodeServer = new ManagedOpenCodeServer()

@@ -191,13 +191,25 @@ Handoff summary 不应包含外部 task session 的原始私有 prompt 或 Orche
 - `permission.denied`。
 - `permission.cancelled`。
 
-首版审批语义建议：
+首版审批语义：
 
 - AgentHub 用户批准映射为外部平台的一次性批准。
 - AgentHub 用户拒绝映射为外部平台拒绝。
+- Run 取消映射为外部平台拒绝或取消，并同时 abort 外部 active prompt。
 - “始终允许”需要 AgentHub 产品层支持明确作用域后再开放。
 
+Runtime 层通过 waitable external permission request 表达外部审批，不走 AI SDK tool approval continuation。`RunManager.decidePermission()` 对外部 permission request 只 resolve 对应 waiter，并输出 `permission.approved` / `permission.denied`；内部 Runtime Tool 审批仍保留原本的续跑逻辑。
+
+外部 permission metadata 必须保留来源边界：
+
+- `data.externalProvider` 标记 provider，例如 `"opencode"`。
+- `data.providerSessionId`、`data.providerPermissionId`、`data.permissionKind` 用于追踪外部平台请求。
+- `data.providerToolCallId`、`data.providerMessageId` 可选，用于把权限卡聚合到同一条外部 assistant 消息或工具 trace。
+- `data.patterns`、`data.providerMetadata` 必须经过 Adapter 脱敏和长度限制，不应暴露 workspace root、凭据或完整 provider payload。
+
 如果外部平台配置本身已经允许某些操作且不会发起权限请求，AgentHub 无法在 Adapter 层拦截这些操作。该能力属于用户信任外部平台配置的边界，应在 UI 和文档中说明。
+
+OpenCode 当前官方 SDK generated types 将权限请求表示为 `permission.updated`，`properties` 是 provider 的 `Permission` 对象；AgentHub Adapter 会把它归一成 `permission.requested`。旧版或历史实测中的 `permission.asked` 只作为 provider 兼容输入存在，不作为 AgentHub 公共事件类型。
 
 ## 9. 事件映射
 
@@ -223,14 +235,17 @@ Adapter 应保留足够的 raw provider event 供调试，但面向 HubServer �
 - `toolName` 使用外部平台的原生 tool name，UI 可按普通工具卡片展示，但不能把它当作 AgentHub 内部工具授权事实。
 - `data.externalProvider` 标记 provider，例如 `"opencode"`。
 - `data` 保留 provider session、provider event id、provider tool id/name、provider metadata，以及脱敏后的 input/output/error。
+- `tool.completed` 的输出对象可放在 `data.data`、`data.result` 或 `data.output`。HubServer/Web 应按这一兼容顺序提取展示输出；外部 provider 的原生 tool output 不应因为字段名不同而退化成只显示 summary。
 - 能归属到一次外部 assistant 输出时，`messageId/messageIndex` 应与同一条 `message.*`、`reasoning.*` 复用，供 Web 使用现有消息聚合和 timeline 渲染。
+- 外部 tool event 可能先于同一 `messageId` 的 assistant message 到达。HubServer 应先投影为 run tool call，并在 message 创建或更新后回填 tool message part，保证 live UI 和重启后的 persisted replay 一致。
 - 权限桥接仍应走 `permission.*`，不应通过伪造内部 Runtime Tool permission 来表达外部平台审批。
+- Web 渲染外部原生工具时必须保留 provider 边界。外部工具可以复用 AgentHub 普通 Tool UI，但即使 provider tool name 与内部工具同名，也不能因此进入内部工具专属渲染器或授权语义。
 
 OpenCode V1 的后续阶段拆分为：
 
 - Phase 4B：通用 Workspace Diff Summary V0 已作为平台能力实现，不依赖外部 provider event stream。
-- Phase 4C：接入 OpenCode event stream，将文本增量、reasoning 和外部工具调用映射到 AgentHub timeline；Web 复用既有 RunEvent/message projection，不新增 OpenCode 专属渲染链路。
-- Phase 4D：在 event stream 基础上桥接 OpenCode permission request。
+- Phase 4C：OpenCode event stream 已接入，将文本增量、reasoning 和外部工具调用映射到 AgentHub timeline；Web 复用既有 RunEvent/message projection，不新增 OpenCode 专属渲染链路。
+- Phase 4D：OpenCode permission bridge 已接入，在 event stream 基础上桥接 OpenCode permission request，并通过现有 AgentHub permission UI 与 decision API 回写用户决定。
 
 其他外部智能体接入时也应优先复用这些公共层：workspace diff 属于平台能力，event stream 和 permission bridge 属于 adapter 能力。
 

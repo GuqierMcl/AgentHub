@@ -546,7 +546,7 @@ function ReasoningTimelineItem({
 }
 
 function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
-  if (item.toolName === "bash") {
+  if (item.toolName === "bash" && !item.externalProvider) {
     return <BashToolTerminalView item={item} />
   }
 
@@ -762,6 +762,9 @@ function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }
   const [submitting, setSubmitting] = useState<"approve" | "deny" | null>(null)
   const [submitted, setSubmitted] = useState<"approve" | "deny" | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const sourceLabel = item.externalProvider === "opencode"
+    ? "OpenCode"
+    : item.externalProvider
   const approval: NonNullable<ConfirmationProps["approval"]> =
     item.approved === undefined
       ? { id: item.requestId }
@@ -804,6 +807,13 @@ function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }
           Permission denied for {item.toolName ?? "tool"}.
         </ConfirmationRejected>
       </ConfirmationTitle>
+      {sourceLabel || item.target ? (
+        <div className="text-muted-foreground text-xs">
+          {sourceLabel ? `来源：${sourceLabel}` : null}
+          {sourceLabel && item.target ? " · " : null}
+          {item.target ? `目标：${item.target}` : null}
+        </div>
+      ) : null}
       <ConfirmationActions>
         <ConfirmationAction
           aria-label="Deny permission"

@@ -141,6 +141,7 @@ export type WorkbenchTimelineToolItem = {
   id: string
   runId: string
   agentId?: string
+  externalProvider?: string
   toolCallId: string
   toolName: string
   title: string
@@ -160,6 +161,10 @@ export type WorkbenchTimelinePermissionItem = {
   agentId?: string
   toolCallId?: string
   toolName?: string
+  externalProvider?: string
+  permissionKind?: string
+  permissionType?: string
+  target?: string
   title: string
   reason?: string
   time: string
@@ -358,4 +363,3 @@ export type CreateConversationBody = {
   agents?: { agentId: string }[]
   metadata?: Record<string, unknown>
 }
-

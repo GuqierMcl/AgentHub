@@ -138,3 +138,73 @@ describe("timeline interleave ordering", () => {
     expect(mergedOrder(chat)).toEqual(["tool:c1", "reason:r1"])
   })
 })
+
+describe("tool output projection", () => {
+  it("uses OpenCode output payload for completed external tools", () => {
+    const chat = chatMessage(
+      project([
+        event(
+          "tool.completed",
+          {
+            summary: "OpenCode · edit",
+            externalProvider: "opencode",
+            output: {
+              title: "Edited src/index.ts",
+              output: "updated file",
+            },
+          },
+          {
+            toolCallId: "opencode:call_edit",
+            toolName: "edit",
+          }
+        ),
+      ])
+    )
+
+    const tool = chat.toolItems?.find((item) => item.toolCallId === "opencode:call_edit")
+    expect(tool).toMatchObject({
+      status: "output-available",
+      title: "OpenCode · edit",
+      externalProvider: "opencode",
+      output: {
+        title: "Edited src/index.ts",
+        output: "updated file",
+      },
+    })
+  })
+})
+
+describe("permission projection", () => {
+  it("labels OpenCode external permission requests with provider source and kind", () => {
+    const items = project([
+      event(
+        "permission.requested",
+        {
+          requestId: "permission_opencode_edit",
+          reason: "OpenCode wants to edit src/index.ts",
+          data: {
+            externalProvider: "opencode",
+            providerSessionId: "ses_opencode",
+            providerPermissionId: "perm_edit",
+            permissionKind: "edit",
+            permissionType: "file_write",
+            patterns: ["src/index.ts"],
+          },
+        },
+        {
+          toolCallId: "opencode:call_edit",
+          toolName: "edit",
+        }
+      ),
+    ])
+
+    const chat = chatMessage(items)
+    expect(chat.permissionItems).toHaveLength(1)
+    expect(chat.permissionItems?.[0]).toMatchObject({
+      title: "OpenCode 权限请求：edit",
+      reason: "OpenCode wants to edit src/index.ts",
+      externalProvider: "opencode",
+      target: "src/index.ts",
+    })
+  })
+})

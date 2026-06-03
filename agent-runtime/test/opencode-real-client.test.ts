@@ -1,20 +1,54 @@
 import { describe, expect, test } from "bun:test"
+import { execFile } from "node:child_process"
 import { EventEmitter } from "node:events"
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { PassThrough } from "node:stream"
+import { promisify } from "node:util"
 import {
   ExternalAdapterError,
   ManagedOpenCodeServer,
   RealOpenCodeClient,
+  WorkspaceDiffService,
+  WorkspaceService,
   extractAssistantText,
   type OpenCodeApiClient,
   type OpenCodeWorkspaceConnection,
 } from "../src/runtime"
 
+const execFileAsync = promisify(execFile)
+
 async function createWorkspace(): Promise<string> {
   return mkdtemp(join(tmpdir(), "agent-runtime-real-opencode-"))
+}
+
+async function runGit(workspaceRoot: string, args: string[]): Promise<void> {
+  await execFileAsync("git", ["-C", workspaceRoot, ...args], {
+    encoding: "utf8",
+    windowsHide: true,
+  })
+}
+
+async function createGitWorkspace(): Promise<{
+  workspaceRoot: string
+  workspaceService: WorkspaceService
+}> {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(join(workspaceRoot, "README.md"), "AgentHub OpenCode smoke workspace\n", "utf8")
+  await runGit(workspaceRoot, ["init"])
+  await runGit(workspaceRoot, ["config", "user.email", "agenthub@example.local"])
+  await runGit(workspaceRoot, ["config", "user.name", "AgentHub Test"])
+  await runGit(workspaceRoot, ["add", "."])
+  await runGit(workspaceRoot, ["commit", "-m", "initial"])
+  return {
+    workspaceRoot,
+    workspaceService: new WorkspaceService({
+      workdir: workspaceRoot,
+      workspaceId: "workspace_opencode_write_smoke",
+      runId: "run_opencode_write_smoke",
+    }),
+  }
 }
 
 function response<T>(data: T): { data: T; error: undefined } {
@@ -35,6 +69,11 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
   ) => Promise<unknown>
   sessionAbort: (id: string) => Promise<unknown>
   eventSubscribe: (parameters?: unknown, options?: { signal?: AbortSignal }) => Promise<unknown>
+  permissionReply: (
+    requestId: string,
+    reply?: "once" | "always" | "reject",
+    message?: string
+  ) => Promise<unknown>
   providerList: () => Promise<unknown>
   projectWorktree: string
   pathDirectory: string
@@ -133,6 +172,25 @@ function createHealthyClient(workspaceRoot: string, overrides: Partial<{
         return {
           stream: (async function* emptyOpenCodeEventStream() {})(),
         }
+      },
+    },
+    permission: {
+      reply: async (options: {
+        requestID?: string
+        permissionID?: string
+        reply?: "once" | "always" | "reject"
+        response?: "once" | "always" | "reject"
+        message?: string
+      }) => {
+        const requestId = options.requestID ?? options.permissionID ?? ""
+        if (overrides.permissionReply) {
+          return overrides.permissionReply(
+            requestId,
+            options.reply ?? options.response,
+            options.message
+          )
+        }
+        return response(true)
       },
     },
   } as unknown as OpenCodeApiClient
@@ -767,6 +825,403 @@ describe("RealOpenCodeClient", () => {
     })
   })
 
+  test("replies once to approved OpenCode permission requests", async () => {
+    const workspaceRoot = await createWorkspace()
+    const permissionRequests: unknown[] = []
+    const permissionReplies: Array<{ requestId: string; reply?: string; message?: string }> = []
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* streamOpenCodeEvents() {
+          yield {
+            id: "evt_permission_asked",
+            type: "permission.asked",
+            properties: {
+              id: "perm_edit",
+              sessionID: "session_created",
+              permission: "edit",
+              patterns: ["src/index.ts"],
+              always: [],
+              metadata: { reason: "edit file" },
+              tool: {
+                messageID: "msg_assistant",
+                callID: "call_edit",
+              },
+            },
+          }
+        })(),
+      }),
+      permissionReply: async (requestId, reply, message) => {
+        permissionReplies.push({ requestId, reply, message })
+        return response(true)
+      },
+      sessionPrompt: async () => response({
+        info: {
+          id: "msg_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "Edited after approval" }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_permission_approved",
+      conversationId: "conv_permission_approved",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_permission_approved",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const events = []
+    for await (const event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Edit the file",
+      },
+      signal: new AbortController().signal,
+      permissionHandler: async (request: unknown) => {
+        permissionRequests.push(request)
+        return { approved: true, reason: "Approved once" }
+      },
+    } as any)) {
+      events.push(event)
+    }
+
+    expect(permissionRequests).toHaveLength(1)
+    expect(permissionRequests[0]).toMatchObject({
+      providerPermissionId: "perm_edit",
+      permissionKind: "edit",
+      patterns: ["src/index.ts"],
+      providerToolCallId: "call_edit",
+      providerMessageId: "msg_assistant",
+    })
+    expect(permissionReplies).toEqual([{
+      requestId: "perm_edit",
+      reply: "once",
+      message: "Approved once",
+    }])
+    expect(events.at(-1)).toEqual({
+      type: "message.completed",
+      content: "Edited after approval",
+    })
+  })
+
+  test("normalizes current OpenCode permission.updated events", async () => {
+    const workspaceRoot = await createWorkspace()
+    const permissionRequests: unknown[] = []
+    const permissionReplies: Array<{ requestId: string; reply?: string; message?: string }> = []
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* streamOpenCodeEvents() {
+          yield {
+            id: "evt_permission_updated",
+            type: "permission.updated",
+            properties: {
+              id: "perm_write",
+              type: "edit",
+              pattern: ["src/index.ts", "src/app.ts"],
+              sessionID: "session_created",
+              messageID: "msg_assistant",
+              callID: "call_edit",
+              title: "Edit files",
+              metadata: { reason: "needs file edits" },
+              time: { created: Date.now() },
+            },
+          }
+        })(),
+      }),
+      permissionReply: async (requestId, reply, message) => {
+        permissionReplies.push({ requestId, reply, message })
+        return response(true)
+      },
+      sessionPrompt: async () => response({
+        info: {
+          id: "msg_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "Edited after updated permission" }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_permission_updated",
+      conversationId: "conv_permission_updated",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_permission_updated",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const events = []
+    for await (const event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Edit files",
+      },
+      signal: new AbortController().signal,
+      permissionHandler: async (request: unknown) => {
+        permissionRequests.push(request)
+        return { approved: true, reason: "Approved current event" }
+      },
+    } as any)) {
+      events.push(event)
+    }
+
+    expect(permissionRequests).toHaveLength(1)
+    expect(permissionRequests[0]).toMatchObject({
+      providerPermissionId: "perm_write",
+      permissionKind: "edit",
+      patterns: ["src/index.ts", "src/app.ts"],
+      providerToolCallId: "call_edit",
+      providerMessageId: "msg_assistant",
+    })
+    expect(permissionReplies).toEqual([{
+      requestId: "perm_write",
+      reply: "once",
+      message: "Approved current event",
+    }])
+    expect(events.at(-1)).toEqual({
+      type: "message.completed",
+      content: "Edited after updated permission",
+    })
+  })
+
+  test("replies reject to denied OpenCode permission requests", async () => {
+    const workspaceRoot = await createWorkspace()
+    const permissionReplies: Array<{ requestId: string; reply?: string; message?: string }> = []
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* streamOpenCodeEvents() {
+          yield {
+            id: "evt_permission_asked",
+            type: "permission.asked",
+            properties: {
+              id: "perm_bash",
+              sessionID: "session_created",
+              permission: "bash",
+              patterns: ["bun test"],
+              tool: {
+                messageID: "msg_assistant",
+                callID: "call_bash",
+              },
+            },
+          }
+        })(),
+      }),
+      permissionReply: async (requestId, reply, message) => {
+        permissionReplies.push({ requestId, reply, message })
+        return response(true)
+      },
+      sessionPrompt: async () => response({
+        info: {
+          id: "msg_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "I will continue without that command." }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_permission_denied",
+      conversationId: "conv_permission_denied",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_permission_denied",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const events = []
+    for await (const event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Run tests",
+      },
+      signal: new AbortController().signal,
+      permissionHandler: async () => ({ approved: false, reason: "Not this command" }),
+    })) {
+      events.push(event)
+    }
+
+    expect(permissionReplies).toEqual([{
+      requestId: "perm_bash",
+      reply: "reject",
+      message: "Not this command",
+    }])
+    expect(events.at(-1)).toEqual({
+      type: "message.completed",
+      content: "I will continue without that command.",
+    })
+  })
+
+  test("replies reject when a run is cancelled while OpenCode waits for permission", async () => {
+    const workspaceRoot = await createWorkspace()
+    const permissionReplies: Array<{ requestId: string; reply?: string; message?: string }> = []
+    let resolvePermissionDecision: ((decision: { approved: boolean; reason?: string }) => void) | undefined
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* streamOpenCodeEvents() {
+          yield {
+            id: "evt_permission_asked",
+            type: "permission.asked",
+            properties: {
+              id: "perm_cancelled",
+              sessionID: "session_created",
+              permission: "edit",
+              patterns: ["src/index.ts"],
+              tool: {
+                messageID: "msg_assistant",
+                callID: "call_edit",
+              },
+            },
+          }
+        })(),
+      }),
+      permissionReply: async (requestId, reply, message) => {
+        permissionReplies.push({ requestId, reply, message })
+        return response(true)
+      },
+      sessionPrompt: async (_text, signal) => new Promise((resolve) => {
+        signal?.addEventListener("abort", () => resolve(response({
+          info: {
+            id: "msg_assistant",
+            role: "assistant",
+            sessionID: "session_created",
+          },
+          parts: [{ type: "text", text: "late" }],
+        })), { once: true })
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_permission_cancelled",
+      conversationId: "conv_permission_cancelled",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_permission_cancelled",
+      workspaceRootPath: workspaceRoot,
+    })
+    const controller = new AbortController()
+    const eventsPromise = (async () => {
+      const events = []
+      for await (const event of client.streamPrompt({
+        session,
+        prompt: {
+          scope: "conversation-visible",
+          content: "Edit then cancel",
+        },
+        signal: controller.signal,
+        permissionHandler: async () => new Promise<{ approved: boolean; reason?: string }>((resolve) => {
+          resolvePermissionDecision = resolve
+        }),
+      })) {
+        events.push(event)
+      }
+      return events
+    })()
+
+    for (let attempt = 0; attempt < 50 && !resolvePermissionDecision; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(resolvePermissionDecision).toBeDefined()
+    controller.abort()
+    resolvePermissionDecision?.({ approved: false, reason: "Run cancelled" })
+
+    await eventsPromise
+    expect(permissionReplies).toEqual([{
+      requestId: "perm_cancelled",
+      reply: "reject",
+      message: "Run cancelled",
+    }])
+  })
+
+  test("propagates OpenCode permission reply failures as a stable adapter error", async () => {
+    const workspaceRoot = await createWorkspace()
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* streamOpenCodeEvents() {
+          yield {
+            id: "evt_permission_asked",
+            type: "permission.asked",
+            properties: {
+              id: "perm_reply_failure",
+              sessionID: "session_created",
+              permission: "edit",
+              patterns: ["src/index.ts"],
+              tool: {
+                messageID: "msg_assistant",
+                callID: "call_edit",
+              },
+            },
+          }
+        })(),
+      }),
+      permissionReply: async () => {
+        throw new Error("reply endpoint unavailable")
+      },
+      sessionPrompt: async () => response({
+        info: {
+          id: "msg_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "Should not be returned" }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_permission_reply_failure",
+      conversationId: "conv_permission_reply_failure",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_permission_reply_failure",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    try {
+      for await (const _event of client.streamPrompt({
+        session,
+        prompt: {
+          scope: "conversation-visible",
+          content: "Edit the file",
+        },
+        signal: new AbortController().signal,
+        permissionHandler: async () => ({ approved: true, reason: "Approved once" }),
+      })) {
+        // no-op
+      }
+      throw new Error("expected permission reply to fail")
+    } catch (error) {
+      expect(error).toBeInstanceOf(ExternalAdapterError)
+      expect((error as ExternalAdapterError).code).toBe("ADAPTER_PERMISSION_REPLY_FAILED")
+    }
+  })
+
   test("waits for OpenCode event subscription before dispatching prompt", async () => {
     const workspaceRoot = await createWorkspace()
     let subscriptionReady = false
@@ -875,6 +1330,55 @@ describe("RealOpenCodeClient", () => {
     expect(result).toEqual([
       { type: "message.delta", delta: "Fallback response" },
       { type: "message.completed", content: "Fallback response" },
+    ])
+  })
+
+  test("falls back to prompt response when OpenCode event stream throws", async () => {
+    const workspaceRoot = await createWorkspace()
+    const apiClient = createHealthyClient(workspaceRoot, {
+      eventSubscribe: async () => ({
+        stream: (async function* failingOpenCodeEventStream() {
+          throw new Error("event stream disconnected")
+        })(),
+      }),
+      sessionPrompt: async () => response({
+        info: {
+          id: "message_assistant",
+          role: "assistant",
+          sessionID: "session_created",
+        },
+        parts: [{ type: "text", text: "Fallback after stream error" }],
+      }),
+    })
+    const client = new RealOpenCodeClient({
+      server: {
+        ensure: async () => createConnection(workspaceRoot, apiClient),
+      } as unknown as ManagedOpenCodeServer,
+    })
+    const session = await client.ensureSession({
+      runId: "run_event_stream_error",
+      conversationId: "conv_event_stream_error",
+      agentId: "opencode",
+      scope: "conversation-visible",
+      workspaceId: "workspace_event_stream_error",
+      workspaceRootPath: workspaceRoot,
+    })
+
+    const events = []
+    for await (const event of client.streamPrompt({
+      session,
+      prompt: {
+        scope: "conversation-visible",
+        content: "Use fallback after event stream error",
+      },
+      signal: new AbortController().signal,
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { type: "message.delta", delta: "Fallback after stream error" },
+      { type: "message.completed", content: "Fallback after stream error" },
     ])
   })
 
@@ -1075,6 +1579,7 @@ describe("RealOpenCodeClient", () => {
 
 const opencodeSmokeTest = process.env.AGENTHUB_OPENCODE_SMOKE === "1" ? test : test.skip
 const opencodePromptSmokeTest = process.env.AGENTHUB_OPENCODE_PROMPT_SMOKE === "1" ? test : test.skip
+const opencodeWriteSmokeTest = process.env.AGENTHUB_OPENCODE_WRITE_SMOKE === "1" ? test : test.skip
 
 describe("OpenCode optional smoke tests", () => {
   opencodeSmokeTest("starts a real workspace-scoped OpenCode server and validates project/path", async () => {
@@ -1117,6 +1622,53 @@ describe("OpenCode optional smoke tests", () => {
       }
 
       expect(events.some((event) => event.type === "message.completed" && event.content.length > 0)).toBe(true)
+    } finally {
+      await server.closeAll()
+    }
+  })
+
+  opencodeWriteSmokeTest("runs a real OpenCode write prompt and records workspace diff", async () => {
+    const { workspaceRoot, workspaceService } = await createGitWorkspace()
+    const diffService = new WorkspaceDiffService()
+    const baseline = await diffService.captureBaseline(workspaceService)
+    const server = new ManagedOpenCodeServer()
+    const client = new RealOpenCodeClient({ server })
+    const targetFile = "agenthub-opencode-smoke.txt"
+    const targetContent = "AgentHub OpenCode write smoke"
+
+    try {
+      const session = await client.ensureSession({
+        runId: "run_opencode_write_smoke",
+        conversationId: "conv_opencode_write_smoke",
+        agentId: "opencode",
+        scope: "conversation-visible",
+        workspaceId: "workspace_opencode_write_smoke",
+        workspaceRootPath: workspaceRoot,
+      })
+      const events = []
+      for await (const event of client.streamPrompt({
+        session,
+        prompt: {
+          scope: "conversation-visible",
+          content: [
+            `Create a file named ${targetFile} in the current workspace.`,
+            `The file content must include exactly this text: ${targetContent}.`,
+            "Reply briefly after the file is written.",
+          ].join("\n"),
+        },
+        signal: new AbortController().signal,
+      })) {
+        events.push(event)
+      }
+
+      const fileContent = await readFile(join(workspaceRoot, targetFile), "utf8")
+      const summary = await diffService.summarize(workspaceService, baseline)
+
+      expect(fileContent).toContain(targetContent)
+      expect(events.some((event) => event.type === "message.completed" && event.content.length > 0)).toBe(true)
+      expect(summary.changedFiles.some((file) => file.path === targetFile)).toBe(true)
+      expect(summary.stats.filesChanged).toBeGreaterThan(0)
+      expect(summary.patch?.text ?? "").toContain(targetContent)
     } finally {
       await server.closeAll()
     }

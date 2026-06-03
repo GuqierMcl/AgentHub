@@ -26,7 +26,7 @@ export type OpenCodeManagedServerStatus = {
   lastError?: unknown
 }
 
-export type OpenCodeApiClient = Pick<OpencodeClient, "project" | "path" | "session" | "provider" | "event">
+export type OpenCodeApiClient = Pick<OpencodeClient, "project" | "path" | "session" | "provider" | "event" | "permission">
 
 export type OpenCodeServerHandle = {
   url: string

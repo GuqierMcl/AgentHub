@@ -64,6 +64,9 @@ export type ExternalAdapterErrorCode =
   | "ADAPTER_SESSION_FAILED"
   | "ADAPTER_PROMPT_FAILED"
   | "ADAPTER_ABORT_FAILED"
+  | "ADAPTER_PERMISSION_FAILED"
+  | "ADAPTER_PERMISSION_REPLY_FAILED"
+  | "ADAPTER_PERMISSION_CANCELLED"
 
 export class ExternalAdapterError extends Error {
   constructor(

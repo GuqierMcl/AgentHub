@@ -257,9 +257,9 @@ V1 规则：
 
 OpenCode 的权限请求应桥接到 AgentHub 权限 UI。
 
-流程：
+Phase 4D 已实现的流程：
 
-1. OpenCode 产生 permission request。
+1. OpenCode event stream 产生 `permission.updated`；Adapter 同时兼容旧版/历史实测中的 `permission.asked`。
 2. OpenCodeAdapter 将其转换为 AgentHub `permission.requested`。
 3. HubServer 持久化并转发到 Web。
 4. 用户在 AgentHub UI 中批准或拒绝。
@@ -267,47 +267,52 @@ OpenCode 的权限请求应桥接到 AgentHub 权限 UI。
 6. OpenCode 继续或停止对应操作。
 7. Runtime 输出 `permission.approved`、`permission.denied` 或 `permission.cancelled`。
 
-首版映射：
+首版映射规则：
 
-- AgentHub 批准 -> OpenCode 一次性允许。
-- AgentHub 拒绝 -> OpenCode 拒绝。
-- Run 取消 -> OpenCode permission 取消或拒绝，并 abort active session。
+- OpenCode `permission.updated.properties.id` 作为 `providerPermissionId` 存入 AgentHub permission metadata；AgentHub 自身仍生成 `permission_*` 作为 `requestId`。
+- OpenCode `properties.type` 作为 `permissionKind`，并映射到 AgentHub `permissionType` 供 UI 展示；兼容旧 `permission.asked.properties.permission`。
+- OpenCode `properties.pattern`、`metadata`、`messageID`、`callID` 脱敏后写入 `RuntimePermissionRequest.data`；兼容旧 `permission.asked` 的 `patterns`、`always`、`tool.messageID`、`tool.callID`。
+- AgentHub 批准 -> OpenCode `client.permission.reply({ reply: "once" })`。
+- AgentHub 拒绝 -> OpenCode `client.permission.reply({ reply: "reject" })`。
+- Run 取消 -> AgentHub 输出 `permission.cancelled`，并 best-effort 向 OpenCode 回写 `reply: "reject"`，同时 abort active prompt。
+- OpenCode permission reply 失败会抛出稳定 `ADAPTER_PERMISSION_REPLY_FAILED`，不会被普通 event stream 降级吞掉。
 
-后续如果 AgentHub UI 支持审批作用域，可以再支持“始终允许”。
+V1 不支持 OpenCode 原生 `always allow`，不修改 OpenCode config，也不把 OpenCode 原生工具注册成 AgentHub Runtime Tool。后续如果 AgentHub 产品层支持明确审批作用域，可以再讨论“始终允许”。
 
 ## 10. 事件映射
 
 OpenCodeAdapter 应订阅 OpenCode event stream，并按 session / task 过滤。
 
-Phase 4C 已实现的映射：
+Phase 4C/4D 已实现的映射：
 
 | OpenCode 事件类别 | AgentHub 投影 |
 | --- | --- |
-| `session.next.text.delta` | `message.delta` |
+| `message.part.delta(field="text")` | `message.delta` 或 `reasoning.delta`，按已登记的 part type 区分 |
+| `message.part.updated(part.type="reasoning")` | `reasoning.completed`，当 part 结束时输出 |
+| `message.part.updated(part.type="tool")` | `tool.started` / `tool.completed` / `tool.failed` |
+| `permission.updated` / legacy `permission.asked` | `permission.requested`，等待 AgentHub decision 后回写 OpenCode |
 | `session.prompt()` final assistant parts | `message.completed`；当 event stream 未给出文本增量时也补 `message.delta` |
-| `session.next.reasoning.delta` | `reasoning.delta` |
-| `session.next.reasoning.ended` | `reasoning.completed` |
-| `session.next.tool.called` | `tool.started` |
-| `session.next.tool.success` | `tool.completed` |
-| `session.next.tool.failed` | `tool.failed` |
+| `session.next.text.delta` / `session.next.reasoning.*` / `session.next.tool.*` | 前向兼容分支，供未来切换 OpenCode v2 agent loop 时复用 |
 
 实现规则：
 
-- Runtime OpenCode Adapter 必须从 `@opencode-ai/sdk/v2` 导入 SDK 类型和 client factory。`@opencode-ai/sdk` 默认入口当前仍是 v1，其 event stream 使用 `message.part.updated` 等旧事件形态，不能用于 Phase 4C 的 `session.next.*` 映射。
+- Runtime OpenCode Adapter 必须从 `@opencode-ai/sdk/v2` 导入 SDK 类型和 client factory。当前 `session.prompt()` 主路径实际产生 `message.part.*` 事件，因此归一化以 `message.part.delta` / `message.part.updated` 为事实来源；`session.next.*` 只作为前向兼容分支保留。
+- OpenCode 官方 generated SDK 类型中，权限请求事件为 `permission.updated`，其 `properties` 是 `Permission` 对象，包含 `id`、`type`、`pattern`、`sessionID`、`messageID`、`callID`、`title` 和 `metadata`。Adapter 仍保留 `permission.asked` 兼容分支，避免历史版本或实测环境回退时丢失审批请求。
 - Adapter 使用 `client.event.subscribe({ directory })` 订阅 OpenCode event stream，并在发送 prompt 前短暂有界等待 subscription ready；事件过滤只接受 `properties.sessionID` 等于当前 `providerSessionId` 的事件。
 - OpenCode 原生 tool 调用不是 AgentHub Runtime Tool Catalog 的工具调用，但会复用 `tool.started` / `tool.completed` / `tool.failed` 事件，供 HubServer/Web 继续使用现有 timeline 和消息聚合逻辑。
 - OpenCode tool 事件的 `toolCallId` 必须带 provider 命名空间，例如 `opencode:<callID>`；`toolName` 使用 OpenCode provider tool name。
-- OpenCode tool 事件的 `data` 至少包含 `externalProvider = "opencode"`、`providerSessionId`、`providerEventId`、`providerToolCallId`、`providerToolName`、`providerExecuted`、`providerMetadata`，以及脱敏后的 `input` / `output` / `error`。
+- OpenCode tool 事件的 `data` 至少包含 `externalProvider = "opencode"`、`providerSessionId`、`providerEventId`、`providerToolCallId`、`providerToolName`、`providerExecuted`、`providerMetadata`，以及脱敏后的 `input` / `output` / `error`。其中 `message.part.updated(part.type="tool")` 的 completed state 原生输出应保留到 `data.output`，HubServer/Web 会把 `data.output` 与内部工具常用的 `data.data` / `data.result` 一起作为 Tool UI 输出候选。
 - Adapter 会复用当前 OpenCode assistant message 的 `messageId`，让文本、reasoning 和 tool trace 聚合到同一条 AgentHub 消息中；delegated task 事件还会保留 `taskId`、`parentAgentId`、`groupId`。
+- OpenCode tool event 可能早于最终 `message.completed` 到达。HubServer 必须允许先创建/更新 `RunToolCall`，随后在同一 `messageId` 的 assistant message 投影完成时回填 tool `MessagePart`；前端仍复用 AgentHub 既有 Tool UI，不新增 OpenCode 专属工具渲染链路。
 - 如果 event stream 提供了 assistant text delta，Adapter 不再从最终 `session.prompt()` response 重复输出同一段 delta，只输出 `message.completed` 作为最终文本事实。
 - prompt 完成后 Adapter 会做短暂 bounded drain，尽量接住 OpenCode event stream 的尾部 tool 事件；随后停止 subscription，避免长期事件流阻塞 Run 终态。
 - event stream 不可用、订阅启动或停止超时、断开或出现无法识别的 provider event 时，Adapter 记录 OpenCode 日志并降级到最终 prompt response，不让事件流问题破坏普通聊天回复。
+- permission bridge 产生的 `ADAPTER_PERMISSION_*` 错误不是普通 event stream 降级；Adapter 会停止事件流、abort active prompt，并让 Run 进入稳定失败链路。
 
 尚未实现的映射：
 
 | OpenCode 事件类别 | 后续阶段 |
 | --- | --- |
-| permission asked/replied | Phase 4D 映射到 AgentHub `permission.*` 并回写用户决定 |
 | session error / status / idle | 可作为后续执行状态增强，当前仍由 prompt success/failure 与 Run terminal 事件表达 |
 | file edited / session diff | 当前使用 Phase 4B 通用 Workspace Diff，不使用 OpenCode 私有 diff 事件作为事实来源 |
 | todo updated | 可作为 trace，暂不等同于 AgentHub Orchestrator `write_plan` |
@@ -357,7 +362,7 @@ Runtime 默认 `OpenCodeAdapter` 与 `GET /runtime/services/status` 共用同一
 
 - Phase 4B：通用 Workspace Diff Summary V0 已落地。Diff 不做 OpenCode 私有实现，而是由内部智能体和外部智能体共享同一套 workspace baseline / changed files / diffstat / bounded patch summary 逻辑，并通过 HubServer 投影为 diff Artifact。
 - Phase 4C：OpenCode Event Stream 与 Tool Timeline 已落地。Adapter 订阅 OpenCode event stream，将工具调用、reasoning 和可用的文本增量映射成 AgentHub RunEvent，供 HubServer/Web 使用现有 timeline 和消息投影展示。
-- Phase 4D：OpenCode Permission Bridge。在 event stream 基础上把 OpenCode permission request 映射到 AgentHub `permission.*`，并将用户决定回写 OpenCode。
+- Phase 4D：OpenCode Permission Bridge 已落地。在 event stream 基础上把 OpenCode `permission.updated` 映射到 AgentHub `permission.*`，并将用户决定以 `once` / `reject` 回写 OpenCode；旧 `permission.asked` 作为兼容事件继续支持。
 
 ### 12.1 Runtime 可观测性
 
@@ -371,8 +376,19 @@ OpenCode 相关日志必须明确带有 `externalProvider = "opencode"`，并使
 - session：scope、conversationId、taskId、hint lookup、hint reuse、hint 丢失后的 replacement session、新 session 标题和 providerSessionId。
 - prompt：prompt dispatch、abort request、prompt completed、assistant message id、输出长度、OpenCode 返回的 `providerID/modelID`，以及可解析到的 `providerName/modelName`。
 - event stream：subscription start/stop、providerSessionId、断流或 provider event 解析失败的降级 warning。
+- permission bridge：providerPermissionId、permissionKind、patternCount、AgentHub decision、OpenCode reply 和 reply failure；不得记录完整 workspace 路径或完整 provider payload。
 
 日志不应输出 OpenCode API key、认证 token、完整底层堆栈或完整用户 prompt 内容；prompt 只记录长度和追踪 id。
+
+### 12.2 V1 集成硬化与真实 smoke
+
+OpenCode V1 的默认自动化测试不得依赖本机已安装 OpenCode 或用户 provider 配置。真实 OpenCode 验收全部通过环境变量显式开启：
+
+- `AGENTHUB_OPENCODE_SMOKE=1`：启动真实 workspace-scoped OpenCode server，校验 localhost URL、Project/path 与 AgentHub 临时 workspace 一致，并关闭托管 server。
+- `AGENTHUB_OPENCODE_PROMPT_SMOKE=1`：使用用户已配置 provider 运行真实 direct prompt，验证能产生非空 `message.completed`。
+- `AGENTHUB_OPENCODE_WRITE_SMOKE=1`：在临时 git workspace 中运行真实写入 prompt，验证 AgentHub-originated prompt 仍使用 `build` execution agent，目标文件被创建或修改，并且通用 `WorkspaceDiffService` 能观测到变更。
+
+这些 smoke 只使用临时 workspace，不修改用户项目文件，不写入 OpenCode model/provider/Skill/MCP/plugin 配置。真实 permission kind 的触发依赖用户 OpenCode permission 配置；默认自动化用 mock 覆盖 approve、deny、cancel、reply failure 和 event stream fallback，真实环境只作为可选验收记录。
 
 ## 13. 直接调用与委派调用示例
 

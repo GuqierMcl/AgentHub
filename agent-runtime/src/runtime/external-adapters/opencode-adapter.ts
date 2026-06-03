@@ -1,9 +1,9 @@
 import { createChildLogger } from "../../logger"
 import { createRunEvent } from "../run-events"
 import type { ExternalContextPacket, RunEvent } from "../types"
-import type { OpenCodeClient, OpenCodeExecutionAgent } from "./opencode-client"
+import type { OpenCodeClient, OpenCodeExecutionAgent, OpenCodePermissionRequest } from "./opencode-client"
 import { createDefaultOpenCodeClient } from "./opencode-real-client"
-import type { ExternalAdapterContext, ExternalAdapterPrompt, ExternalAgentAdapter } from "./types"
+import { ExternalAdapterError, type ExternalAdapterContext, type ExternalAdapterPrompt, type ExternalAgentAdapter } from "./types"
 
 const log = createChildLogger("opencode-adapter")
 const DEFAULT_OPENCODE_EXECUTION_AGENT: OpenCodeExecutionAgent = "build"
@@ -109,6 +109,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
       prompt,
       executionAgent,
       signal: context.signal,
+      permissionHandler: (request) => this.handlePermissionRequest(context, session.providerSessionId, messageId, request),
     })) {
       if (context.signal.aborted) {
         log.info(
@@ -182,6 +183,8 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
             event.toolName = chunk.providerToolName
             return event
           }
+          case "permission.requested":
+            return undefined
         }
       })()
 
@@ -276,6 +279,88 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
       providerToolName: chunk.providerToolName,
       providerExecuted: chunk.providerExecuted,
       providerMetadata: chunk.providerMetadata,
+    }
+  }
+
+  private async handlePermissionRequest(
+    context: ExternalAdapterContext,
+    providerSessionId: string,
+    messageId: string | undefined,
+    request: OpenCodePermissionRequest
+  ): Promise<{ approved: boolean; reason?: string }> {
+    if (!context.permissionService || !context.emitEvent) {
+      throw new ExternalAdapterError(
+        "ADAPTER_PERMISSION_FAILED",
+        "OpenCode permission bridge is not available",
+        { provider: this.provider }
+      )
+    }
+
+    const toolCallId = this.formatExternalToolCallId(
+      request.providerToolCallId ?? `permission:${request.providerPermissionId}`
+    )
+    const permissionType = this.mapPermissionType(request.permissionKind)
+    const decision = await context.permissionService.stageExternalApproval({
+      runId: context.runId,
+      agentId: context.agent.id,
+      toolCallId,
+      toolName: request.permissionKind,
+      riskLevel: this.mapPermissionRiskLevel(request.permissionKind),
+      reason: request.reason ?? `OpenCode requested ${request.permissionKind} permission`,
+      executionId: context.executionId,
+      messageId,
+      parentAgentId: context.parentAgentId,
+      taskId: context.task?.taskId,
+      groupId: context.groupId,
+      parentTaskId: context.parentTaskId,
+      data: {
+        externalProvider: this.provider,
+        providerSessionId,
+        providerPermissionId: request.providerPermissionId,
+        permissionKind: request.permissionKind,
+        permissionType,
+        patterns: request.patterns,
+        always: request.always,
+        providerToolCallId: request.providerToolCallId,
+        providerMessageId: request.providerMessageId,
+        providerMetadata: request.providerMetadata,
+      },
+    }, context.emitEvent)
+
+    return decision
+  }
+
+  private mapPermissionRiskLevel(permissionKind: string): "low" | "medium" | "high" {
+    switch (permissionKind) {
+      case "edit":
+      case "bash":
+      case "repo_clone":
+        return "high"
+      case "read":
+      case "list":
+      case "glob":
+      case "grep":
+        return "low"
+      default:
+        return "medium"
+    }
+  }
+
+  private mapPermissionType(permissionKind: string): string {
+    switch (permissionKind) {
+      case "edit":
+        return "file_write"
+      case "read":
+      case "list":
+      case "glob":
+      case "grep":
+        return "file_read"
+      case "webfetch":
+      case "websearch":
+        return "network_access"
+      case "bash":
+      default:
+        return "command_execute"
     }
   }
 

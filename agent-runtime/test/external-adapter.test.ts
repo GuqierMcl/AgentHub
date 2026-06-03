@@ -165,6 +165,31 @@ class ToolStreamingOpenCodeClient extends FakeOpenCodeClient {
   }
 }
 
+class PermissionStreamingOpenCodeClient extends FakeOpenCodeClient {
+  async *streamPrompt(request: OpenCodePromptRequest) {
+    const decision = await (request as any).permissionHandler?.({
+      providerPermissionId: "perm_edit",
+      permissionKind: "edit",
+      patterns: ["src/index.ts"],
+      providerToolCallId: "call_edit",
+      providerMessageId: "msg_opencode",
+      providerMetadata: { source: "opencode" },
+      reason: "OpenCode wants to edit src/index.ts",
+    })
+    const content = decision?.approved
+      ? "Permission approved; edit completed."
+      : "Permission denied; edit skipped."
+    yield {
+      type: "message.delta" as const,
+      delta: content,
+    }
+    yield {
+      type: "message.completed" as const,
+      content,
+    }
+  }
+}
+
 describe("external adapter executor", () => {
   test("direct OpenCode run uses the external adapter instead of the mock executor", async () => {
     const registry = await createInitializedRegistry()
@@ -383,6 +408,52 @@ describe("external adapter executor", () => {
       .toBe("call_edit")
     expect((toolCompleted?.data as { output?: { content?: string } }).output?.content)
       .toBe("Updated src/index.ts")
+  })
+
+  test("direct OpenCode permission requests attach to the same chat message and resolve through Runtime decisions", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachOpenCodeClient(runManager, new PermissionStreamingOpenCodeClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_opencode_permission",
+      mode: "single",
+      participantAgentIds: ["opencode"],
+      addressedAgentIds: ["opencode"],
+      userMessage: {
+        role: "user",
+        content: "Edit src/index.ts.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_opencode_permission",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    const requested = await waitForEvent(runManager, run.id, (event) => event.type === "permission.requested")
+    expect(requested.messageId).toBeDefined()
+    expect(requested.toolCallId).toBe("opencode:call_edit")
+    expect((requested.data as { data?: { providerPermissionId?: string } }).data?.providerPermissionId)
+      .toBe("perm_edit")
+
+    const decision = runManager.decidePermission(
+      run.id,
+      (requested.data as { requestId: string }).requestId,
+      true,
+      "Approved once"
+    )
+    expect(decision.status).toBe("approved")
+
+    await waitForTerminalRun(runManager, run.id)
+    const events = runManager.getEvents(run.id) ?? []
+    const message = events.find((event) => event.type === "message.completed")
+    const approved = events.find((event) => event.type === "permission.approved")
+    expect(message?.messageId).toBe(requested.messageId)
+    expect(approved?.messageId).toBe(requested.messageId)
+    expect((message?.data as { content?: string }).content).toContain("Permission approved")
   })
 
   test("delegated OpenCode task keeps task identity on visible message events", async () => {

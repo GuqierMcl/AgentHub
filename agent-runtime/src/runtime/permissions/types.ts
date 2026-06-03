@@ -35,3 +35,19 @@ export type RuntimePermissionDecision = {
   approved: boolean
   reason?: string
 }
+
+export type RuntimeExternalPermissionApprovalDraft = {
+  runId: string
+  agentId: string
+  toolCallId: string
+  toolName: string
+  riskLevel: OrchestratorRiskLevel
+  reason: string
+  executionId?: string
+  messageId?: string
+  parentAgentId?: string
+  taskId?: string
+  groupId?: string
+  parentTaskId?: string
+  data?: Record<string, unknown>
+}

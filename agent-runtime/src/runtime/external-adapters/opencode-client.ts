@@ -17,6 +17,7 @@ export type OpenCodePromptRequest = {
   prompt: ExternalAdapterPrompt
   executionAgent?: OpenCodeExecutionAgent
   signal: AbortSignal
+  permissionHandler?: (request: OpenCodePermissionRequest) => Promise<OpenCodePermissionDecision>
 }
 
 export type OpenCodeExecutionAgent = "build"
@@ -27,6 +28,22 @@ export type OpenCodeExternalModel = {
   modelId: string
   providerName?: string
   modelName?: string
+}
+
+export type OpenCodePermissionRequest = {
+  providerPermissionId: string
+  permissionKind: string
+  patterns: string[]
+  always?: string[]
+  providerToolCallId?: string
+  providerMessageId?: string
+  providerMetadata?: Record<string, unknown>
+  reason?: string
+}
+
+export type OpenCodePermissionDecision = {
+  approved: boolean
+  reason?: string
 }
 
 export type OpenCodePromptEvent =
@@ -78,6 +95,9 @@ export type OpenCodePromptEvent =
       providerExecuted?: boolean
       providerMetadata?: Record<string, unknown>
     }
+  | ({
+      type: "permission.requested"
+    } & OpenCodePermissionRequest)
 
 export type OpenCodeClient = {
   ensureSession(request: OpenCodeSessionRequest): Promise<ExternalSessionLink>
