@@ -71,6 +71,7 @@ function renderPanel(
     case "preview":
       return (
         <BrowserPanel
+          tabUid={tab.uid}
           initialUrl={
             tab.payload && "initialUrl" in tab.payload
               ? tab.payload.initialUrl

@@ -4,6 +4,7 @@ import { badRequest, badGateway } from '../lib/errors'
 const preview = new Hono()
 
 const VALID_PROTOCOLS = ['http:', 'https:']
+const PREVIEW_NAV_MESSAGE_TYPE = 'PREVIEW_NAVIGATE'
 
 function isValidUrl(raw: string): URL {
   let parsed: URL
@@ -20,6 +21,18 @@ function isValidUrl(raw: string): URL {
 
 const RESOLVE_TIMEOUT_MS = 10_000
 const PROXY_TIMEOUT_MS = 30_000
+
+function buildPreviewNavigationScript(): string {
+  return [
+    '<script>(function(){',
+    'var d=document;',
+    'function resolveUrl(u){try{return new URL(String(u),d.baseURI).href}catch(e){return null}}',
+    `function postNavigate(u){var r=resolveUrl(u);if(!r)return false;var p;try{p=new URL(r)}catch(e){return false}if(p.protocol!=='http:'&&p.protocol!=='https:')return false;window.parent.postMessage({type:'${PREVIEW_NAV_MESSAGE_TYPE}',url:r},'*');return true}`,
+    "d.addEventListener('click',function(e){var l=e.target&&e.target.closest?e.target.closest('a'):null;if(!l)return;var h=l.getAttribute('href');if(!h||h.startsWith('#'))return;if(!postNavigate(h))return;e.preventDefault()},{capture:true});",
+    'var originalOpen=window.open;window.open=function(u){if(u&&postNavigate(u))return null;return typeof originalOpen===\'function\'?originalOpen.apply(this,arguments):null};',
+    '})()</script>',
+  ].join('')
+}
 
 preview.post('/api/preview/resolve', async (c: Context) => {
   const body = await c.req.json()
@@ -101,9 +114,10 @@ preview.get('/api/preview/proxy', async (c: Context) => {
     if (/text\/html/i.test(contentType) && body) {
       const baseUrl = response.url
       const baseTag = `<base href="${baseUrl}">`
+      const navScript = buildPreviewNavigationScript()
       let html = await response.text()
       if (/<head[^>]*>/i.test(html)) {
-        html = html.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}`)
+        html = html.replace(/<head[^>]*>/i, (match) => `${match}\n${baseTag}\n${navScript}`)
       }
       body = html
     }

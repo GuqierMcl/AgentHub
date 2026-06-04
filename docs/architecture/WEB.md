@@ -42,6 +42,7 @@
 - 左侧一级导航在模块导航下方、用户栏上方展示系统服务状态面板。Web 只轮询 `GET /api/system/services/status`，不直接访问 Agent Runtime 或 OpenCode server。展开导航时显示 AgentRuntime、OpenCode、Codex、Claude Code 的紧凑中文状态；折叠导航时显示聚合状态点与 tooltip。OpenCode `idle` 显示为“待命”，Codex/Claude Code 未接入时显示“未接入”。
 - 当前智能体头像 V1 由前端共享 resolver 根据 agent id/origin 解析：系统预设使用图标库，外部智能体可使用静态资源，未知或用户自定义智能体使用 initials/hash 兜底；API 契约暂不包含头像字段。
 - 页面根容器填满视口，不产生 `body` 级滚动；模块内的列表、消息流、详情表单与产物内容各自在内部滚动。
+- 网页预览面板内点击链接时，不在当前 iframe 内跳转；而是新开一个网页预览 tab。新 tab 标题优先使用页面 `document.title`，取不到时回退为目标 URL 的 hostname。
 - 当同一 Web 应用运行在 Electrobun 桌面壳内时，`AppShell` 可以通过 Electrobun 注入的 `window.__electrobunWindowId` 与 `window.__electrobunWebviewId` 检测桌面运行时，并渲染自定义 `DesktopTitleBar`。普通浏览器不显示该标题栏，保持原 Web 布局。
 - 生产 Desktop 首版不通过 `views://` 或 `file://` 加载 Web。Desktop 主进程应启动 HubServer，并让 WebView 打开 HubServer 托管的 `http://127.0.0.1:<port>`；因此 Web 继续使用相对 API 路径 `/api/*` 与 `/api/events`，不引入 Desktop 专属 API base。
 - 桌面运行时由 `DesktopTitleBar` 承担 AgentHub 品牌展示；`AppNavigation` 不重复显示 Logo 与 `AgentHub` 标题。Windows 桌面壳应保留不透明、可调整大小的原生窗口，让窗口边缘缩放和圆角裁剪由系统处理；不要为 Web 外壳圆角启用透明宿主窗口，否则 resize 后的透明区域可能产生点击透传。普通浏览器不应用桌面外壳样式。

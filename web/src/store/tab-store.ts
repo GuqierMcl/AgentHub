@@ -86,6 +86,7 @@ type TabStore = {
   closeTab: (uid: string) => void
   activateTab: (uid: string) => void
   closeAllTabs: () => void
+  updateTabTitle: (uid: string, title: string) => void
   updateTabPayload: (uid: string, payload: TabPayload) => void
   isSingletonOpen: (type: SingletonTabId) => boolean
   setWorkspaceCollapsed: (collapsed: boolean) => void
@@ -215,6 +216,14 @@ export const useTabStore = create<TabStore>((set, get) => ({
       activeTabUid: null,
       mountedTabUids: new Set(),
     })
+  },
+
+  updateTabTitle: (uid, title) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) =>
+        tab.uid === uid ? { ...tab, title } : tab
+      ),
+    }))
   },
 
   updateTabPayload: (uid, payload) => {

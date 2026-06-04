@@ -9,6 +9,11 @@ import {
   normalizeUrl,
   useWebPreview,
 } from "@/components/ai-elements/web-preview"
+import { useTabStore } from "@/store/tab-store"
+import {
+  derivePreviewTabFallbackTitle,
+  resolvePreviewTabTitle,
+} from "../utils/preview-tab-title"
 
 type BrowserPanelStatus = "idle" | "loading" | "ready" | "error"
 type PreviewViewportLayout = {
@@ -23,6 +28,7 @@ const DESKTOP_VIEWPORT_WIDTH = 1280
 const RESOLVE_ENDPOINT = "/api/preview/resolve"
 
 type BrowserPanelProps = {
+  tabUid: string
   initialUrl?: string
 }
 
@@ -34,7 +40,7 @@ function UrlSync({ url }: { url: string }) {
   return null
 }
 
-export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
+export function BrowserPanel({ tabUid, initialUrl }: BrowserPanelProps) {
   const normalizedInitialUrl = normalizeUrl(initialUrl ?? "")
   const [prevInitialUrl, setPrevInitialUrl] = useState(normalizedInitialUrl)
   const [navigatedUrl, setNavigatedUrl] = useState("")
@@ -46,6 +52,7 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
   const [viewportLayout, setViewportLayout] =
     useState<PreviewViewportLayout | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   if (normalizedInitialUrl !== prevInitialUrl) {
@@ -65,6 +72,9 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
 
     setStatus("loading")
     setDisplayUrl(rawUrl)
+    useTabStore
+      .getState()
+      .updateTabTitle(tabUid, derivePreviewTabFallbackTitle(rawUrl))
 
     try {
       const res = await fetch(RESOLVE_ENDPOINT, {
@@ -87,11 +97,14 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
       const finalUrl: string = data.finalUrl
       setDisplayUrl(finalUrl)
       setNavigatedUrl(finalUrl)
+      useTabStore
+        .getState()
+        .updateTabTitle(tabUid, derivePreviewTabFallbackTitle(finalUrl))
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return
       setNavigatedUrl(rawUrl)
     }
-  }, [])
+  }, [tabUid])
 
   useEffect(() => {
     if (normalizedInitialUrl) {
@@ -138,9 +151,30 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
     setStatus("loading")
   }, [navigatedUrl])
 
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return
+      if (event.data?.type !== "PREVIEW_NAVIGATE") return
+      const url = event.data?.url
+      if (typeof url !== "string" || !url) return
+      const store = useTabStore.getState()
+      store.openTab("preview", derivePreviewTabFallbackTitle(url), {
+        source: "manual",
+        initialUrl: url,
+      })
+      store.setWorkspaceCollapsed(false)
+    }
+    window.addEventListener("message", handleMessage)
+    return () => window.removeEventListener("message", handleMessage)
+  }, [])
+
   const handleIframeLoad = useCallback(() => {
     setStatus("ready")
-  }, [])
+    const title = iframeRef.current?.contentDocument?.title
+    useTabStore
+      .getState()
+      .updateTabTitle(tabUid, resolvePreviewTabTitle(navigatedUrl, title))
+  }, [navigatedUrl, tabUid])
 
   const handleIframeError = useCallback(() => {
     setStatus("error")
@@ -148,14 +182,6 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
 
   const iframeSrc = useMemo(() => {
     if (!navigatedUrl) return ""
-    if (
-      navigatedUrl.startsWith("http://localhost") ||
-      navigatedUrl.startsWith("https://localhost") ||
-      navigatedUrl.startsWith("http://127.0.0.1") ||
-      navigatedUrl.startsWith("https://127.0.0.1")
-    ) {
-      return navigatedUrl
-    }
     return `/api/preview/proxy?url=${encodeURIComponent(navigatedUrl)}`
   }, [navigatedUrl])
 
@@ -239,9 +265,10 @@ export function BrowserPanel({ initialUrl }: BrowserPanelProps) {
                   >
                     {iframeSrc ? (
                       <iframe
+                        ref={iframeRef}
                         key={iframeKey}
                         className="block border-0"
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation allow-top-navigation"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
                         src={iframeSrc}
                         style={iframeStyle}
                         title="Preview"
