@@ -21,12 +21,14 @@
     "prisma": "7.8.0",
     "sanitize-html": "^2.17.4",
     "sharp": "^0.34.5",
+    "ssh2": "^1.17.0",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/sanitize-html": "^2.16.1",
+    "@types/ssh2": "^1.15.5",
     "typescript": "^5.8.0"
   }
 }
