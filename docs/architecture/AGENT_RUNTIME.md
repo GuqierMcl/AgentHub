@@ -228,7 +228,7 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - 权限审批和用户问答已具备产品级 API 代理、事件持久化和前端交互；更完整的产品级 MessagePart/Artifact 投影仍在后续阶段。
 - 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。
 - 外部智能体 `opencode` 已进入 `ExternalAdapterExecutor`，默认使用真实 OpenCode client。Runtime 已接入 `@opencode-ai/sdk/v2`，在 SDK 暴露安全 workspace 启动参数时可走 managed server；当前 SDK 未暴露 cwd/workdir/projectPath 时，使用 `opencode serve` 子进程以 workspace root 为 `cwd` 启动，并通过 `project.current` / `path.get` 校验 workspace。HubServer 已具备外部 Session 映射、direct context bridge、通用 Workspace Diff 投影和 OpenCode event stream/tool timeline 映射；OpenCode permission bridge 仍在 `docs/roadmap/opencode-adapter-implementation.md` 后续阶段。
-- 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Workspace Diff 摘要卡片已开放，Patch apply、完整 Diff viewer/rollback、deploy 仍未开放。
+- 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Workspace Diff、只读 Diff Viewer、ChangeSet 归因和可靠 Diff 的完整 Run 级撤销 V0 已开放。单文件/单 hunk revert、pre-apply proposed patch、隔离 workspace 合入和 deploy 仍未开放。
 
 ### 3.4 外部智能体 Adapter
 
@@ -380,7 +380,9 @@ workspace?: {
 
 Workspace Diff V0 由 Runtime 的通用 diff 服务负责，而不是由某个 Adapter 私有实现。Run 创建时，Runtime 基于绑定 workspace 捕获 git baseline，包括 repository 可用性、branch/head、dirty 状态和 status map；Run 完成、失败或取消时，在 workspace close 前计算 final status、changed files、numstat、diffstat 和 bounded patch，并写入终态 `RunEvent.data.workspaceDiff`。取消路径同样 best-effort 计算 diff：取消先 abort 正在执行的 adapter/tool，再输出带 diff 的 `run.cancelled`。行数统计优先来自 `git diff HEAD --numstat`；未跟踪文本文件不会出现在 git numstat 中，因此 Runtime 会读取文件内容 best-effort 计算新增行数，无法可靠统计时前端不应展示 `+0/-0` 伪统计。对于尚未首次 commit、没有可用 `HEAD` 的 Git 仓库，Runtime 会跳过必然失败的 HEAD numstat，并为未跟踪文本文件生成 fallback bounded patch；summary 仍会以 `head_unavailable` 标记为 degraded。
 
-Diff V0 只基于 git。未绑定 workspace、非 git repository、git 不存在、git 命令超时或 patch 超预算时，Runtime 返回结构化 `unavailable` 或 `degraded` summary，不让 diff 失败升级为 Run 失败。如果 Run 开始前 workspace 已 dirty，summary 会标记 `baselineDirty = true`、`runOnlyReliable = false`。Runtime 会用 baseline/final 脏文件 fingerprint 尽量过滤掉本轮未变化的既有脏文件，但 dirty baseline 下 bounded patch 仍是 final-vs-HEAD 的保守摘要，不声称精确归因到本次 Run。HubServer 负责把有实际文件变化的 summary 投影为 `Artifact(type="diff")` 与 ArtifactVersion；前端首版只展示摘要卡片、文件数、增删行、dirty/degraded/truncated 状态，不提供 apply、rollback 或完整 viewer。
+Diff V0 只基于 git。未绑定 workspace、非 git repository、git 不存在、git 命令超时或 patch 超预算时，Runtime 返回结构化 `unavailable` 或 `degraded` summary，不让 diff 失败升级为 Run 失败。如果 Run 开始前 workspace 已 dirty，summary 会标记 `baselineDirty = true`、`runOnlyReliable = false`。Runtime 会用 baseline/final 脏文件 fingerprint 尽量过滤掉本轮未变化的既有脏文件，但 dirty baseline 下 bounded patch 仍是 final-vs-HEAD 的保守摘要，不声称精确归因到本次 Run。HubServer 负责把有实际文件变化的 summary 投影为 `Artifact(type="diff")` 与 ArtifactVersion，并基于 Artifact Detail/ChangeSet 提供 Web 只读 Diff Viewer。
+
+Runtime 还提供 `POST /runtime/workspace/revert/preview` 与 `POST /runtime/workspace/revert/apply` 供 HubServer 执行可靠 Diff 的完整 Run 级撤销。该 API 只接受 HubServer 从原 Run workspace 和 source Diff Artifact 派生出的请求；浏览器不直接访问 Runtime，也不传 workspace root。Runtime 只允许完整、未截断、非 binary、`baselineDirty = false` 且 `runOnlyReliable = true` 的 text patch，先执行 `git apply --reverse --check --whitespace=nowarn`，通过后再执行 `git apply --reverse --whitespace=nowarn`。patch 缺失、patch truncated、dirty baseline、非 git workspace、缺少 workspace、binary file、文件后续冲突或 reverse check 失败都返回结构化 `blocked`，不修改文件。响应只回显 `workspaceId/backendType`、文件 action、warnings 和 blocked reason，不泄露 workspace root。
 
 Workspace 的具体读写实现应通过可插拔的 Workspace Backend 完成，相关设计见 `docs/architecture/AGENT_RUNTIME_BACKEND.md`。文件工具不直接接触宿主机绝对路径；当用户显式指定沙箱外目录或文件时，Runtime 必须先发起审批，再以受控授权挂载的方式暴露访问范围。workspace 内 `.env`、`AGENTS.md`、`.npmrc`、密钥文件和 VCS 元数据等敏感路径的显式内容读写也必须审批；`ls` / `glob` 隐藏敏感路径，目录递归 `grep` 跳过敏感文件。workspace 内普通文件写入和 search/replace 编辑在 agent 具备 `filesystem: "write"` 时直接执行，不逐次审批。
 

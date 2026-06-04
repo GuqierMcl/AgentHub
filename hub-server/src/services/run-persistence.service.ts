@@ -1,4 +1,5 @@
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { randomUUID } from 'node:crypto'
 import { AppError, notFound } from '../lib/errors'
 import type { RuntimeClient } from '../lib/runtime'
 import { logger } from '../lib/logger'
@@ -111,6 +112,7 @@ import {
   createArtifact,
   findArtifactByRunAndSourceEvent,
   findArtifactWithVersions,
+  listArtifacts,
   listArtifactsByMessageIds,
   updateArtifact,
 } from '../repositories/artifact.repo'
@@ -398,6 +400,14 @@ export type WorkspaceChangeSetDetail = {
   runOnlyReliable: boolean
 }
 
+export type DiffArtifactOperation = {
+  type: 'revert'
+  status: 'applied'
+  revertsArtifactId: string
+  revertsChangeSetId?: string
+  patchDirection: 'reverse-applied'
+}
+
 export type DiffArtifactDetail = {
   summary: Record<string, unknown>
   changedFiles: DiffFileSummary[]
@@ -407,12 +417,64 @@ export type DiffArtifactDetail = {
   runOnlyReliable: boolean
   limitations: string[]
   changeSet?: WorkspaceChangeSetDetail
+  operation?: DiffArtifactOperation
 }
 
 export type ArtifactDetailResponse = {
   artifact: PersistedArtifact
   currentVersion: PersistedArtifactVersion | null
   diff?: DiffArtifactDetail
+}
+
+export type ArtifactRevertPreviewResponse = {
+  status: 'available' | 'blocked'
+  canApply: boolean
+  files: Array<Record<string, unknown>>
+  warnings: string[]
+  blockedReason?: Record<string, unknown>
+  source: {
+    artifactId: string
+    changeSetId?: string
+    runId: string
+    patchDirection: 'reverse-applied'
+  }
+}
+
+export type ArtifactRevertApplyResponse = {
+  status: 'applied' | 'already_applied' | 'blocked' | 'failed'
+  message: string
+  artifact?: PersistedArtifact
+  currentVersion?: PersistedArtifactVersion | null
+  diff?: DiffArtifactDetail
+  changeSet?: WorkspaceChangeSetDetail
+  preview?: ArtifactRevertPreviewResponse
+  blockedReason?: Record<string, unknown>
+  error?: Record<string, unknown>
+}
+
+type ArtifactRevertTarget = {
+  artifact: PersistedArtifact
+  currentVersion: PersistedArtifactVersion
+  run: RunOutput
+  changeSet: WorkspaceChangeSetWithFilesOutput | null
+  workspaceDiff: Record<string, unknown>
+  request: {
+    workspace: {
+      workspaceId: string
+      backendType: 'local'
+      rootPath: string
+    }
+    source: {
+      artifactId: string
+      changeSetId?: string
+      runId: string
+      patchText: string
+      patchTruncated: boolean
+      baselineDirty: boolean
+      runOnlyReliable: boolean
+      changedFiles: WorkspaceChangedFileProjection[]
+    }
+  }
 }
 
 export type HubRunEventEnvelope = {
@@ -825,6 +887,183 @@ export class RunPersistenceService {
     }
 
     return response
+  }
+
+  async previewArtifactRevert(
+    conversationId: string,
+    artifactId: string,
+  ): Promise<ArtifactRevertPreviewResponse> {
+    const target = await this.resolveArtifactRevertTarget(conversationId, artifactId)
+    const existing = await findExistingRevertArtifact(conversationId, artifactId)
+    if (existing) {
+      return {
+        status: 'blocked',
+        canApply: false,
+        files: target.request.source.changedFiles,
+        warnings: [],
+        blockedReason: {
+          code: 'ARTIFACT_REVERT_ALREADY_APPLIED',
+          message: '该 Diff 已经撤销过。',
+        },
+        source: {
+          artifactId,
+          ...(target.changeSet?.id ? { changeSetId: target.changeSet.id } : {}),
+          runId: target.run.id,
+          patchDirection: 'reverse-applied',
+        },
+      }
+    }
+
+    const response = await this.runtimeClient.forward(
+      'POST',
+      '/runtime/workspace/revert/preview',
+      target.request,
+      { raw: true },
+    )
+    return normalizeArtifactRevertPreviewResponse(response.data, target)
+  }
+
+  async applyArtifactRevert(
+    conversationId: string,
+    artifactId: string,
+  ): Promise<ArtifactRevertApplyResponse> {
+    const target = await this.resolveArtifactRevertTarget(conversationId, artifactId)
+    const existing = await findExistingRevertArtifact(conversationId, artifactId)
+    if (existing) {
+      return this.buildAlreadyAppliedRevertResponse(conversationId, existing)
+    }
+
+    const response = await this.runtimeClient.forward(
+      'POST',
+      '/runtime/workspace/revert/apply',
+      target.request,
+      { raw: true },
+    )
+    const body = getRecord(response.data) ?? {}
+    const status = getString(body.status)
+    const preview = normalizeArtifactRevertPreviewResponse(body.preview, target)
+
+    if (status === 'blocked') {
+      return {
+        status: 'blocked',
+        message: '当前工作区状态无法安全撤销该 Diff。',
+        preview,
+        blockedReason: getRecord(body.blockedReason),
+      }
+    }
+    if (status === 'failed') {
+      return {
+        status: 'failed',
+        message: '撤销操作执行失败。',
+        preview,
+        error: getRecord(body.error),
+      }
+    }
+    if (status !== 'applied') {
+      throw new AppError(
+        502 as ContentfulStatusCode,
+        'ARTIFACT_REVERT_BLOCKED',
+        'Agent Runtime returned an invalid workspace revert response',
+      )
+    }
+
+    return persistAppliedArtifactRevert({
+      conversationId,
+      target,
+      operationId: getString(body.operationId) ?? `revert_${randomUUID()}`,
+      appliedAt: getString(body.appliedAt) ?? new Date().toISOString(),
+      preview,
+    })
+  }
+
+  private async resolveArtifactRevertTarget(
+    conversationId: string,
+    artifactId: string,
+  ): Promise<ArtifactRevertTarget> {
+    const artifactRecord = await findArtifactWithVersions(artifactId) as
+      | (PersistedArtifact & { versions?: PersistedArtifactVersion[] })
+      | null
+    if (!artifactRecord || artifactRecord.conversationId !== conversationId) {
+      throw notFound('ARTIFACT_REVERT_NOT_FOUND', 'Diff 产物不存在')
+    }
+    if (artifactRecord.type !== 'diff') {
+      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', '只能撤销 Diff 产物')
+    }
+
+    const currentVersion = resolveCurrentArtifactVersion(artifactRecord)
+    if (!currentVersion) {
+      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', 'Diff 产物没有可用版本')
+    }
+
+    const artifactMetadata = getRecord(artifactRecord.metadataJson) ?? {}
+    if (artifactMetadata.source === 'workspace.revert') {
+      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', '撤销记录不能再次撤销')
+    }
+
+    if (!artifactRecord.runId) {
+      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', 'Diff 产物缺少关联 Run')
+    }
+    const run = await findRunById(artifactRecord.runId)
+    if (!run) {
+      throw notFound('ARTIFACT_REVERT_NOT_FOUND', 'Diff 关联的 Run 不存在')
+    }
+
+    const workspace = getRecord(run.inputJson.workspace)
+    const workspaceId = getString(workspace?.workspaceId)
+    const backendType = getString(workspace?.backendType)
+    const rootPath = getString(workspace?.rootPath)
+    if (!workspaceId || backendType !== 'local' || !rootPath) {
+      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', 'Diff 关联的 Run 缺少本地工作区')
+    }
+
+    const workspaceDiff = getRecord(currentVersion.diffJson) ?? {}
+    const patch = getRecord(workspaceDiff.patch)
+    const patchText = getString(patch?.text) ?? currentVersion.content
+    const changedFiles = normalizeWorkspaceChangedFilesForProjection(workspaceDiff.changedFiles)
+    const changeSet = await findWorkspaceChangeSetByArtifactId(artifactRecord.id)
+
+    return {
+      artifact: {
+        ...artifactRecord,
+        currentVersion,
+      },
+      currentVersion,
+      run,
+      changeSet,
+      workspaceDiff,
+      request: {
+        workspace: {
+          workspaceId,
+          backendType: 'local',
+          rootPath,
+        },
+        source: {
+          artifactId: artifactRecord.id,
+          ...(changeSet?.id ? { changeSetId: changeSet.id } : {}),
+          runId: run.id,
+          patchText,
+          patchTruncated: patch?.truncated === true,
+          baselineDirty: workspaceDiff.baselineDirty === true,
+          runOnlyReliable: workspaceDiff.runOnlyReliable !== false,
+          changedFiles,
+        },
+      },
+    }
+  }
+
+  private async buildAlreadyAppliedRevertResponse(
+    conversationId: string,
+    artifact: PersistedArtifact,
+  ): Promise<ArtifactRevertApplyResponse> {
+    const detail = await this.getArtifactDetail(conversationId, artifact.id)
+    return {
+      status: 'already_applied',
+      message: '该 Diff 已经撤销过。',
+      artifact: detail.artifact,
+      currentVersion: detail.currentVersion,
+      diff: detail.diff,
+      changeSet: detail.diff?.changeSet,
+    }
   }
 
   async cancelRun(runId: string): Promise<ActiveRunSnapshot> {
@@ -2461,6 +2700,25 @@ function buildDiffArtifactDetail(
     runOnlyReliable,
     limitations,
     ...(changeSet ? { changeSet: toWorkspaceChangeSetDetail(changeSet) } : {}),
+    ...(toDiffArtifactOperation(summary.operation) ? { operation: toDiffArtifactOperation(summary.operation)! } : {}),
+  }
+}
+
+function toDiffArtifactOperation(value: unknown): DiffArtifactOperation | undefined {
+  const operation = getRecord(value)
+  if (!operation || operation.type !== 'revert' || operation.status !== 'applied') {
+    return undefined
+  }
+  const revertsArtifactId = getString(operation.revertsArtifactId)
+  if (!revertsArtifactId || operation.patchDirection !== 'reverse-applied') {
+    return undefined
+  }
+  return {
+    type: 'revert',
+    status: 'applied',
+    revertsArtifactId,
+    ...(getString(operation.revertsChangeSetId) ? { revertsChangeSetId: getString(operation.revertsChangeSetId)! } : {}),
+    patchDirection: 'reverse-applied',
   }
 }
 
@@ -2627,6 +2885,223 @@ function resolveWorkspaceDiffCreatedByAgentId(run: RunOutput): string | undefine
 
 async function updateArtifactCurrentVersion(artifactId: string, versionId: string): Promise<void> {
   await updateArtifact(artifactId, { currentVersionId: versionId })
+}
+
+async function findExistingRevertArtifact(
+  conversationId: string,
+  sourceArtifactId: string,
+): Promise<PersistedArtifact | null> {
+  const pageSize = 100
+  let offset = 0
+  while (true) {
+    const artifacts = await listArtifacts({
+      conversationId,
+      type: 'diff',
+      status: 'ready',
+      limit: pageSize,
+      offset,
+      order: 'desc',
+    })
+    const found = artifacts.find((artifact) => {
+      const metadata = getRecord(artifact.metadataJson) ?? {}
+      return metadata.source === 'workspace.revert' &&
+        metadata.revertsArtifactId === sourceArtifactId &&
+        metadata.revertStatus === 'applied'
+    })
+    if (found) return found as PersistedArtifact
+    if (artifacts.length < pageSize) return null
+    offset += pageSize
+  }
+}
+
+function normalizeArtifactRevertPreviewResponse(
+  value: unknown,
+  target: ArtifactRevertTarget,
+): ArtifactRevertPreviewResponse {
+  const body = getRecord(value) ?? {}
+  const source = getRecord(body.source) ?? {}
+  const status = getString(body.status) === 'blocked' ? 'blocked' : 'available'
+  const files = Array.isArray(body.files)
+    ? body.files.map((file) => getRecord(file) ?? {}).filter((file) => Object.keys(file).length > 0)
+    : target.request.source.changedFiles
+  return {
+    status,
+    canApply: body.canApply === true,
+    files,
+    warnings: getStringArray(body.warnings),
+    ...(getRecord(body.blockedReason) ? { blockedReason: getRecord(body.blockedReason)! } : {}),
+    source: {
+      artifactId: getString(source.artifactId) ?? target.artifact.id,
+      ...(getString(source.changeSetId) ?? target.changeSet?.id
+        ? { changeSetId: getString(source.changeSetId) ?? target.changeSet?.id }
+        : {}),
+      runId: getString(source.runId) ?? target.run.id,
+      patchDirection: 'reverse-applied',
+    },
+  }
+}
+
+async function persistAppliedArtifactRevert(options: {
+  conversationId: string
+  target: ArtifactRevertTarget
+  operationId: string
+  appliedAt: string
+  preview: ArtifactRevertPreviewResponse
+}): Promise<ArtifactRevertApplyResponse> {
+  const { conversationId, target, operationId, appliedAt, preview } = options
+  const revertsChangeSetId = target.changeSet?.id
+  const operation: DiffArtifactOperation = {
+    type: 'revert',
+    status: 'applied',
+    revertsArtifactId: target.artifact.id,
+    ...(revertsChangeSetId ? { revertsChangeSetId } : {}),
+    patchDirection: 'reverse-applied',
+  }
+  const operationMetadata = {
+    source: 'workspace.revert',
+    revertsArtifactId: target.artifact.id,
+    ...(revertsChangeSetId ? { revertsChangeSetId } : {}),
+    revertOperationId: operationId,
+    revertStatus: 'applied',
+    patchDirection: 'reverse-applied',
+  }
+  const messageText = '已撤销本次工作区变更。'
+
+  const message = await createMessage({
+    conversationId,
+    runId: target.run.id,
+    surface: 'chat',
+    role: 'assistant',
+    senderType: 'system',
+    senderId: 'system',
+    status: 'completed',
+    finishReason: 'stop',
+    completedAt: appliedAt,
+    metadataJson: operationMetadata,
+  })
+  await createMessagePart({
+    messageId: message.id,
+    conversationId,
+    runId: target.run.id,
+    partKey: 'text',
+    partIndex: 0,
+    entityType: 'workspace_revert',
+    entityId: operationId,
+    type: 'text',
+    state: 'done',
+    text: messageText,
+    payloadJson: operationMetadata,
+  })
+  await updateConversation(conversationId, {
+    lastMessageId: message.id,
+    lastMessageAt: appliedAt,
+  })
+
+  const originalSummary = getString(target.workspaceDiff.summary)
+  const changedFiles = target.request.source.changedFiles
+  const diffJson = {
+    ...target.workspaceDiff,
+    summary: originalSummary
+      ? `已撤销本次工作区变更：${originalSummary}`
+      : '已撤销本次工作区变更。',
+    operation,
+  }
+  const artifact = await createArtifact({
+    conversationId,
+    runId: target.run.id,
+    messageId: message.id,
+    type: 'diff',
+    title: '已撤销工作区变更',
+    status: 'ready',
+    metadataJson: {
+      ...operationMetadata,
+      status: getString(target.workspaceDiff.status) ?? 'available',
+      baselineDirty: target.request.source.baselineDirty,
+      changedFileCount: changedFiles.length,
+    },
+  })
+  const version = await createArtifactVersion({
+    artifactId: artifact.id,
+    version: 1,
+    source: 'diff_apply',
+    language: 'diff',
+    content: target.request.source.patchText,
+    summary: '已撤销本次工作区变更',
+    diffJson,
+  })
+  await updateArtifactCurrentVersion(artifact.id, version.id)
+
+  const changeSet = await createWorkspaceChangeSet({
+    conversationId,
+    runId: target.run.id,
+    artifactId: artifact.id,
+    sourceEventId: operationId,
+    status: 'applied',
+    baselineDirty: target.request.source.baselineDirty,
+    runOnlyReliable: target.request.source.runOnlyReliable,
+    summary: '已撤销本次工作区变更',
+    statsJson: getRecord(target.workspaceDiff.stats) ?? {},
+    limitationsJson: [
+      ...getStringArray(target.workspaceDiff.limitations),
+      '这是一次撤销记录，Diff 展示的是被撤销的原始变更。',
+    ],
+    attributionKind: 'run',
+    attributionConfidence: 'aggregate',
+    metadataJson: operationMetadata,
+  })
+
+  for (const file of changedFiles) {
+    await createWorkspaceChangeSetFile({
+      changeSetId: changeSet.id,
+      conversationId,
+      runId: target.run.id,
+      artifactId: artifact.id,
+      path: file.path,
+      oldPath: file.oldPath ?? null,
+      statusBefore: file.statusBefore ?? null,
+      statusAfter: file.statusAfter ?? null,
+      origin: file.origin ?? null,
+      additions: file.additions ?? null,
+      deletions: file.deletions ?? null,
+      binary: file.binary ?? false,
+      truncated: file.truncated ?? false,
+      attributionKind: 'run',
+      attributionConfidence: 'aggregate',
+      metadataJson: operationMetadata,
+    })
+  }
+
+  await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact as PersistedArtifact, {
+    ...changeSet,
+    files: [],
+  })
+
+  const detail = await findArtifactWithVersions(artifact.id)
+  if (!detail) {
+    throw notFound('ARTIFACT_REVERT_NOT_FOUND', '撤销产物不存在')
+  }
+  const changeSetDetail = await findWorkspaceChangeSetByArtifactId(artifact.id)
+  return {
+    status: 'applied',
+    message: messageText,
+    artifact: {
+      ...detail,
+      currentVersion: resolveCurrentArtifactVersion(detail as PersistedArtifact & {
+        versions?: PersistedArtifactVersion[]
+      }),
+    },
+    currentVersion: resolveCurrentArtifactVersion(detail as PersistedArtifact & {
+      versions?: PersistedArtifactVersion[]
+    }),
+    diff: buildDiffArtifactDetail(
+      resolveCurrentArtifactVersion(detail as PersistedArtifact & {
+        versions?: PersistedArtifactVersion[]
+      })!,
+      changeSetDetail,
+    ),
+    changeSet: changeSetDetail ? toWorkspaceChangeSetDetail(changeSetDetail) : undefined,
+    preview,
+  }
 }
 
 async function findLatestVisibleContextMessage(conversationId: string): Promise<PersistedMessage | null> {

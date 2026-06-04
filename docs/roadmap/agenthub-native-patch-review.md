@@ -123,7 +123,7 @@ AgentHub Native Patch Review / Workspace Change Review
 - `GET /api/conversations/:conversationId/artifacts/:artifactId` 的 diff detail 返回 `changeSet` 与文件级 `attribution`；旧 Diff Artifact 没有关联 ChangeSet 时继续兼容。
 - 本阶段仍不做 revert、pre-apply review、hunk accept/reject、隔离 workspace 或 per-tool 精确 patch capture。
 
-### Phase 3：Run Revert / Restore
+### Phase 3：Run Revert / Restore（已完成 V0）
 
 目标：
 
@@ -138,6 +138,17 @@ AgentHub Native Patch Review / Workspace Change Review
 - Revert 后产生新的 `WorkspaceChangeSet` / Diff Artifact，说明撤销了什么。
 - dirty baseline 或冲突情况下不静默执行危险撤销。
 - Revert API 与 UI 不依赖浏览器直接访问本机文件。
+
+实现边界：
+
+- V0 只支持完整 Diff Artifact 撤销，不支持单文件、单 hunk、accept/reject 或 snapshot restore。
+- HubServer 暴露 conversation-scoped 产品 API：`POST /api/conversations/:conversationId/artifacts/:artifactId/revert/preview` 与 `POST /api/conversations/:conversationId/artifacts/:artifactId/revert`。
+- HubServer 从原 Run 的 `inputJson.workspace` 取 workspace root，浏览器请求体不传本机路径。
+- Agent Runtime 暴露内部 API：`POST /runtime/workspace/revert/preview` 与 `POST /runtime/workspace/revert/apply`，使用 `git apply --reverse --check/apply` 在 workspace 内执行。
+- Runtime 只允许完整、未截断、非 binary、`baselineDirty = false` 且 `runOnlyReliable = true` 的 text patch；patch 缺失、截断、dirty baseline、非 git、冲突或 reverse check 失败都返回 blocked，不修改文件。
+- Revert 成功后，HubServer 创建系统 assistant 消息“已撤销本次工作区变更”，挂载新的 `Artifact(type="diff")`，`ArtifactVersion.source = "diff_apply"`，并创建新的 `WorkspaceChangeSet` / files 记录撤销操作。
+- Revert artifact 的 Diff Viewer 展示原始被撤销 patch，并通过 `operation.patchDirection = "reverse-applied"` 和 UI banner 说明方向。
+- 同一 source artifact 已成功撤销时再次 apply 返回 `already_applied`，不重复执行、不重复创建 artifact。
 
 ### Phase 4：AgentHub 内部写入工具的 Proposed Patch / Pre-Apply Review
 
@@ -193,7 +204,8 @@ AgentHub Native Patch Review / Workspace Change Review
 - Diff 卡片已中文化，并修正了未跟踪文本文件行数与 `+0/-0` 展示问题。
 - Phase 1 已落地：HubServer 提供 conversation-scoped Diff Artifact Detail API；Web 支持从 live/persisted Diff 卡片打开右侧“代码审查”只读 Diff Viewer，展示文件列表、hunk、增删行、binary、truncated、dirty baseline 和 runOnlyReliable 提示。
 - Phase 2 已落地 V0：HubServer 从 terminal `workspaceDiff` 推导并持久化 Workspace ChangeSet；Web 右侧“代码审查”展示顶部来源、文件级归因 badge、tool/task/agent/message 细节与 ambiguous 候选提示。
-- 还没有 Run revert、pre-apply review 或隔离合入。
+- Phase 3 已落地 V0：可靠 Diff Artifact 可从右侧“代码审查”面板执行完整 Run 级撤销；撤销由 HubServer 产品 API 调 Runtime reverse patch API，成功后生成系统消息、撤销记录 Diff Artifact 与新的 WorkspaceChangeSet。
+- 还没有 pre-apply review、per-file/per-hunk revert 或隔离合入。
 - OpenCode Adapter roadmap 中的 Phase 4C/4D 仍重要，但它们主要服务外部智能体事件和权限桥接，不应替代 AgentHub Native Patch Review 主线。
 
 ## 已完成
@@ -205,13 +217,14 @@ AgentHub Native Patch Review / Workspace Change Review
 - 只读 Diff Viewer。
 - WorkspaceChangeSet / WorkspaceChangeSetFile 归因 V0。
 - Diff Viewer 归因展示。
+- Run 级完整 Diff 撤销 V0。
+- 撤销记录 Diff Artifact 与 ChangeSet 持久化。
 - dirty baseline 过滤。
 - 未跟踪文本文件新增行数 best-effort 统计。
 - 无有效行数时不展示 `+0/-0`。
 
 ## 待办
 
-- Phase 3：Run Revert / Restore。
 - Phase 4：AgentHub 内部写入工具 proposed patch / pre-apply review。
 - Phase 5：外部智能体隔离执行与合入策略。
 - Phase 6：版本历史、冲突处理与协作审查。
@@ -230,3 +243,4 @@ AgentHub Native Patch Review / Workspace Change Review
 - 2026-06-02：创建路线图，将“类似 OpenCode 的代码变更体验”定义为 AgentHub 平台级 Native Patch Review，而不是 OpenCode Adapter 专属体验；确认下一步最适合做 Phase 1：Diff Artifact Detail 与只读 Diff Viewer。
 - 2026-06-02：完成 Phase 1：新增 `GET /api/conversations/:conversationId/artifacts/:artifactId` 详情 API，Web Diff 卡片可打开右侧只读 Diff Viewer；live 卡片使用内存 `workspaceDiff` 即时展示，persisted 卡片可通过 Artifact Detail API 恢复。
 - 2026-06-04：完成 Phase 2 V0：新增 Workspace ChangeSet 持久化与归因展示，内部写入工具可归因到 toolCallId，外部智能体保守展示 agent aggregate，ambiguous 情况不做伪精确归因。
+- 2026-06-04：完成 Phase 3 V0：新增 Runtime workspace reverse patch preview/apply API、HubServer artifact revert 产品 API、撤销系统消息与撤销记录 Diff Artifact，Web 代码审查面板支持预览、确认和展示撤销记录。

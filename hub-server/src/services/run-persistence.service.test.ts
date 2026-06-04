@@ -990,6 +990,150 @@ describe('artifact detail', () => {
   })
 })
 
+describe('artifact revert', () => {
+  it('previews a reliable diff artifact revert using the original run workspace', async () => {
+    const calls: Array<{ method: string; path: string; body: any }> = []
+    const runtimeClient = {
+      forward: async (method: string, path: string, body: unknown) => {
+        calls.push({ method, path, body })
+        return {
+          status: 200,
+          data: {
+            status: 'available',
+            canApply: true,
+            files: [{ path: 'src/index.ts', action: 'modify' }],
+            warnings: [],
+            source: {
+              artifactId: (body as any).source.artifactId,
+              changeSetId: (body as any).source.changeSetId,
+              runId: (body as any).source.runId,
+              patchDirection: 'reverse-applied',
+            },
+          },
+        }
+      },
+    }
+    const { service, conversationId, runId } = await createProjectionFixture({
+      runtimeClient,
+      inputJson: {
+        participantAgentIds: ['coder'],
+        workspace: {
+          workspaceId: 'workspace_diff',
+          backendType: 'local',
+          rootPath: 'D:\\dev\\workspace',
+        },
+      },
+    })
+
+    await projectSourceDiffArtifact(service, runId)
+    const [artifact] = await listArtifacts({ conversationId, runId, type: 'diff' })
+
+    const preview = await service.previewArtifactRevert(conversationId, artifact!.id)
+
+    expect(preview.status).toBe('available')
+    expect(preview.source.artifactId).toBe(artifact!.id)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      method: 'POST',
+      path: '/runtime/workspace/revert/preview',
+      body: {
+        workspace: {
+          workspaceId: 'workspace_diff',
+          backendType: 'local',
+          rootPath: 'D:\\dev\\workspace',
+        },
+        source: {
+          artifactId: artifact!.id,
+          patchText: expect.stringContaining('diff --git'),
+          baselineDirty: false,
+          runOnlyReliable: true,
+        },
+      },
+    })
+  })
+
+  it('applies a revert once and persists a system message, diff artifact, and ChangeSet', async () => {
+    const runtimeClient = {
+      forward: async (_method: string, path: string, body: unknown) => {
+        const preview = {
+          status: 'available',
+          canApply: true,
+          files: [{ path: 'src/index.ts', action: 'modify' }],
+          warnings: [],
+          source: {
+            artifactId: (body as any).source.artifactId,
+            changeSetId: (body as any).source.changeSetId,
+            runId: (body as any).source.runId,
+            patchDirection: 'reverse-applied',
+          },
+        }
+        return {
+          status: 200,
+          data: path.endsWith('/apply')
+            ? {
+                status: 'applied',
+                operationId: 'revert_operation_test',
+                preview,
+                workspace: { workspaceId: 'workspace_diff', backendType: 'local' },
+                appliedAt: '2026-06-04T00:00:00.000Z',
+              }
+            : preview,
+        }
+      },
+    }
+    const { service, conversationId, runId } = await createProjectionFixture({
+      runtimeClient,
+      inputJson: {
+        participantAgentIds: ['coder'],
+        workspace: {
+          workspaceId: 'workspace_diff',
+          backendType: 'local',
+          rootPath: 'D:\\dev\\workspace',
+        },
+      },
+    })
+    await projectSourceDiffArtifact(service, runId)
+    const [sourceArtifact] = await listArtifacts({ conversationId, runId, type: 'diff' })
+
+    const applied = await service.applyArtifactRevert(conversationId, sourceArtifact!.id)
+    const repeated = await service.applyArtifactRevert(conversationId, sourceArtifact!.id)
+
+    expect(applied.status).toBe('applied')
+    expect(repeated.status).toBe('already_applied')
+    expect(repeated.artifact?.id).toBe(applied.artifact?.id)
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'diff', order: 'asc' })
+    expect(artifacts).toHaveLength(2)
+    expect(artifacts[1]?.metadataJson).toMatchObject({
+      source: 'workspace.revert',
+      revertsArtifactId: sourceArtifact!.id,
+      revertOperationId: 'revert_operation_test',
+      patchDirection: 'reverse-applied',
+      changeSetId: expect.any(String),
+    })
+
+    const detail = await service.getArtifactDetail(conversationId, artifacts[1]!.id)
+    expect(detail.diff?.operation).toMatchObject({
+      type: 'revert',
+      status: 'applied',
+      revertsArtifactId: sourceArtifact!.id,
+      patchDirection: 'reverse-applied',
+    })
+    expect(detail.diff?.changeSet?.attribution).toMatchObject({
+      kind: 'run',
+      confidence: 'aggregate',
+    })
+
+    const messages = await service.listConversationMessages(conversationId)
+    const revertMessage = messages.messages.find((message) =>
+      message.senderType === 'system' &&
+      message.artifacts?.some((artifact) => artifact.id === applied.artifact?.id)
+    )
+    expect(revertMessage?.role).toBe('assistant')
+    expect(revertMessage?.parts[0]?.text).toContain('已撤销本次工作区变更')
+  })
+})
+
 describe('resolveAddressedAgentIds', () => {
   it('keeps default routing when no addressed agent is provided', () => {
     expect(resolveAddressedAgentIds({
@@ -1063,13 +1207,14 @@ async function createProjectionFixture(options: {
   mode?: 'single' | 'group'
   orchestratorAgentId?: string
   inputJson?: Record<string, unknown>
+  runtimeClient?: unknown
 } = {}): Promise<{
   service: RunPersistenceService
   conversationId: string
   runId: string
 }> {
   const service = new RunPersistenceService(
-    {} as never,
+    (options.runtimeClient ?? {}) as never,
     { publish: () => {} } as never,
   )
   const conversation = await createConversation({
@@ -1111,6 +1256,25 @@ async function createProjectionFixture(options: {
     conversationId: conversation.id,
     runId: run.id,
   }
+}
+
+async function projectSourceDiffArtifact(
+  service: RunPersistenceService,
+  runId: string,
+): Promise<void> {
+  await (service as any).projectRuntimeEventsBatch(runId, [{
+    sequence: 1,
+    event: {
+      id: `event_workspace_diff_source_${randomUUID()}`,
+      runId: 'runtime_workspace_diff_source',
+      type: 'run.completed',
+      timestamp: '2026-06-04T00:00:03.000Z',
+      data: {
+        status: 'completed',
+        workspaceDiff: createWorkspaceDiffSummary(),
+      },
+    },
+  }])
 }
 
 function createWorkspaceDiffSummary() {

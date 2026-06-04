@@ -97,6 +97,14 @@ export type WorkspaceChangeSetDetail = {
   runOnlyReliable: boolean
 }
 
+export type DiffArtifactOperation = {
+  type: "revert"
+  status: "applied"
+  revertsArtifactId: string
+  revertsChangeSetId?: string
+  patchDirection: "reverse-applied"
+}
+
 export type DiffArtifactDetail = {
   summary: Record<string, unknown>
   changedFiles: DiffFileSummary[]
@@ -106,12 +114,39 @@ export type DiffArtifactDetail = {
   runOnlyReliable: boolean
   limitations: string[]
   changeSet?: WorkspaceChangeSetDetail
+  operation?: DiffArtifactOperation
 }
 
 export type ArtifactDetailResponse = {
   artifact: PersistedArtifact
   currentVersion: PersistedArtifactVersion | null
   diff?: DiffArtifactDetail
+}
+
+export type ArtifactRevertPreviewResponse = {
+  status: "available" | "blocked"
+  canApply: boolean
+  files: Array<Record<string, unknown>>
+  warnings: string[]
+  blockedReason?: Record<string, unknown>
+  source: {
+    artifactId: string
+    changeSetId?: string
+    runId: string
+    patchDirection: "reverse-applied"
+  }
+}
+
+export type ArtifactRevertApplyResponse = {
+  status: "applied" | "already_applied" | "blocked" | "failed"
+  message: string
+  artifact?: PersistedArtifact
+  currentVersion?: PersistedArtifactVersion | null
+  diff?: DiffArtifactDetail
+  changeSet?: WorkspaceChangeSetDetail
+  preview?: ArtifactRevertPreviewResponse
+  blockedReason?: Record<string, unknown>
+  error?: Record<string, unknown>
 }
 
 export type PersistedMessage = {
@@ -263,6 +298,26 @@ export const conversationMessagesApi = {
   ): Promise<ArtifactDetailResponse> {
     return request(
       `/api/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(artifactId)}`
+    )
+  },
+
+  previewArtifactRevert(
+    conversationId: string,
+    artifactId: string
+  ): Promise<ArtifactRevertPreviewResponse> {
+    return request(
+      `/api/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(artifactId)}/revert/preview`,
+      { method: "POST" }
+    )
+  },
+
+  applyArtifactRevert(
+    conversationId: string,
+    artifactId: string
+  ): Promise<ArtifactRevertApplyResponse> {
+    return request(
+      `/api/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(artifactId)}/revert`,
+      { method: "POST" }
     )
   },
 

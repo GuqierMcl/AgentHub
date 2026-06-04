@@ -94,4 +94,76 @@ describe('artifacts router', () => {
     expect(response.status).toBe(404)
     expect(body.error?.code).toBe('ARTIFACT_NOT_FOUND')
   })
+
+  it('previews a conversation-scoped artifact revert', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      previewArtifactRevert: async (...args: unknown[]) => {
+        calls.push(args)
+        return {
+          status: 'available',
+          canApply: true,
+          files: [{ path: 'a.ts', action: 'modify' }],
+          warnings: [],
+          source: {
+            artifactId: 'art_1',
+            runId: 'run_1',
+            patchDirection: 'reverse-applied',
+          },
+        }
+      },
+    })
+
+    const response = await app.request('/api/conversations/conv_1/artifacts/art_1/revert/preview', {
+      method: 'POST',
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({
+      status: 'available',
+      canApply: true,
+      source: { artifactId: 'art_1' },
+    })
+    expect(calls).toEqual([['conv_1', 'art_1']])
+  })
+
+  it('applies a conversation-scoped artifact revert', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      applyArtifactRevert: async (...args: unknown[]) => {
+        calls.push(args)
+        return {
+          status: 'applied',
+          message: '已撤销本次工作区变更。',
+          artifact: {
+            id: 'art_revert',
+            conversationId: 'conv_1',
+            runId: 'run_1',
+            messageId: 'msg_revert',
+            createdByAgentId: null,
+            type: 'diff',
+            title: '已撤销工作区变更',
+            status: 'ready',
+            currentVersionId: 'ver_revert',
+            metadataJson: { source: 'workspace.revert' },
+            createdAt: '2026-06-04T00:00:00.000Z',
+            updatedAt: '2026-06-04T00:00:00.000Z',
+          },
+        }
+      },
+    })
+
+    const response = await app.request('/api/conversations/conv_1/artifacts/art_1/revert', {
+      method: 'POST',
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({
+      status: 'applied',
+      artifact: { id: 'art_revert', type: 'diff' },
+    })
+    expect(calls).toEqual([['conv_1', 'art_1']])
+  })
 })

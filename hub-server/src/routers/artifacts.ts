@@ -17,4 +17,20 @@ artifacts.get('/api/conversations/:conversationId/artifacts/:artifactId', async 
   return c.json(result)
 })
 
+artifacts.post('/api/conversations/:conversationId/artifacts/:artifactId/revert/preview', async (c: Context) => {
+  const service = c.get('runPersistenceService')
+  const conversationId = c.req.param('conversationId')!
+  const artifactId = c.req.param('artifactId')!
+  const result = await service.previewArtifactRevert(conversationId, artifactId)
+  return c.json(result)
+})
+
+artifacts.post('/api/conversations/:conversationId/artifacts/:artifactId/revert', async (c: Context) => {
+  const service = c.get('runPersistenceService')
+  const conversationId = c.req.param('conversationId')!
+  const artifactId = c.req.param('artifactId')!
+  const result = await service.applyArtifactRevert(conversationId, artifactId)
+  return c.json(result)
+})
+
 export default artifacts

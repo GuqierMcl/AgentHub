@@ -43,6 +43,11 @@ export {
   WorkspaceDiffService,
 } from "./workspace-diff"
 export {
+  WorkspaceRevertRequestSchema,
+  WorkspaceRevertService,
+  WorkspaceRevertSourceSchema,
+} from "./workspace-revert"
+export {
   createShellCommand,
   resolveRuntimeShell,
 } from "./shell-resolver"
@@ -228,5 +233,12 @@ export type {
   GitCommandRunner,
   WorkspaceDiffBaseline,
 } from "./workspace-diff"
+export type {
+  WorkspaceRevertApplyResponse,
+  WorkspaceRevertBlockedReason,
+  WorkspaceRevertFile,
+  WorkspaceRevertPreviewResponse,
+  WorkspaceRevertRequest,
+  WorkspaceRevertSource,
+} from "./workspace-revert"
 export type { AgentDefinition } from "../agents"
-
