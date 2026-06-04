@@ -49,7 +49,7 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
                 isActive={activeTab === "diagnostics"}
                 onClick={() => onTabChange("diagnostics")}
               >
-                诊断配置
+                输出设置
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

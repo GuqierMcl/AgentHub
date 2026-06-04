@@ -17,7 +17,7 @@ const tabLabels: Record<SettingsTabId, string> = {
   provider: "供应商",
   model: "模型",
   archived: "已归档对话",
-  diagnostics: "诊断配置",
+  diagnostics: "输出设置",
   editor: "编辑器",
   terminal: "终端",
 }
