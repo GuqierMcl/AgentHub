@@ -121,7 +121,7 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 
 ## 建议执行顺序
 
-1. AgentHub Native Patch Review Phase 3：Run Revert / Restore。
+1. AgentHub Native Patch Review Phase 4：内部写入工具 proposed patch / pre-apply review。
 2. Artifact Projection V1：把文件、网页预览、部署状态等结构化产物接到真实消息卡片；Diff 已作为首个 artifact 闭环。
 3. 第二个外部 Agent Adapter：优先选择 Codex 或 Claude Code。
 4. 用户自建 Agent 产品化：HubServer API、Web Authoring UI、工具集授权。
@@ -143,5 +143,6 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 
 - 2026-06-02：创建本文档，对照原始需求梳理智能体侧尚未接入或尚未闭环的能力，并确定 Phase 4B-4D 后续执行顺序。
 - 2026-06-03：同步 OpenCode 4B/4C/4D 进度：通用 Workspace Diff V0、OpenCode Event Stream/Tool Timeline 与 Permission Bridge 均已落地；下一步转向 OpenCode V1 集成硬化和 Artifact Projection V1。
+- 2026-06-04：同步 AgentHub Native Patch Review Phase 3 进度：Run 级完整 Diff 撤销 V0 已落地；下一步建议转向内部写入工具 proposed patch / pre-apply review，或按产品优先级推进 Artifact Projection V1。
 - 2026-06-03：同步 OpenCode V1 基础集成硬化：新增真实 write smoke 开关、event stream fallback 回归和产品级 replay 回归；下一步建议转向 AgentHub Native Patch Review Phase 2。
 - 2026-06-04：同步 AgentHub Native Patch Review Phase 2：Workspace ChangeSet 与归因 V0 已落地；下一步建议进入 Run Revert / Restore 或 Artifact Projection V1。

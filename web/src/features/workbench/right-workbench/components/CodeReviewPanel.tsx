@@ -1,23 +1,31 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CheckCircle2Icon,
   DiffIcon,
   FileSearchIcon,
+  LoaderCircleIcon,
+  RotateCcwIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
-import type { DiffReviewTabPayload } from "@/store/tab-store"
+import { useTabStore, type DiffReviewTabPayload } from "@/store/tab-store"
 
 import {
   conversationMessagesApi,
+  type ArtifactRevertPreviewResponse,
   type DiffArtifactDetail,
   type DiffFileSummary,
 } from "../../api/messages"
+import { workbenchQueryKeys } from "../../api/query-keys"
 import {
   parseUnifiedDiff,
   type UnifiedDiffFile,
@@ -39,6 +47,8 @@ type ViewerFile = DiffFileSummary & {
 }
 
 export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
+  const queryClient = useQueryClient()
+  const openTab = useTabStore((s) => s.openTab)
   const artifactId = payload?.artifactId
   const conversationId = payload?.conversationId
   const shouldFetch = Boolean(artifactId && conversationId)
@@ -64,6 +74,10 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
     [detail]
   )
   const [selectedPath, setSelectedPath] = useState<string | undefined>()
+  const [revertPreview, setRevertPreview] = useState<ArtifactRevertPreviewResponse | null>(null)
+  const [revertError, setRevertError] = useState<string | null>(null)
+  const [isPreviewingRevert, setIsPreviewingRevert] = useState(false)
+  const [isApplyingRevert, setIsApplyingRevert] = useState(false)
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -78,6 +92,11 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
     )
   }, [files])
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  useEffect(() => {
+    setRevertPreview(null)
+    setRevertError(null)
+  }, [artifactId, conversationId])
 
   if (!payload) {
     return <ReviewEmptyState />
@@ -102,6 +121,82 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
   }
 
   const stats = getLineStats(detail)
+  const isRevertRecord = detail.operation?.type === "revert"
+  const revertUnavailableReason = getLocalRevertUnavailableReason(detail, {
+    hasPersistedArtifact: Boolean(artifactId && conversationId),
+    isRevertRecord,
+  })
+
+  const handlePreviewRevert = async () => {
+    if (!artifactId || !conversationId || revertUnavailableReason) return
+    setIsPreviewingRevert(true)
+    setRevertError(null)
+    try {
+      const preview = await conversationMessagesApi.previewArtifactRevert(conversationId, artifactId)
+      setRevertPreview(preview)
+      if (preview.status === "blocked" || !preview.canApply) {
+        toast.warning(formatRevertBlockedReason(preview.blockedReason, "当前工作区状态无法安全撤销。"))
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "撤销预览失败"
+      setRevertError(message)
+      toast.error(message)
+    } finally {
+      setIsPreviewingRevert(false)
+    }
+  }
+
+  const handleApplyRevert = async () => {
+    if (!artifactId || !conversationId || !revertPreview?.canApply) return
+    setIsApplyingRevert(true)
+    setRevertError(null)
+    try {
+      const result = await conversationMessagesApi.applyArtifactRevert(conversationId, artifactId)
+      if ((result.status === "applied" || result.status === "already_applied") && result.artifact) {
+        queryClient.setQueryData(
+          ["artifact-detail", result.artifact.conversationId, result.artifact.id],
+          {
+            artifact: result.artifact,
+            currentVersion: result.currentVersion ?? null,
+            ...(result.diff ? { diff: result.diff } : {}),
+          }
+        )
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: workbenchQueryKeys.conversations.messages(conversationId),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: workbenchQueryKeys.conversations.all,
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["artifact-detail", conversationId, artifactId],
+          }),
+        ])
+        openTab("review", "代码审查", {
+          source: "artifact",
+          title: result.artifact.title,
+          conversationId: result.artifact.conversationId,
+          artifactId: result.artifact.id,
+        })
+        setRevertPreview(null)
+        toast.success(result.message || "已撤销本次工作区变更。")
+        return
+      }
+
+      const reason = formatRevertBlockedReason(
+        result.blockedReason ?? result.error,
+        result.message || "撤销操作没有完成。"
+      )
+      setRevertError(reason)
+      toast.warning(reason)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "撤销操作失败"
+      setRevertError(message)
+      toast.error(message)
+    } finally {
+      setIsApplyingRevert(false)
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-background">
@@ -140,6 +235,27 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
             <Badge variant="outline">补丁已截断</Badge>
           ) : null}
         </div>
+
+        {isRevertRecord ? (
+          <Alert className="mt-3 rounded-md px-3 py-2">
+            <CheckCircle2Icon />
+            <AlertTitle className="text-xs">撤销记录</AlertTitle>
+            <AlertDescription className="text-xs">
+              这是一次撤销记录，Diff 展示的是被撤销的原始变更。
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <RevertControls
+            blockedReason={revertUnavailableReason}
+            error={revertError}
+            isApplying={isApplyingRevert}
+            isPreviewing={isPreviewingRevert}
+            onApply={handleApplyRevert}
+            onCancelPreview={() => setRevertPreview(null)}
+            onPreview={handlePreviewRevert}
+            preview={revertPreview}
+          />
+        )}
 
         <AttributionSummary attribution={detail.changeSet?.attribution} />
 
@@ -244,6 +360,125 @@ function FileDiffDisclosure({
         <div className="space-y-2 border-border border-t bg-background p-2.5">
           <FileAttributionDetails attribution={file.attribution} />
           <FilePatchView file={file} />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function RevertControls({
+  blockedReason,
+  error,
+  isApplying,
+  isPreviewing,
+  onApply,
+  onCancelPreview,
+  onPreview,
+  preview,
+}: {
+  blockedReason?: string
+  error: string | null
+  isApplying: boolean
+  isPreviewing: boolean
+  onApply: () => void
+  onCancelPreview: () => void
+  onPreview: () => void
+  preview: ArtifactRevertPreviewResponse | null
+}) {
+  if (blockedReason) {
+    return (
+      <Alert className="mt-3 rounded-md px-3 py-2">
+        <AlertTriangleIcon />
+        <AlertTitle className="text-xs">当前不可撤销</AlertTitle>
+        <AlertDescription className="text-xs">{blockedReason}</AlertDescription>
+      </Alert>
+    )
+  }
+
+  const previewBlocked = preview && (preview.status === "blocked" || !preview.canApply)
+
+  return (
+    <div className="mt-3 flex flex-col gap-2 rounded-md border bg-muted/20 p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 text-muted-foreground text-xs">
+          可撤销本次 Run 造成的全部工作区变更。
+        </div>
+        <Button
+          disabled={isPreviewing || isApplying}
+          onClick={onPreview}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {isPreviewing ? (
+            <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
+          ) : (
+            <RotateCcwIcon data-icon="inline-start" />
+          )}
+          撤销本次变更
+        </Button>
+      </div>
+
+      {preview ? (
+        <div className="rounded-md border bg-background p-2 text-xs">
+          {previewBlocked ? (
+            <div className="flex gap-2 text-amber-800">
+              <AlertTriangleIcon className="mt-0.5 shrink-0" />
+              <span>
+                {formatRevertBlockedReason(preview.blockedReason, "当前工作区状态无法安全撤销。")}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="font-medium">
+                将撤销 {preview.files.length} 个文件的变更。
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                撤销会完整反向应用该 Diff；当前不支持只撤销单个文件或单个 hunk。
+              </div>
+              {preview.warnings.length ? (
+                <div className="mt-2 flex flex-col gap-1 text-amber-800">
+                  {preview.warnings.map((warning) => (
+                    <div className="flex gap-2" key={warning}>
+                      <AlertTriangleIcon className="mt-0.5 shrink-0" />
+                      <span>{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  disabled={isApplying}
+                  onClick={onApply}
+                  size="sm"
+                  type="button"
+                  variant="destructive"
+                >
+                  {isApplying ? (
+                    <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
+                  ) : (
+                    <RotateCcwIcon data-icon="inline-start" />
+                  )}
+                  确认撤销
+                </Button>
+                <Button
+                  disabled={isApplying}
+                  onClick={onCancelPreview}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  取消
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-destructive text-xs">
+          {error}
         </div>
       ) : null}
     </div>
@@ -547,6 +782,62 @@ function formatStatus(status: string): string {
 
 function formatLimitationMessages(limitations: string[]): string[] {
   return Array.from(new Set(limitations.map(formatLimitationMessage)))
+}
+
+function getLocalRevertUnavailableReason(
+  detail: DiffArtifactDetail,
+  options: {
+    hasPersistedArtifact: boolean
+    isRevertRecord: boolean
+  }
+): string | undefined {
+  if (options.isRevertRecord) {
+    return "撤销记录不能再次撤销。"
+  }
+  if (!options.hasPersistedArtifact) {
+    return "实时 Diff 需要先完成落库后才能撤销，请刷新会话或稍后再试。"
+  }
+  if (!detail.patchText) {
+    return "没有可用的 bounded patch，当前只能查看摘要，不能安全撤销。"
+  }
+  if (detail.patchTruncated) {
+    return "补丁内容已截断，无法保证完整撤销。"
+  }
+  if (detail.baselineDirty || !detail.runOnlyReliable) {
+    return "运行前已有未提交变更，当前 Diff 不是可靠的 run-only patch，不能安全撤销。"
+  }
+  if (detail.changedFiles.some((file) => file.binary)) {
+    return "本次变更包含二进制文件，当前版本不支持撤销。"
+  }
+  if (detail.changedFiles.some((file) => file.truncated)) {
+    return "部分文件补丁已截断，无法保证完整撤销。"
+  }
+  return undefined
+}
+
+function formatRevertBlockedReason(
+  reason: Record<string, unknown> | undefined,
+  fallback: string
+): string {
+  const message = getString(reason?.message)
+  const code = getString(reason?.code)
+  if (message) return message
+  switch (code) {
+    case "ARTIFACT_REVERT_ALREADY_APPLIED":
+      return "该 Diff 已经撤销过。"
+    case "ARTIFACT_REVERT_UNSUPPORTED":
+      return "该 Diff 不满足撤销条件。"
+    case "ARTIFACT_REVERT_NOT_RELIABLE":
+      return "该 Diff 不是可靠的 run-only patch，不能安全撤销。"
+    case "ARTIFACT_REVERT_BLOCKED":
+      return "当前工作区状态无法通过反向补丁校验。"
+    case "WORKSPACE_REVERT_INVALID_INPUT":
+      return "撤销请求缺少必要的工作区或补丁信息。"
+    case "WORKSPACE_REVERT_APPLY_FAILED":
+      return "反向应用补丁失败，工作区未完成撤销。"
+    default:
+      return fallback
+  }
 }
 
 function formatLimitationMessage(limitation: string): string {

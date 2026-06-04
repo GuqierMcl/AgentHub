@@ -175,6 +175,13 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `PIN_LIMIT_EXCEEDED` | 400 | 单会话置顶消息数量超过上限（10 条） |
 | `PIN_ALREADY_EXISTS` | 409 | 该消息已置顶 |
 | `PIN_NOT_FOUND` | 404 | 指定的置顶记录不存在 |
+| `WORKSPACE_REVERT_INVALID_INPUT` | 400 | Runtime workspace revert 请求缺少本地 workspace 或 source patch 信息 |
+| `WORKSPACE_REVERT_APPLY_FAILED` | 502 | Runtime 执行 `git apply --reverse` 失败 |
+| `ARTIFACT_REVERT_NOT_FOUND` | 404 | HubServer conversation-scoped Diff Artifact 或关联 Run 不存在 |
+| `ARTIFACT_REVERT_UNSUPPORTED` | 400 | Artifact 不是可撤销的 Diff、缺少版本、缺少 workspace 或是撤销记录本身 |
+| `ARTIFACT_REVERT_NOT_RELIABLE` | 400 | Diff baseline dirty、runOnlyReliable=false 或 patch 不满足安全撤销条件 |
+| `ARTIFACT_REVERT_ALREADY_APPLIED` | 409 | 同一 Diff Artifact 已经成功撤销 |
+| `ARTIFACT_REVERT_BLOCKED` | 409 | 当前 workspace 状态无法通过反向 patch 校验，未执行撤销 |
 
 ## Runtime Run Input 契约
 
@@ -1326,7 +1333,109 @@ Workspace Diff V0 由 Runtime 在 Run 创建时捕获 baseline，并在终态事
 
 该能力是平台通用能力，不属于 OpenCode 私有事件。内部预设智能体、隐藏子智能体、用户自定义写入智能体和外部智能体共享同一套 git-based baseline / final status / changed files / diffstat / bounded patch 逻辑。`stats.additions/deletions` 优先来自 `git diff HEAD --numstat`；对未跟踪文本文件，Runtime 会 best-effort 按文件内容计算新增行数，因为 git numstat 不覆盖这类文件。对于尚未首次 commit、没有可用 `HEAD` 的 Git 仓库，Runtime 会跳过 HEAD numstat，并为未跟踪文本文件生成 fallback bounded patch；summary 仍以 `head_unavailable` 标记为 degraded。无法可靠统计增删行时，消费者应把行数视为未知，而不是把 `0` 展示为真实变更行数。非 git、未绑定 workspace、git 缺失、命令超时等情况必须降级为结构化 `status = "unavailable" | "degraded"`，不导致 Run 本身失败。若 `baselineDirty = true`，Runtime 会用 baseline/final 脏文件 fingerprint 尽量过滤掉本轮未变化的既有脏文件，并设置 `runOnlyReliable = false`；dirty baseline 下的 bounded patch 是 final-vs-HEAD 的保守结果，不声称是精确 run-only patch。
 
-HubServer 消费终态事件后，对 `changedFiles.length > 0` 或 `stats.filesChanged > 0` 的 summary 投影为 `Artifact(type = "diff")` 与 `ArtifactVersion`：Artifact metadata 记录 `source = "runtime.workspaceDiff"`、`runtimeEventId`、`baselineDirty`、`status` 与 `changedFileCount`；版本的 `content` 保存 bounded patch 或摘要文本，`diffJson` 保存完整 `WorkspaceDiffSummary`。`GET /api/conversations/:conversationId/messages` 通过 `PersistedMessage.artifacts` 返回这些卡片所需数据。
+HubServer 消费终态事件后，对 `changedFiles.length > 0` 或 `stats.filesChanged > 0` 的 summary 投影为 `Artifact(type = "diff")` 与 `ArtifactVersion`：Artifact metadata 记录 `source = "runtime.workspaceDiff"`、`runtimeEventId`、`baselineDirty`、`status` 与 `changedFileCount`；版本的 `content` 保存 bounded patch 或摘要文本，`diffJson` 保存完整 `WorkspaceDiffSummary`。`GET /api/conversations/:conversationId/messages` 通过 `PersistedMessage.artifacts` 返回这些卡片所需数据。可靠 Diff Artifact 后续可由 HubServer 调用 Runtime workspace revert API 执行完整 Run 级撤销；撤销成功会生成新的 `source = "workspace.revert"` Diff Artifact 和 ChangeSet。
+
+### Workspace Revert API
+
+Workspace Revert API 是 Runtime 内部 API，只允许 HubServer 调用；浏览器不得直接传入本机路径或访问该端点。HubServer 必须从原 Run `inputJson.workspace` 读取 workspace root，再把 source Diff Artifact 的 bounded patch 和 changed files 传给 Runtime。
+
+**端点**：`POST /runtime/workspace/revert/preview`
+
+请求体：
+
+```ts
+type WorkspaceRevertRequest = {
+  workspace: {
+    workspaceId: string
+    backendType: "local"
+    rootPath: string
+  }
+  source: {
+    artifactId: string
+    changeSetId?: string
+    runId: string
+    patchText: string
+    patchTruncated: boolean
+    baselineDirty: boolean
+    runOnlyReliable: boolean
+    changedFiles: Array<{
+      path: string
+      oldPath?: string
+      statusBefore?: string
+      statusAfter?: string
+      origin?: string
+      additions?: number
+      deletions?: number
+      binary?: boolean
+      truncated?: boolean
+    }>
+  }
+}
+```
+
+成功响应：
+
+```ts
+type WorkspaceRevertPreviewResponse = {
+  status: "available" | "blocked"
+  canApply: boolean
+  files: Array<{
+    path: string
+    oldPath?: string
+    action: "modify" | "delete-created" | "restore-deleted" | "revert-change"
+    additions?: number
+    deletions?: number
+  }>
+  warnings: string[]
+  blockedReason?: {
+    code:
+      | "ARTIFACT_REVERT_UNSUPPORTED"
+      | "ARTIFACT_REVERT_NOT_RELIABLE"
+      | "ARTIFACT_REVERT_BLOCKED"
+      | "WORKSPACE_REVERT_INVALID_INPUT"
+      | "WORKSPACE_REVERT_APPLY_FAILED"
+    message: string
+  }
+  source: {
+    artifactId: string
+    changeSetId?: string
+    runId: string
+    patchDirection: "reverse-applied"
+  }
+}
+```
+
+**端点**：`POST /runtime/workspace/revert/apply`
+
+行为：
+
+- Runtime 先执行同一 preview 校验和 `git apply --reverse --check --whitespace=nowarn`。
+- 只有 preview `canApply = true` 且 reverse check 通过时，才执行 `git apply --reverse --whitespace=nowarn`。
+- patch 缺失、patch truncated、binary/truncated file、`baselineDirty = true`、`runOnlyReliable = false`、非 git workspace、缺少 workspace 或 reverse check 失败都返回 `blocked`，不修改文件。
+- Runtime 响应不得泄露 workspace root 绝对路径。
+
+响应：
+
+```ts
+type WorkspaceRevertApplyResponse =
+  | {
+      status: "applied"
+      operationId: string
+      preview: WorkspaceRevertPreviewResponse
+      workspace: { workspaceId: string; backendType: "local" }
+      appliedAt: string
+    }
+  | {
+      status: "blocked"
+      preview: WorkspaceRevertPreviewResponse
+      blockedReason: WorkspaceRevertPreviewResponse["blockedReason"]
+    }
+  | {
+      status: "failed"
+      preview: WorkspaceRevertPreviewResponse
+      error: WorkspaceRevertPreviewResponse["blockedReason"]
+    }
+```
 
 消息事件身份规则：
 
@@ -1339,7 +1448,7 @@ HubServer 消费终态事件后，对 `changedFiles.length > 0` 或 `stats.files
 - OpenCode direct run 可在 `agent.completed.data.externalContext` 回传 `{ provider, agentId, scope, mode, messageCount, handoffSummaryCount, cursorCandidate?, omitted? }`，表示本轮已应用的 AgentHub 可见上下文摘要；HubServer 仅在成功终态后推进 `ExternalAgentSession.metadataJson.contextBridge`。该字段不携带完整消息正文。
 - OpenCode delegated task 完成时可在 `agent.completed.data.handoffSummary` 与 `agent.completed.data.externalSession.handoffSummary` 携带 handoff summary。该 summary 用于后续 direct context bridge，不应包含原始 delegated prompt 或 Orchestrator 私有计划。
 - `agent.completed` 仍表示 execution 完成；兼容字段 usage、finishReason、resolvedModel 继续保留在 `agent.completed.data`。Web 展示模型名、compact tokens 和 tooltip 详情时优先从 Runtime event replay/live SSE 的 `generation` 或 `externalModel` 字段恢复，而不是读取当前 agent 绑定状态。
-- Workspace Diff V0 统一挂在 `run.completed` / `run.failed` / `run.cancelled` 的 `data.workspaceDiff`，不挂在外部智能体私有 `agent.completed` 字段上；V0 只要求摘要卡片、变更文件列表和 bounded patch 持久化，不提供完整 diff viewer、apply 或 rollback UI。
+- Workspace Diff V0 统一挂在 `run.completed` / `run.failed` / `run.cancelled` 的 `data.workspaceDiff`，不挂在外部智能体私有 `agent.completed` 字段上；Diff Viewer、ChangeSet 归因和完整 Run 级撤销属于 HubServer/Web 基于 Diff Artifact 的产品能力，不改变 terminal RunEvent wire shape。
 - HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。工具事件可能早于 `message.delta` / `message.completed` 到达，HubServer 必须先持久化 `RunToolCall`，并在同一 `messageId` 的 assistant message 创建或更新后回填 tool `MessagePart`，避免外部工具 UI 只在 live 流里短暂闪现而无法恢复。
 
 工具事件的附加约束：

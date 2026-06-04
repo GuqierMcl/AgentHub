@@ -70,6 +70,8 @@ HubServer 暴露 `GET /api/system/services/status` 作为 Web 的唯一系统服
 - `POST /api/conversations/:conversationId/messages/send`
 - `GET /api/conversations/:conversationId/messages`
 - `GET /api/conversations/:conversationId/artifacts/:artifactId`
+- `POST /api/conversations/:conversationId/artifacts/:artifactId/revert/preview`
+- `POST /api/conversations/:conversationId/artifacts/:artifactId/revert`
 - `GET /api/runs/:runId/events?afterSequence=`
 - `POST /api/runs/:runId/cancel`
 
@@ -90,6 +92,7 @@ HubServer 的职责：
 - 在 `GET /api/conversations/:conversationId/messages` 中返回 `timelineRuns`，每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes，供 Web 聊天主 UI 恢复；完整 raw Runtime event 留在 `RunEvent.payloadJson`。
 - Terminal `run.completed` / `run.failed` / `run.cancelled` 中存在 `data.workspaceDiff` 且有 changed files 时，继续投影 `Artifact(type="diff")`，并同时创建 `WorkspaceChangeSet` / `WorkspaceChangeSetFile`。ChangeSet 由 HubServer 基于已有 RunToolCall、RunTask、Message 和 Run input 推导归因；内部 `write_file` / `edit_file` 可在路径唯一匹配时归因到具体 toolCallId，外部智能体 V0 只保守归因到 agent aggregate。`WorkspaceChangeSet.sourceEventId` 唯一，terminal event replay 不重复创建。
 - 通过 `GET /api/conversations/:conversationId/artifacts/:artifactId` 提供 conversation-scoped Artifact Detail；Diff artifact 返回 current version、`ArtifactVersion.diffJson` 派生的文件摘要、bounded patch 文本、dirty baseline、runOnlyReliable、truncated 和 limitations，供 Web 右侧只读 Diff Viewer 恢复。若存在 ChangeSet，`diff.changeSet` 返回顶部归因摘要，`diff.changedFiles[]` 返回文件级 attribution。跨会话或不存在的 artifact 返回稳定 `ARTIFACT_NOT_FOUND`。
+- 通过 `POST /api/conversations/:conversationId/artifacts/:artifactId/revert/preview` 和 `/revert` 提供 conversation-scoped 完整 Run Diff 撤销。HubServer 校验 artifact 属于当前 conversation、类型为 `diff`、存在 current version、不是 `workspace.revert` 撤销记录且关联原 Run/workspace；workspace root 只从原 Run `inputJson.workspace` 读取，浏览器请求体不传本机路径。HubServer 将 source patch、changed files、baselineDirty/runOnlyReliable 等事实转发给 Agent Runtime `/runtime/workspace/revert/*`。成功撤销后，HubServer 创建系统 assistant 消息“已撤销本次工作区变更”，挂载新的 `source = "workspace.revert"` Diff Artifact、`source = "diff_apply"` ArtifactVersion，并创建新的 WorkspaceChangeSet/files，归因为 `run + aggregate`。同一 source artifact 已成功撤销时，再次 apply 返回 `already_applied` 与既有 artifact，不重复执行。
 - 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。
 - 通过 `GET /api/events` 发布非持久化、无 replay 的全局产品状态事件，用于会话标题、最近消息和 Run 状态等低频 UI 通知。
 
