@@ -93,6 +93,18 @@ export function ArtifactPreview({ artifact }: ArtifactPreviewProps) {
               tooltip="打开"
             />
           </ArtifactActions>
+        ) : canOpenDiff ? (
+          <ArtifactActions>
+            <ArtifactAction
+              icon={ExternalLinkIcon}
+              label="打开代码审查"
+              onClick={(event) => {
+                event.stopPropagation()
+                openDiffReview()
+              }}
+              tooltip="打开代码审查"
+            />
+          </ArtifactActions>
         ) : null}
       </ArtifactHeader>
       <ArtifactContent className="px-3 py-2">

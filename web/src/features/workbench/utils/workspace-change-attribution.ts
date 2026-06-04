@@ -36,6 +36,23 @@ export function formatWorkspaceAttributionDetailRows(
   ].filter((row): row is WorkspaceAttributionDetailRow => Boolean(row))
 }
 
+export function formatExpandedWorkspaceAttributionDetailRows(
+  attribution: WorkspaceChangeAttribution | undefined,
+): WorkspaceAttributionDetailRow[] {
+  const rows = formatWorkspaceAttributionDetailRows(attribution)
+  if (!attribution) return rows
+  if (attribution.kind === "agent" && attribution.confidence === "aggregate") {
+    return rows.filter((row) => row.label !== "智能体")
+  }
+  if (attribution.kind === "tool") {
+    return rows.filter((row) => row.label !== "工具")
+  }
+  if (attribution.kind === "task") {
+    return rows.filter((row) => row.label !== "任务")
+  }
+  return rows
+}
+
 export function formatWorkspaceAttributionCandidateSummary(
   attribution: WorkspaceChangeAttribution | undefined,
 ): string | undefined {

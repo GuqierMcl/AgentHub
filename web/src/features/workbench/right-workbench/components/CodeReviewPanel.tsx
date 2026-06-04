@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangleIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   DiffIcon,
   FileSearchIcon,
-  FileTextIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -23,8 +24,8 @@ import {
   type UnifiedDiffLine,
 } from "../../utils/unified-diff"
 import {
+  formatExpandedWorkspaceAttributionDetailRows,
   formatWorkspaceAttributionCandidateSummary,
-  formatWorkspaceAttributionDetailRows,
   formatWorkspaceChangeSource,
   formatWorkspaceFileAttributionBadge,
 } from "../../utils/workspace-change-attribution"
@@ -100,7 +101,6 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
     return <ReviewEmptyState />
   }
 
-  const selectedFile = files.find((file) => file.path === selectedPath) ?? files[0]
   const stats = getLineStats(detail)
 
   return (
@@ -169,56 +169,83 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
               <h4 className="font-medium text-sm">变更文件</h4>
             </div>
             <div className="space-y-1.5">
-              {files.map((file) => (
-                <button
-                  className={cn(
-                    "flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden rounded-md border px-2.5 py-2 text-left transition-colors",
-                    file.path === selectedFile?.path
-                      ? "border-primary/50 bg-primary/5"
-                      : "bg-background hover:bg-muted/40"
-                  )}
-                  key={file.path}
-                  onClick={() => setSelectedPath(file.path)}
-                  type="button"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-xs">{file.path}</div>
-                    {file.oldPath ? (
-                      <div className="truncate text-muted-foreground text-[11px]">
-                        原路径：{file.oldPath}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {formatFileStats(file)}
-                    <Badge variant={file.attribution ? "outline" : "secondary"}>
-                      {formatWorkspaceFileAttributionBadge(file.attribution)}
-                    </Badge>
-                    <Badge variant="secondary">{formatStatus(file.status)}</Badge>
-                  </div>
-                </button>
-              ))}
+              {files.map((file) => {
+                const isExpanded = file.path === selectedPath
+                return (
+                  <FileDiffDisclosure
+                    file={file}
+                    isExpanded={isExpanded}
+                    key={file.path}
+                    onToggle={() =>
+                      setSelectedPath((current) =>
+                        current === file.path ? undefined : file.path
+                      )
+                    }
+                  />
+                )
+              })}
             </div>
-          </section>
-
-          <section className="min-w-0 space-y-2">
-            <div className="flex items-center gap-2">
-              <FileTextIcon className="size-4 text-muted-foreground" />
-              <h4 className="font-medium text-sm">文件 Diff</h4>
-            </div>
-            {selectedFile ? (
-              <div className="space-y-2">
-                <FileAttributionDetails attribution={selectedFile.attribution} />
-                <FilePatchView file={selectedFile} />
-              </div>
-            ) : (
+            {!files.length ? (
               <div className="rounded-md border bg-muted/20 p-3 text-muted-foreground text-xs">
                 没有可展示的文件变更。
               </div>
-            )}
+            ) : null}
           </section>
         </div>
       </ScrollArea>
+    </div>
+  )
+}
+
+function FileDiffDisclosure({
+  file,
+  isExpanded,
+  onToggle,
+}: {
+  file: ViewerFile
+  isExpanded: boolean
+  onToggle: () => void
+}) {
+  const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon
+  return (
+    <div
+      className={cn(
+        "w-full min-w-0 overflow-hidden rounded-md border bg-background transition-colors",
+        isExpanded ? "border-primary/50 bg-primary/5" : "hover:bg-muted/40"
+      )}
+    >
+      <button
+        aria-expanded={isExpanded}
+        className="flex w-full min-w-0 items-center justify-between gap-2 px-2.5 py-2 text-left"
+        onClick={onToggle}
+        type="button"
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <ChevronIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium text-xs">{file.path}</div>
+            {file.oldPath ? (
+              <div className="truncate text-muted-foreground text-[11px]">
+                原路径：{file.oldPath}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {formatFileStats(file)}
+          <Badge variant={file.attribution ? "outline" : "secondary"}>
+            {formatWorkspaceFileAttributionBadge(file.attribution)}
+          </Badge>
+          <Badge variant="secondary">{formatStatus(file.status)}</Badge>
+        </div>
+      </button>
+
+      {isExpanded ? (
+        <div className="space-y-2 border-border border-t bg-background p-2.5">
+          <FileAttributionDetails attribution={file.attribution} />
+          <FilePatchView file={file} />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -254,29 +281,25 @@ function FileAttributionDetails({
 }: {
   attribution: DiffFileSummary["attribution"]
 }) {
-  const rows = formatWorkspaceAttributionDetailRows(attribution)
+  const rows = formatExpandedWorkspaceAttributionDetailRows(attribution)
   const candidateSummary = formatWorkspaceAttributionCandidateSummary(attribution)
 
   if (!attribution) {
     return (
-      <div className="rounded-md border bg-muted/20 px-2.5 py-2 text-muted-foreground text-xs">
-        归因未记录：这个 Diff Artifact 创建于 ChangeSet 归因落库之前，或当前详情尚未刷新。
+      <div className="rounded-sm bg-muted/30 px-2.5 py-2 text-muted-foreground text-xs">
+        归因正在同步：系统会在读取已落库的变更来源后展示归因。
       </div>
     )
   }
 
+  if (!rows.length && !candidateSummary) {
+    return null
+  }
+
   return (
-    <div className="rounded-md border bg-muted/20 px-2.5 py-2 text-xs">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="secondary">
-          {formatWorkspaceFileAttributionBadge(attribution)}
-        </Badge>
-        <span className="text-muted-foreground">
-          {formatWorkspaceChangeSource(attribution)}
-        </span>
-      </div>
+    <div className="rounded-sm bg-muted/30 px-2.5 py-2 text-xs">
       {rows.length ? (
-        <div className="mt-2 grid gap-1 sm:grid-cols-2">
+        <div className="grid gap-1 sm:grid-cols-2">
           {rows.map((row) => (
             <div className="min-w-0" key={`${row.label}:${row.value}`}>
               <span className="text-muted-foreground">{row.label}：</span>
