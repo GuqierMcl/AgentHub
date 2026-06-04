@@ -24,6 +24,10 @@ import {
   updateMessagePart,
 } from '../repositories/message-part.repo'
 import {
+  listMessagePinsWithContent,
+  type MessagePinWithContent,
+} from '../repositories/message-pin.repo'
+import {
   createRun,
   findRunById,
   findRunByRuntimeId,
@@ -223,6 +227,14 @@ type RuntimeRunInput = {
   }
   externalSessionHints?: RuntimeExternalSessionHint[]
   externalContext?: RuntimeExternalContextPacket[]
+  pinnedMessages?: Array<{
+    id: string
+    messageId: string
+    content: string
+    note: string | null
+    pinnedAt: string
+    sortOrder: number
+  }>
 }
 
 type RuntimeRunCreateResponse = {
@@ -579,6 +591,19 @@ export class RunPersistenceService {
     ).reverse()
     const history = projectMessagesToRuntimeHistory(historyMessages)
 
+    // Load pinned messages for system prompt injection
+    const pinnedRecords = await listMessagePinsWithContent(conversationId)
+    const pinnedMessages = pinnedRecords
+      .filter((pin) => pin.messageContent != null)
+      .map((pin) => ({
+        id: pin.id,
+        messageId: pin.messageId,
+        content: truncatePinContent(pin.messageContent!),
+        note: pin.note,
+        pinnedAt: pin.createdAt,
+        sortOrder: pin.sortOrder,
+      }))
+
     const userMessage = await createMessage({
       conversationId,
       surface: 'chat',
@@ -675,6 +700,7 @@ export class RunPersistenceService {
       externalSessionHints,
       externalContext,
       userMessage.id,
+      pinnedMessages,
     )
     await updateRun(run.id, { inputJson: input })
 
@@ -3812,6 +3838,13 @@ function getRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
+const MAX_PIN_CONTENT_LENGTH = 2000
+
+function truncatePinContent(content: string): string {
+  if (content.length <= MAX_PIN_CONTENT_LENGTH) return content
+  return content.slice(0, MAX_PIN_CONTENT_LENGTH) + '\n...[截断]'
+}
+
 function buildRuntimeRunInput(
   conversation: ConversationDetailOutput,
   userContent: string,
@@ -3820,6 +3853,7 @@ function buildRuntimeRunInput(
   externalSessionHints: RuntimeExternalSessionHint[] = [],
   externalContext: RuntimeExternalContextPacket[] = [],
   userMessageId?: string,
+  pinnedMessages?: Array<{ id: string; messageId: string; content: string; note: string | null; pinnedAt: string; sortOrder: number }>,
 ): RuntimeRunInput {
   const workspace = getRuntimeWorkspace(conversation.metadataJson)
   const titleSource = getTitleSource(conversation.metadataJson)
@@ -3847,6 +3881,7 @@ function buildRuntimeRunInput(
     ...(workspace ? { workspace } : {}),
     ...(externalSessionHints.length > 0 ? { externalSessionHints } : {}),
     ...(externalContext.length > 0 ? { externalContext } : {}),
+    ...(pinnedMessages && pinnedMessages.length > 0 ? { pinnedMessages } : {}),
   }
 }
 

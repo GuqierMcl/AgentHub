@@ -4,6 +4,7 @@ import { resolveAgentLanguageModel } from "./model-resolver"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
+import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { createRunEvent } from "./run-events"
 import type { PendingQuestionToolCall } from "./question"
@@ -54,6 +55,11 @@ export function buildSystemPrompt(context: AgentExecutionContext): string {
 
   if (context.environmentSnapshot) {
     systemNotes.push(formatRuntimeEnvironmentSnapshotForPrompt(context.environmentSnapshot))
+  }
+
+  const pinnedBlock = formatPinnedMessagesForPrompt(context.input.pinnedMessages)
+  if (pinnedBlock) {
+    systemNotes.push(pinnedBlock)
   }
 
   return systemNotes.join("\n\n")

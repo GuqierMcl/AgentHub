@@ -211,6 +211,7 @@ export {
   WorkspaceDiffStatsSchema,
   WorkspaceDiffSummarySchema,
   RunInputSchema,
+  PinnedMessageSchema,
   RunStatusSchema,
   EntryReasonSchema,
   RunEventTypeSchema,

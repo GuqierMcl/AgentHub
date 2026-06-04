@@ -4,6 +4,7 @@ import { createChildLogger } from "../logger"
 import type { ProviderService } from "../provider"
 import { AgentModelResolutionError, resolveAgentLanguageModel } from "./model-resolver"
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
+import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
@@ -301,6 +302,7 @@ export class OrchestratorExecutor implements AgentExecutor {
     const agent = context.agent
     const availableTargets = this.listAvailableTargets(context)
     const participants = context.input.participantAgentIds.join(", ")
+    const pinnedBlock = formatPinnedMessagesForPrompt(context.input.pinnedMessages)
 
     return [
       agent.systemPrompt ?? [
@@ -315,6 +317,7 @@ export class OrchestratorExecutor implements AgentExecutor {
       context.environmentSnapshot
         ? formatRuntimeEnvironmentSnapshotForPrompt(context.environmentSnapshot)
         : "",
+      pinnedBlock ?? "",
       [
         "Available run_task targets:",
         availableTargets.length > 0 ? availableTargets.join("\n") : "- none",

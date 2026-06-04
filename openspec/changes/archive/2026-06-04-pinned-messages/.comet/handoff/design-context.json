@@ -1,0 +1,13 @@
+{
+  "change": "pinned-messages",
+  "phase": "design",
+  "mode": "compact",
+  "canonical_spec": "openspec",
+  "generated_by": "comet-handoff.sh",
+  "context_hash": "f3e10cfc2b9e5a027aa17dfef9f5dd1a0118b7eb419ecc4e358ff3db22f95186",
+  "files": [
+    { "path": "openspec/changes/pinned-messages/proposal.md", "sha256": "5fc7f4337b59645a0e5438f1e19d71e839179f60ac7516ba2aef3f0b77febefd" },
+    { "path": "openspec/changes/pinned-messages/design.md", "sha256": "eead32d442ead587bc3800c6d714d0a90e85b55c058519044996895718c8ad13" },
+    { "path": "openspec/changes/pinned-messages/tasks.md", "sha256": "bf6efed47110d68b847c6e112f80074a266f6c274e03906edcfab42b8036c2f5" }
+  ]
+}

@@ -1,0 +1,17 @@
+workflow: full
+phase: archive
+build_mode: executing-plans
+isolation: branch
+verify_mode: full
+build_command: cd hub-server && bunx tsc --noEmit && cd ../web && bunx tsc --noEmit -p tsconfig.app.json
+base_ref: dde5b5035c5bed56904f32c1bfbb831ea1258b70
+design_doc: docs/superpowers/specs/2026-06-04-pinned-messages-design.md
+plan: docs/superpowers/plans/2026-06-04-pinned-messages.md
+verify_result: pass
+verification_report: docs/superpowers/reports/2026-06-04-pinned-messages-verify.md
+branch_status: handled
+created_at: 2026-06-04
+verified_at: 2026-06-04
+archived: true
+handoff_context: openspec/changes/pinned-messages/.comet/handoff/design-context.json
+handoff_hash: f3e10cfc2b9e5a027aa17dfef9f5dd1a0118b7eb419ecc4e358ff3db22f95186

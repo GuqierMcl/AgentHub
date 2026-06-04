@@ -647,6 +647,7 @@ function toTimelineItemFromPersistedMessage(
   const item: WorkbenchTimelineChatMessageItem = {
     kind: "chat_message",
     id: getPersistedTimelineMessageId(message, runtimeMessageId),
+    persistedMessageId: message.id,
     role: message.role,
     runId: message.runId ?? undefined,
     runtimeMessageId: runtimeMessageId ?? undefined,
@@ -723,6 +724,7 @@ function mergePersistedChatMessage(
   const nextStatus = getMergedTimelineStatus(current.status, persisted.status)
   const next: WorkbenchTimelineChatMessageItem = {
     ...current,
+    persistedMessageId: current.persistedMessageId ?? persisted.persistedMessageId,
     runId: current.runId ?? persisted.runId,
     runtimeMessageId: current.runtimeMessageId ?? persisted.runtimeMessageId,
     messageIndex: current.messageIndex ?? persisted.messageIndex,
@@ -1108,6 +1110,7 @@ function isSameChatMessage(
   right: WorkbenchTimelineChatMessageItem
 ): boolean {
   return left.runId === right.runId &&
+    left.persistedMessageId === right.persistedMessageId &&
     left.runtimeMessageId === right.runtimeMessageId &&
     left.messageIndex === right.messageIndex &&
     left.agentId === right.agentId &&

@@ -1,0 +1,4 @@
+name: pinned-messages
+description: 置顶消息功能 — 用户 pin 关键消息，始终注入 Agent system prompt
+status: active
+created_at: 2026-06-04

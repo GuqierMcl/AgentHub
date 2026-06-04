@@ -172,6 +172,35 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `QUESTION_RUN_NOT_ACTIVE` | 409 | Run 当前没有可续跑的 question continuation |
 | `QUESTION_ALREADY_ANSWERED` | 409 | 指定 question request 已经回答或取消 |
 | `WORKSPACE_NOT_BOUND` | 400 | 当前 Run 未绑定 workspace，不能执行文件工具 |
+| `PIN_LIMIT_EXCEEDED` | 400 | 单会话置顶消息数量超过上限（10 条） |
+| `PIN_ALREADY_EXISTS` | 409 | 该消息已置顶 |
+| `PIN_NOT_FOUND` | 404 | 指定的置顶记录不存在 |
+
+## Runtime Run Input 契约
+
+### `POST /runtime/runs` 请求体
+
+HubServer 创建 Run 时，向 Agent Runtime 发送 `RunInput`。新增可选字段 `pinnedMessages`：
+
+```ts
+type PinnedMessage = {
+  id: string              // pin ID
+  messageId: string       // 原始消息 ID
+  content: string         // 消息文本内容（可能已截断，最长 2000 字符）
+  note?: string | null    // 用户备注
+  pinnedAt: string        // 置顶时间 ISO 8601
+  sortOrder: number       // 排序权重
+}
+
+// RunInput 新增字段（可选，向后兼容）:
+pinnedMessages?: PinnedMessage[]
+```
+
+**行为规则**：
+- `pinnedMessages` 为可选字段，不影响现有 Runtime 兼容性
+- Agent Runtime 在内部 AI SDK 主智能体与 Orchestrator 的 system prompt 中注入 pinned 消息
+- 注入格式使用 XML 标记 `<📌 置顶消息 (Pinned Messages)>` 包裹
+- 单条内容超过 2000 字符时由 HubServer 截断
 
 ## Runtime Agents API
 

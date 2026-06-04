@@ -54,3 +54,48 @@ export async function deleteMessagePinsByConversation(conversationId: string) {
   const db = getPrismaClient()
   return db.messagePin.deleteMany({ where: { conversationId } })
 }
+
+export async function countMessagePinsByConversation(conversationId: string): Promise<number> {
+  const db = getPrismaClient()
+  return db.messagePin.count({ where: { conversationId } })
+}
+
+export interface MessagePinWithContent {
+  id: string
+  conversationId: string
+  messageId: string
+  note: string | null
+  sortOrder: number
+  createdAt: string
+  messageContent: string | null
+}
+
+export async function listMessagePinsWithContent(conversationId: string): Promise<MessagePinWithContent[]> {
+  const db = getPrismaClient()
+  const records = await db.messagePin.findMany({
+    where: { conversationId },
+    include: {
+      message: {
+        include: {
+          parts: {
+            where: { type: 'text' },
+            select: { text: true },
+            take: 1,
+            orderBy: { partIndex: 'asc' },
+          },
+        },
+      },
+    },
+    orderBy: { sortOrder: 'asc' },
+  })
+
+  return records.map((record) => ({
+    id: record.id,
+    conversationId: record.conversationId,
+    messageId: record.messageId,
+    note: record.note,
+    sortOrder: record.sortOrder,
+    createdAt: record.createdAt,
+    messageContent: record.message.parts[0]?.text ?? null,
+  }))
+}

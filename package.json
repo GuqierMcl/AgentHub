@@ -13,6 +13,6 @@
     "shadcn": "^4.7.0"
   },
   "dependencies": {
-    "@fission-ai/openspec": "^1.4.0"
+    "@fission-ai/openspec": "^1.4.1"
   }
 }

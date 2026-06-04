@@ -324,3 +324,41 @@ export const conversationMessagesApi = {
     return `/api/runs/${encodeURIComponent(runId)}/events?${search}`
   },
 }
+
+// --- Message Pin API ---
+
+export type MessagePin = {
+  id: string
+  conversationId: string
+  messageId: string
+  messageContent?: string | null
+  note: string | null
+  sortOrder: number
+  createdAt: string
+}
+
+export const messagePinApi = {
+  list(conversationId: string): Promise<{ pins: MessagePin[] }> {
+    return request(`/api/conversations/${encodeURIComponent(conversationId)}/pins`)
+  },
+
+  create(conversationId: string, messageId: string, note?: string): Promise<MessagePin> {
+    return request(`/api/conversations/${encodeURIComponent(conversationId)}/pins`, {
+      method: "POST",
+      body: JSON.stringify({ messageId, ...(note ? { note } : {}) }),
+    })
+  },
+
+  delete(pinId: string): Promise<{ deleted: boolean }> {
+    return request(`/api/pins/${encodeURIComponent(pinId)}`, {
+      method: "DELETE",
+    })
+  },
+
+  update(pinId: string, data: { note?: string | null; sortOrder?: number }): Promise<MessagePin> {
+    return request(`/api/pins/${encodeURIComponent(pinId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    })
+  },
+}

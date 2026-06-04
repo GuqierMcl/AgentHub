@@ -6,6 +6,8 @@ import { ChatHeader } from "./ChatHeader"
 import { EmptyConversationState } from "./EmptyConversationState"
 import { QuestionAnswerComposer } from "./QuestionAnswerComposer"
 import { TimelineList } from "./MessageList"
+import { PinnedMessagesBar } from "./PinnedMessagesBar"
+import { usePinnedMessages } from "../hooks/use-pinned-messages"
 import type { SingletonTabId } from "@/store/tab-store"
 import type {
   Conversation,
@@ -47,6 +49,7 @@ export function ChatPanel({
   runStatus,
 }: ChatPanelProps) {
   const submitStatus = getSubmitStatus(runStatus, connectionStatus)
+  const { pins, pinnedMessageIds, togglePin } = usePinnedMessages(conversation.id)
   const pendingQuestions = useMemo(
     () => getPendingQuestionItems(conversation.timelineItems),
     [conversation.timelineItems]
@@ -79,10 +82,17 @@ export function ChatPanel({
           key={conversation.id}
         />
       ) : (
-        <TimelineList
-          agentProfiles={conversation.agents ?? []}
-          timelineItems={conversation.timelineItems}
-        />
+        <>
+          {pins.length > 0 ? (
+            <PinnedMessagesBar pins={pins} onUnpin={(pin) => togglePin(pin.messageId)} />
+          ) : null}
+          <TimelineList
+            agentProfiles={conversation.agents ?? []}
+            timelineItems={conversation.timelineItems}
+            pinnedMessageIds={pinnedMessageIds}
+            onPinToggle={togglePin}
+          />
+        </>
       )}
       {hasPendingQuestions ? (
         <QuestionAnswerComposer

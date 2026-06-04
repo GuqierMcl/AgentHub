@@ -90,6 +90,7 @@ export type WorkbenchTimelineReasoningBlock = {
 export type WorkbenchTimelineChatMessageItem = {
   kind: "chat_message"
   id: string
+  persistedMessageId?: string
   role: "user" | "assistant"
   runId?: string
   runtimeMessageId?: string

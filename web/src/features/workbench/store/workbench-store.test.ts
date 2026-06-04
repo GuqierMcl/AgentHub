@@ -146,6 +146,7 @@ describe("workbench persisted message replay", () => {
     const [item] = useWorkbenchStore.getState().getConversationState(conversationId).timelineItems
     expect(item).toMatchObject({
       kind: "chat_message",
+      persistedMessageId: "msg_assistant",
       text: "Done.",
       toolItems: [
         {

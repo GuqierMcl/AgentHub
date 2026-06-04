@@ -182,6 +182,16 @@ export const ExternalContextPacketSchema = z.object({
 }).strict()
 export type ExternalContextPacket = z.infer<typeof ExternalContextPacketSchema>
 
+export const PinnedMessageSchema = z.object({
+  id: z.string(),
+  messageId: z.string(),
+  content: z.string(),
+  note: z.string().nullable().optional(),
+  pinnedAt: z.string(),
+  sortOrder: z.number(),
+})
+export type PinnedMessage = z.infer<typeof PinnedMessageSchema>
+
 export const RunInputSchema = z.object({
   conversationId: z.string().min(1),
   mode: RuntimeConversationModeSchema,
@@ -196,6 +206,7 @@ export const RunInputSchema = z.object({
   conversationState: RunConversationStateSchema.optional(),
   externalSessionHints: z.array(ExternalSessionHintSchema).optional(),
   externalContext: z.array(ExternalContextPacketSchema).optional(),
+  pinnedMessages: z.array(PinnedMessageSchema).optional(),
 })
 export type RunInput = z.infer<typeof RunInputSchema>
 

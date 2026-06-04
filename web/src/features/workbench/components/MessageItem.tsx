@@ -4,6 +4,7 @@ import {
   CircleAlertIcon,
   ClockIcon,
   Loader2Icon,
+  PinIcon,
   XCircleIcon,
 } from "lucide-react"
 import { CopyIcon } from "@/components/ui/copy"
@@ -100,6 +101,9 @@ import { useAgentOverride } from "@/features/agents/hooks/use-avatar-overrides"
 type TimelineItemProps = {
   item: WorkbenchTimelineItem
   agentProfiles: ConversationAgentProfile[]
+  pinTargetMessageId?: string | null
+  isPinned?: boolean
+  onPinToggle?: (messageId: string) => void
 }
 
 type GenerationMetadata = NonNullable<WorkbenchTimelineChatMessageItem["generation"]>
@@ -173,10 +177,21 @@ function NestedBlockView({ block }: { block: NestedBlock }) {
 export const TimelineItem = memo(function TimelineItem({
   agentProfiles,
   item,
+  pinTargetMessageId,
+  isPinned,
+  onPinToggle,
 }: TimelineItemProps) {
   switch (item.kind) {
     case "chat_message":
-      return <ChatMessageItem agentProfiles={agentProfiles} item={item} />
+      return (
+        <ChatMessageItem
+          agentProfiles={agentProfiles}
+          isPinned={isPinned}
+          item={item}
+          onPinToggle={onPinToggle}
+          pinTargetMessageId={pinTargetMessageId}
+        />
+      )
     case "task":
       return <TaskTimelineItem item={item} />
     case "tool":
@@ -197,9 +212,15 @@ export const TimelineItem = memo(function TimelineItem({
 function ChatMessageItem({
   agentProfiles,
   item,
+  pinTargetMessageId,
+  isPinned,
+  onPinToggle,
 }: {
   item: WorkbenchTimelineChatMessageItem
   agentProfiles: ConversationAgentProfile[]
+  pinTargetMessageId?: string | null
+  isPinned?: boolean
+  onPinToggle?: (messageId: string) => void
 }) {
   const agent = resolveAgentProfile(agentProfiles, item.agentId)
   const versions = useMemo(
@@ -284,6 +305,15 @@ function ChatMessageItem({
                 <MessageAction label="Copy message" tooltip={copied ? "Copied!" : "Copy"} onClick={handleCopy}>
                   {copied ? <CheckIcon /> : <CopyIcon className="![&_svg]:size-4" size={16} />}
                 </MessageAction>
+                {onPinToggle && pinTargetMessageId ? (
+                  <MessageAction
+                    label={isPinned ? "Unpin message" : "Pin message"}
+                    tooltip={isPinned ? "取消置顶" : "置顶消息"}
+                    onClick={() => onPinToggle(pinTargetMessageId)}
+                  >
+                    <PinIcon className={isPinned ? "fill-current text-primary" : ""} />
+                  </MessageAction>
+                ) : null}
               </MessageActions>
             </div>
           </Message>
