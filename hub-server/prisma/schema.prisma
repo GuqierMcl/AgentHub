@@ -591,3 +591,16 @@ model PermissionRequest {
   @@index([firstEventSequence], map: "idx_permission_requests_first_event_sequence")
   @@map("permission_requests")
 }
+
+model RemoteServer {
+  id               String  @id @map("id")
+  hostname         String  @map("hostname")
+  host             String  @map("host")
+  username         String  @map("username")
+  port             Int     @default(22) @map("port")
+  identityFilePath String? @map("identity_file_path")
+  createdAt        String  @map("created_at")
+  updatedAt        String  @map("updated_at")
+
+  @@map("remote_servers")
+}
