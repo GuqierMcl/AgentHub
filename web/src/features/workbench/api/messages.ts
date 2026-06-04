@@ -49,6 +49,16 @@ export type PersistedArtifact = {
   currentVersion?: PersistedArtifactVersion | null
 }
 
+export type MessageReplySnapshot = {
+  messageId: string
+  role: "user" | "assistant"
+  senderType: string
+  senderId: string | null
+  agentId: string | null
+  createdAt: string
+  excerpt: string
+}
+
 export type DiffFileSummary = {
   path: string
   oldPath?: string
@@ -163,6 +173,7 @@ export type PersistedMessage = {
   agentId: string | null
   taskId: string | null
   groupId: string | null
+  parentMessageId: string | null
   status: "created" | "streaming" | "completed" | "failed" | "cancelled"
   finishReason: string | null
   firstEventSequence: number | null
@@ -244,6 +255,7 @@ export type QuestionAnswerBody = {
 
 export type SendConversationMessageOptions = {
   addressedAgentIds?: string[]
+  replyToMessageId?: string
 }
 
 type ErrorBody = {
@@ -330,6 +342,7 @@ export const conversationMessagesApi = {
     const body = {
       content,
       ...(addressedAgentIds.length ? { addressedAgentIds } : {}),
+      ...(options?.replyToMessageId ? { replyToMessageId: options.replyToMessageId } : {}),
     }
 
     return request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/send`, {

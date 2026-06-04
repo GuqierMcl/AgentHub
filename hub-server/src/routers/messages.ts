@@ -22,6 +22,7 @@ const messages = new Hono()
 const SendMessageBodySchema = z.object({
   content: z.string().trim().min(1),
   addressedAgentIds: z.array(z.string().trim().min(1)).optional().default([]),
+  replyToMessageId: z.string().trim().min(1).optional(),
 }).strict()
 
 const CreatePinBodySchema = z.object({
@@ -64,6 +65,7 @@ messages.post('/api/conversations/:conversationId/messages/send', async (c: Cont
   }
   const result = await service.sendMessage(conversationId, parsed.data.content, {
     addressedAgentIds: parsed.data.addressedAgentIds,
+    replyToMessageId: parsed.data.replyToMessageId,
   })
   return c.json(result, 201)
 })
@@ -129,7 +131,15 @@ messages.post('/api/conversations/:conversationId/pins', async (c: Context) => {
 
 messages.get('/api/conversations/:conversationId/pins', async (c: Context) => {
   const conversationId = c.req.param('conversationId')!
-  const pins = await listMessagePinsWithContent(conversationId)
+  const pins = (await listMessagePinsWithContent(conversationId)).map((pin) => ({
+    id: pin.id,
+    conversationId: pin.conversationId,
+    messageId: pin.messageId,
+    messageContent: pin.messageContent,
+    note: pin.note,
+    sortOrder: pin.sortOrder,
+    createdAt: pin.createdAt,
+  }))
   return c.json({ pins })
 })
 

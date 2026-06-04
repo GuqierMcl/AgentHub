@@ -96,6 +96,7 @@ AI SDK 文档把 `UIMessage` 定义为应用状态的事实来源，适合承载
 阶段 2 的持久化聊天链路已经开始使用这些实体：
 
 - `Message` 保存 user/assistant/system 消息记录；assistant message 额外记录 `runtimeMessageId`、`runtimeRunId`、`messageIndex`、`surface`、`taskId`、`groupId`、`firstEventSequence` 和 `lastEventSequence`。
+- IM 回复使用 `Message.parentMessageId` 记录直接父消息关系，并在回复消息的 `Message.metadataJson.replyTo` 中保存稳定快照（目标 message id、role/sender、agentId、createdAt、excerpt）。`metadataJson.replyTo` 是 UI 和模型上下文 replay 的稳定语义来源；`parentMessageId` 用于关系、导航和可选回查。回复快照创建后不随父消息变化，避免历史 replay 出现漂移。
 - `MessagePart(type="text")` 保存当前阶段可恢复的聊天文本；每个 part 额外记录 `partKey`、`entityType`、`entityId`、`runtimeEventId`、`firstEventSequence` 和 `lastEventSequence`。
 - `Run` 保存 HubServer 本地执行记录，`runtimeId` 关联 Agent Runtime run id，`planJson` 保存最近一次 `write_plan` 结果，`lastEventSequence` 作为本 run 的最新 raw event 消费序号，`lastProjectedSequence` 记录结构化投影已追平到的序号。
 - `RunEvent` 保存 Runtime 原始事件，`id` 等于 Runtime event id，`payloadJson` 永久保留 raw SSE 事实，`sequence` 是本地 Run 内递增序号，也是 raw replay 的 run 内顺序真相。

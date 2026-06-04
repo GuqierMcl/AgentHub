@@ -30,6 +30,7 @@
 - Chat 模块首次进入时不自动选中已有会话；`activeConversationId` 为空时右侧内容区渲染欢迎页，不挂载聊天面板和产物工作台。用户手动选择会话或创建新会话后，才渲染聊天区和产物工作台。
 - 已选中的空会话不显示空白消息区；当 conversation 没有 timeline item 且 Run 处于 idle 时，聊天区中部渲染轻量空状态，保留 header 与 composer。
 - 聊天模块的会话列表、会话详情、新建、重命名、置顶和归档已经接入 HubServer conversation API；列表卡片使用 `lastMessageContent` 显示最近一条文本消息，HubServer 返回前最多截取 50 个字符，前端保持单行 `truncate` 展示。会话列表由 HubServer 排序：置顶会话在最前，未置顶会话按 `lastMessageAt ?? createdAt desc` 排序，新建空会话会默认排在其他未置顶会话之前。消息发送与恢复当前走 HubServer 产品级 messages/runs API：Web 调用 `POST /api/conversations/:conversationId/messages/send`，再通过 `GET /api/conversations/:conversationId/messages` 获取最近窗口的 `timelineRuns` 产品 event replay 数据、active run snapshot、messages/runItems 和 latest plan。刷新页面后，聊天主 UI 通过重放产品 event envelopes 恢复，并用 `messages` 中的持久化 chat user/assistant 消息做兜底；完整 raw Runtime event 留在 HubServer `RunEvent.payloadJson`。
+- 消息回复 V1 为整条消息回复。Web 在消息 action 行提供“回复”，composer header 显示被回复消息的紧凑引用预览和取消按钮；提交时只向 HubServer 发送 `replyToMessageId`，不由浏览器生成持久化快照。hydrate/merge 持久化消息时，Web 从 `metadataJson.replyTo` 恢复 `replyTo` timeline 字段并在消息气泡顶部渲染引用块，因此刷新、分页或父消息不在当前窗口时仍能显示引用摘要。
 - 会话列表卡片的运行状态只来自 Web 已经打开过的 conversation 在 Zustand 中的本地 Run 状态：提交、排队、运行和等待审批时，卡片右上角显示 spinner，底部显示 `InfiniteLinearProgress`；未打开过的 conversation 不从列表 API 初始化运行状态。卡片时间显示在右侧 hover 操作按钮下方，避免与编辑、置顶、归档按钮重叠。
 - 聊天 header 使用 conversation detail 的成员关系和 runtime agents 查询结果渲染真实智能体头像组、会话标题、群聊/单聊 badge、参与智能体名称、成员数量、工作区标签和基础模型绑定提示；不得再依赖 workbench mock agent 数据。Header 不提供独立 pin 按钮；右侧使用 button group 提供产物工作台单例标签入口，点击后展开右侧工作台并打开对应标签页；面板折叠按钮保持独立。当前 Run 处于提交、排队、运行或等待审批时，header 底部使用 `InfiniteLinearProgress` 展示 indeterminate 进度线，不为 Run 状态单独保留一条额外状态栏。
 - 产物工作台包含全局单例“会话状态”标签页，内容随当前 active conversation 切换。`orchestrator.plan.created` 或 `tool.completed(toolName="write_plan")` 投影出的 Plan 保留为本地 timeline item，但不在聊天消息流渲染；当前 Plan 在“会话状态”标签页中使用 ai-elements `Queue` 展示。当前会话收到新的 Plan 或 Plan 更新事件时，Web 会通过 Zustand workspace focus request 自动展开右侧产物工作台并激活“会话状态”标签页；切换到已有历史 Plan 的会话不会仅因历史数据自动弹开工作台。
@@ -42,6 +43,7 @@
 - 当前智能体头像 V1 由前端共享 resolver 根据 agent id/origin 解析：系统预设使用图标库，外部智能体可使用静态资源，未知或用户自定义智能体使用 initials/hash 兜底；API 契约暂不包含头像字段。
 - 页面根容器填满视口，不产生 `body` 级滚动；模块内的列表、消息流、详情表单与产物内容各自在内部滚动。
 - 当同一 Web 应用运行在 Electrobun 桌面壳内时，`AppShell` 可以通过 Electrobun 注入的 `window.__electrobunWindowId` 与 `window.__electrobunWebviewId` 检测桌面运行时，并渲染自定义 `DesktopTitleBar`。普通浏览器不显示该标题栏，保持原 Web 布局。
+- 生产 Desktop 首版不通过 `views://` 或 `file://` 加载 Web。Desktop 主进程应启动 HubServer，并让 WebView 打开 HubServer 托管的 `http://127.0.0.1:<port>`；因此 Web 继续使用相对 API 路径 `/api/*` 与 `/api/events`，不引入 Desktop 专属 API base。
 - 桌面运行时由 `DesktopTitleBar` 承担 AgentHub 品牌展示；`AppNavigation` 不重复显示 Logo 与 `AgentHub` 标题。Windows 桌面壳应保留不透明、可调整大小的原生窗口，让窗口边缘缩放和圆角裁剪由系统处理；不要为 Web 外壳圆角启用透明宿主窗口，否则 resize 后的透明区域可能产生点击透传。普通浏览器不应用桌面外壳样式。
 - 桌面标题栏拖拽区域必须同时使用 Electrobun 识别的 `.electrobun-webkit-app-region-drag` / `.electrobun-webkit-app-region-no-drag` 类；按钮和其他交互区域必须标记为 no-drag。
 - 桌面标题栏只允许通过 Electrobun 最小 RPC 调用窗口控制能力（最小化、最大化/还原、关闭、查询窗口状态）。前端仍只能调用 `hub-server` 业务 API，不得通过桌面桥接访问文件、Shell、网络、Runtime 或 LLM 能力。

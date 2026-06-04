@@ -20,6 +20,29 @@ Hub Server 是 AgentHub 的控制面，负责业务状态管理和前端 API。�
 - 将 AI 执行请求转发给 `agent-runtime`。
 - 将 Runtime 事件转化为消息、Artifact、Diff、部署记录和 Run 状态等业务数据。
 
+## 生产分发与入口
+
+生产分发、CLI/Desktop 入口、扁平发行包、Web 静态资源托管和 Runtime Sidecar 启动约束见 `docs/architecture/PRODUCTION_DISTRIBUTION.md`。
+
+首版生产形态采用以下规则：
+
+- 发行包为扁平目录：`agenthub-cli(.exe)`、`hub-server(.exe)`、`agent-runtime(.exe)` 和 `public/` 位于同一级。
+- CLI 只作为生产 supervisor，负责启动 HubServer、等待 `/health`、打印或打开 `http://127.0.0.1:<port>`；CLI 不直接启动 Agent Runtime。
+- Desktop 主进程直接启动 HubServer，并让 WebView 打开 HubServer 托管的本地 URL；Desktop 不通过 CLI，也不使用 `views://` 或 `file://` 加载 Web。
+- HubServer 是浏览器和 Desktop WebView 的唯一后端入口，并在生产环境托管 Web `public/`。
+- 未提供 `--runtime-bin` 时，HubServer 保持开发模式行为，使用 `--runtime-url` 或默认 Runtime URL 连接已手动启动的 Agent Runtime。
+
+HubServer 生产入口应支持：
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `--runtime-bin` | string | Agent Runtime 二进制路径；提供时启用 Sidecar 自动启动。 |
+| `--public-dir` | string | Web dist 目录；提供且未禁用 Web 时启用静态文件托管。 |
+| `--no-web` | boolean | 禁用静态文件托管，作为未来扩展点；CLI/Desktop 首版不使用。 |
+| `--runtime-url` | string | 开发或调试时连接已运行 Runtime；生产 Sidecar 启动成功后由实际 Runtime URL 覆盖。 |
+
+生产入口必须显式调用 `Bun.serve()`，并在数据库初始化和 Runtime 就绪后再接收请求。
+
 ## Sidecar 管理
 
 HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 HubServer 的核心职责之一。
@@ -27,15 +50,20 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 ### 启动
 
 - HubServer 启动时，通过 `Bun.spawn` 或等价方式拉起 Agent Runtime 子进程。
-- 传入参数：`--port`、`--hub-callback`、`--workdir`、`--log-level` 等。
+- 传入参数：`--port`、`--hostname`、`--hub-callback`、`--workdir`、`--log-level` 等。
+- 监听地址默认固定为 `127.0.0.1`。
+- HubServer 预分配 Runtime 端口并传给 Runtime；若遇到端口占用，应重新分配并重试一次。
 - 启动后轮询 Agent Runtime 的 `/health` 端点，等待就绪信号。
+- Agent Runtime `/health` 只有在 Runtime 初始化完成后才应返回 `status = "ok"`。
 - 超时（默认 10 秒）未就绪则标记启动失败，上报错误。
+- 生产环境应为 HubServer 到 Runtime 的内部调用生成每次启动唯一 token，并通过请求头 `x-agenthub-runtime-token` 调用 Runtime `/runtime/*` API。
 
 ### 监控
 
 - HubServer 监听 Agent Runtime 子进程的 `exit` 事件。
 - 若 Agent Runtime 异常退出，HubServer 应自动重启（指数退避策略）。
 - 连续重启失败 3 次后，停止重试，标记为不可用。
+- RuntimeClient 必须使用当前 Runtime URL；如果 Sidecar 重启后端口变化，RuntimeClient 需要更新 base URL。
 
 ### 优雅关闭
 
@@ -47,6 +75,18 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 
 - 开发环境下，Agent Runtime 可手动独立启动（`cd agent-runtime && bun dev`）。
 - HubServer 应支持通过环境变量或配置跳过自动拉起 Sidecar 的逻辑，允许连接到已独立运行的 Agent Runtime。
+
+## Web 静态资源托管
+
+生产环境中，HubServer 托管构建后的 Web `public/`。静态资源托管属于 HubServer 启动装配层，不属于领域 router。
+
+规则：
+
+- API router 先注册，静态资源和 SPA fallback 后注册。
+- SPA fallback 不得吞掉未知 `/api/*` 请求；未知 API 应返回结构化 404，而不是 `index.html`。
+- `--no-web = false` 且 `--public-dir` 存在时启用托管。
+- CLI/Desktop 首版都通过 HubServer 托管 Web，因此前端可以继续使用相对路径 `/api/*` 和 `/api/events`。
+- 首版不要求把 Web assets 嵌入 HubServer 单 exe；`public/` 随发行包分发。
 
 ## 系统服务状态
 
@@ -79,8 +119,10 @@ HubServer 的职责：
 
 - 会话列表 API 返回最近一条消息的 `lastMessageContent`，内容来自 `lastMessageId` 对应消息 text parts，最多 50 个字符；列表 API 不承担 Run 运行状态初始化，卡片运行状态由 Web 已打开 conversation 的本地 Zustand 状态展示。
 - 创建 user `Message` 和 text `MessagePart`。
+- `POST /api/conversations/:conversationId/messages/send` 支持可选 `replyToMessageId`。HubServer 校验回复目标属于同一会话、是可见 chat user/assistant 消息，然后在新 user `Message` 上写入 `parentMessageId` 和 `metadataJson.replyTo` 快照；原始 text `MessagePart` 仍只保存用户正文。
 - 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
 - 从持久化 messages 组装 Runtime `history` 和 `RunInput`。
+- 回复引用进入模型上下文时不扩展 Agent Runtime 协议。HubServer 使用统一 formatter 从持久化消息派生模型可见文本：当前触发消息、Runtime history、OpenCode external context bootstrap/delta、以及 pinned message context 都按同一规则把 `metadataJson.replyTo` 拼成引用块。这样内部智能体和外部智能体 replay 都能看到相同的回复语义，即使父消息不在当前 history/delta 窗口内。
 - 创建 direct 外部智能体 Run 前，按 provider、agentId、conversation、workspace 与 `conversation-visible` scope 查询可复用外部 Session，并通过 Runtime `externalSessionHints` 注入。
 - 后台消费 Runtime SSE，将 Runtime events 以 per-run micro-batch 持久化为 `RunEvent.id = event.id`、本地递增 `sequence`；raw payload 永久保留，未知事件也不丢。
 - 持久化成功后才向 run-level SSE 订阅者发布 envelope；默认 batch 延迟约 50ms，terminal event 强制 flush。
@@ -202,6 +244,17 @@ Hub Server 在启动时必须完成数据库初始化：
 - Prisma 7 的 SQLite migrate/status 流程要求目标数据库文件已存在；开发迁移由 `dev:migrate` / `prisma.config.ts` 在 CLI 执行前确保文件存在，`initDatabase()` 仅在 Prisma Client 连接前确保文件存在。
 - 当前阶段迁移由开发脚本在 Hub Server 进程启动前完成，`initDatabase()` 不承担迁移职责。
 - Prisma 迁移应幂等，重复执行不应导致数据丢失或冲突。
+
+### 生产二进制约束
+
+生产构建后的 `hub-server(.exe)` 不得在运行时依赖 `bunx`、Prisma CLI 或源码生成步骤。
+
+生产规则：
+
+- Prisma Client 必须在构建期生成，并随 HubServer 构建产物可用。
+- 生产环境下 `initDatabase()` 不得执行 `bunx --bun prisma generate`。
+- 生产迁移策略必须在实现前明确；可以使用随包分发的 SQL migrations 和轻量 runner，但应用运行时代码不得拼接业务 DDL。
+- Native/WASM 依赖（Prisma runtime、SQLite/libsql adapter、`node-pty`、`sharp` 等）必须纳入发行包 smoke test。
 
 ### 数据目录
 

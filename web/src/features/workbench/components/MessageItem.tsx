@@ -5,6 +5,7 @@ import {
   ClockIcon,
   Loader2Icon,
   PinIcon,
+  ReplyIcon,
   XCircleIcon,
 } from "lucide-react"
 import { CopyIcon } from "@/components/ui/copy"
@@ -83,6 +84,7 @@ import type { ToolUIPart } from "ai"
 
 import type {
   ConversationAgentProfile,
+  MessageReplySnapshot,
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
   WorkbenchTimelinePermissionItem,
@@ -104,6 +106,7 @@ type TimelineItemProps = {
   pinTargetMessageId?: string | null
   isPinned?: boolean
   onPinToggle?: (messageId: string) => void
+  onReply?: (target: MessageReplySnapshot) => void
 }
 
 type GenerationMetadata = NonNullable<WorkbenchTimelineChatMessageItem["generation"]>
@@ -114,6 +117,8 @@ type NestedBlock =
   | { kind: "permission"; order: number; key: string; item: WorkbenchTimelinePermissionItem }
   | { kind: "question"; order: number; key: string; item: WorkbenchTimelineQuestionItem }
   | { kind: "tool"; order: number; key: string; item: WorkbenchTimelineToolItem }
+
+const REPLY_EXCERPT_LENGTH = 300
 
 // Merge a message/task's nested blocks into a single list ordered by their
 // projection `order`, so reasoning and tool calls render in the real sequence
@@ -180,6 +185,7 @@ export const TimelineItem = memo(function TimelineItem({
   pinTargetMessageId,
   isPinned,
   onPinToggle,
+  onReply,
 }: TimelineItemProps) {
   switch (item.kind) {
     case "chat_message":
@@ -189,6 +195,7 @@ export const TimelineItem = memo(function TimelineItem({
           isPinned={isPinned}
           item={item}
           onPinToggle={onPinToggle}
+          onReply={onReply}
           pinTargetMessageId={pinTargetMessageId}
         />
       )
@@ -215,12 +222,14 @@ function ChatMessageItem({
   pinTargetMessageId,
   isPinned,
   onPinToggle,
+  onReply,
 }: {
   item: WorkbenchTimelineChatMessageItem
   agentProfiles: ConversationAgentProfile[]
   pinTargetMessageId?: string | null
   isPinned?: boolean
   onPinToggle?: (messageId: string) => void
+  onReply?: (target: MessageReplySnapshot) => void
 }) {
   const agent = resolveAgentProfile(agentProfiles, item.agentId)
   const versions = useMemo(
@@ -240,6 +249,10 @@ function ChatMessageItem({
       setTimeout(() => setCopied(false), 2000)
     })
   }, [versions])
+
+  const handleReply = useCallback((messageId: string, content: string) => {
+    onReply?.(createReplyTargetFromTimelineItem(item, agent, messageId, content))
+  }, [agent, item, onReply])
 
   return (
     <MessageBranch defaultBranch={0}>
@@ -275,6 +288,7 @@ function ChatMessageItem({
               ))}
 
               <MessageContent className="max-w-[min(680px,100%)]">
+                {item.replyTo ? <ReplyPreview replyTo={item.replyTo} /> : null}
                 <MessageResponse>
                   {getChatDisplayContent(item, version.content)}
                 </MessageResponse>
@@ -305,6 +319,15 @@ function ChatMessageItem({
                 <MessageAction label="Copy message" tooltip={copied ? "Copied!" : "Copy"} onClick={handleCopy}>
                   {copied ? <CheckIcon /> : <CopyIcon className="![&_svg]:size-4" size={16} />}
                 </MessageAction>
+                {onReply && pinTargetMessageId ? (
+                  <MessageAction
+                    label="Reply message"
+                    tooltip="回复"
+                    onClick={() => handleReply(pinTargetMessageId, version.content)}
+                  >
+                    <ReplyIcon />
+                  </MessageAction>
+                ) : null}
                 {onPinToggle && pinTargetMessageId ? (
                   <MessageAction
                     label={isPinned ? "Unpin message" : "Pin message"}
@@ -328,6 +351,52 @@ function ChatMessageItem({
       ) : null}
     </MessageBranch>
   )
+}
+
+function ReplyPreview({ replyTo }: { replyTo: MessageReplySnapshot }) {
+  return (
+    <div className="mb-2 max-w-full border-border/70 border-l-2 pl-3 text-xs">
+      <div className="truncate font-medium text-muted-foreground">
+        回复 {formatReplyTargetLabel(replyTo)}
+      </div>
+      <div className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-muted-foreground/90">
+        {replyTo.excerpt}
+      </div>
+    </div>
+  )
+}
+
+function createReplyTargetFromTimelineItem(
+  item: WorkbenchTimelineChatMessageItem,
+  agent: ConversationAgentProfile,
+  messageId: string,
+  content: string
+): MessageReplySnapshot {
+  const isUser = item.role === "user"
+  const agentId = isUser ? null : item.agentId ?? agent.id
+  return {
+    messageId,
+    role: item.role,
+    senderType: isUser ? "user" : "agent",
+    senderId: isUser ? "user" : agentId,
+    agentId,
+    createdAt: "",
+    excerpt: truncateReplyExcerpt(content),
+  }
+}
+
+function truncateReplyExcerpt(content: string): string {
+  const compact = content.replace(/\s+/g, " ").trim()
+  if (!compact) return "消息"
+  if (compact.length <= REPLY_EXCERPT_LENGTH) return compact
+  return `${compact.slice(0, REPLY_EXCERPT_LENGTH)}...`
+}
+
+function formatReplyTargetLabel(replyTo: MessageReplySnapshot): string {
+  const sender = replyTo.agentId ?? replyTo.senderId
+  return sender && sender !== replyTo.role
+    ? `${replyTo.role} ${sender}`
+    : replyTo.role
 }
 
 function MessageModelLabel({

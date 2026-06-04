@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeDatabase, initDatabase } from '../lib/db'
 import { prepareTestDatabase } from '../test-utils/database'
+import { createConversationAgent } from '../repositories/conversation-agent.repo'
 import { createConversation } from '../repositories/conversation.repo'
 import { createMessage } from '../repositories/message.repo'
 import { createMessagePart } from '../repositories/message-part.repo'
+import { createMessagePin } from '../repositories/message-pin.repo'
 import { createRun } from '../repositories/run.repo'
 import { createArtifact, listArtifacts, updateArtifact } from '../repositories/artifact.repo'
 import { createArtifactVersion, listArtifactVersionsByArtifact } from '../repositories/artifact-version.repo'
@@ -104,6 +106,9 @@ describe('buildOpenCodeExternalContextPacket', () => {
     status?: string
     agentId?: string | null
     senderType?: string
+    senderId?: string | null
+    parentMessageId?: string | null
+    metadataJson?: Record<string, unknown>
     createdAt?: string
   }) {
     return {
@@ -116,17 +121,17 @@ describe('buildOpenCodeExternalContextPacket', () => {
       surface: input.surface ?? 'chat',
       role: input.role,
       senderType: input.senderType ?? (input.role === 'user' ? 'user' : 'agent'),
-      senderId: input.role === 'user' ? 'user' : input.agentId ?? null,
+      senderId: input.senderId ?? (input.role === 'user' ? 'user' : input.agentId ?? null),
       agentId: input.agentId ?? null,
       taskId: null,
       groupId: null,
-      parentMessageId: null,
+      parentMessageId: input.parentMessageId ?? null,
       regeneratedFromId: null,
       status: input.status ?? 'completed',
       finishReason: null,
       firstEventSequence: null,
       lastEventSequence: null,
-      metadataJson: '{}',
+      metadataJson: JSON.stringify(input.metadataJson ?? {}),
       uiMessageJson: null,
       createdAt: input.createdAt ?? '2026-06-02T00:00:00.000Z',
       updatedAt: input.createdAt ?? '2026-06-02T00:00:00.000Z',
@@ -238,6 +243,216 @@ describe('buildOpenCodeExternalContextPacket', () => {
     expect(packet?.handoffSummaries[0]?.summary).toBe('New handoff.')
     expect(packet?.cursorCandidate?.throughMessageId).toBe('msg_new_agent')
     expect(packet?.cursorCandidate?.includedHandoffSessionIds).toEqual(['eas_new'])
+  })
+
+  it('keeps reply context in delta messages even when the parent message is not included', () => {
+    const packet = buildOpenCodeExternalContextPacket({
+      agentId: 'opencode',
+      sessionMetadata: {
+        contextBridge: {
+          lastSyncedMessageId: 'msg_parent',
+          lastSyncedAt: '2026-06-02T00:02:00.000Z',
+        },
+      },
+      historyMessages: [
+        messageRecord({
+          id: 'msg_parent',
+          role: 'assistant',
+          agentId: 'coder',
+          content: 'The original answer that is already synced.',
+          createdAt: '2026-06-02T00:01:00.000Z',
+        }),
+        messageRecord({
+          id: 'msg_reply',
+          role: 'user',
+          content: 'Can you expand that part?',
+          parentMessageId: 'msg_parent',
+          createdAt: '2026-06-02T00:03:00.000Z',
+          metadataJson: {
+            replyTo: {
+              messageId: 'msg_parent',
+              role: 'assistant',
+              senderType: 'agent',
+              senderId: 'coder',
+              agentId: 'coder',
+              createdAt: '2026-06-02T00:01:00.000Z',
+              excerpt: 'The original answer that is already synced.',
+            },
+          },
+        }),
+      ],
+      delegatedSessions: [],
+    })
+
+    expect(packet?.mode).toBe('delta')
+    expect(packet?.messages.map((message) => message.id)).toEqual(['msg_reply'])
+    expect(packet?.messages[0]?.content).toContain('[Replying to assistant coder (msg_parent)]')
+    expect(packet?.messages[0]?.content).toContain('> The original answer that is already synced.')
+    expect(packet?.messages[0]?.content).toContain('Can you expand that part?')
+  })
+})
+
+describe('reply message context', () => {
+  function createRuntimeCapture() {
+    const calls: Array<{ method: string; path: string; body: any }> = []
+    const runtimeClient = {
+      forward: async (method: string, path: string, body: unknown) => {
+        calls.push({ method, path, body })
+        return {
+          status: 201,
+          data: {
+            runId: `runtime_reply_${randomUUID()}`,
+            status: 'queued',
+            eventsUrl: '/runtime/runs/runtime_reply/events',
+          },
+        }
+      },
+    }
+    const service = new RunPersistenceService(
+      runtimeClient as never,
+      { publish: () => {} } as never,
+    )
+    ;(service as any).startRuntimeConsumer = () => {}
+    return { calls, service }
+  }
+
+  async function createSingleAgentConversation(title: string) {
+    const conversation = await createConversation({
+      title,
+      mode: 'single',
+    })
+    await createConversationAgent({
+      conversationId: conversation.id,
+      agentId: 'coder',
+      sortOrder: 0,
+    })
+    return conversation
+  }
+
+  async function createTextMessage(input: {
+    conversationId: string
+    role: 'user' | 'assistant' | 'system'
+    text: string
+    agentId?: string | null
+    parentMessageId?: string | null
+    metadataJson?: Record<string, unknown>
+  }) {
+    const message = await createMessage({
+      conversationId: input.conversationId,
+      surface: 'chat',
+      role: input.role,
+      senderType: input.role === 'user' ? 'user' : input.role === 'assistant' ? 'agent' : 'system',
+      senderId: input.role === 'user' ? 'user' : input.agentId ?? null,
+      agentId: input.agentId ?? null,
+      parentMessageId: input.parentMessageId ?? null,
+      status: 'completed',
+      metadataJson: input.metadataJson,
+      completedAt: '2026-06-04T08:00:00.000Z',
+    })
+    await createMessagePart({
+      messageId: message.id,
+      conversationId: input.conversationId,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: input.text,
+    })
+    return message
+  }
+
+  it('persists a reply snapshot while sending reply context to the runtime input', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Reply send')
+    const parent = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'assistant',
+      agentId: 'coder',
+      text: 'Use the shared formatter for all replay paths.',
+    })
+
+    const result = await service.sendMessage(conversation.id, 'Can you expand that?', {
+      replyToMessageId: parent.id,
+    })
+
+    const runtimeInput = calls[0]?.body
+    expect(runtimeInput.userMessage.content).toContain(`[Replying to assistant coder (${parent.id})]`)
+    expect(runtimeInput.userMessage.content).toContain('> Use the shared formatter for all replay paths.')
+    expect(runtimeInput.userMessage.content).toContain('Can you expand that?')
+
+    const replyMessage = result.messages.find((message) => message.parentMessageId === parent.id)
+    expect(replyMessage?.metadataJson).toMatchObject({
+      replyTo: {
+        messageId: parent.id,
+        role: 'assistant',
+        senderType: 'agent',
+        senderId: 'coder',
+        agentId: 'coder',
+        excerpt: 'Use the shared formatter for all replay paths.',
+      },
+    })
+    expect(replyMessage?.parts[0]?.text).toBe('Can you expand that?')
+  })
+
+  it('formats pinned reply messages before truncating pinned context', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Pinned reply')
+    const parent = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'assistant',
+      agentId: 'coder',
+      text: 'The pinned parent answer.',
+    })
+    const pinnedReply = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      text: 'This reply should keep its context when pinned.',
+      parentMessageId: parent.id,
+      metadataJson: {
+        replyTo: {
+          messageId: parent.id,
+          role: 'assistant',
+          senderType: 'agent',
+          senderId: 'coder',
+          agentId: 'coder',
+          createdAt: parent.createdAt,
+          excerpt: 'The pinned parent answer.',
+        },
+      },
+    })
+    await createMessagePin({
+      conversationId: conversation.id,
+      messageId: pinnedReply.id,
+      sortOrder: 0,
+    })
+
+    await service.sendMessage(conversation.id, 'Continue from pinned context.')
+
+    const pinned = calls[0]?.body.pinnedMessages[0]
+    expect(pinned?.messageId).toBe(pinnedReply.id)
+    const pinnedContent = String(pinned?.content)
+    expect(pinnedContent).toContain(`[Replying to assistant coder (${parent.id})]`)
+    expect(pinnedContent).toContain('> The pinned parent answer.')
+  })
+
+  it('rejects reply targets from other conversations', async () => {
+    const { service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Reply owner')
+    const otherConversation = await createSingleAgentConversation('Reply other')
+    const otherMessage = await createTextMessage({
+      conversationId: otherConversation.id,
+      role: 'assistant',
+      agentId: 'coder',
+      text: 'Other conversation message.',
+    })
+
+    await expect(
+      service.sendMessage(conversation.id, 'Do not allow this.', {
+        replyToMessageId: otherMessage.id,
+      }),
+    ).rejects.toMatchObject({
+      code: 'REPLY_TARGET_INVALID',
+    })
   })
 })
 

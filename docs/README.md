@@ -14,6 +14,8 @@ AI 智能体在每一轮开发前，必须先查阅与任务相关的文档。�
 | `architecture/WEB.md` | 前端架构与 UI 职责 |
 | `architecture/HUB_SERVER.md` | API Server / Hub Server 架构 |
 | `architecture/AGENT_RUNTIME.md` | Agent Runtime、编排、适配器、权限与沙箱 |
+| `architecture/PROVIDER_MODEL_DESIGN.md` | Agent Runtime Provider/Model 配置管理、models.dev 目录、缓存和用户配置设计 |
+| `architecture/PRODUCTION_DISTRIBUTION.md` | 生产构建、扁平发行包、CLI/Desktop 入口、HubServer Web 托管与 Runtime Sidecar 约束 |
 | `architecture/AGENT_RUNTIME_BACKEND.md` | Agent Runtime 的 Workspace Backend、文件系统沙箱与外部目录审批设计 |
 | `architecture/AGENT_ARCHITECTURE.md` | 主智能体、子智能体、Orchestrator、委派关系与外部智能体接入设计 |
 | `architecture/AGENT_TOOLS.md` | 工具体系、`run_task`、工具可见性、审批与事件流设计 |

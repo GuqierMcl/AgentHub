@@ -6,6 +6,7 @@ import type {
   ActiveRunSnapshot,
   ConversationTimelineRunSnapshot,
   HubRunEventEnvelope,
+  MessageReplySnapshot,
   PersistedArtifact,
   PersistedMessage,
 } from "../api/messages"
@@ -644,6 +645,7 @@ function toTimelineItemFromPersistedMessage(
   }
 
   const runtimeMessageId = getPersistedRuntimeMessageId(message)
+  const replyTo = getPersistedReplySnapshot(message)
   const item: WorkbenchTimelineChatMessageItem = {
     kind: "chat_message",
     id: getPersistedTimelineMessageId(message, runtimeMessageId),
@@ -656,6 +658,7 @@ function toTimelineItemFromPersistedMessage(
     text,
     time: formatPersistedMessageTime(message.createdAt),
     status: toTimelineStatus(message.status, message.role),
+    ...(replyTo ? { replyTo } : {}),
     ...(artifacts.length ? { artifacts } : {}),
     ...(toolItems.length ? { toolItems } : {}),
   }
@@ -733,6 +736,7 @@ function mergePersistedChatMessage(
     status: nextStatus,
     generation: current.generation ?? persisted.generation,
     externalModel: current.externalModel ?? persisted.externalModel,
+    replyTo: current.replyTo ?? persisted.replyTo,
     artifacts: mergeArtifacts(current.artifacts, persisted.artifacts),
     toolItems: mergeToolItems(current.toolItems, persisted.toolItems),
   }
@@ -761,6 +765,31 @@ function findMatchingChatMessageIndex(
 function isPersistedChatMessage(message: PersistedMessage): boolean {
   return message.surface === "chat" &&
     (message.role === "user" || message.role === "assistant")
+}
+
+function getPersistedReplySnapshot(
+  message: PersistedMessage
+): MessageReplySnapshot | undefined {
+  if (!message.parentMessageId) return undefined
+  const replyTo = getRecord(message.metadataJson.replyTo)
+  if (!replyTo) return undefined
+
+  const messageId = getString(replyTo.messageId)
+  const role = getString(replyTo.role)
+  const excerpt = getString(replyTo.excerpt)
+  if (!messageId || (role !== "user" && role !== "assistant") || !excerpt) {
+    return undefined
+  }
+
+  return {
+    messageId,
+    role,
+    senderType: getString(replyTo.senderType) ?? role,
+    senderId: getNullableString(replyTo.senderId),
+    agentId: getNullableString(replyTo.agentId),
+    createdAt: getString(replyTo.createdAt) ?? "",
+    excerpt,
+  }
 }
 
 function sortPersistedChatMessages(messages: PersistedMessage[]): PersistedMessage[] {
@@ -1118,6 +1147,7 @@ function isSameChatMessage(
     left.status === right.status &&
     left.generation === right.generation &&
     left.externalModel === right.externalModel &&
+    left.replyTo === right.replyTo &&
     left.toolItems === right.toolItems &&
     left.artifacts === right.artifacts
 }
@@ -1132,6 +1162,10 @@ function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value
     : undefined
+}
+
+function getNullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null
 }
 
 function getNumber(value: unknown): number | undefined {

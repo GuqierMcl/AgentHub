@@ -1,14 +1,19 @@
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { randomUUID } from 'node:crypto'
-import { AppError, notFound } from '../lib/errors'
-import type { RuntimeClient } from '../lib/runtime'
-import { logger } from '../lib/logger'
-import type { RunStatus, MessageSurface, PermissionType, MetadataJson } from '../lib/types'
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { randomUUID } from "node:crypto";
+import { AppError, notFound } from "../lib/errors";
+import type { RuntimeClient } from "../lib/runtime";
+import { logger } from "../lib/logger";
+import type {
+  RunStatus,
+  MessageSurface,
+  PermissionType,
+  MetadataJson,
+} from "../lib/types";
 import {
   findConversationWithAgents,
   updateConversation,
   type ConversationDetailOutput,
-} from '../repositories/conversation.repo'
+} from "../repositories/conversation.repo";
 import {
   createMessage,
   findMessageWithParts,
@@ -17,17 +22,17 @@ import {
   listMessagesWithParts,
   updateMessage,
   type MessageOutput,
-} from '../repositories/message.repo'
+} from "../repositories/message.repo";
 import {
   createMessagePart,
   findMessagePartByMessageAndKey,
   listMessagePartsByMessage,
   updateMessagePart,
-} from '../repositories/message-part.repo'
+} from "../repositories/message-part.repo";
 import {
   listMessagePinsWithContent,
   type MessagePinWithContent,
-} from '../repositories/message-pin.repo'
+} from "../repositories/message-pin.repo";
 import {
   createRun,
   findRunById,
@@ -35,7 +40,7 @@ import {
   listRuns,
   updateRun,
   type RunOutput,
-} from '../repositories/run.repo'
+} from "../repositories/run.repo";
 import {
   createRunEvents,
   findRunEventsByIds,
@@ -43,7 +48,7 @@ import {
   listRunEventsByRun,
   listRunEventsByRunAfterSequence,
   type RunEventOutput,
-} from '../repositories/run-event.repo'
+} from "../repositories/run-event.repo";
 import {
   createRunToolCall,
   findRunToolCallByRunAndToolCall,
@@ -51,7 +56,7 @@ import {
   listRunToolCallsByRun,
   updateRunToolCall,
   type RunToolCallOutput,
-} from '../repositories/run-tool-call.repo'
+} from "../repositories/run-tool-call.repo";
 import {
   createRunReasoningBlock,
   findRunReasoningBlockByRunAndReasoning,
@@ -59,7 +64,7 @@ import {
   listRunReasoningBlocksByRun,
   updateRunReasoningBlock,
   type RunReasoningBlockOutput,
-} from '../repositories/run-reasoning-block.repo'
+} from "../repositories/run-reasoning-block.repo";
 import {
   createRunTaskGroup,
   findRunTaskGroupByRunAndGroupId,
@@ -67,7 +72,7 @@ import {
   listRunTaskGroupsByRun,
   updateRunTaskGroup,
   type RunTaskGroupOutput,
-} from '../repositories/run-task-group.repo'
+} from "../repositories/run-task-group.repo";
 import {
   createRunTask,
   findRunTaskByRunAndTaskId,
@@ -75,7 +80,7 @@ import {
   listRunTasksByRun,
   updateRunTask,
   type RunTaskOutput,
-} from '../repositories/run-task.repo'
+} from "../repositories/run-task.repo";
 import {
   createRunPlan,
   findLatestRunPlanByRun,
@@ -84,14 +89,14 @@ import {
   listRunPlansByConversation,
   updateRunPlan,
   type RunPlanOutput,
-} from '../repositories/run-plan.repo'
+} from "../repositories/run-plan.repo";
 import {
   createRunPlanTask,
   findRunPlanTaskByPlanAndTaskId,
   listRunPlanTasksByConversation,
   updateRunPlanTask,
   type RunPlanTaskOutput,
-} from '../repositories/run-plan-task.repo'
+} from "../repositories/run-plan-task.repo";
 import {
   createPermissionRequest,
   findPermissionRequestByRunAndRuntimeRequestId,
@@ -99,7 +104,7 @@ import {
   listPermissionRequestsByConversation,
   updatePermissionRequest,
   type PermissionRequestOutput,
-} from '../repositories/permission-request.repo'
+} from "../repositories/permission-request.repo";
 import {
   findExternalAgentSessionHint,
   listExternalAgentSessions,
@@ -107,7 +112,7 @@ import {
   upsertExternalAgentSession,
   type ExternalAgentSessionOutput,
   type ExternalSessionScope,
-} from '../repositories/external-agent-session.repo'
+} from "../repositories/external-agent-session.repo";
 import {
   createArtifact,
   findArtifactByRunAndSourceEvent,
@@ -115,8 +120,8 @@ import {
   listArtifacts,
   listArtifactsByMessageIds,
   updateArtifact,
-} from '../repositories/artifact.repo'
-import { createArtifactVersion } from '../repositories/artifact-version.repo'
+} from "../repositories/artifact.repo";
+import { createArtifactVersion } from "../repositories/artifact-version.repo";
 import {
   createWorkspaceChangeSet,
   createWorkspaceChangeSetFile,
@@ -126,486 +131,501 @@ import {
   type WorkspaceChangeAttributionKind,
   type WorkspaceChangeSetFileOutput,
   type WorkspaceChangeSetWithFilesOutput,
-} from '../repositories/workspace-change-set.repo'
-import type { HubEventBus } from './hub-event-bus.service'
-import { loadSettings } from '../routers/settings'
+} from "../repositories/workspace-change-set.repo";
+import type { HubEventBus } from "./hub-event-bus.service";
+import { loadSettings } from "../routers/settings";
 
 export type RuntimeRunEvent = {
-  id: string
-  runId: string
-  runtimeRunId?: string | null
-  type: string
-  timestamp: string
-  agentId?: string
-  parentAgentId?: string
-  parentTaskId?: string
-  taskId?: string
-  groupId?: string
-  toolCallId?: string
-  toolName?: string
-  messageId?: string
-  messageIndex?: number
-  data?: unknown
-}
+  id: string;
+  runId: string;
+  runtimeRunId?: string | null;
+  type: string;
+  timestamp: string;
+  agentId?: string;
+  parentAgentId?: string;
+  parentTaskId?: string;
+  taskId?: string;
+  groupId?: string;
+  toolCallId?: string;
+  toolName?: string;
+  messageId?: string;
+  messageIndex?: number;
+  data?: unknown;
+};
 
 type RuntimeMessage = {
-  id?: string
-  role: 'user' | 'assistant' | 'system'
-  agentId?: string
-  content: string
-}
+  id?: string;
+  role: "user" | "assistant" | "system";
+  agentId?: string;
+  content: string;
+};
 
 type RuntimeExternalSessionHint = {
-  provider: 'opencode' | 'claude-code' | 'codex'
-  agentId: string
-  scope: ExternalSessionScope
-  providerSessionId: string
-  conversationId?: string
-  workspaceId?: string
-  parentProviderSessionId?: string
-  taskId?: string
-  runId?: string
-  handoffSummary?: string
-}
+  provider: "opencode" | "claude-code" | "codex";
+  agentId: string;
+  scope: ExternalSessionScope;
+  providerSessionId: string;
+  conversationId?: string;
+  workspaceId?: string;
+  parentProviderSessionId?: string;
+  taskId?: string;
+  runId?: string;
+  handoffSummary?: string;
+};
 
 type RuntimeExternalContextMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  agentId?: string
-  senderLabel?: string
-  createdAt?: string
-  content: string
-}
+  id: string;
+  role: "user" | "assistant";
+  agentId?: string;
+  senderLabel?: string;
+  createdAt?: string;
+  content: string;
+};
 
 type RuntimeExternalContextHandoffSummary = {
-  sessionId?: string
-  providerSessionId: string
-  taskId?: string
-  runId?: string
-  summary: string
-}
+  sessionId?: string;
+  providerSessionId: string;
+  taskId?: string;
+  runId?: string;
+  summary: string;
+};
 
 type RuntimeExternalContextPacket = {
-  provider: 'opencode' | 'claude-code' | 'codex'
-  agentId: string
-  scope: ExternalSessionScope
-  mode: 'delta' | 'bootstrap'
-  messages: RuntimeExternalContextMessage[]
-  handoffSummaries: RuntimeExternalContextHandoffSummary[]
+  provider: "opencode" | "claude-code" | "codex";
+  agentId: string;
+  scope: ExternalSessionScope;
+  mode: "delta" | "bootstrap";
+  messages: RuntimeExternalContextMessage[];
+  handoffSummaries: RuntimeExternalContextHandoffSummary[];
   cursorCandidate?: {
-    throughMessageId?: string
-    throughMessageCreatedAt?: string
-    includedMessageIds: string[]
-    includedHandoffSessionIds: string[]
-  }
+    throughMessageId?: string;
+    throughMessageCreatedAt?: string;
+    includedMessageIds: string[];
+    includedHandoffSessionIds: string[];
+  };
   omitted?: {
-    messageCount?: number
-    characterCount?: number
-    handoffSummaryCount?: number
-  }
-}
+    messageCount?: number;
+    characterCount?: number;
+    handoffSummaryCount?: number;
+  };
+};
 
 type RuntimeRunInput = {
-  conversationId: string
-  mode: 'single' | 'group'
-  participantAgentIds: string[]
-  addressedAgentIds: string[]
-  userMessage: RuntimeMessage & { role: 'user' }
-  history: RuntimeMessage[]
+  conversationId: string;
+  mode: "single" | "group";
+  participantAgentIds: string[];
+  addressedAgentIds: string[];
+  userMessage: RuntimeMessage & { role: "user" };
+  history: RuntimeMessage[];
   conversationState: {
-    messageCountBeforeRun: number
-    titleSource: 'default' | 'auto' | 'manual'
-    titleSeedUserMessage?: string
-  }
+    messageCountBeforeRun: number;
+    titleSource: "default" | "auto" | "manual";
+    titleSeedUserMessage?: string;
+  };
   workspace?: {
-    workspaceId: string
-    backendType: 'local'
-    rootPath: string
-  }
+    workspaceId: string;
+    backendType: "local";
+    rootPath: string;
+  };
   diagnostics: {
-    includeModelStream: boolean
-    includeReasoning: boolean
-    includeRawModelChunks: boolean
-  }
-  externalSessionHints?: RuntimeExternalSessionHint[]
-  externalContext?: RuntimeExternalContextPacket[]
+    includeModelStream: boolean;
+    includeReasoning: boolean;
+    includeRawModelChunks: boolean;
+  };
+  externalSessionHints?: RuntimeExternalSessionHint[];
+  externalContext?: RuntimeExternalContextPacket[];
   pinnedMessages?: Array<{
-    id: string
-    messageId: string
-    content: string
-    note: string | null
-    pinnedAt: string
-    sortOrder: number
-  }>
-}
+    id: string;
+    messageId: string;
+    content: string;
+    note: string | null;
+    pinnedAt: string;
+    sortOrder: number;
+  }>;
+};
 
 type RuntimeRunCreateResponse = {
-  runId: string
-  status: RunStatus
-  entryAgentIds: string[]
-  entryReason: string
-  eventsUrl: string
-}
+  runId: string;
+  status: RunStatus;
+  entryAgentIds: string[];
+  entryReason: string;
+  eventsUrl: string;
+};
 
 export type SendMessageOptions = {
-  addressedAgentIds?: string[]
-}
+  addressedAgentIds?: string[];
+  replyToMessageId?: string;
+};
+
+type MessageReplySnapshot = {
+  messageId: string;
+  role: "user" | "assistant";
+  senderType: string;
+  senderId: string | null;
+  agentId: string | null;
+  createdAt: string;
+  excerpt: string;
+};
 
 export type PersistedMessagePart = {
-  id: string
-  messageId: string
-  conversationId: string
-  runId: string | null
-  runtimeEventId: string | null
-  partKey: string
-  partIndex: number
-  entityType: string | null
-  entityId: string | null
-  type: string
-  state: string
-  text: string | null
-  payloadJson: Record<string, unknown>
-  firstEventSequence: number | null
-  lastEventSequence: number | null
-  createdAt: string
-  updatedAt: string
-}
+  id: string;
+  messageId: string;
+  conversationId: string;
+  runId: string | null;
+  runtimeEventId: string | null;
+  partKey: string;
+  partIndex: number;
+  entityType: string | null;
+  entityId: string | null;
+  type: string;
+  state: string;
+  text: string | null;
+  payloadJson: Record<string, unknown>;
+  firstEventSequence: number | null;
+  lastEventSequence: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type PersistedArtifactVersion = {
-  id: string
-  artifactId: string
-  version: number
-  source: string
-  language: string | null
-  content: string
-  summary: string | null
-  diffJson: Record<string, unknown> | null
-  createdByAgentId: string | null
-  createdAt: string
-}
+  id: string;
+  artifactId: string;
+  version: number;
+  source: string;
+  language: string | null;
+  content: string;
+  summary: string | null;
+  diffJson: Record<string, unknown> | null;
+  createdByAgentId: string | null;
+  createdAt: string;
+};
 
 export type PersistedArtifact = {
-  id: string
-  conversationId: string
-  runId: string | null
-  messageId: string | null
-  createdByAgentId: string | null
-  type: string
-  title: string
-  status: string
-  currentVersionId: string | null
-  metadataJson: Record<string, unknown>
-  createdAt: string
-  updatedAt: string
-  currentVersion?: PersistedArtifactVersion | null
-}
+  id: string;
+  conversationId: string;
+  runId: string | null;
+  messageId: string | null;
+  createdByAgentId: string | null;
+  type: string;
+  title: string;
+  status: string;
+  currentVersionId: string | null;
+  metadataJson: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  currentVersion?: PersistedArtifactVersion | null;
+};
 
 export type PersistedMessage = MessageOutput & {
-  parts: PersistedMessagePart[]
-  artifacts?: PersistedArtifact[]
-}
+  parts: PersistedMessagePart[];
+  artifacts?: PersistedArtifact[];
+};
 
 export type ActiveRunSnapshot = {
-  id: string
-  runtimeId: string | null
-  status: RunStatus
-  lastEventSequence: number
-  plan: Record<string, unknown> | null
-}
+  id: string;
+  runtimeId: string | null;
+  status: RunStatus;
+  lastEventSequence: number;
+  plan: Record<string, unknown> | null;
+};
 
 export type RunPlanSnapshot = {
-  runId: string
-  status: RunStatus
-  plan: Record<string, unknown>
-  updatedAt: string
-  completedAt: string | null
-}
+  runId: string;
+  status: RunStatus;
+  plan: Record<string, unknown>;
+  updatedAt: string;
+  completedAt: string | null;
+};
 
 export type ConversationRunItemsSnapshot = {
-  toolCalls: RunToolCallOutput[]
-  reasoningBlocks: RunReasoningBlockOutput[]
-  taskGroups: RunTaskGroupOutput[]
-  tasks: RunTaskOutput[]
-  plans: RunPlanOutput[]
-  planTasks: RunPlanTaskOutput[]
-  permissionRequests: PermissionRequestOutput[]
-}
+  toolCalls: RunToolCallOutput[];
+  reasoningBlocks: RunReasoningBlockOutput[];
+  taskGroups: RunTaskGroupOutput[];
+  tasks: RunTaskOutput[];
+  plans: RunPlanOutput[];
+  planTasks: RunPlanTaskOutput[];
+  permissionRequests: PermissionRequestOutput[];
+};
 
 export type ConversationTimelineRunSnapshot = {
   run: {
-    id: string
-    runtimeId: string | null
-    status: RunStatus
-    triggerMessageId: string
-    createdAt: string
-    lastEventSequence: number
-  }
-  triggerMessage: PersistedMessage | null
-  events: HubRunEventEnvelope[]
-}
+    id: string;
+    runtimeId: string | null;
+    status: RunStatus;
+    triggerMessageId: string;
+    createdAt: string;
+    lastEventSequence: number;
+  };
+  triggerMessage: PersistedMessage | null;
+  events: HubRunEventEnvelope[];
+};
 
 export type ConversationMessagesResponse = {
-  messages: PersistedMessage[]
-  activeRun: ActiveRunSnapshot | null
-  latestPlan: RunPlanSnapshot | null
-  runItems: ConversationRunItemsSnapshot
-  timelineRuns: ConversationTimelineRunSnapshot[]
-}
+  messages: PersistedMessage[];
+  activeRun: ActiveRunSnapshot | null;
+  latestPlan: RunPlanSnapshot | null;
+  runItems: ConversationRunItemsSnapshot;
+  timelineRuns: ConversationTimelineRunSnapshot[];
+};
 
 export type DiffFileSummary = {
-  path: string
-  oldPath?: string
-  status: string
-  additions?: number
-  deletions?: number
-  binary?: boolean
-  truncated?: boolean
-  attribution?: WorkspaceChangeAttribution
-}
+  path: string;
+  oldPath?: string;
+  status: string;
+  additions?: number;
+  deletions?: number;
+  binary?: boolean;
+  truncated?: boolean;
+  attribution?: WorkspaceChangeAttribution;
+};
 
 export type WorkspaceChangeAttribution = {
-  kind: WorkspaceChangeAttributionKind
-  confidence: WorkspaceChangeAttributionConfidence
-  agentId?: string
-  taskId?: string
-  toolCallId?: string
-  toolName?: string
-  messageId?: string
-  candidateToolCallIds?: string[]
-  candidateAgentIds?: string[]
-  candidateTaskIds?: string[]
-}
+  kind: WorkspaceChangeAttributionKind;
+  confidence: WorkspaceChangeAttributionConfidence;
+  agentId?: string;
+  taskId?: string;
+  toolCallId?: string;
+  toolName?: string;
+  messageId?: string;
+  candidateToolCallIds?: string[];
+  candidateAgentIds?: string[];
+  candidateTaskIds?: string[];
+};
 
 export type WorkspaceChangeSetFileDetail = {
-  id: string
-  path: string
-  oldPath?: string
-  statusBefore?: string
-  statusAfter?: string
-  origin?: string
-  additions?: number
-  deletions?: number
-  binary?: boolean
-  truncated?: boolean
-  attribution: WorkspaceChangeAttribution
-}
+  id: string;
+  path: string;
+  oldPath?: string;
+  statusBefore?: string;
+  statusAfter?: string;
+  origin?: string;
+  additions?: number;
+  deletions?: number;
+  binary?: boolean;
+  truncated?: boolean;
+  attribution: WorkspaceChangeAttribution;
+};
 
 export type WorkspaceChangeSetDetail = {
-  id: string
-  attribution: WorkspaceChangeAttribution
-  files: WorkspaceChangeSetFileDetail[]
-  summary: string | null
-  status: string
-  baselineDirty: boolean
-  runOnlyReliable: boolean
-}
+  id: string;
+  attribution: WorkspaceChangeAttribution;
+  files: WorkspaceChangeSetFileDetail[];
+  summary: string | null;
+  status: string;
+  baselineDirty: boolean;
+  runOnlyReliable: boolean;
+};
 
 export type DiffArtifactOperation = {
-  type: 'revert'
-  status: 'applied'
-  revertsArtifactId: string
-  revertsChangeSetId?: string
-  patchDirection: 'reverse-applied'
-}
+  type: "revert";
+  status: "applied";
+  revertsArtifactId: string;
+  revertsChangeSetId?: string;
+  patchDirection: "reverse-applied";
+};
 
 export type DiffArtifactDetail = {
-  summary: Record<string, unknown>
-  changedFiles: DiffFileSummary[]
-  patchText: string
-  patchTruncated: boolean
-  baselineDirty: boolean
-  runOnlyReliable: boolean
-  limitations: string[]
-  changeSet?: WorkspaceChangeSetDetail
-  operation?: DiffArtifactOperation
-}
+  summary: Record<string, unknown>;
+  changedFiles: DiffFileSummary[];
+  patchText: string;
+  patchTruncated: boolean;
+  baselineDirty: boolean;
+  runOnlyReliable: boolean;
+  limitations: string[];
+  changeSet?: WorkspaceChangeSetDetail;
+  operation?: DiffArtifactOperation;
+};
 
 export type ArtifactDetailResponse = {
-  artifact: PersistedArtifact
-  currentVersion: PersistedArtifactVersion | null
-  diff?: DiffArtifactDetail
-}
+  artifact: PersistedArtifact;
+  currentVersion: PersistedArtifactVersion | null;
+  diff?: DiffArtifactDetail;
+};
 
 export type ArtifactRevertPreviewResponse = {
-  status: 'available' | 'blocked'
-  canApply: boolean
-  files: Array<Record<string, unknown>>
-  warnings: string[]
-  blockedReason?: Record<string, unknown>
+  status: "available" | "blocked";
+  canApply: boolean;
+  files: Array<Record<string, unknown>>;
+  warnings: string[];
+  blockedReason?: Record<string, unknown>;
   source: {
-    artifactId: string
-    changeSetId?: string
-    runId: string
-    patchDirection: 'reverse-applied'
-  }
-}
+    artifactId: string;
+    changeSetId?: string;
+    runId: string;
+    patchDirection: "reverse-applied";
+  };
+};
 
 export type ArtifactRevertApplyResponse = {
-  status: 'applied' | 'already_applied' | 'blocked' | 'failed'
-  message: string
-  artifact?: PersistedArtifact
-  currentVersion?: PersistedArtifactVersion | null
-  diff?: DiffArtifactDetail
-  changeSet?: WorkspaceChangeSetDetail
-  preview?: ArtifactRevertPreviewResponse
-  blockedReason?: Record<string, unknown>
-  error?: Record<string, unknown>
-}
+  status: "applied" | "already_applied" | "blocked" | "failed";
+  message: string;
+  artifact?: PersistedArtifact;
+  currentVersion?: PersistedArtifactVersion | null;
+  diff?: DiffArtifactDetail;
+  changeSet?: WorkspaceChangeSetDetail;
+  preview?: ArtifactRevertPreviewResponse;
+  blockedReason?: Record<string, unknown>;
+  error?: Record<string, unknown>;
+};
 
 type ArtifactRevertTarget = {
-  artifact: PersistedArtifact
-  currentVersion: PersistedArtifactVersion
-  run: RunOutput
-  changeSet: WorkspaceChangeSetWithFilesOutput | null
-  workspaceDiff: Record<string, unknown>
+  artifact: PersistedArtifact;
+  currentVersion: PersistedArtifactVersion;
+  run: RunOutput;
+  changeSet: WorkspaceChangeSetWithFilesOutput | null;
+  workspaceDiff: Record<string, unknown>;
   request: {
     workspace: {
-      workspaceId: string
-      backendType: 'local'
-      rootPath: string
-    }
+      workspaceId: string;
+      backendType: "local";
+      rootPath: string;
+    };
     source: {
-      artifactId: string
-      changeSetId?: string
-      runId: string
-      patchText: string
-      patchTruncated: boolean
-      baselineDirty: boolean
-      runOnlyReliable: boolean
-      changedFiles: WorkspaceChangedFileProjection[]
-    }
-  }
-}
+      artifactId: string;
+      changeSetId?: string;
+      runId: string;
+      patchText: string;
+      patchTruncated: boolean;
+      baselineDirty: boolean;
+      runOnlyReliable: boolean;
+      changedFiles: WorkspaceChangedFileProjection[];
+    };
+  };
+};
 
 export type HubRunEventEnvelope = {
-  sequence: number
-  event: RuntimeRunEvent
-}
+  sequence: number;
+  event: RuntimeRunEvent;
+};
 
-type RunListener = (envelope: HubRunEventEnvelope) => void
+type RunListener = (envelope: HubRunEventEnvelope) => void;
 
 type SequencedRuntimeEvent = {
-  event: RuntimeRunEvent
-  sequence: number
-}
+  event: RuntimeRunEvent;
+  sequence: number;
+};
 
 type RuntimeEventPersistenceState = {
-  run: RunOutput
-  nextSequence: number
-  seenEventIds: Set<string>
-}
+  run: RunOutput;
+  nextSequence: number;
+  seenEventIds: Set<string>;
+};
 
 type RawBatchFlushResult = {
-  envelopes: HubRunEventEnvelope[]
-  sequencedEvents: SequencedRuntimeEvent[]
-}
+  envelopes: HubRunEventEnvelope[];
+  sequencedEvents: SequencedRuntimeEvent[];
+};
 
 type RuntimeEventBatcherOptions<T> = {
-  flushIntervalMs: number
-  maxBatchSize: number
-  maxBufferedItems: number
-  flush: (items: T[]) => Promise<void>
-}
+  flushIntervalMs: number;
+  maxBatchSize: number;
+  maxBufferedItems: number;
+  flush: (items: T[]) => Promise<void>;
+};
 
 export class RuntimeEventBatcher<T> {
-  private buffer: T[] = []
-  private timer: ReturnType<typeof setTimeout> | null = null
-  private flushPromise: Promise<void> | null = null
-  private flushError: unknown = null
+  private buffer: T[] = [];
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private flushPromise: Promise<void> | null = null;
+  private flushError: unknown = null;
 
   constructor(private options: RuntimeEventBatcherOptions<T>) {}
 
   async enqueue(item: T, opts?: { forceFlush?: boolean }): Promise<void> {
     if (this.flushError) {
-      throw this.flushError
+      throw this.flushError;
     }
 
-    this.buffer.push(item)
+    this.buffer.push(item);
 
     if (opts?.forceFlush || this.buffer.length >= this.options.maxBatchSize) {
-      await this.flush()
-      return
+      await this.flush();
+      return;
     }
 
     if (this.buffer.length >= this.options.maxBufferedItems) {
-      await this.flush()
-      return
+      await this.flush();
+      return;
     }
 
     if (!this.timer) {
       this.timer = setTimeout(() => {
         void this.flush().catch((error) => {
-          this.flushError = error
-        })
-      }, this.options.flushIntervalMs)
+          this.flushError = error;
+        });
+      }, this.options.flushIntervalMs);
     }
   }
 
   async flush(): Promise<void> {
     if (this.flushError) {
-      throw this.flushError
+      throw this.flushError;
     }
 
     if (this.flushPromise) {
-      await this.flushPromise
+      await this.flushPromise;
     }
 
     if (this.flushError) {
-      throw this.flushError
+      throw this.flushError;
     }
 
     if (!this.buffer.length) {
-      this.clearTimer()
-      return
+      this.clearTimer();
+      return;
     }
 
-    const items = this.buffer
-    this.buffer = []
-    this.clearTimer()
+    const items = this.buffer;
+    this.buffer = [];
+    this.clearTimer();
 
-    this.flushPromise = this.options.flush(items)
+    this.flushPromise = this.options
+      .flush(items)
       .catch((error) => {
-        this.flushError = error
-        throw error
+        this.flushError = error;
+        throw error;
       })
       .finally(() => {
-        this.flushPromise = null
-      })
+        this.flushPromise = null;
+      });
 
-    await this.flushPromise
+    await this.flushPromise;
   }
 
   async close(): Promise<void> {
-    this.clearTimer()
-    await this.flush()
+    this.clearTimer();
+    await this.flush();
   }
 
   private clearTimer(): void {
-    if (!this.timer) return
-    clearTimeout(this.timer)
-    this.timer = null
+    if (!this.timer) return;
+    clearTimeout(this.timer);
+    this.timer = null;
   }
 }
 
-const RAW_EVENT_FLUSH_INTERVAL_MS = 50
-const RAW_EVENT_MAX_BATCH_SIZE = 50
-const RAW_EVENT_MAX_BUFFERED_ITEMS = 500
-const PROJECTION_FLUSH_INTERVAL_MS = 150
-const PROJECTION_MAX_BATCH_SIZE = 100
-const PROJECTION_MAX_BUFFERED_ITEMS = 500
-const RUNTIME_EVENT_STREAM_MAX_RETRIES = 2
-const RUNTIME_EVENT_STREAM_RETRY_DELAY_MS = 250
-const BASH_OUTPUT_UI_PREVIEW_CHARS = 12_000
-const OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGES = 50
-const OPENCODE_EXTERNAL_CONTEXT_MAX_CHARS = 12_000
-const OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS = 4_000
-const OPENCODE_EXTERNAL_CONTEXT_MAX_HANDOFFS = 5
-const runPersistenceLogger = logger.child({ module: 'run-persistence' })
+const RAW_EVENT_FLUSH_INTERVAL_MS = 50;
+const RAW_EVENT_MAX_BATCH_SIZE = 50;
+const RAW_EVENT_MAX_BUFFERED_ITEMS = 500;
+const PROJECTION_FLUSH_INTERVAL_MS = 150;
+const PROJECTION_MAX_BATCH_SIZE = 100;
+const PROJECTION_MAX_BUFFERED_ITEMS = 500;
+const RUNTIME_EVENT_STREAM_MAX_RETRIES = 2;
+const RUNTIME_EVENT_STREAM_RETRY_DELAY_MS = 250;
+const BASH_OUTPUT_UI_PREVIEW_CHARS = 12_000;
+const OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGES = 50;
+const OPENCODE_EXTERNAL_CONTEXT_MAX_CHARS = 12_000;
+const OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS = 4_000;
+const OPENCODE_EXTERNAL_CONTEXT_MAX_HANDOFFS = 5;
+const runPersistenceLogger = logger.child({ module: "run-persistence" });
 
 export class RunPersistenceService {
-  private consumers = new Map<string, AbortController>()
-  private listeners = new Map<string, Set<RunListener>>()
-  private projectionBatchers = new Map<string, RuntimeEventBatcher<SequencedRuntimeEvent>>()
+  private consumers = new Map<string, AbortController>();
+  private listeners = new Map<string, Set<RunListener>>();
+  private projectionBatchers = new Map<
+    string,
+    RuntimeEventBatcher<SequencedRuntimeEvent>
+  >();
 
   constructor(
     private runtimeClient: RuntimeClient,
@@ -617,230 +637,297 @@ export class RunPersistenceService {
     content: string,
     options: SendMessageOptions = {},
   ): Promise<ConversationMessagesResponse> {
-    const trimmed = content.trim()
+    const trimmed = content.trim();
     if (!trimmed) {
-      throw new AppError(400 as ContentfulStatusCode, 'MESSAGE_EMPTY', 'Message content is empty')
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "MESSAGE_EMPTY",
+        "Message content is empty",
+      );
     }
 
-    const conversation = await findConversationWithAgents(conversationId)
+    const conversation = await findConversationWithAgents(conversationId);
     if (!conversation) {
-      throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+      throw notFound("CONVERSATION_NOT_FOUND", "会话不存在");
     }
     const addressedAgentIds = resolveAddressedAgentIds(
       conversation,
       options.addressedAgentIds,
-    )
-    const isOpenCodeRun = resolveDirectExternalAgentId(conversation, addressedAgentIds) === 'opencode'
+    );
+    const isOpenCodeRun =
+      resolveDirectExternalAgentId(conversation, addressedAgentIds) ===
+      "opencode";
     if (isOpenCodeRun) {
-      runPersistenceLogger.info({
-        externalProvider: 'opencode',
-        conversationId,
-        mode: conversation.mode,
-        participantAgentIds: conversation.agents.map((agent) => agent.agentId),
-        addressedAgentIds,
-        contentLength: trimmed.length,
-      }, 'OpenCode Hub send request accepted')
+      runPersistenceLogger.info(
+        {
+          externalProvider: "opencode",
+          conversationId,
+          mode: conversation.mode,
+          participantAgentIds: conversation.agents.map(
+            (agent) => agent.agentId,
+          ),
+          addressedAgentIds,
+          contentLength: trimmed.length,
+        },
+        "OpenCode Hub send request accepted",
+      );
     }
-    await this.ensureConversationProjectionCaughtUp(conversationId)
+    await this.ensureConversationProjectionCaughtUp(conversationId);
 
-    const existingActiveRun = await this.findActiveRun(conversationId)
+    const existingActiveRun = await this.findActiveRun(conversationId);
     if (existingActiveRun) {
-      throw new AppError(409 as ContentfulStatusCode, 'RUN_ALREADY_ACTIVE', '当前会话已有正在运行的回复')
+      throw new AppError(
+        409 as ContentfulStatusCode,
+        "RUN_ALREADY_ACTIVE",
+        "当前会话已有正在运行的回复",
+      );
     }
+
+    const replySnapshot = await resolveReplySnapshot(
+      conversationId,
+      options.replyToMessageId,
+    );
+    const runtimeUserContent = formatContentWithReplyContext(
+      trimmed,
+      replySnapshot,
+    );
 
     const historyMessages = (
-      await listMessagesWithParts(conversationId, { limit: 100, order: 'desc' })
-    ).reverse()
-    const history = projectMessagesToRuntimeHistory(historyMessages)
+      await listMessagesWithParts(conversationId, { limit: 100, order: "desc" })
+    ).reverse();
+    const history = projectMessagesToRuntimeHistory(historyMessages);
 
     // Load pinned messages for system prompt injection
-    const pinnedRecords = await listMessagePinsWithContent(conversationId)
-    const pinnedMessages = pinnedRecords
-      .filter((pin) => pin.messageContent != null)
-      .map((pin) => ({
-        id: pin.id,
-        messageId: pin.messageId,
-        content: truncatePinContent(pin.messageContent!),
-        note: pin.note,
-        pinnedAt: pin.createdAt,
-        sortOrder: pin.sortOrder,
-      }))
+    const pinnedRecords = await listMessagePinsWithContent(conversationId);
+    const pinnedMessages = pinnedRecords.flatMap((pin) => {
+      const formattedContent = formatPinnedMessageContentForModel(pin);
+      if (!formattedContent) return [];
+      return [
+        {
+          id: pin.id,
+          messageId: pin.messageId,
+          content: truncatePinContent(formattedContent),
+          note: pin.note,
+          pinnedAt: pin.createdAt,
+          sortOrder: pin.sortOrder,
+        },
+      ];
+    });
 
     const userMessage = await createMessage({
       conversationId,
-      surface: 'chat',
-      role: 'user',
-      senderType: 'user',
-      senderId: 'user',
-      status: 'completed',
+      surface: "chat",
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      parentMessageId: replySnapshot?.messageId ?? null,
+      status: "completed",
       firstEventSequence: 0,
       lastEventSequence: 0,
+      metadataJson: replySnapshot ? { replyTo: replySnapshot } : undefined,
       completedAt: new Date().toISOString(),
-    })
+    });
     const userMessagePart = await createMessagePart({
       messageId: userMessage.id,
       conversationId,
-      partKey: 'text',
+      partKey: "text",
       partIndex: 0,
-      type: 'text',
-      state: 'done',
+      type: "text",
+      state: "done",
       text: trimmed,
       firstEventSequence: 0,
       lastEventSequence: 0,
-    })
+    });
     if (isOpenCodeRun) {
-      runPersistenceLogger.info({
-        externalProvider: 'opencode',
-        conversationId,
-        userMessageId: userMessage.id,
-        userMessagePartId: userMessagePart.id,
-        contentLength: trimmed.length,
-      }, 'OpenCode user message persisted')
+      runPersistenceLogger.info(
+        {
+          externalProvider: "opencode",
+          conversationId,
+          userMessageId: userMessage.id,
+          userMessagePartId: userMessagePart.id,
+          contentLength: trimmed.length,
+        },
+        "OpenCode user message persisted",
+      );
     }
     await updateConversation(conversationId, {
       lastMessageId: userMessage.id,
       lastMessageAt: userMessage.createdAt,
-    })
+    });
     this.publishConversationLastMessageUpdated({
       conversationId,
       runId: null,
       lastMessageId: userMessage.id,
       lastMessageAt: userMessage.createdAt,
       lastMessageContent: trimmed,
-    })
+    });
 
     const run = await createRun({
       conversationId,
       triggerMessageId: userMessage.id,
-      mode: conversation.mode as 'single' | 'group',
-      status: 'queued',
+      mode: conversation.mode as "single" | "group",
+      status: "queued",
       orchestratorAgentId: conversation.orchestratorAgentId ?? undefined,
-    })
-    this.publishRunStatusChanged(run, 'queued')
-    await updateMessage(userMessage.id, { runId: run.id })
-    await updateMessagePart(userMessagePart.id, { runId: run.id })
+    });
+    this.publishRunStatusChanged(run, "queued");
+    await updateMessage(userMessage.id, { runId: run.id });
+    await updateMessagePart(userMessagePart.id, { runId: run.id });
     if (isOpenCodeRun) {
-      runPersistenceLogger.info({
-        externalProvider: 'opencode',
-        conversationId,
-        runId: run.id,
-        triggerMessageId: userMessage.id,
-      }, 'OpenCode local run created')
+      runPersistenceLogger.info(
+        {
+          externalProvider: "opencode",
+          conversationId,
+          runId: run.id,
+          triggerMessageId: userMessage.id,
+        },
+        "OpenCode local run created",
+      );
     }
 
     const directOpenCodeSession = await resolveDirectOpenCodeSession(
       conversation,
       addressedAgentIds,
-    )
+    );
     const externalSessionHints = directOpenCodeSession
       ? [toRuntimeExternalSessionHint(directOpenCodeSession)]
-      : []
+      : [];
     const externalContext = await resolveExternalContextPackets(
       conversation,
       addressedAgentIds,
       historyMessages,
       directOpenCodeSession,
-    )
+    );
     if (isOpenCodeRun) {
-      runPersistenceLogger.info({
-        externalProvider: 'opencode',
-        conversationId,
-        runId: run.id,
-        externalSessionHintCount: externalSessionHints.length,
-        providerSessionIds: externalSessionHints.map((hint) => hint.providerSessionId),
-        externalContextPacketCount: externalContext.length,
-        externalContextMessageCount: externalContext.reduce((sum, packet) => sum + packet.messages.length, 0),
-        externalContextHandoffCount: externalContext.reduce((sum, packet) => sum + packet.handoffSummaries.length, 0),
-        externalContextModes: externalContext.map((packet) => packet.mode),
-      }, 'OpenCode external session hints resolved')
+      runPersistenceLogger.info(
+        {
+          externalProvider: "opencode",
+          conversationId,
+          runId: run.id,
+          externalSessionHintCount: externalSessionHints.length,
+          providerSessionIds: externalSessionHints.map(
+            (hint) => hint.providerSessionId,
+          ),
+          externalContextPacketCount: externalContext.length,
+          externalContextMessageCount: externalContext.reduce(
+            (sum, packet) => sum + packet.messages.length,
+            0,
+          ),
+          externalContextHandoffCount: externalContext.reduce(
+            (sum, packet) => sum + packet.handoffSummaries.length,
+            0,
+          ),
+          externalContextModes: externalContext.map((packet) => packet.mode),
+        },
+        "OpenCode external session hints resolved",
+      );
     }
     const input = buildRuntimeRunInput(
       conversation,
-      trimmed,
+      runtimeUserContent,
       history,
       addressedAgentIds,
       externalSessionHints,
       externalContext,
       userMessage.id,
       pinnedMessages,
-    )
-    await updateRun(run.id, { inputJson: input })
+    );
+    await updateRun(run.id, { inputJson: input });
 
-    const response = await this.runtimeClient.forward('POST', '/runtime/runs', input, { raw: true })
+    const response = await this.runtimeClient.forward(
+      "POST",
+      "/runtime/runs",
+      input,
+      { raw: true },
+    );
     if (response.status < 200 || response.status >= 300) {
       await updateRun(run.id, {
-        status: 'failed',
+        status: "failed",
         errorJson: normalizeRuntimeError(response.data),
         completedAt: new Date().toISOString(),
-      })
-      this.publishRunStatusChanged(run, 'failed')
-      this.publishTerminalRunStatus(run, 'failed')
+      });
+      this.publishRunStatusChanged(run, "failed");
+      this.publishTerminalRunStatus(run, "failed");
       if (isOpenCodeRun) {
-        runPersistenceLogger.error({
-          externalProvider: 'opencode',
-          conversationId,
-          runId: run.id,
-          status: response.status,
-          error: normalizeRuntimeError(response.data),
-        }, 'OpenCode Runtime run creation failed')
+        runPersistenceLogger.error(
+          {
+            externalProvider: "opencode",
+            conversationId,
+            runId: run.id,
+            status: response.status,
+            error: normalizeRuntimeError(response.data),
+          },
+          "OpenCode Runtime run creation failed",
+        );
       }
-      throw new AppError(response.status as ContentfulStatusCode, 'RUNTIME_RUN_CREATE_FAILED', getRuntimeErrorMessage(response.data))
+      throw new AppError(
+        response.status as ContentfulStatusCode,
+        "RUNTIME_RUN_CREATE_FAILED",
+        getRuntimeErrorMessage(response.data),
+      );
     }
 
-    const runtimeRun = response.data as RuntimeRunCreateResponse
+    const runtimeRun = response.data as RuntimeRunCreateResponse;
     await updateRun(run.id, {
       runtimeId: runtimeRun.runId,
       status: runtimeRun.status,
-    })
+    });
     this.publishRunStatusChanged(
       { ...run, runtimeId: runtimeRun.runId },
       runtimeRun.status,
-    )
+    );
     if (isOpenCodeRun) {
-      runPersistenceLogger.info({
-        externalProvider: 'opencode',
-        conversationId,
-        runId: run.id,
-        runtimeRunId: runtimeRun.runId,
-        status: runtimeRun.status,
-        eventsUrl: runtimeRun.eventsUrl,
-      }, 'OpenCode Runtime run created')
+      runPersistenceLogger.info(
+        {
+          externalProvider: "opencode",
+          conversationId,
+          runId: run.id,
+          runtimeRunId: runtimeRun.runId,
+          status: runtimeRun.status,
+          eventsUrl: runtimeRun.eventsUrl,
+        },
+        "OpenCode Runtime run created",
+      );
     }
-    this.startRuntimeConsumer(run.id, runtimeRun.runId)
+    this.startRuntimeConsumer(run.id, runtimeRun.runId);
 
-    return this.listConversationMessages(conversationId)
+    return this.listConversationMessages(conversationId);
   }
 
   async listConversationMessages(
     conversationId: string,
     opts?: { limit?: number; offset?: number },
   ): Promise<ConversationMessagesResponse> {
-    const conversation = await findConversationWithAgents(conversationId)
+    const conversation = await findConversationWithAgents(conversationId);
     if (!conversation) {
-      throw notFound('CONVERSATION_NOT_FOUND', '会话不存在')
+      throw notFound("CONVERSATION_NOT_FOUND", "会话不存在");
     }
-    await this.ensureConversationProjectionCaughtUp(conversationId)
+    await this.ensureConversationProjectionCaughtUp(conversationId);
 
     const page = {
       limit: opts?.limit ?? 50,
       offset: opts?.offset ?? 0,
-    }
+    };
     const messages = await listMessagesWithParts(conversationId, {
       ...page,
-      order: 'desc',
-    })
-    const activeRun = await this.findActiveRun(conversationId)
+      order: "desc",
+    });
+    const activeRun = await this.findActiveRun(conversationId);
     const activeRunSnapshot = activeRun
       ? await this.toActiveRunSnapshot(activeRun)
-      : null
-    const latestPlanRun = await findLatestRunPlanByConversation(conversationId)
-    const latestPlanRunRecord = latestPlanRun ? await findRunById(latestPlanRun.runId) : null
-    const runItems = await this.listConversationRunItems(conversationId)
-    const timelineRuns = await this.listConversationTimelineRuns(conversationId, page)
+      : null;
+    const latestPlanRun = await findLatestRunPlanByConversation(conversationId);
+    const latestPlanRunRecord = latestPlanRun
+      ? await findRunById(latestPlanRun.runId)
+      : null;
+    const runItems = await this.listConversationRunItems(conversationId);
+    const timelineRuns = await this.listConversationTimelineRuns(
+      conversationId,
+      page,
+    );
 
     const persistedMessages = await attachArtifactsToMessages(
       messages.map(toPersistedMessage).sort(comparePersistedMessages),
-    )
+    );
 
     return {
       messages: persistedMessages,
@@ -848,123 +935,139 @@ export class RunPersistenceService {
       latestPlan: latestPlanRun
         ? {
             runId: latestPlanRun.runId,
-            status: latestPlanRunRecord?.status ?? 'completed',
+            status: latestPlanRunRecord?.status ?? "completed",
             plan: planToRecord(latestPlanRun),
             updatedAt: latestPlanRun.updatedAt,
-            completedAt: latestPlanRunRecord?.completedAt ?? latestPlanRun.completedAt,
+            completedAt:
+              latestPlanRunRecord?.completedAt ?? latestPlanRun.completedAt,
           }
         : null,
       runItems,
       timelineRuns,
-    }
+    };
   }
 
   async getArtifactDetail(
     conversationId: string,
     artifactId: string,
   ): Promise<ArtifactDetailResponse> {
-    const artifactRecord = await findArtifactWithVersions(artifactId) as
+    const artifactRecord = (await findArtifactWithVersions(artifactId)) as
       | (PersistedArtifact & { versions?: PersistedArtifactVersion[] })
-      | null
+      | null;
 
     if (!artifactRecord || artifactRecord.conversationId !== conversationId) {
-      throw notFound('ARTIFACT_NOT_FOUND', '产物不存在')
+      throw notFound("ARTIFACT_NOT_FOUND", "产物不存在");
     }
 
-    const currentVersion = resolveCurrentArtifactVersion(artifactRecord)
+    const currentVersion = resolveCurrentArtifactVersion(artifactRecord);
     const { versions: _versions, ...artifact } = {
       ...artifactRecord,
       currentVersion,
-    }
+    };
     const response: ArtifactDetailResponse = {
       artifact,
       currentVersion,
+    };
+
+    if (artifact.type === "diff" && currentVersion) {
+      const changeSet = await findWorkspaceChangeSetByArtifactId(artifact.id);
+      response.diff = buildDiffArtifactDetail(currentVersion, changeSet);
     }
 
-    if (artifact.type === 'diff' && currentVersion) {
-      const changeSet = await findWorkspaceChangeSetByArtifactId(artifact.id)
-      response.diff = buildDiffArtifactDetail(currentVersion, changeSet)
-    }
-
-    return response
+    return response;
   }
 
   async previewArtifactRevert(
     conversationId: string,
     artifactId: string,
   ): Promise<ArtifactRevertPreviewResponse> {
-    const target = await this.resolveArtifactRevertTarget(conversationId, artifactId)
-    const existing = await findExistingRevertArtifact(conversationId, artifactId)
+    const target = await this.resolveArtifactRevertTarget(
+      conversationId,
+      artifactId,
+    );
+    const existing = await findExistingRevertArtifact(
+      conversationId,
+      artifactId,
+    );
     if (existing) {
       return {
-        status: 'blocked',
+        status: "blocked",
         canApply: false,
         files: target.request.source.changedFiles,
         warnings: [],
         blockedReason: {
-          code: 'ARTIFACT_REVERT_ALREADY_APPLIED',
-          message: '该 Diff 已经撤销过。',
+          code: "ARTIFACT_REVERT_ALREADY_APPLIED",
+          message: "该 Diff 已经撤销过。",
         },
         source: {
           artifactId,
           ...(target.changeSet?.id ? { changeSetId: target.changeSet.id } : {}),
           runId: target.run.id,
-          patchDirection: 'reverse-applied',
+          patchDirection: "reverse-applied",
         },
-      }
+      };
     }
 
     const response = await this.runtimeClient.forward(
-      'POST',
-      '/runtime/workspace/revert/preview',
+      "POST",
+      "/runtime/workspace/revert/preview",
       target.request,
       { raw: true },
-    )
-    return normalizeArtifactRevertPreviewResponse(response.data, target)
+    );
+    return normalizeArtifactRevertPreviewResponse(response.data, target);
   }
 
   async applyArtifactRevert(
     conversationId: string,
     artifactId: string,
   ): Promise<ArtifactRevertApplyResponse> {
-    const target = await this.resolveArtifactRevertTarget(conversationId, artifactId)
-    const existing = await findExistingRevertArtifact(conversationId, artifactId)
+    const target = await this.resolveArtifactRevertTarget(
+      conversationId,
+      artifactId,
+    );
+    const existing = await findExistingRevertArtifact(
+      conversationId,
+      artifactId,
+    );
     if (existing) {
-      return this.buildAlreadyAppliedRevertResponse(conversationId, existing)
+      return this.buildAlreadyAppliedRevertResponse(conversationId, existing);
     }
 
     const response = await this.runtimeClient.forward(
-      'POST',
-      '/runtime/workspace/revert/apply',
+      "POST",
+      "/runtime/workspace/revert/apply",
       target.request,
       { raw: true },
-    )
-    const body = getRecord(response.data) ?? {}
-    const status = getString(body.status)
-    const preview = normalizeArtifactRevertPreviewResponse(body.preview, target)
+    );
+    const body = getRecord(response.data) ?? {};
+    const status = getString(body.status);
+    const preview = normalizeArtifactRevertPreviewResponse(
+      body.preview,
+      target,
+    );
 
-    if (status === 'blocked') {
+    if (status === "blocked") {
       return {
-        status: 'blocked',
-        message: '当前工作区状态无法安全撤销该 Diff。',
+        status: "blocked",
+        message: "当前工作区状态无法安全撤销该 Diff。",
         preview,
         blockedReason: getRecord(body.blockedReason),
-      }
+      };
     }
-    if (status === 'failed') {
+    if (status === "failed") {
       return {
-        status: 'failed',
-        message: '撤销操作执行失败。',
+        status: "failed",
+        message: "撤销操作执行失败。",
         preview,
         error: getRecord(body.error),
-      }
+      };
     }
-    if (status !== 'applied') {
+    if (status !== "applied") {
       throw new AppError(
         502 as ContentfulStatusCode,
-        'ARTIFACT_REVERT_BLOCKED',
-        'Agent Runtime returned an invalid workspace revert response',
-      )
+        "ARTIFACT_REVERT_BLOCKED",
+        "Agent Runtime returned an invalid workspace revert response",
+      );
     }
 
     return persistAppliedArtifactRevert({
@@ -973,54 +1076,78 @@ export class RunPersistenceService {
       operationId: getString(body.operationId) ?? `revert_${randomUUID()}`,
       appliedAt: getString(body.appliedAt) ?? new Date().toISOString(),
       preview,
-    })
+    });
   }
 
   private async resolveArtifactRevertTarget(
     conversationId: string,
     artifactId: string,
   ): Promise<ArtifactRevertTarget> {
-    const artifactRecord = await findArtifactWithVersions(artifactId) as
+    const artifactRecord = (await findArtifactWithVersions(artifactId)) as
       | (PersistedArtifact & { versions?: PersistedArtifactVersion[] })
-      | null
+      | null;
     if (!artifactRecord || artifactRecord.conversationId !== conversationId) {
-      throw notFound('ARTIFACT_REVERT_NOT_FOUND', 'Diff 产物不存在')
+      throw notFound("ARTIFACT_REVERT_NOT_FOUND", "Diff 产物不存在");
     }
-    if (artifactRecord.type !== 'diff') {
-      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', '只能撤销 Diff 产物')
+    if (artifactRecord.type !== "diff") {
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "ARTIFACT_REVERT_UNSUPPORTED",
+        "只能撤销 Diff 产物",
+      );
     }
 
-    const currentVersion = resolveCurrentArtifactVersion(artifactRecord)
+    const currentVersion = resolveCurrentArtifactVersion(artifactRecord);
     if (!currentVersion) {
-      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', 'Diff 产物没有可用版本')
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "ARTIFACT_REVERT_UNSUPPORTED",
+        "Diff 产物没有可用版本",
+      );
     }
 
-    const artifactMetadata = getRecord(artifactRecord.metadataJson) ?? {}
-    if (artifactMetadata.source === 'workspace.revert') {
-      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', '撤销记录不能再次撤销')
+    const artifactMetadata = getRecord(artifactRecord.metadataJson) ?? {};
+    if (artifactMetadata.source === "workspace.revert") {
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "ARTIFACT_REVERT_UNSUPPORTED",
+        "撤销记录不能再次撤销",
+      );
     }
 
     if (!artifactRecord.runId) {
-      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', 'Diff 产物缺少关联 Run')
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "ARTIFACT_REVERT_UNSUPPORTED",
+        "Diff 产物缺少关联 Run",
+      );
     }
-    const run = await findRunById(artifactRecord.runId)
+    const run = await findRunById(artifactRecord.runId);
     if (!run) {
-      throw notFound('ARTIFACT_REVERT_NOT_FOUND', 'Diff 关联的 Run 不存在')
+      throw notFound("ARTIFACT_REVERT_NOT_FOUND", "Diff 关联的 Run 不存在");
     }
 
-    const workspace = getRecord(run.inputJson.workspace)
-    const workspaceId = getString(workspace?.workspaceId)
-    const backendType = getString(workspace?.backendType)
-    const rootPath = getString(workspace?.rootPath)
-    if (!workspaceId || backendType !== 'local' || !rootPath) {
-      throw new AppError(400 as ContentfulStatusCode, 'ARTIFACT_REVERT_UNSUPPORTED', 'Diff 关联的 Run 缺少本地工作区')
+    const workspace = getRecord(run.inputJson.workspace);
+    const workspaceId = getString(workspace?.workspaceId);
+    const backendType = getString(workspace?.backendType);
+    const rootPath = getString(workspace?.rootPath);
+    if (!workspaceId || backendType !== "local" || !rootPath) {
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "ARTIFACT_REVERT_UNSUPPORTED",
+        "Diff 关联的 Run 缺少本地工作区",
+      );
     }
 
-    const workspaceDiff = getRecord(currentVersion.diffJson) ?? {}
-    const patch = getRecord(workspaceDiff.patch)
-    const patchText = getString(patch?.text) ?? currentVersion.content
-    const changedFiles = normalizeWorkspaceChangedFilesForProjection(workspaceDiff.changedFiles)
-    const changeSet = await findWorkspaceChangeSetByArtifactId(artifactRecord.id)
+    const workspaceDiff = getRecord(currentVersion.diffJson) ?? {};
+    const patch = getRecord(workspaceDiff.patch);
+    const patchText = getString(patch?.text) ?? currentVersion.content;
+    const changedFiles = normalizeWorkspaceChangedFilesForProjection(
+      workspaceDiff.changedFiles,
+    );
+    const changeSet = await findWorkspaceChangeSetByArtifactId(
+      artifactRecord.id,
+    );
 
     return {
       artifact: {
@@ -1034,7 +1161,7 @@ export class RunPersistenceService {
       request: {
         workspace: {
           workspaceId,
-          backendType: 'local',
+          backendType: "local",
           rootPath,
         },
         source: {
@@ -1048,93 +1175,100 @@ export class RunPersistenceService {
           changedFiles,
         },
       },
-    }
+    };
   }
 
   private async buildAlreadyAppliedRevertResponse(
     conversationId: string,
     artifact: PersistedArtifact,
   ): Promise<ArtifactRevertApplyResponse> {
-    const detail = await this.getArtifactDetail(conversationId, artifact.id)
+    const detail = await this.getArtifactDetail(conversationId, artifact.id);
     return {
-      status: 'already_applied',
-      message: '该 Diff 已经撤销过。',
+      status: "already_applied",
+      message: "该 Diff 已经撤销过。",
       artifact: detail.artifact,
       currentVersion: detail.currentVersion,
       diff: detail.diff,
       changeSet: detail.diff?.changeSet,
-    }
+    };
   }
 
   async cancelRun(runId: string): Promise<ActiveRunSnapshot> {
-    const run = await findRunById(runId) ?? await findRunByRuntimeId(runId)
+    const run = (await findRunById(runId)) ?? (await findRunByRuntimeId(runId));
     if (!run) {
-      throw notFound('RUN_NOT_FOUND', 'Run 不存在')
+      throw notFound("RUN_NOT_FOUND", "Run 不存在");
     }
     if (this.isTerminalRunStatus(run.status)) {
-      return this.toActiveRunSnapshot(run)
+      return this.toActiveRunSnapshot(run);
     }
 
-    const runtimeId = run.runtimeId
+    const runtimeId = run.runtimeId;
     if (!runtimeId) {
-      return this.cancelLocalRun(run)
+      return this.cancelLocalRun(run);
     }
 
-    let response: Awaited<ReturnType<RuntimeClient['forward']>>
+    let response: Awaited<ReturnType<RuntimeClient["forward"]>>;
     try {
       response = await this.runtimeClient.forward(
-        'POST',
+        "POST",
         `/runtime/runs/${encodeURIComponent(runtimeId)}/cancel`,
         undefined,
         { raw: true },
-      )
+      );
     } catch (error) {
       if (isAbandonableRuntimeCancelError(error)) {
-        return this.cancelLocalRun(run)
+        return this.cancelLocalRun(run);
       }
-      throw error
+      throw error;
     }
 
     if (response.status < 200 || response.status >= 300) {
-      const code = getRuntimeErrorCode(response.data)
+      const code = getRuntimeErrorCode(response.data);
       if (isAbandonableRuntimeCancelFailure(response.status, code)) {
-        return this.cancelLocalRun(run)
+        return this.cancelLocalRun(run);
       }
 
       throw new AppError(
         response.status as ContentfulStatusCode,
-        code ?? 'RUN_CANCEL_FAILED',
+        code ?? "RUN_CANCEL_FAILED",
         getRuntimeErrorMessage(response.data),
-      )
+      );
     }
 
-    const nextStatus = getTerminalRunStatusFromRuntimeResponse(response.data) ?? 'cancelled'
-    const completedAt = new Date().toISOString()
-    const latestBeforeUpdate = await findRunById(run.id) ?? run
+    const nextStatus =
+      getTerminalRunStatusFromRuntimeResponse(response.data) ?? "cancelled";
+    const completedAt = new Date().toISOString();
+    const latestBeforeUpdate = (await findRunById(run.id)) ?? run;
     if (!this.isTerminalRunStatus(latestBeforeUpdate.status)) {
-      const latest = await updateRun(run.id, { status: nextStatus, completedAt })
-      await finalizeRunProjection(run.id, nextStatus, completedAt)
-      this.publishRunStatusChanged(latest, nextStatus)
-      this.publishTerminalRunStatus(latest, nextStatus)
-      return this.toActiveRunSnapshot(latest)
+      const latest = await updateRun(run.id, {
+        status: nextStatus,
+        completedAt,
+      });
+      await finalizeRunProjection(run.id, nextStatus, completedAt);
+      this.publishRunStatusChanged(latest, nextStatus);
+      this.publishTerminalRunStatus(latest, nextStatus);
+      return this.toActiveRunSnapshot(latest);
     }
 
-    const latest = await findRunById(run.id)
-    return this.toActiveRunSnapshot(latest)
+    const latest = await findRunById(run.id);
+    return this.toActiveRunSnapshot(latest);
   }
 
   private async cancelLocalRun(run: RunOutput): Promise<ActiveRunSnapshot> {
-    const latest = await findRunById(run.id) ?? run
+    const latest = (await findRunById(run.id)) ?? run;
     if (this.isTerminalRunStatus(latest.status)) {
-      return this.toActiveRunSnapshot(latest)
+      return this.toActiveRunSnapshot(latest);
     }
 
-    const completedAt = new Date().toISOString()
-    const cancelled = await updateRun(run.id, { status: 'cancelled', completedAt })
-    await finalizeRunProjection(run.id, 'cancelled', completedAt)
-    this.publishRunStatusChanged(cancelled, 'cancelled')
-    this.publishTerminalRunStatus(cancelled, 'cancelled')
-    return this.toActiveRunSnapshot(cancelled)
+    const completedAt = new Date().toISOString();
+    const cancelled = await updateRun(run.id, {
+      status: "cancelled",
+      completedAt,
+    });
+    await finalizeRunProjection(run.id, "cancelled", completedAt);
+    this.publishRunStatusChanged(cancelled, "cancelled");
+    this.publishTerminalRunStatus(cancelled, "cancelled");
+    return this.toActiveRunSnapshot(cancelled);
   }
 
   async decidePermission(
@@ -1143,157 +1277,181 @@ export class RunPersistenceService {
     approved: boolean,
     reason?: string,
   ): Promise<unknown> {
-    const run = await findRunById(runId) ?? await findRunByRuntimeId(runId)
+    const run = (await findRunById(runId)) ?? (await findRunByRuntimeId(runId));
     if (!run) {
-      throw notFound('RUN_NOT_FOUND', 'Run 不存在')
+      throw notFound("RUN_NOT_FOUND", "Run 不存在");
     }
     if (!run.runtimeId) {
-      throw new AppError(409 as ContentfulStatusCode, 'PERMISSION_RUN_NOT_ACTIVE', 'Run 尚未绑定 Runtime 执行实例')
+      throw new AppError(
+        409 as ContentfulStatusCode,
+        "PERMISSION_RUN_NOT_ACTIVE",
+        "Run 尚未绑定 Runtime 执行实例",
+      );
     }
 
     const response = await this.runtimeClient.forward(
-      'POST',
+      "POST",
       `/runtime/runs/${encodeURIComponent(run.runtimeId)}/permissions/${encodeURIComponent(requestId)}/decision`,
       { approved, reason },
       { raw: true },
-    )
+    );
     if (response.status < 200 || response.status >= 300) {
       throw new AppError(
         response.status as ContentfulStatusCode,
-        getRuntimeErrorCode(response.data) ?? 'PERMISSION_DECISION_FAILED',
+        getRuntimeErrorCode(response.data) ?? "PERMISSION_DECISION_FAILED",
         getRuntimeErrorMessage(response.data),
-      )
+      );
     }
 
-    return response.data
+    return response.data;
   }
 
   async answerQuestion(
     runId: string,
     requestId: string,
     answers: Array<{
-      questionId: string
-      optionId?: string
-      answer?: string
-      custom?: boolean
+      questionId: string;
+      optionId?: string;
+      answer?: string;
+      custom?: boolean;
     }>,
   ): Promise<unknown> {
-    const run = await findRunById(runId) ?? await findRunByRuntimeId(runId)
+    const run = (await findRunById(runId)) ?? (await findRunByRuntimeId(runId));
     if (!run) {
-      throw notFound('RUN_NOT_FOUND', 'Run 不存在')
+      throw notFound("RUN_NOT_FOUND", "Run 不存在");
     }
     if (!run.runtimeId) {
-      throw new AppError(409 as ContentfulStatusCode, 'QUESTION_RUN_NOT_ACTIVE', 'Run 尚未绑定 Runtime 执行实例')
+      throw new AppError(
+        409 as ContentfulStatusCode,
+        "QUESTION_RUN_NOT_ACTIVE",
+        "Run 尚未绑定 Runtime 执行实例",
+      );
     }
 
     const response = await this.runtimeClient.forward(
-      'POST',
+      "POST",
       `/runtime/runs/${encodeURIComponent(run.runtimeId)}/questions/${encodeURIComponent(requestId)}/answer`,
       { answers },
       { raw: true },
-    )
+    );
     if (response.status < 200 || response.status >= 300) {
       throw new AppError(
         response.status as ContentfulStatusCode,
-        getRuntimeErrorCode(response.data) ?? 'QUESTION_ANSWER_FAILED',
+        getRuntimeErrorCode(response.data) ?? "QUESTION_ANSWER_FAILED",
         getRuntimeErrorMessage(response.data),
-      )
+      );
     }
 
-    return response.data
+    return response.data;
   }
 
   async listRunEventsAfter(
     runId: string,
     afterSequence: number,
   ): Promise<HubRunEventEnvelope[]> {
-    const run = await findRunById(runId)
+    const run = await findRunById(runId);
     if (!run) {
-      throw notFound('RUN_NOT_FOUND', 'Run 不存在')
+      throw notFound("RUN_NOT_FOUND", "Run 不存在");
     }
-    const events = await listRunEventsByRunAfterSequence(runId, afterSequence)
-    return events.flatMap(toProductHubEnvelope)
+    const events = await listRunEventsByRunAfterSequence(runId, afterSequence);
+    return events.flatMap(toProductHubEnvelope);
   }
 
-  async ensureConversationProjectionCaughtUp(conversationId: string): Promise<void> {
-    let offset = 0
-    const pageSize = 100
+  async ensureConversationProjectionCaughtUp(
+    conversationId: string,
+  ): Promise<void> {
+    let offset = 0;
+    const pageSize = 100;
     while (true) {
-      const runs = await listRuns({ conversationId, limit: pageSize, offset, order: 'asc' })
-      if (!runs.length) return
+      const runs = await listRuns({
+        conversationId,
+        limit: pageSize,
+        offset,
+        order: "asc",
+      });
+      if (!runs.length) return;
       for (const run of runs) {
-        await this.ensureRunProjectionCaughtUp(run.id)
+        await this.ensureRunProjectionCaughtUp(run.id);
       }
-      offset += runs.length
-      if (runs.length < pageSize) return
+      offset += runs.length;
+      if (runs.length < pageSize) return;
     }
   }
 
   async getRunStatus(runId: string): Promise<RunStatus> {
-    const run = await findRunById(runId)
+    const run = await findRunById(runId);
     if (!run) {
-      throw notFound('RUN_NOT_FOUND', 'Run 不存在')
+      throw notFound("RUN_NOT_FOUND", "Run 不存在");
     }
-    return run.status
+    return run.status;
   }
 
   private async ensureRunProjectionCaughtUp(runId: string): Promise<void> {
-    const activeBatcher = this.projectionBatchers.get(runId)
+    const activeBatcher = this.projectionBatchers.get(runId);
     if (activeBatcher) {
-      await activeBatcher.flush()
+      await activeBatcher.flush();
     }
 
-    const run = await findRunById(runId)
-    if (!run) return
+    const run = await findRunById(runId);
+    if (!run) return;
     const latestEventSequence = Math.max(
       run.lastEventSequence ?? 0,
       await getLastRunEventSequence(runId),
-    )
+    );
     if ((run.lastProjectedSequence ?? 0) >= latestEventSequence) {
-      return
+      return;
     }
 
-    const events = await listRunEventsByRunAfterSequence(runId, run.lastProjectedSequence ?? 0)
-    const sequencedEvents = events.flatMap(toSequencedRuntimeEvent)
-    await this.projectRuntimeEventsBatch(runId, sequencedEvents)
+    const events = await listRunEventsByRunAfterSequence(
+      runId,
+      run.lastProjectedSequence ?? 0,
+    );
+    const sequencedEvents = events.flatMap(toSequencedRuntimeEvent);
+    await this.projectRuntimeEventsBatch(runId, sequencedEvents);
   }
 
   subscribe(runId: string, listener: RunListener): () => void {
-    const listeners = this.listeners.get(runId) ?? new Set<RunListener>()
-    listeners.add(listener)
-    this.listeners.set(runId, listeners)
+    const listeners = this.listeners.get(runId) ?? new Set<RunListener>();
+    listeners.add(listener);
+    this.listeners.set(runId, listeners);
     return () => {
-      listeners.delete(listener)
+      listeners.delete(listener);
       if (listeners.size === 0) {
-        this.listeners.delete(runId)
+        this.listeners.delete(runId);
       }
-    }
+    };
   }
 
   isTerminalRunStatus(status?: string | null): boolean {
-    return status === 'completed' || status === 'failed' || status === 'cancelled'
+    return (
+      status === "completed" || status === "failed" || status === "cancelled"
+    );
   }
 
-  private async findActiveRun(conversationId: string): Promise<RunOutput | null> {
-    const runs = await listRuns({ conversationId, limit: 10, order: 'desc' })
-    return runs.find((run) => !this.isTerminalRunStatus(run.status)) ?? null
+  private async findActiveRun(
+    conversationId: string,
+  ): Promise<RunOutput | null> {
+    const runs = await listRuns({ conversationId, limit: 10, order: "desc" });
+    return runs.find((run) => !this.isTerminalRunStatus(run.status)) ?? null;
   }
 
-  private async toActiveRunSnapshot(run: RunOutput | null): Promise<ActiveRunSnapshot> {
+  private async toActiveRunSnapshot(
+    run: RunOutput | null,
+  ): Promise<ActiveRunSnapshot> {
     if (!run) {
-      throw notFound('RUN_NOT_FOUND', 'Run 不存在')
+      throw notFound("RUN_NOT_FOUND", "Run 不存在");
     }
     const lastEventSequence = Math.max(
       run.lastEventSequence ?? 0,
       await getLastRunEventSequence(run.id),
-    )
+    );
     return {
       id: run.id,
       runtimeId: run.runtimeId,
       status: run.status,
       lastEventSequence,
       plan: run.planJson,
-    }
+    };
   }
 
   private async listConversationRunItems(
@@ -1315,7 +1473,7 @@ export class RunPersistenceService {
       listRunPlansByConversation(conversationId),
       listRunPlanTasksByConversation(conversationId),
       listPermissionRequestsByConversation(conversationId),
-    ])
+    ]);
 
     return {
       toolCalls,
@@ -1325,7 +1483,7 @@ export class RunPersistenceService {
       plans,
       planTasks,
       permissionRequests,
-    }
+    };
   }
 
   private async listConversationTimelineRuns(
@@ -1336,15 +1494,15 @@ export class RunPersistenceService {
       conversationId,
       limit: opts?.limit ?? 50,
       offset: opts?.offset ?? 0,
-      order: 'desc',
-    })
+      order: "desc",
+    });
 
     const snapshots = await Promise.all(
       runs.map(async (run): Promise<ConversationTimelineRunSnapshot> => {
         const [triggerMessageRecord, events] = await Promise.all([
           findMessageWithParts(run.triggerMessageId),
           listRunEventsByRun(run.id),
-        ])
+        ]);
 
         return {
           run: {
@@ -1359,22 +1517,24 @@ export class RunPersistenceService {
             ),
           },
           triggerMessage: triggerMessageRecord
-            ? toPersistedMessage(triggerMessageRecord as Record<string, unknown>)
+            ? toPersistedMessage(
+                triggerMessageRecord as Record<string, unknown>,
+              )
             : null,
           events: events.flatMap(toProductHubEnvelope),
-        }
+        };
       }),
-    )
+    );
 
-    return snapshots.sort(compareTimelineRuns)
+    return snapshots.sort(compareTimelineRuns);
   }
 
   private startRuntimeConsumer(runId: string, runtimeRunId: string): void {
-    if (this.consumers.has(runId)) return
+    if (this.consumers.has(runId)) return;
 
-    const abortController = new AbortController()
-    this.consumers.set(runId, abortController)
-    void this.consumeRuntimeEvents(runId, runtimeRunId, abortController)
+    const abortController = new AbortController();
+    this.consumers.set(runId, abortController);
+    void this.consumeRuntimeEvents(runId, runtimeRunId, abortController);
   }
 
   private async consumeRuntimeEvents(
@@ -1382,348 +1542,399 @@ export class RunPersistenceService {
     runtimeRunId: string,
     abortController: AbortController,
   ): Promise<void> {
-    const run = await findRunById(runId)
-    if (!run) return
-    const isOpenCodeRun = isRunForOpenCode(run)
+    const run = await findRunById(runId);
+    if (!run) return;
+    const isOpenCodeRun = isRunForOpenCode(run);
     if (isOpenCodeRun) {
-      runPersistenceLogger.info({
-        externalProvider: 'opencode',
-        conversationId: run.conversationId,
-        runId,
-        runtimeRunId,
-      }, 'OpenCode Runtime event consumer starting')
+      runPersistenceLogger.info(
+        {
+          externalProvider: "opencode",
+          conversationId: run.conversationId,
+          runId,
+          runtimeRunId,
+        },
+        "OpenCode Runtime event consumer starting",
+      );
     }
 
     const persistenceState: RuntimeEventPersistenceState = {
       run,
       nextSequence: run.lastEventSequence ?? 0,
       seenEventIds: new Set<string>(),
-    }
+    };
     const projectionBatcher = new RuntimeEventBatcher<SequencedRuntimeEvent>({
       flushIntervalMs: PROJECTION_FLUSH_INTERVAL_MS,
       maxBatchSize: PROJECTION_MAX_BATCH_SIZE,
       maxBufferedItems: PROJECTION_MAX_BUFFERED_ITEMS,
       flush: async (items) => {
-        await this.projectRuntimeEventsBatch(persistenceState.run.id, items)
+        await this.projectRuntimeEventsBatch(persistenceState.run.id, items);
       },
-    })
-    this.projectionBatchers.set(runId, projectionBatcher)
+    });
+    this.projectionBatchers.set(runId, projectionBatcher);
     const rawBatcher = new RuntimeEventBatcher<RuntimeRunEvent>({
       flushIntervalMs: RAW_EVENT_FLUSH_INTERVAL_MS,
       maxBatchSize: RAW_EVENT_MAX_BATCH_SIZE,
       maxBufferedItems: RAW_EVENT_MAX_BUFFERED_ITEMS,
       flush: async (items) => {
-        const result = await this.persistRuntimeEventBatch(persistenceState, items)
+        const result = await this.persistRuntimeEventBatch(
+          persistenceState,
+          items,
+        );
         for (const envelope of result.envelopes) {
-          this.publish(runId, envelope)
+          this.publish(runId, envelope);
         }
         for (const item of result.sequencedEvents) {
           await projectionBatcher.enqueue(item, {
             forceFlush: this.isTerminalRunEvent(item.event),
-          })
+          });
         }
       },
-    })
+    });
 
     try {
-      let retryCount = 0
-      let reachedTerminal = false
+      let retryCount = 0;
+      let reachedTerminal = false;
 
       while (!reachedTerminal) {
         try {
           const response = await this.runtimeClient.stream(
             `/runtime/runs/${encodeURIComponent(runtimeRunId)}/events`,
             { signal: abortController.signal },
-          )
+          );
           if (!response.ok || !response.body) {
             await this.failRuntimeConsumerRun(
               runId,
               `Runtime event stream failed (${response.status})`,
-            )
+            );
             if (isOpenCodeRun) {
-              runPersistenceLogger.error({
-                externalProvider: 'opencode',
+              runPersistenceLogger.error(
+                {
+                  externalProvider: "opencode",
+                  conversationId: run.conversationId,
+                  runId,
+                  runtimeRunId,
+                  status: response.status,
+                },
+                "OpenCode Runtime event stream failed to open",
+              );
+            }
+            return;
+          }
+          if (isOpenCodeRun) {
+            runPersistenceLogger.info(
+              {
+                externalProvider: "opencode",
                 conversationId: run.conversationId,
                 runId,
                 runtimeRunId,
-                status: response.status,
-              }, 'OpenCode Runtime event stream failed to open')
-            }
-            return
-          }
-          if (isOpenCodeRun) {
-            runPersistenceLogger.info({
-              externalProvider: 'opencode',
-              conversationId: run.conversationId,
-              runId,
-              runtimeRunId,
-              retryCount,
-            }, 'OpenCode Runtime event stream connected')
+                retryCount,
+              },
+              "OpenCode Runtime event stream connected",
+            );
           }
 
           for await (const event of readSseRuntimeEvents(response.body)) {
             await rawBatcher.enqueue(event, {
               forceFlush: this.isTerminalRunEvent(event),
-            })
+            });
             if (this.isTerminalRunEvent(event)) {
-              reachedTerminal = true
-              break
+              reachedTerminal = true;
+              break;
             }
           }
 
-          await rawBatcher.flush()
-          await projectionBatcher.flush()
-          if (reachedTerminal || await this.hasPersistedTerminalRunEvent(runId)) {
-            break
+          await rawBatcher.flush();
+          await projectionBatcher.flush();
+          if (
+            reachedTerminal ||
+            (await this.hasPersistedTerminalRunEvent(runId))
+          ) {
+            break;
           }
 
           if (retryCount >= RUNTIME_EVENT_STREAM_MAX_RETRIES) {
-            throw new Error('Runtime event stream ended before terminal event')
+            throw new Error("Runtime event stream ended before terminal event");
           }
 
-          retryCount += 1
+          retryCount += 1;
           logger.warn(
             { runId, runtimeRunId, retryCount },
-            'Runtime event stream ended before terminal event; retrying',
-          )
-          await delayRuntimeEventStreamRetry(retryCount)
+            "Runtime event stream ended before terminal event; retrying",
+          );
+          await delayRuntimeEventStreamRetry(retryCount);
         } catch (error) {
           if (abortController.signal.aborted) {
-            break
+            break;
           }
 
           try {
-            await rawBatcher.flush()
-            await projectionBatcher.flush()
+            await rawBatcher.flush();
+            await projectionBatcher.flush();
           } catch (flushError) {
-            logger.error({ err: flushError, runId, runtimeRunId }, 'Runtime event consumer flush failed')
+            logger.error(
+              { err: flushError, runId, runtimeRunId },
+              "Runtime event consumer flush failed",
+            );
             await this.failRuntimeConsumerRun(
               runId,
-              flushError instanceof Error ? flushError.message : 'Runtime event consumer flush failed',
-            )
-            return
+              flushError instanceof Error
+                ? flushError.message
+                : "Runtime event consumer flush failed",
+            );
+            return;
           }
 
           if (await this.hasPersistedTerminalRunEvent(runId)) {
             logger.warn(
               { err: error, runId, runtimeRunId },
-              'Runtime event stream interrupted after terminal event was persisted',
-            )
-            break
+              "Runtime event stream interrupted after terminal event was persisted",
+            );
+            break;
           }
 
           if (
             isRetryableRuntimeEventStreamError(error) &&
             retryCount < RUNTIME_EVENT_STREAM_MAX_RETRIES
           ) {
-            retryCount += 1
+            retryCount += 1;
             logger.warn(
               { err: error, runId, runtimeRunId, retryCount },
-              'Runtime event stream interrupted; retrying',
-            )
-            await delayRuntimeEventStreamRetry(retryCount)
-            continue
+              "Runtime event stream interrupted; retrying",
+            );
+            await delayRuntimeEventStreamRetry(retryCount);
+            continue;
           }
 
-          logger.error({ err: error, runId, runtimeRunId }, 'Runtime event consumer failed')
+          logger.error(
+            { err: error, runId, runtimeRunId },
+            "Runtime event consumer failed",
+          );
           await this.failRuntimeConsumerRun(
             runId,
-            error instanceof Error ? error.message : 'Runtime event consumer failed',
-          )
-          return
+            error instanceof Error
+              ? error.message
+              : "Runtime event consumer failed",
+          );
+          return;
         }
       }
     } finally {
       try {
-        await rawBatcher.close()
-        await projectionBatcher.close()
+        await rawBatcher.close();
+        await projectionBatcher.close();
       } catch (error) {
-        logger.error({ err: error, runId, runtimeRunId }, 'Runtime event consumer flush failed')
+        logger.error(
+          { err: error, runId, runtimeRunId },
+          "Runtime event consumer flush failed",
+        );
       }
-      this.projectionBatchers.delete(runId)
-      this.consumers.delete(runId)
+      this.projectionBatchers.delete(runId);
+      this.consumers.delete(runId);
       if (isOpenCodeRun) {
-        runPersistenceLogger.info({
-          externalProvider: 'opencode',
-          conversationId: run.conversationId,
-          runId,
-          runtimeRunId,
-        }, 'OpenCode Runtime event consumer stopped')
+        runPersistenceLogger.info(
+          {
+            externalProvider: "opencode",
+            conversationId: run.conversationId,
+            runId,
+            runtimeRunId,
+          },
+          "OpenCode Runtime event consumer stopped",
+        );
       }
     }
   }
 
   private async hasPersistedTerminalRunEvent(runId: string): Promise<boolean> {
-    const events = await listRunEventsByRun(runId)
-    return events.some(isPersistedTerminalRuntimeEvent)
+    const events = await listRunEventsByRun(runId);
+    return events.some(isPersistedTerminalRuntimeEvent);
   }
 
-  private async failRuntimeConsumerRun(runId: string, message: string): Promise<void> {
-    const latest = await findRunById(runId)
+  private async failRuntimeConsumerRun(
+    runId: string,
+    message: string,
+  ): Promise<void> {
+    const latest = await findRunById(runId);
     if (!latest || this.isTerminalRunStatus(latest.status)) {
-      return
+      return;
     }
 
     const failedRun = await updateRun(runId, {
-      status: 'failed',
+      status: "failed",
       errorJson: { message },
       completedAt: new Date().toISOString(),
-    })
-    this.publishRunStatusChanged(failedRun, 'failed')
-    this.publishTerminalRunStatus(failedRun, 'failed')
+    });
+    this.publishRunStatusChanged(failedRun, "failed");
+    this.publishTerminalRunStatus(failedRun, "failed");
   }
 
   private async persistRuntimeEventBatch(
     state: RuntimeEventPersistenceState,
     events: RuntimeRunEvent[],
   ): Promise<RawBatchFlushResult> {
-    const uniqueEvents: RuntimeRunEvent[] = []
-    const idsInBatch = new Set<string>()
+    const uniqueEvents: RuntimeRunEvent[] = [];
+    const idsInBatch = new Set<string>();
     for (const event of events) {
       if (state.seenEventIds.has(event.id) || idsInBatch.has(event.id)) {
-        continue
+        continue;
       }
-      idsInBatch.add(event.id)
-      uniqueEvents.push(event)
+      idsInBatch.add(event.id);
+      uniqueEvents.push(event);
     }
 
     if (!uniqueEvents.length) {
-      return { envelopes: [], sequencedEvents: [] }
+      return { envelopes: [], sequencedEvents: [] };
     }
 
-    const existingEvents = await findRunEventsByIds(uniqueEvents.map((event) => event.id))
-    const existingIds = new Set(existingEvents.map((event) => event.id))
-    const newEvents = uniqueEvents.filter((event) => !existingIds.has(event.id))
+    const existingEvents = await findRunEventsByIds(
+      uniqueEvents.map((event) => event.id),
+    );
+    const existingIds = new Set(existingEvents.map((event) => event.id));
+    const newEvents = uniqueEvents.filter(
+      (event) => !existingIds.has(event.id),
+    );
 
     for (const event of existingEvents) {
-      state.seenEventIds.add(event.id)
+      state.seenEventIds.add(event.id);
     }
 
     if (!newEvents.length) {
-      return { envelopes: [], sequencedEvents: [] }
+      return { envelopes: [], sequencedEvents: [] };
     }
 
     const sequencedEvents = newEvents.map((event) => {
-      state.nextSequence += 1
-      return { event, sequence: state.nextSequence }
-    })
+      state.nextSequence += 1;
+      return { event, sequence: state.nextSequence };
+    });
 
-    const stored = await createRunEvents(sequencedEvents.map(({ event, sequence }) => ({
-      id: event.id,
-      runId: state.run.id,
-      runtimeRunId: event.runId,
-      conversationId: state.run.conversationId,
-      agentId: event.agentId,
-      parentAgentId: event.parentAgentId,
-      parentTaskId: event.parentTaskId,
-      taskId: event.taskId,
-      groupId: event.groupId,
-      toolCallId: event.toolCallId,
-      toolName: event.toolName,
-      messageId: event.messageId,
-      messageIndex: event.messageIndex,
-      type: event.type,
-      sequence,
-      occurredAt: event.timestamp,
-      payloadJson: { event },
-    })))
+    const stored = await createRunEvents(
+      sequencedEvents.map(({ event, sequence }) => ({
+        id: event.id,
+        runId: state.run.id,
+        runtimeRunId: event.runId,
+        conversationId: state.run.conversationId,
+        agentId: event.agentId,
+        parentAgentId: event.parentAgentId,
+        parentTaskId: event.parentTaskId,
+        taskId: event.taskId,
+        groupId: event.groupId,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        messageId: event.messageId,
+        messageIndex: event.messageIndex,
+        type: event.type,
+        sequence,
+        occurredAt: event.timestamp,
+        payloadJson: { event },
+      })),
+    );
 
-    const latestSequence = sequencedEvents[sequencedEvents.length - 1]?.sequence ?? state.run.lastEventSequence
-    state.run = await updateRun(state.run.id, { lastEventSequence: latestSequence })
+    const latestSequence =
+      sequencedEvents[sequencedEvents.length - 1]?.sequence ??
+      state.run.lastEventSequence;
+    state.run = await updateRun(state.run.id, {
+      lastEventSequence: latestSequence,
+    });
     for (const event of newEvents) {
-      state.seenEventIds.add(event.id)
+      state.seenEventIds.add(event.id);
     }
     if (isRunForOpenCode(state.run) || newEvents.some(isOpenCodeEvent)) {
-      const terminalEvent = newEvents.find((event) => this.isTerminalRunEvent(event))
-      runPersistenceLogger.debug({
-        externalProvider: 'opencode',
-        conversationId: state.run.conversationId,
-        runId: state.run.id,
-        runtimeRunId: state.run.runtimeId,
-        persistedEventCount: stored.length,
-        eventTypes: newEvents.map((event) => event.type),
-        lastSequence: latestSequence,
-        terminalEventType: terminalEvent?.type,
-      }, 'OpenCode Runtime events persisted')
+      const terminalEvent = newEvents.find((event) =>
+        this.isTerminalRunEvent(event),
+      );
+      runPersistenceLogger.debug(
+        {
+          externalProvider: "opencode",
+          conversationId: state.run.conversationId,
+          runId: state.run.id,
+          runtimeRunId: state.run.runtimeId,
+          persistedEventCount: stored.length,
+          eventTypes: newEvents.map((event) => event.type),
+          lastSequence: latestSequence,
+          terminalEventType: terminalEvent?.type,
+        },
+        "OpenCode Runtime events persisted",
+      );
     }
 
     return {
       envelopes: stored.flatMap(toHubEnvelope),
       sequencedEvents,
-    }
+    };
   }
 
   private async projectRuntimeEventsBatch(
     runId: string,
     items: SequencedRuntimeEvent[],
   ): Promise<void> {
-    if (!items.length) return
+    if (!items.length) return;
 
-    const run = await findRunById(runId)
-    if (!run) return
+    const run = await findRunById(runId);
+    if (!run) return;
 
-    const orderedItems = [...items].sort((left, right) => left.sequence - right.sequence)
-    const pendingMessageDeltas = new Map<string, SequencedRuntimeEvent[]>()
-    const pendingReasoningDeltas = new Map<string, SequencedRuntimeEvent[]>()
+    const orderedItems = [...items].sort(
+      (left, right) => left.sequence - right.sequence,
+    );
+    const pendingMessageDeltas = new Map<string, SequencedRuntimeEvent[]>();
+    const pendingReasoningDeltas = new Map<string, SequencedRuntimeEvent[]>();
 
     const flushMessageDeltas = async (key?: string): Promise<void> => {
       const entries = key
         ? [[key, pendingMessageDeltas.get(key) ?? []] as const]
-        : [...pendingMessageDeltas.entries()]
+        : [...pendingMessageDeltas.entries()];
       for (const [entryKey, events] of entries) {
-        if (!events.length) continue
-        pendingMessageDeltas.delete(entryKey)
-        await projectRuntimeMessageDeltaEvents(run, events)
+        if (!events.length) continue;
+        pendingMessageDeltas.delete(entryKey);
+        await projectRuntimeMessageDeltaEvents(run, events);
       }
-    }
+    };
 
     const flushReasoningDeltas = async (key?: string): Promise<void> => {
       const entries = key
         ? [[key, pendingReasoningDeltas.get(key) ?? []] as const]
-        : [...pendingReasoningDeltas.entries()]
+        : [...pendingReasoningDeltas.entries()];
       for (const [entryKey, events] of entries) {
-        if (!events.length) continue
-        pendingReasoningDeltas.delete(entryKey)
-        await projectReasoningDeltaEvents(run, events)
+        if (!events.length) continue;
+        pendingReasoningDeltas.delete(entryKey);
+        await projectReasoningDeltaEvents(run, events);
       }
-    }
+    };
 
     for (const item of orderedItems) {
-      const { event } = item
-      if (event.type === 'message.delta') {
-        const key = getMessageProjectionKey(event)
-        const existing = pendingMessageDeltas.get(key) ?? []
-        existing.push(item)
-        pendingMessageDeltas.set(key, existing)
-        continue
+      const { event } = item;
+      if (event.type === "message.delta") {
+        const key = getMessageProjectionKey(event);
+        const existing = pendingMessageDeltas.get(key) ?? [];
+        existing.push(item);
+        pendingMessageDeltas.set(key, existing);
+        continue;
       }
 
-      if (event.type === 'reasoning.delta') {
-        const key = getReasoningProjectionKey(event)
-        const existing = pendingReasoningDeltas.get(key) ?? []
-        existing.push(item)
-        pendingReasoningDeltas.set(key, existing)
-        continue
+      if (event.type === "reasoning.delta") {
+        const key = getReasoningProjectionKey(event);
+        const existing = pendingReasoningDeltas.get(key) ?? [];
+        existing.push(item);
+        pendingReasoningDeltas.set(key, existing);
+        continue;
       }
 
-      if (event.type === 'message.completed') {
-        await flushMessageDeltas(getMessageProjectionKey(event))
-      } else if (event.type === 'reasoning.completed') {
-        await flushReasoningDeltas()
+      if (event.type === "message.completed") {
+        await flushMessageDeltas(getMessageProjectionKey(event));
+      } else if (event.type === "reasoning.completed") {
+        await flushReasoningDeltas();
       } else if (this.isTerminalRunEvent(event)) {
-        await flushMessageDeltas()
-        await flushReasoningDeltas()
+        await flushMessageDeltas();
+        await flushReasoningDeltas();
       }
 
-      await this.projectRuntimeEvent(run, event, item.sequence)
+      await this.projectRuntimeEvent(run, event, item.sequence);
     }
 
-    await flushMessageDeltas()
-    await flushReasoningDeltas()
+    await flushMessageDeltas();
+    await flushReasoningDeltas();
 
-    const latestSequence = orderedItems[orderedItems.length - 1]?.sequence
+    const latestSequence = orderedItems[orderedItems.length - 1]?.sequence;
     if (latestSequence !== undefined) {
-      await updateRun(runId, { lastProjectedSequence: latestSequence })
+      await updateRun(runId, { lastProjectedSequence: latestSequence });
     }
   }
 
@@ -1732,102 +1943,122 @@ export class RunPersistenceService {
     event: RuntimeRunEvent,
     sequence: number,
   ): Promise<void> {
-    const runId = run.id
-    const timestamp = event.timestamp ?? new Date().toISOString()
+    const runId = run.id;
+    const timestamp = event.timestamp ?? new Date().toISOString();
 
-    if (event.type === 'run.started') {
-      await this.updateActiveRunStatus(run, 'running', { startedAt: timestamp })
-      return
+    if (event.type === "run.started") {
+      await this.updateActiveRunStatus(run, "running", {
+        startedAt: timestamp,
+      });
+      return;
     }
-    if (event.type === 'run.completed') {
-      await projectWorkspaceDiffArtifact(run, event)
-      await updateRun(runId, { status: 'completed', completedAt: timestamp })
-      await finalizeRunProjection(runId, 'completed', timestamp)
-      this.publishRunStatusChanged(run, 'completed')
-      this.publishTerminalRunStatus(run, 'completed')
-      return
+    if (event.type === "run.completed") {
+      await projectWorkspaceDiffArtifact(run, event);
+      await updateRun(runId, { status: "completed", completedAt: timestamp });
+      await finalizeRunProjection(runId, "completed", timestamp);
+      this.publishRunStatusChanged(run, "completed");
+      this.publishTerminalRunStatus(run, "completed");
+      return;
     }
-    if (event.type === 'run.failed') {
-      await projectWorkspaceDiffArtifact(run, event)
+    if (event.type === "run.failed") {
+      await projectWorkspaceDiffArtifact(run, event);
       await updateRun(runId, {
-        status: 'failed',
+        status: "failed",
         errorJson: getEventDataRecord(event),
         completedAt: timestamp,
-      })
-      await finalizeRunProjection(runId, 'failed', timestamp)
-      this.publishRunStatusChanged(run, 'failed')
-      this.publishTerminalRunStatus(run, 'failed')
-      return
+      });
+      await finalizeRunProjection(runId, "failed", timestamp);
+      this.publishRunStatusChanged(run, "failed");
+      this.publishTerminalRunStatus(run, "failed");
+      return;
     }
-    if (event.type === 'run.cancelled') {
-      await projectWorkspaceDiffArtifact(run, event)
-      await updateRun(runId, { status: 'cancelled', completedAt: timestamp })
-      await finalizeRunProjection(runId, 'cancelled', timestamp)
-      this.publishRunStatusChanged(run, 'cancelled')
-      this.publishTerminalRunStatus(run, 'cancelled')
-      return
+    if (event.type === "run.cancelled") {
+      await projectWorkspaceDiffArtifact(run, event);
+      await updateRun(runId, { status: "cancelled", completedAt: timestamp });
+      await finalizeRunProjection(runId, "cancelled", timestamp);
+      this.publishRunStatusChanged(run, "cancelled");
+      this.publishTerminalRunStatus(run, "cancelled");
+      return;
     }
-    if (event.type === 'agent.started') {
-      await projectExternalAgentSessionEvent(run, event)
-      return
+    if (event.type === "agent.started") {
+      await projectExternalAgentSessionEvent(run, event);
+      return;
     }
-    if (event.type === 'agent.completed') {
-      await projectExternalAgentSessionEvent(run, event)
-      await projectExternalContextSyncEvent(run, event)
-      return
+    if (event.type === "agent.completed") {
+      await projectExternalAgentSessionEvent(run, event);
+      await projectExternalContextSyncEvent(run, event);
+      return;
     }
-    if (event.type === 'permission.requested') {
-      await this.updateActiveRunStatus(run, 'waiting_approval')
-      await projectPermissionEvent(run, event, sequence)
-      return
+    if (event.type === "permission.requested") {
+      await this.updateActiveRunStatus(run, "waiting_approval");
+      await projectPermissionEvent(run, event, sequence);
+      return;
     }
     if (
-      event.type === 'permission.approved' ||
-      event.type === 'permission.denied' ||
-      event.type === 'permission.cancelled'
+      event.type === "permission.approved" ||
+      event.type === "permission.denied" ||
+      event.type === "permission.cancelled"
     ) {
-      await this.updateActiveRunStatus(run, 'running')
-      await projectPermissionEvent(run, event, sequence)
-      return
+      await this.updateActiveRunStatus(run, "running");
+      await projectPermissionEvent(run, event, sequence);
+      return;
     }
-    if (event.type === 'question.requested') {
-      await this.updateActiveRunStatus(run, 'waiting_input')
-      return
+    if (event.type === "question.requested") {
+      await this.updateActiveRunStatus(run, "waiting_input");
+      return;
     }
-    if (event.type === 'question.answered' || event.type === 'question.cancelled') {
-      await this.updateActiveRunStatus(run, 'running')
-      return
+    if (
+      event.type === "question.answered" ||
+      event.type === "question.cancelled"
+    ) {
+      await this.updateActiveRunStatus(run, "running");
+      return;
     }
-    if (event.type === 'task.group.started' || event.type === 'task.group.completed') {
-      await projectTaskGroupEvent(run, event, sequence)
-      return
+    if (
+      event.type === "task.group.started" ||
+      event.type === "task.group.completed"
+    ) {
+      await projectTaskGroupEvent(run, event, sequence);
+      return;
     }
-    if (event.type === 'task.started' || event.type === 'task.completed' || event.type === 'task.failed') {
-      await projectTaskEvent(run, event, sequence)
-      return
+    if (
+      event.type === "task.started" ||
+      event.type === "task.completed" ||
+      event.type === "task.failed"
+    ) {
+      await projectTaskEvent(run, event, sequence);
+      return;
     }
-    if (event.type === 'tool.started' || event.type === 'tool.completed' || event.type === 'tool.failed') {
-      await projectToolEvent(run, event, sequence)
-      if (event.type === 'tool.completed' && event.toolName === 'write_plan') {
-        await projectPlanEvent(run, event, sequence)
+    if (
+      event.type === "tool.started" ||
+      event.type === "tool.completed" ||
+      event.type === "tool.failed"
+    ) {
+      await projectToolEvent(run, event, sequence);
+      if (event.type === "tool.completed" && event.toolName === "write_plan") {
+        await projectPlanEvent(run, event, sequence);
       }
-      return
+      return;
     }
-    if (event.type === 'orchestrator.plan.created') {
-      await projectPlanEvent(run, event, sequence)
-      return
+    if (event.type === "orchestrator.plan.created") {
+      await projectPlanEvent(run, event, sequence);
+      return;
     }
-    if (event.type === 'system_agent.completed') {
-      await projectSystemAgentCompletedEvent(run, event, this.hubEventBus)
-      return
+    if (event.type === "system_agent.completed") {
+      await projectSystemAgentCompletedEvent(run, event, this.hubEventBus);
+      return;
     }
-    if (event.type === 'reasoning.started' || event.type === 'reasoning.delta' || event.type === 'reasoning.completed') {
-      await projectReasoningEvent(run, event, sequence)
-      return
+    if (
+      event.type === "reasoning.started" ||
+      event.type === "reasoning.delta" ||
+      event.type === "reasoning.completed"
+    ) {
+      await projectReasoningEvent(run, event, sequence);
+      return;
     }
-    if (event.type === 'message.delta' || event.type === 'message.completed') {
-      await projectRuntimeMessageEvent(run, event, sequence, this.hubEventBus)
-      return
+    if (event.type === "message.delta" || event.type === "message.completed") {
+      await projectRuntimeMessageEvent(run, event, sequence, this.hubEventBus);
+      return;
     }
   }
 
@@ -1836,68 +2067,68 @@ export class RunPersistenceService {
     status: RunStatus,
     patch: { startedAt?: string | null } = {},
   ): Promise<void> {
-    const latest = await findRunById(run.id)
+    const latest = await findRunById(run.id);
     if (!latest || this.isTerminalRunStatus(latest.status)) {
-      return
+      return;
     }
 
     if (latest.status === status && patch.startedAt === undefined) {
-      return
+      return;
     }
 
-    const updated = await updateRun(run.id, { status, ...patch })
+    const updated = await updateRun(run.id, { status, ...patch });
     if (latest.status !== status) {
-      this.publishRunStatusChanged(updated, status)
+      this.publishRunStatusChanged(updated, status);
     }
   }
 
   private isTerminalRunEvent(event: RuntimeRunEvent): boolean {
-    return isTerminalRuntimeEventType(event.type)
+    return isTerminalRuntimeEventType(event.type);
   }
 
   private publish(runId: string, envelope: HubRunEventEnvelope): void {
-    const listeners = this.listeners.get(runId)
-    if (!listeners) return
+    const listeners = this.listeners.get(runId);
+    if (!listeners) return;
     for (const listener of listeners) {
-      listener(envelope)
+      listener(envelope);
     }
   }
 
   private publishRunStatusChanged(run: RunOutput, status: RunStatus): void {
-    this.hubEventBus.publish('run.status.changed', {
+    this.hubEventBus.publish("run.status.changed", {
       conversationId: run.conversationId,
       runId: run.id,
       runtimeRunId: run.runtimeId,
       status,
-    })
+    });
   }
 
   private publishTerminalRunStatus(
     run: RunOutput,
-    status: 'completed' | 'failed' | 'cancelled',
+    status: "completed" | "failed" | "cancelled",
   ): void {
     this.hubEventBus.publish(`run.${status}`, {
       conversationId: run.conversationId,
       runId: run.id,
       runtimeRunId: run.runtimeId,
       status,
-    })
+    });
   }
 
   private publishConversationLastMessageUpdated(input: {
-    conversationId: string
-    runId: string | null
-    lastMessageId: string
-    lastMessageAt: string
-    lastMessageContent: string
+    conversationId: string;
+    runId: string | null;
+    lastMessageId: string;
+    lastMessageAt: string;
+    lastMessageContent: string;
   }): void {
-    this.hubEventBus.publish('conversation.last_message.updated', {
+    this.hubEventBus.publish("conversation.last_message.updated", {
       conversationId: input.conversationId,
       runId: input.runId,
       lastMessageId: input.lastMessageId,
       lastMessageAt: input.lastMessageAt,
       lastMessageContent: truncatePreview(input.lastMessageContent),
-    })
+    });
   }
 }
 
@@ -1907,25 +2138,34 @@ async function projectRuntimeMessageEvent(
   sequence: number,
   hubEventBus: HubEventBus,
 ): Promise<void> {
-  const runtimeMessageId = resolveRuntimeMessageId(event)
-  const messageId = resolveLocalMessageId(run.id, runtimeMessageId)
-  const surface = resolveMessageSurface(run, event)
-  const data = getEventDataRecord(event)
-  const text = event.type === 'message.delta'
-    ? getString(data.delta)
-    : getString(data.content)
-  const externalModel = event.type === 'message.completed'
-    ? getExternalModelFromEvent(event)
-    : undefined
+  const runtimeMessageId = resolveRuntimeMessageId(event);
+  const messageId = resolveLocalMessageId(run.id, runtimeMessageId);
+  const surface = resolveMessageSurface(run, event);
+  const data = getEventDataRecord(event);
+  const text =
+    event.type === "message.delta"
+      ? getString(data.delta)
+      : getString(data.content);
+  const externalModel =
+    event.type === "message.completed"
+      ? getExternalModelFromEvent(event)
+      : undefined;
 
-  if (event.type === 'message.delta' && !text) {
-    return
+  if (event.type === "message.delta" && !text) {
+    return;
   }
-  if (event.type === 'message.completed' && text === undefined && !event.messageId) {
-    return
+  if (
+    event.type === "message.completed" &&
+    text === undefined &&
+    !event.messageId
+  ) {
+    return;
   }
 
-  let message = await findMessageByRunAndRuntimeMessageId(run.id, runtimeMessageId)
+  let message = await findMessageByRunAndRuntimeMessageId(
+    run.id,
+    runtimeMessageId,
+  );
   if (!message) {
     message = await createMessage({
       id: messageId,
@@ -1935,17 +2175,18 @@ async function projectRuntimeMessageEvent(
       runtimeRunId: event.runId,
       messageIndex: event.messageIndex ?? null,
       surface,
-      role: 'assistant',
-      senderType: surface === 'chat'
-        ? event.agentId === run.orchestratorAgentId
-          ? 'orchestrator'
-          : 'agent'
-        : 'agent',
+      role: "assistant",
+      senderType:
+        surface === "chat"
+          ? event.agentId === run.orchestratorAgentId
+            ? "orchestrator"
+            : "agent"
+          : "agent",
       senderId: event.agentId,
       agentId: event.agentId,
       taskId: event.taskId ?? event.parentTaskId ?? null,
       groupId: event.groupId ?? null,
-      status: 'streaming',
+      status: "streaming",
       firstEventSequence: sequence,
       lastEventSequence: sequence,
       metadataJson: {
@@ -1957,46 +2198,47 @@ async function projectRuntimeMessageEvent(
           firstEventSequence: sequence,
         },
       },
-    })
+    });
   }
 
-  const currentParts = await listMessagePartsByMessage(message.id)
-  let textPart = await findMessagePartByMessageAndKey(message.id, 'text')
+  const currentParts = await listMessagePartsByMessage(message.id);
+  let textPart = await findMessagePartByMessageAndKey(message.id, "text");
   if (textPart && (textPart.lastEventSequence ?? 0) >= sequence) {
-    return
+    return;
   }
-  let persistedText = text ?? ''
+  let persistedText = text ?? "";
   if (!textPart) {
     textPart = await createMessagePart({
       messageId: message.id,
       conversationId: run.conversationId,
       runId: run.id,
       runtimeEventId: event.id,
-      partKey: 'text',
+      partKey: "text",
       partIndex: currentParts.length,
-      entityType: 'runtime_message',
+      entityType: "runtime_message",
       entityId: message.id,
-      type: 'text',
-      state: event.type === 'message.completed' ? 'done' : 'streaming',
-      text: text ?? '',
+      type: "text",
+      state: event.type === "message.completed" ? "done" : "streaming",
+      text: text ?? "",
       payloadJson: data,
       firstEventSequence: sequence,
       lastEventSequence: sequence,
-    })
+    });
   } else {
-    const nextText = event.type === 'message.completed'
-      ? text ?? textPart.text ?? ''
-      : `${textPart.text ?? ''}${text ?? ''}`
-    persistedText = nextText
+    const nextText =
+      event.type === "message.completed"
+        ? (text ?? textPart.text ?? "")
+        : `${textPart.text ?? ""}${text ?? ""}`;
+    persistedText = nextText;
     await updateMessagePart(textPart.id, {
-      state: event.type === 'message.completed' ? 'done' : 'streaming',
+      state: event.type === "message.completed" ? "done" : "streaming",
       text: nextText,
       payloadJson: data,
-      entityType: 'runtime_message',
+      entityType: "runtime_message",
       entityId: message.id,
       firstEventSequence: textPart.firstEventSequence ?? sequence,
       lastEventSequence: sequence,
-    })
+    });
   }
 
   await updateMessage(message.id, {
@@ -2008,9 +2250,10 @@ async function projectRuntimeMessageEvent(
     groupId: event.groupId ?? null,
     firstEventSequence: message.firstEventSequence ?? sequence,
     lastEventSequence: sequence,
-    status: event.type === 'message.completed' ? 'completed' : 'streaming',
-    finishReason: event.type === 'message.completed' ? 'stop' : undefined,
-    completedAt: event.type === 'message.completed' ? event.timestamp : undefined,
+    status: event.type === "message.completed" ? "completed" : "streaming",
+    finishReason: event.type === "message.completed" ? "stop" : undefined,
+    completedAt:
+      event.type === "message.completed" ? event.timestamp : undefined,
     metadataJson: mergeRuntimeMetadata(message.metadataJson, {
       messageId: runtimeMessageId,
       runtimeRunId: event.runId,
@@ -2020,35 +2263,42 @@ async function projectRuntimeMessageEvent(
       lastEventSequence: sequence,
       ...(externalModel ? { externalModel } : {}),
     }),
-  })
-  await backfillToolMessagePartsForRuntimeMessage(run, message, runtimeMessageId)
+  });
+  await backfillToolMessagePartsForRuntimeMessage(
+    run,
+    message,
+    runtimeMessageId,
+  );
 
-  if (surface === 'chat') {
+  if (surface === "chat") {
     await updateConversation(run.conversationId, {
       lastMessageId: message.id,
       lastMessageAt: event.timestamp,
-    })
-    if (event.type === 'message.completed') {
-      if (event.agentId === 'opencode') {
-        runPersistenceLogger.info({
-          externalProvider: 'opencode',
-          conversationId: run.conversationId,
-          runId: run.id,
-          runtimeRunId: event.runId,
-          runtimeMessageId,
-          messageId: message.id,
-          sequence,
-          contentLength: persistedText.length,
-          externalModel,
-        }, 'OpenCode assistant message projected')
+    });
+    if (event.type === "message.completed") {
+      if (event.agentId === "opencode") {
+        runPersistenceLogger.info(
+          {
+            externalProvider: "opencode",
+            conversationId: run.conversationId,
+            runId: run.id,
+            runtimeRunId: event.runId,
+            runtimeMessageId,
+            messageId: message.id,
+            sequence,
+            contentLength: persistedText.length,
+            externalModel,
+          },
+          "OpenCode assistant message projected",
+        );
       }
-      hubEventBus.publish('conversation.last_message.updated', {
+      hubEventBus.publish("conversation.last_message.updated", {
         conversationId: run.conversationId,
         runId: run.id,
         lastMessageId: message.id,
         lastMessageAt: event.timestamp,
         lastMessageContent: truncatePreview(persistedText),
-      })
+      });
     }
   }
 }
@@ -2057,26 +2307,44 @@ async function projectExternalAgentSessionEvent(
   run: RunOutput,
   event: RuntimeRunEvent,
 ): Promise<void> {
-  const data = getEventDataRecord(event)
-  const externalSession = data.externalSession
-  if (typeof externalSession !== 'object' || externalSession === null) return
+  const data = getEventDataRecord(event);
+  const externalSession = data.externalSession;
+  if (typeof externalSession !== "object" || externalSession === null) return;
 
-  const link = externalSession as Record<string, unknown>
-  const provider = typeof link.provider === 'string' ? link.provider : null
-  const providerSessionId = typeof link.providerSessionId === 'string' ? link.providerSessionId : null
-  const agentId = typeof link.agentId === 'string' ? link.agentId : event.agentId
-  const conversationId = typeof link.conversationId === 'string' ? link.conversationId : run.conversationId
-  const workspaceIdentity = typeof link.workspaceId === 'string' ? link.workspaceId : null
-  const scope = typeof link.scope === 'string' && isExternalSessionScope(link.scope) ? link.scope : null
+  const link = externalSession as Record<string, unknown>;
+  const provider = typeof link.provider === "string" ? link.provider : null;
+  const providerSessionId =
+    typeof link.providerSessionId === "string" ? link.providerSessionId : null;
+  const agentId =
+    typeof link.agentId === "string" ? link.agentId : event.agentId;
+  const conversationId =
+    typeof link.conversationId === "string"
+      ? link.conversationId
+      : run.conversationId;
+  const workspaceIdentity =
+    typeof link.workspaceId === "string" ? link.workspaceId : null;
+  const scope =
+    typeof link.scope === "string" && isExternalSessionScope(link.scope)
+      ? link.scope
+      : null;
 
-  if (!provider || !providerSessionId || !agentId || !workspaceIdentity || !scope) {
-    logger.warn({
-      runId: run.id,
-      runtimeRunId: event.runId,
-      eventId: event.id,
-      agentId: event.agentId,
-    }, 'Skipping invalid external session link')
-    return
+  if (
+    !provider ||
+    !providerSessionId ||
+    !agentId ||
+    !workspaceIdentity ||
+    !scope
+  ) {
+    logger.warn(
+      {
+        runId: run.id,
+        runtimeRunId: event.runId,
+        eventId: event.id,
+        agentId: event.agentId,
+      },
+      "Skipping invalid external session link",
+    );
+    return;
   }
 
   await upsertExternalAgentSession({
@@ -2086,31 +2354,37 @@ async function projectExternalAgentSessionEvent(
     workspaceIdentity,
     scope,
     providerSessionId,
-    parentProviderSessionId: typeof link.parentProviderSessionId === 'string'
-      ? link.parentProviderSessionId
-      : null,
+    parentProviderSessionId:
+      typeof link.parentProviderSessionId === "string"
+        ? link.parentProviderSessionId
+        : null,
     runId: run.id,
-    taskId: typeof link.taskId === 'string' ? link.taskId : event.taskId ?? null,
-    handoffSummary: typeof link.handoffSummary === 'string' ? link.handoffSummary : null,
+    taskId:
+      typeof link.taskId === "string" ? link.taskId : (event.taskId ?? null),
+    handoffSummary:
+      typeof link.handoffSummary === "string" ? link.handoffSummary : null,
     lastSyncedRunEventId: event.id,
     metadataJson: {
       runtimeRunId: event.runId,
       runtimeAgentId: event.agentId ?? null,
-      providerRunId: typeof link.runId === 'string' ? link.runId : null,
+      providerRunId: typeof link.runId === "string" ? link.runId : null,
     },
-  })
-  if (provider === 'opencode') {
-    runPersistenceLogger.info({
-      externalProvider: 'opencode',
-      conversationId,
-      runId: run.id,
-      runtimeRunId: event.runId,
-      eventId: event.id,
-      agentId,
-      providerSessionId,
-      workspaceIdentity,
-      scope,
-    }, 'OpenCode external session link projected')
+  });
+  if (provider === "opencode") {
+    runPersistenceLogger.info(
+      {
+        externalProvider: "opencode",
+        conversationId,
+        runId: run.id,
+        runtimeRunId: event.runId,
+        eventId: event.id,
+        agentId,
+        providerSessionId,
+        workspaceIdentity,
+        scope,
+      },
+      "OpenCode external session link projected",
+    );
   }
 }
 
@@ -2118,27 +2392,36 @@ async function projectExternalContextSyncEvent(
   run: RunOutput,
   event: RuntimeRunEvent,
 ): Promise<void> {
-  const data = getEventDataRecord(event)
-  if (getString(data.status) !== 'completed') return
+  const data = getEventDataRecord(event);
+  if (getString(data.status) !== "completed") return;
 
-  const externalContext = getRecord(data.externalContext)
-  if (!externalContext) return
+  const externalContext = getRecord(data.externalContext);
+  if (!externalContext) return;
 
-  const externalSession = getRecord(data.externalSession)
-  const provider = getString(externalSession?.provider) ?? getString(externalContext.provider)
-  const providerSessionId = getString(externalSession?.providerSessionId)
-  if (provider !== 'opencode' || !providerSessionId) return
+  const externalSession = getRecord(data.externalSession);
+  const provider =
+    getString(externalSession?.provider) ?? getString(externalContext.provider);
+  const providerSessionId = getString(externalSession?.providerSessionId);
+  if (provider !== "opencode" || !providerSessionId) return;
 
-  const latestVisibleMessage = await findLatestVisibleContextMessage(run.conversationId)
-  const cursorCandidate = getRecord(externalContext.cursorCandidate)
-  const includedMessageIds = getStringArray(cursorCandidate?.includedMessageIds)
-  const includedHandoffSessionIds = getStringArray(cursorCandidate?.includedHandoffSessionIds)
-  const omitted = getRecord(externalContext.omitted)
+  const latestVisibleMessage = await findLatestVisibleContextMessage(
+    run.conversationId,
+  );
+  const cursorCandidate = getRecord(externalContext.cursorCandidate);
+  const includedMessageIds = getStringArray(
+    cursorCandidate?.includedMessageIds,
+  );
+  const includedHandoffSessionIds = getStringArray(
+    cursorCandidate?.includedHandoffSessionIds,
+  );
+  const omitted = getRecord(externalContext.omitted);
   const contextBridge = {
-    ...(latestVisibleMessage ? {
-      lastSyncedMessageId: latestVisibleMessage.id,
-      lastSyncedMessageCreatedAt: latestVisibleMessage.createdAt,
-    } : {}),
+    ...(latestVisibleMessage
+      ? {
+          lastSyncedMessageId: latestVisibleMessage.id,
+          lastSyncedMessageCreatedAt: latestVisibleMessage.createdAt,
+        }
+      : {}),
     lastSyncedAt: event.timestamp,
     syncedAt: new Date().toISOString(),
     runId: run.id,
@@ -2147,59 +2430,72 @@ async function projectExternalContextSyncEvent(
     includedMessageIds,
     includedHandoffSessionIds,
     ...(omitted ? { omitted } : {}),
-  }
+  };
 
-  await patchExternalAgentSessionMetadata({
-    provider,
-    providerSessionId,
-  }, {
-    contextBridge,
-  })
+  await patchExternalAgentSessionMetadata(
+    {
+      provider,
+      providerSessionId,
+    },
+    {
+      contextBridge,
+    },
+  );
 
-  runPersistenceLogger.info({
-    externalProvider: 'opencode',
-    conversationId: run.conversationId,
-    runId: run.id,
-    runtimeRunId: event.runId,
-    providerSessionId,
-    contextMode: contextBridge.mode,
-    lastSyncedMessageId: latestVisibleMessage?.id,
-    includedMessageCount: includedMessageIds.length,
-    includedHandoffCount: includedHandoffSessionIds.length,
-  }, 'OpenCode external context sync projected')
+  runPersistenceLogger.info(
+    {
+      externalProvider: "opencode",
+      conversationId: run.conversationId,
+      runId: run.id,
+      runtimeRunId: event.runId,
+      providerSessionId,
+      contextMode: contextBridge.mode,
+      lastSyncedMessageId: latestVisibleMessage?.id,
+      includedMessageCount: includedMessageIds.length,
+      includedHandoffCount: includedHandoffSessionIds.length,
+    },
+    "OpenCode external context sync projected",
+  );
 }
 
 async function projectWorkspaceDiffArtifact(
   run: RunOutput,
   event: RuntimeRunEvent,
 ): Promise<void> {
-  const workspaceDiff = getRecord(getEventDataRecord(event).workspaceDiff)
+  const workspaceDiff = getRecord(getEventDataRecord(event).workspaceDiff);
   if (!workspaceDiff || !shouldProjectWorkspaceDiffArtifact(workspaceDiff)) {
-    return
+    return;
   }
 
-  const existing = await findArtifactByRunAndSourceEvent(run.id, event.id)
+  const existing = await findArtifactByRunAndSourceEvent(run.id, event.id);
   if (existing) {
-    await ensureWorkspaceChangeSetForDiffArtifact(run, event, existing as PersistedArtifact, workspaceDiff)
-    return
+    await ensureWorkspaceChangeSetForDiffArtifact(
+      run,
+      event,
+      existing as PersistedArtifact,
+      workspaceDiff,
+    );
+    return;
   }
 
-  const messageId = await resolveWorkspaceDiffArtifactMessageId(run)
-  const changedFileCount = getWorkspaceDiffChangedFileCount(workspaceDiff)
-  const status = getString(workspaceDiff.status) ?? 'degraded'
-  const baselineDirty = Boolean(workspaceDiff.baselineDirty)
-  const summary = getString(workspaceDiff.summary) ?? formatWorkspaceDiffTitle(changedFileCount)
-  const title = 'Workspace changes'
+  const messageId = await resolveWorkspaceDiffArtifactMessageId(run);
+  const changedFileCount = getWorkspaceDiffChangedFileCount(workspaceDiff);
+  const status = getString(workspaceDiff.status) ?? "degraded";
+  const baselineDirty = Boolean(workspaceDiff.baselineDirty);
+  const summary =
+    getString(workspaceDiff.summary) ??
+    formatWorkspaceDiffTitle(changedFileCount);
+  const title = "Workspace changes";
   const artifact = await createArtifact({
     conversationId: run.conversationId,
     runId: run.id,
     messageId,
     createdByAgentId: resolveWorkspaceDiffCreatedByAgentId(run),
-    type: 'diff',
+    type: "diff",
     title,
-    status: 'ready',
+    status: "ready",
     metadataJson: {
-      source: 'runtime.workspaceDiff',
+      source: "runtime.workspaceDiff",
       runtimeEventId: event.id,
       runtimeRunId: event.runId,
       terminalEventType: event.type,
@@ -2208,18 +2504,21 @@ async function projectWorkspaceDiffArtifact(
       changedFileCount,
       summary,
     },
-  })
+  });
   const version = await createArtifactVersion({
     artifactId: artifact.id as string,
     version: 1,
-    source: 'agent',
-    language: 'diff',
+    source: "agent",
+    language: "diff",
     content: formatWorkspaceDiffArtifactContent(workspaceDiff),
     summary,
     diffJson: workspaceDiff,
     createdByAgentId: resolveWorkspaceDiffCreatedByAgentId(run),
-  })
-  await updateArtifactCurrentVersion(artifact.id as string, version.id as string)
+  });
+  await updateArtifactCurrentVersion(
+    artifact.id as string,
+    version.id as string,
+  );
   const changeSet = await ensureWorkspaceChangeSetForDiffArtifact(
     run,
     event,
@@ -2228,20 +2527,23 @@ async function projectWorkspaceDiffArtifact(
       currentVersionId: version.id as string,
     },
     workspaceDiff,
-  )
+  );
 
-  runPersistenceLogger.info({
-    conversationId: run.conversationId,
-    runId: run.id,
-    runtimeRunId: event.runId,
-    eventId: event.id,
-    artifactId: artifact.id,
-    messageId,
-    changedFileCount,
-    status,
-    baselineDirty,
-    changeSetId: changeSet?.id,
-  }, 'Workspace diff artifact projected')
+  runPersistenceLogger.info(
+    {
+      conversationId: run.conversationId,
+      runId: run.id,
+      runtimeRunId: event.runId,
+      eventId: event.id,
+      artifactId: artifact.id,
+      messageId,
+      changedFileCount,
+      status,
+      baselineDirty,
+      changeSetId: changeSet?.id,
+    },
+    "Workspace diff artifact projected",
+  );
 }
 
 async function ensureWorkspaceChangeSetForDiffArtifact(
@@ -2250,32 +2552,34 @@ async function ensureWorkspaceChangeSetForDiffArtifact(
   artifact: PersistedArtifact,
   workspaceDiff: Record<string, unknown>,
 ): Promise<WorkspaceChangeSetWithFilesOutput | null> {
-  const existing = await findWorkspaceChangeSetBySourceEventId(event.id)
+  const existing = await findWorkspaceChangeSetBySourceEventId(event.id);
   if (existing) {
-    await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact, existing)
-    return findWorkspaceChangeSetByArtifactId(existing.artifactId)
+    await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact, existing);
+    return findWorkspaceChangeSetByArtifactId(existing.artifactId);
   }
 
-  const changedFiles = normalizeWorkspaceChangedFilesForProjection(workspaceDiff.changedFiles)
+  const changedFiles = normalizeWorkspaceChangedFilesForProjection(
+    workspaceDiff.changedFiles,
+  );
   if (changedFiles.length === 0) {
-    return null
+    return null;
   }
 
-  const context = await buildWorkspaceChangeAttributionContext(run)
+  const context = await buildWorkspaceChangeAttributionContext(run);
   const fileProjections = changedFiles.map((file) => ({
     file,
     attribution: deriveWorkspaceFileAttribution(file, context),
-  }))
+  }));
   const changeSetAttribution = deriveWorkspaceChangeSetAttribution(
     fileProjections.map((projection) => projection.attribution),
     context,
-  )
-  const status = getString(workspaceDiff.status) ?? 'degraded'
-  const baselineDirty = workspaceDiff.baselineDirty === true
-  const runOnlyReliable = workspaceDiff.runOnlyReliable !== false
-  const summary = getString(workspaceDiff.summary) ?? null
-  const stats = getRecord(workspaceDiff.stats) ?? {}
-  const limitations = getStringArray(workspaceDiff.limitations)
+  );
+  const status = getString(workspaceDiff.status) ?? "degraded";
+  const baselineDirty = workspaceDiff.baselineDirty === true;
+  const runOnlyReliable = workspaceDiff.runOnlyReliable !== false;
+  const summary = getString(workspaceDiff.summary) ?? null;
+  const stats = getRecord(workspaceDiff.stats) ?? {};
+  const limitations = getStringArray(workspaceDiff.limitations);
 
   const changeSet = await createWorkspaceChangeSet({
     conversationId: run.conversationId,
@@ -2296,7 +2600,7 @@ async function ensureWorkspaceChangeSetForDiffArtifact(
     toolName: changeSetAttribution.toolName ?? null,
     messageId: changeSetAttribution.messageId ?? null,
     metadataJson: attributionMetadata(changeSetAttribution),
-  })
+  });
 
   for (const projection of fileProjections) {
     await createWorkspaceChangeSetFile({
@@ -2321,21 +2625,21 @@ async function ensureWorkspaceChangeSetForDiffArtifact(
       toolName: projection.attribution.toolName ?? null,
       messageId: projection.attribution.messageId ?? null,
       metadataJson: attributionMetadata(projection.attribution),
-    })
+    });
   }
 
-  await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact, changeSet)
-  return findWorkspaceChangeSetByArtifactId(changeSet.artifactId)
+  await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact, changeSet);
+  return findWorkspaceChangeSetByArtifactId(changeSet.artifactId);
 }
 
 async function mergeWorkspaceChangeSetMetadataIntoArtifact(
   artifact: PersistedArtifact,
   changeSet: Pick<
     WorkspaceChangeSetWithFilesOutput,
-    'id' | 'attributionKind' | 'attributionConfidence'
+    "id" | "attributionKind" | "attributionConfidence"
   >,
 ): Promise<void> {
-  const existingMetadata = getRecord(artifact.metadataJson) ?? {}
+  const existingMetadata = getRecord(artifact.metadataJson) ?? {};
   await updateArtifact(artifact.id, {
     metadataJson: {
       ...existingMetadata,
@@ -2343,25 +2647,25 @@ async function mergeWorkspaceChangeSetMetadataIntoArtifact(
       attributionKind: changeSet.attributionKind,
       attributionConfidence: changeSet.attributionConfidence,
     },
-  })
+  });
 }
 
 type WorkspaceChangedFileProjection = {
-  path: string
-  oldPath?: string
-  statusBefore?: string
-  statusAfter?: string
-  origin?: string
-  additions?: number
-  deletions?: number
-  binary?: boolean
-  truncated?: boolean
-}
+  path: string;
+  oldPath?: string;
+  statusBefore?: string;
+  statusAfter?: string;
+  origin?: string;
+  additions?: number;
+  deletions?: number;
+  binary?: boolean;
+  truncated?: boolean;
+};
 
 type WorkspaceChangeAttributionContext = {
-  internalWritesByPath: Map<string, RunToolCallOutput[]>
-  fallbackAttribution: WorkspaceChangeAttribution
-}
+  internalWritesByPath: Map<string, RunToolCallOutput[]>;
+  fallbackAttribution: WorkspaceChangeAttribution;
+};
 
 async function buildWorkspaceChangeAttributionContext(
   run: RunOutput,
@@ -2370,71 +2674,93 @@ async function buildWorkspaceChangeAttributionContext(
     listRunToolCallsByRun(run.id),
     listMessagesByRun(run.id),
     listRunTasksByRun(run.id),
-  ])
-  const internalWritesByPath = new Map<string, RunToolCallOutput[]>()
+  ]);
+  const internalWritesByPath = new Map<string, RunToolCallOutput[]>();
   for (const toolCall of toolCalls) {
-    if (!isInternalWorkspaceWriteTool(toolCall)) continue
-    const path = resolveWorkspaceWriteToolPath(toolCall)
-    if (!path) continue
-    const existing = internalWritesByPath.get(path) ?? []
-    existing.push(toolCall)
-    internalWritesByPath.set(path, existing)
+    if (!isInternalWorkspaceWriteTool(toolCall)) continue;
+    const path = resolveWorkspaceWriteToolPath(toolCall);
+    if (!path) continue;
+    const existing = internalWritesByPath.get(path) ?? [];
+    existing.push(toolCall);
+    internalWritesByPath.set(path, existing);
   }
 
   return {
     internalWritesByPath,
-    fallbackAttribution: deriveFallbackWorkspaceAttribution(run, toolCalls, messages, tasks),
-  }
+    fallbackAttribution: deriveFallbackWorkspaceAttribution(
+      run,
+      toolCalls,
+      messages,
+      tasks,
+    ),
+  };
 }
 
-function normalizeWorkspaceChangedFilesForProjection(value: unknown): WorkspaceChangedFileProjection[] {
-  if (!Array.isArray(value)) return []
+function normalizeWorkspaceChangedFilesForProjection(
+  value: unknown,
+): WorkspaceChangedFileProjection[] {
+  if (!Array.isArray(value)) return [];
   return value
     .map((item) => getRecord(item))
     .filter((item): item is Record<string, unknown> => Boolean(item))
     .flatMap((file) => {
       const path = normalizeOptionalWorkspacePath(
         getString(file.path) ??
-        getString(file.newPath) ??
-        getString(file.pathAfter),
-      )
-      if (!path) return []
+          getString(file.newPath) ??
+          getString(file.pathAfter),
+      );
+      if (!path) return [];
       const oldPath = normalizeOptionalWorkspacePath(
         getString(file.oldPath) ??
-        getString(file.pathBefore) ??
-        getString(file.previousPath),
-      )
-      return [{
-        path,
-        ...(oldPath && oldPath !== path ? { oldPath } : {}),
-        ...(getString(file.statusBefore) ? { statusBefore: getString(file.statusBefore) } : {}),
-        ...(getString(file.statusAfter) ? { statusAfter: getString(file.statusAfter) } : {}),
-        ...(getString(file.origin) ? { origin: getString(file.origin) } : {}),
-        ...(getNumber(file.additions) !== undefined ? { additions: getNumber(file.additions) } : {}),
-        ...(getNumber(file.deletions) !== undefined ? { deletions: getNumber(file.deletions) } : {}),
-        ...(file.binary === true ? { binary: true } : {}),
-        ...(file.truncated === true ? { truncated: true } : {}),
-      }]
-    })
+          getString(file.pathBefore) ??
+          getString(file.previousPath),
+      );
+      return [
+        {
+          path,
+          ...(oldPath && oldPath !== path ? { oldPath } : {}),
+          ...(getString(file.statusBefore)
+            ? { statusBefore: getString(file.statusBefore) }
+            : {}),
+          ...(getString(file.statusAfter)
+            ? { statusAfter: getString(file.statusAfter) }
+            : {}),
+          ...(getString(file.origin) ? { origin: getString(file.origin) } : {}),
+          ...(getNumber(file.additions) !== undefined
+            ? { additions: getNumber(file.additions) }
+            : {}),
+          ...(getNumber(file.deletions) !== undefined
+            ? { deletions: getNumber(file.deletions) }
+            : {}),
+          ...(file.binary === true ? { binary: true } : {}),
+          ...(file.truncated === true ? { truncated: true } : {}),
+        },
+      ];
+    });
 }
 
 function deriveWorkspaceFileAttribution(
   file: WorkspaceChangedFileProjection,
   context: WorkspaceChangeAttributionContext,
 ): WorkspaceChangeAttribution {
-  const matches = context.internalWritesByPath.get(normalizeWorkspacePath(file.path)) ?? []
+  const matches =
+    context.internalWritesByPath.get(normalizeWorkspacePath(file.path)) ?? [];
   if (matches.length === 1) {
-    return attributionFromToolCall(matches[0]!)
+    return attributionFromToolCall(matches[0]!);
   }
   if (matches.length > 1) {
     return {
-      kind: 'run',
-      confidence: 'ambiguous',
-      candidateToolCallIds: uniqueStrings(matches.map((toolCall) => toolCall.toolCallId)),
-      candidateAgentIds: uniqueStrings(matches.map((toolCall) => toolCall.agentId)),
-    }
+      kind: "run",
+      confidence: "ambiguous",
+      candidateToolCallIds: uniqueStrings(
+        matches.map((toolCall) => toolCall.toolCallId),
+      ),
+      candidateAgentIds: uniqueStrings(
+        matches.map((toolCall) => toolCall.agentId),
+      ),
+    };
   }
-  return context.fallbackAttribution
+  return context.fallbackAttribution;
 }
 
 function deriveWorkspaceChangeSetAttribution(
@@ -2442,34 +2768,38 @@ function deriveWorkspaceChangeSetAttribution(
   context: WorkspaceChangeAttributionContext,
 ): WorkspaceChangeAttribution {
   if (attributions.length === 0) {
-    return context.fallbackAttribution
+    return context.fallbackAttribution;
   }
-  const signatures = new Map<string, WorkspaceChangeAttribution>()
+  const signatures = new Map<string, WorkspaceChangeAttribution>();
   for (const attribution of attributions) {
-    signatures.set(workspaceAttributionSignature(attribution), attribution)
+    signatures.set(workspaceAttributionSignature(attribution), attribution);
   }
   if (signatures.size === 1) {
-    return attributions[0]!
+    return attributions[0]!;
   }
   return {
-    kind: 'run',
-    confidence: 'ambiguous',
-    candidateToolCallIds: uniqueStrings(attributions.flatMap((item) => item.candidateToolCallIds ?? [])),
+    kind: "run",
+    confidence: "ambiguous",
+    candidateToolCallIds: uniqueStrings(
+      attributions.flatMap((item) => item.candidateToolCallIds ?? []),
+    ),
     candidateAgentIds: uniqueStrings(attributions.map((item) => item.agentId)),
     candidateTaskIds: uniqueStrings(attributions.map((item) => item.taskId)),
-  }
+  };
 }
 
-function attributionFromToolCall(toolCall: RunToolCallOutput): WorkspaceChangeAttribution {
+function attributionFromToolCall(
+  toolCall: RunToolCallOutput,
+): WorkspaceChangeAttribution {
   return {
-    kind: 'tool',
-    confidence: 'inferred',
+    kind: "tool",
+    confidence: "inferred",
     ...(toolCall.agentId ? { agentId: toolCall.agentId } : {}),
     ...(toolCall.taskId ? { taskId: toolCall.taskId } : {}),
     toolCallId: toolCall.toolCallId,
     toolName: toolCall.toolName,
     ...(toolCall.messageId ? { messageId: toolCall.messageId } : {}),
-  }
+  };
 }
 
 function deriveFallbackWorkspaceAttribution(
@@ -2478,215 +2808,249 @@ function deriveFallbackWorkspaceAttribution(
   messages: MessageOutput[],
   tasks: RunTaskOutput[],
 ): WorkspaceChangeAttribution {
-  const completedTasks = tasks.filter((task) => task.state === 'completed')
-  const taskCandidates = completedTasks.length > 0 ? completedTasks : tasks
-  const taskIds = uniqueStrings(taskCandidates.map((task) => task.taskId))
-  const taskAgentIds = uniqueStrings(taskCandidates.map((task) => task.targetAgentId ?? task.agentId))
+  const completedTasks = tasks.filter((task) => task.state === "completed");
+  const taskCandidates = completedTasks.length > 0 ? completedTasks : tasks;
+  const taskIds = uniqueStrings(taskCandidates.map((task) => task.taskId));
+  const taskAgentIds = uniqueStrings(
+    taskCandidates.map((task) => task.targetAgentId ?? task.agentId),
+  );
   const messageAgentIds = uniqueStrings(
     messages
-      .filter((message) => message.surface === 'chat' && message.role === 'assistant')
+      .filter(
+        (message) => message.surface === "chat" && message.role === "assistant",
+      )
       .map((message) => message.agentId ?? message.senderId),
-  )
-  const toolAgentIds = uniqueStrings(toolCalls.map((toolCall) => toolCall.agentId))
-  const inputAgentIds = resolveRunInputSingleAgentCandidates(run)
+  );
+  const toolAgentIds = uniqueStrings(
+    toolCalls.map((toolCall) => toolCall.agentId),
+  );
+  const inputAgentIds = resolveRunInputSingleAgentCandidates(run);
   const agentIds = uniqueStrings([
     ...messageAgentIds,
     ...taskAgentIds,
     ...toolAgentIds,
     ...inputAgentIds,
-  ])
+  ]);
 
   if (agentIds.length === 1) {
-    const agentId = agentIds[0]!
+    const agentId = agentIds[0]!;
     return {
-      kind: 'agent',
-      confidence: 'aggregate',
+      kind: "agent",
+      confidence: "aggregate",
       agentId,
       ...(taskIds.length === 1 ? { taskId: taskIds[0] } : {}),
-    }
+    };
   }
   if (taskIds.length === 1) {
     return {
-      kind: 'task',
-      confidence: 'aggregate',
+      kind: "task",
+      confidence: "aggregate",
       taskId: taskIds[0]!,
       ...(taskAgentIds.length === 1 ? { agentId: taskAgentIds[0] } : {}),
-    }
+    };
   }
   if (agentIds.length > 1 || taskIds.length > 1) {
     return {
-      kind: 'run',
-      confidence: 'ambiguous',
+      kind: "run",
+      confidence: "ambiguous",
       candidateAgentIds: agentIds,
       candidateTaskIds: taskIds,
-    }
+    };
   }
   return {
-    kind: 'run',
-    confidence: 'unknown',
-  }
+    kind: "run",
+    confidence: "unknown",
+  };
 }
 
 function resolveRunInputSingleAgentCandidates(run: RunOutput): string[] {
-  const input = run.inputJson as Record<string, unknown>
-  const addressedAgentIds = getStringArray(input.addressedAgentIds)
-  if (addressedAgentIds.length === 1) return addressedAgentIds
-  const participantAgentIds = getStringArray(input.participantAgentIds)
-  if (participantAgentIds.length === 1) return participantAgentIds
-  return run.orchestratorAgentId ? [run.orchestratorAgentId] : []
+  const input = run.inputJson as Record<string, unknown>;
+  const addressedAgentIds = getStringArray(input.addressedAgentIds);
+  if (addressedAgentIds.length === 1) return addressedAgentIds;
+  const participantAgentIds = getStringArray(input.participantAgentIds);
+  if (participantAgentIds.length === 1) return participantAgentIds;
+  return run.orchestratorAgentId ? [run.orchestratorAgentId] : [];
 }
 
 function isInternalWorkspaceWriteTool(toolCall: RunToolCallOutput): boolean {
-  if (toolCall.state !== 'output-available') return false
-  if (toolCall.toolName !== 'write_file' && toolCall.toolName !== 'edit_file') return false
-  if (getString(toolCall.payloadJson.externalProvider)) return false
-  return true
+  if (toolCall.state !== "output-available") return false;
+  if (toolCall.toolName !== "write_file" && toolCall.toolName !== "edit_file")
+    return false;
+  if (getString(toolCall.payloadJson.externalProvider)) return false;
+  return true;
 }
 
-function resolveWorkspaceWriteToolPath(toolCall: RunToolCallOutput): string | undefined {
-  const output = toolCall.outputJson ?? {}
-  const input = toolCall.inputJson ?? {}
-  const payload = toolCall.payloadJson ?? {}
-  const payloadData = getRecord(payload.data) ?? {}
-  const payloadResult = getRecord(payload.result) ?? {}
-  const payloadOutput = getRecord(payload.output) ?? {}
-  const payloadInput = getRecord(payload.input) ?? {}
-  const payloadParameters = getRecord(payload.parameters) ?? {}
+function resolveWorkspaceWriteToolPath(
+  toolCall: RunToolCallOutput,
+): string | undefined {
+  const output = toolCall.outputJson ?? {};
+  const input = toolCall.inputJson ?? {};
+  const payload = toolCall.payloadJson ?? {};
+  const payloadData = getRecord(payload.data) ?? {};
+  const payloadResult = getRecord(payload.result) ?? {};
+  const payloadOutput = getRecord(payload.output) ?? {};
+  const payloadInput = getRecord(payload.input) ?? {};
+  const payloadParameters = getRecord(payload.parameters) ?? {};
   return normalizeOptionalWorkspacePath(
     getString(output.path) ??
-    getString(output.filePath) ??
-    getString(output.targetPath) ??
-    getString(input.path) ??
-    getString(input.filePath) ??
-    getString(input.targetPath) ??
-    getString(payloadData.path) ??
-    getString(payloadData.filePath) ??
-    getString(payloadResult.path) ??
-    getString(payloadResult.filePath) ??
-    getString(payloadOutput.path) ??
-    getString(payloadOutput.filePath) ??
-    getString(payloadInput.path) ??
-    getString(payloadInput.filePath) ??
-    getString(payloadParameters.path) ??
-    getString(payloadParameters.filePath),
-  )
+      getString(output.filePath) ??
+      getString(output.targetPath) ??
+      getString(input.path) ??
+      getString(input.filePath) ??
+      getString(input.targetPath) ??
+      getString(payloadData.path) ??
+      getString(payloadData.filePath) ??
+      getString(payloadResult.path) ??
+      getString(payloadResult.filePath) ??
+      getString(payloadOutput.path) ??
+      getString(payloadOutput.filePath) ??
+      getString(payloadInput.path) ??
+      getString(payloadInput.filePath) ??
+      getString(payloadParameters.path) ??
+      getString(payloadParameters.filePath),
+  );
 }
 
-function normalizeOptionalWorkspacePath(value: string | undefined): string | undefined {
-  if (!value) return undefined
-  const normalized = normalizeWorkspacePath(value)
-  return normalized.length > 0 ? normalized : undefined
+function normalizeOptionalWorkspacePath(
+  value: string | undefined,
+): string | undefined {
+  if (!value) return undefined;
+  const normalized = normalizeWorkspacePath(value);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function normalizeWorkspacePath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+  return value.replace(/\\/g, "/").replace(/^\.\//, "").trim();
 }
 
-function workspaceAttributionSignature(attribution: WorkspaceChangeAttribution): string {
+function workspaceAttributionSignature(
+  attribution: WorkspaceChangeAttribution,
+): string {
   return [
     attribution.kind,
     attribution.confidence,
-    attribution.agentId ?? '',
-    attribution.taskId ?? '',
-    attribution.toolCallId ?? '',
-    attribution.toolName ?? '',
-    attribution.messageId ?? '',
-    (attribution.candidateToolCallIds ?? []).join(','),
-    (attribution.candidateAgentIds ?? []).join(','),
-    (attribution.candidateTaskIds ?? []).join(','),
-  ].join('|')
+    attribution.agentId ?? "",
+    attribution.taskId ?? "",
+    attribution.toolCallId ?? "",
+    attribution.toolName ?? "",
+    attribution.messageId ?? "",
+    (attribution.candidateToolCallIds ?? []).join(","),
+    (attribution.candidateAgentIds ?? []).join(","),
+    (attribution.candidateTaskIds ?? []).join(","),
+  ].join("|");
 }
 
-function attributionMetadata(attribution: WorkspaceChangeAttribution): Record<string, unknown> {
+function attributionMetadata(
+  attribution: WorkspaceChangeAttribution,
+): Record<string, unknown> {
   return {
-    ...(attribution.candidateToolCallIds && attribution.candidateToolCallIds.length > 0
+    ...(attribution.candidateToolCallIds &&
+    attribution.candidateToolCallIds.length > 0
       ? { candidateToolCallIds: attribution.candidateToolCallIds }
       : {}),
-    ...(attribution.candidateAgentIds && attribution.candidateAgentIds.length > 0
+    ...(attribution.candidateAgentIds &&
+    attribution.candidateAgentIds.length > 0
       ? { candidateAgentIds: attribution.candidateAgentIds }
       : {}),
     ...(attribution.candidateTaskIds && attribution.candidateTaskIds.length > 0
       ? { candidateTaskIds: attribution.candidateTaskIds }
       : {}),
-  }
+  };
 }
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
-  return Array.from(new Set(values.filter((value): value is string => Boolean(value))))
+  return Array.from(
+    new Set(values.filter((value): value is string => Boolean(value))),
+  );
 }
 
-async function resolveWorkspaceDiffArtifactMessageId(run: RunOutput): Promise<string> {
-  const messages = await listMessagesByRun(run.id)
+async function resolveWorkspaceDiffArtifactMessageId(
+  run: RunOutput,
+): Promise<string> {
+  const messages = await listMessagesByRun(run.id);
   const assistant = messages
-    .filter((message) => message.surface === 'chat' && message.role === 'assistant')
+    .filter(
+      (message) => message.surface === "chat" && message.role === "assistant",
+    )
     .sort(comparePersistedMessages)
-    .at(-1)
-  return assistant?.id ?? run.triggerMessageId
+    .at(-1);
+  return assistant?.id ?? run.triggerMessageId;
 }
 
-function shouldProjectWorkspaceDiffArtifact(workspaceDiff: Record<string, unknown>): boolean {
-  const changedFileCount = getWorkspaceDiffChangedFileCount(workspaceDiff)
-  return changedFileCount > 0
+function shouldProjectWorkspaceDiffArtifact(
+  workspaceDiff: Record<string, unknown>,
+): boolean {
+  const changedFileCount = getWorkspaceDiffChangedFileCount(workspaceDiff);
+  return changedFileCount > 0;
 }
 
-function getWorkspaceDiffChangedFileCount(workspaceDiff: Record<string, unknown>): number {
-  const stats = getRecord(workspaceDiff.stats)
-  const fromStats = getNumber(stats?.filesChanged)
-  if (fromStats !== undefined) return fromStats
-  const changedFiles = workspaceDiff.changedFiles
-  return Array.isArray(changedFiles) ? changedFiles.length : 0
+function getWorkspaceDiffChangedFileCount(
+  workspaceDiff: Record<string, unknown>,
+): number {
+  const stats = getRecord(workspaceDiff.stats);
+  const fromStats = getNumber(stats?.filesChanged);
+  if (fromStats !== undefined) return fromStats;
+  const changedFiles = workspaceDiff.changedFiles;
+  return Array.isArray(changedFiles) ? changedFiles.length : 0;
 }
 
-function formatWorkspaceDiffArtifactContent(workspaceDiff: Record<string, unknown>): string {
-  const patch = getRecord(workspaceDiff.patch)
-  const patchText = getString(patch?.text)
+function formatWorkspaceDiffArtifactContent(
+  workspaceDiff: Record<string, unknown>,
+): string {
+  const patch = getRecord(workspaceDiff.patch);
+  const patchText = getString(patch?.text);
   if (patchText !== undefined) {
-    return patchText
+    return patchText;
   }
 
-  const summary = getString(workspaceDiff.summary) ?? 'Workspace diff summary'
+  const summary = getString(workspaceDiff.summary) ?? "Workspace diff summary";
   const changedFiles = Array.isArray(workspaceDiff.changedFiles)
     ? workspaceDiff.changedFiles
-      .map((item) => getRecord(item))
-      .filter((item): item is Record<string, unknown> => Boolean(item))
-    : []
+        .map((item) => getRecord(item))
+        .filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
   const lines = changedFiles
     .map((file) => {
-      const path = getString(file.path)
-      if (!path) return null
-      const status = getString(file.statusAfter) ?? getString(file.statusBefore)
-      return status ? `${status} ${path}` : path
+      const path = getString(file.path);
+      if (!path) return null;
+      const status =
+        getString(file.statusAfter) ?? getString(file.statusBefore);
+      return status ? `${status} ${path}` : path;
     })
-    .filter((line): line is string => Boolean(line))
-  return [summary, ...lines].join('\n')
+    .filter((line): line is string => Boolean(line));
+  return [summary, ...lines].join("\n");
 }
 
 function resolveCurrentArtifactVersion(
   artifact: PersistedArtifact & { versions?: PersistedArtifactVersion[] },
 ): PersistedArtifactVersion | null {
-  if (artifact.currentVersion) return artifact.currentVersion
-  if (!artifact.currentVersionId) return artifact.versions?.[0] ?? null
-  return artifact.versions?.find((version) => version.id === artifact.currentVersionId) ??
+  if (artifact.currentVersion) return artifact.currentVersion;
+  if (!artifact.currentVersionId) return artifact.versions?.[0] ?? null;
+  return (
+    artifact.versions?.find(
+      (version) => version.id === artifact.currentVersionId,
+    ) ??
     artifact.versions?.[0] ??
     null
+  );
 }
 
 function buildDiffArtifactDetail(
   currentVersion: PersistedArtifactVersion,
   changeSet?: WorkspaceChangeSetWithFilesOutput | null,
 ): DiffArtifactDetail {
-  const summary = getRecord(currentVersion.diffJson) ?? {}
-  const patch = getRecord(summary.patch)
-  const patchText = resolveDiffPatchText(currentVersion, patch)
-  const patchTruncated = patch?.truncated === true
-  const baselineDirty = summary.baselineDirty === true
-  const runOnlyReliable = summary.runOnlyReliable !== false
+  const summary = getRecord(currentVersion.diffJson) ?? {};
+  const patch = getRecord(summary.patch);
+  const patchText = resolveDiffPatchText(currentVersion, patch);
+  const patchTruncated = patch?.truncated === true;
+  const baselineDirty = summary.baselineDirty === true;
+  const runOnlyReliable = summary.runOnlyReliable !== false;
   const limitations = collectDiffLimitations(summary, {
     baselineDirty,
     patchText,
     patchTruncated,
     runOnlyReliable,
-  })
+  });
 
   return {
     summary,
@@ -2700,42 +3064,54 @@ function buildDiffArtifactDetail(
     runOnlyReliable,
     limitations,
     ...(changeSet ? { changeSet: toWorkspaceChangeSetDetail(changeSet) } : {}),
-    ...(toDiffArtifactOperation(summary.operation) ? { operation: toDiffArtifactOperation(summary.operation)! } : {}),
-  }
+    ...(toDiffArtifactOperation(summary.operation)
+      ? { operation: toDiffArtifactOperation(summary.operation)! }
+      : {}),
+  };
 }
 
-function toDiffArtifactOperation(value: unknown): DiffArtifactOperation | undefined {
-  const operation = getRecord(value)
-  if (!operation || operation.type !== 'revert' || operation.status !== 'applied') {
-    return undefined
+function toDiffArtifactOperation(
+  value: unknown,
+): DiffArtifactOperation | undefined {
+  const operation = getRecord(value);
+  if (
+    !operation ||
+    operation.type !== "revert" ||
+    operation.status !== "applied"
+  ) {
+    return undefined;
   }
-  const revertsArtifactId = getString(operation.revertsArtifactId)
-  if (!revertsArtifactId || operation.patchDirection !== 'reverse-applied') {
-    return undefined
+  const revertsArtifactId = getString(operation.revertsArtifactId);
+  if (!revertsArtifactId || operation.patchDirection !== "reverse-applied") {
+    return undefined;
   }
   return {
-    type: 'revert',
-    status: 'applied',
+    type: "revert",
+    status: "applied",
     revertsArtifactId,
-    ...(getString(operation.revertsChangeSetId) ? { revertsChangeSetId: getString(operation.revertsChangeSetId)! } : {}),
-    patchDirection: 'reverse-applied',
-  }
+    ...(getString(operation.revertsChangeSetId)
+      ? { revertsChangeSetId: getString(operation.revertsChangeSetId)! }
+      : {}),
+    patchDirection: "reverse-applied",
+  };
 }
 
 function attachChangeSetAttributionToDiffFiles(
   files: DiffFileSummary[],
   changeSet?: WorkspaceChangeSetWithFilesOutput | null,
 ): DiffFileSummary[] {
-  if (!changeSet) return files
-  const byPath = new Map(changeSet.files.map((file) => [normalizeWorkspacePath(file.path), file]))
+  if (!changeSet) return files;
+  const byPath = new Map(
+    changeSet.files.map((file) => [normalizeWorkspacePath(file.path), file]),
+  );
   return files.map((file) => {
-    const changeSetFile = byPath.get(normalizeWorkspacePath(file.path))
-    if (!changeSetFile) return file
+    const changeSetFile = byPath.get(normalizeWorkspacePath(file.path));
+    if (!changeSetFile) return file;
     return {
       ...file,
       attribution: toWorkspaceChangeAttribution(changeSetFile),
-    }
-  })
+    };
+  });
 }
 
 function toWorkspaceChangeSetDetail(
@@ -2751,8 +3127,12 @@ function toWorkspaceChangeSetDetail(
       ...(file.statusBefore ? { statusBefore: file.statusBefore } : {}),
       ...(file.statusAfter ? { statusAfter: file.statusAfter } : {}),
       ...(file.origin ? { origin: file.origin } : {}),
-      ...(typeof file.additions === 'number' ? { additions: file.additions } : {}),
-      ...(typeof file.deletions === 'number' ? { deletions: file.deletions } : {}),
+      ...(typeof file.additions === "number"
+        ? { additions: file.additions }
+        : {}),
+      ...(typeof file.deletions === "number"
+        ? { deletions: file.deletions }
+        : {}),
       ...(file.binary ? { binary: true } : {}),
       ...(file.truncated ? { truncated: true } : {}),
       attribution: toWorkspaceChangeAttribution(file),
@@ -2761,20 +3141,20 @@ function toWorkspaceChangeSetDetail(
     status: changeSet.status,
     baselineDirty: changeSet.baselineDirty,
     runOnlyReliable: changeSet.runOnlyReliable,
-  }
+  };
 }
 
 function toWorkspaceChangeAttribution(
   source: Pick<
     WorkspaceChangeSetWithFilesOutput | WorkspaceChangeSetFileOutput,
-    | 'attributionKind'
-    | 'attributionConfidence'
-    | 'agentId'
-    | 'taskId'
-    | 'toolCallId'
-    | 'toolName'
-    | 'messageId'
-    | 'metadataJson'
+    | "attributionKind"
+    | "attributionConfidence"
+    | "agentId"
+    | "taskId"
+    | "toolCallId"
+    | "toolName"
+    | "messageId"
+    | "metadataJson"
   >,
 ): WorkspaceChangeAttribution {
   const attribution: WorkspaceChangeAttribution = {
@@ -2785,132 +3165,165 @@ function toWorkspaceChangeAttribution(
     ...(source.toolCallId ? { toolCallId: source.toolCallId } : {}),
     ...(source.toolName ? { toolName: source.toolName } : {}),
     ...(source.messageId ? { messageId: source.messageId } : {}),
-  }
-  const candidateToolCallIds = getStringArray(source.metadataJson.candidateToolCallIds)
-  const candidateAgentIds = getStringArray(source.metadataJson.candidateAgentIds)
-  const candidateTaskIds = getStringArray(source.metadataJson.candidateTaskIds)
-  if (candidateToolCallIds.length > 0) attribution.candidateToolCallIds = candidateToolCallIds
-  if (candidateAgentIds.length > 0) attribution.candidateAgentIds = candidateAgentIds
-  if (candidateTaskIds.length > 0) attribution.candidateTaskIds = candidateTaskIds
-  return attribution
+  };
+  const candidateToolCallIds = getStringArray(
+    source.metadataJson.candidateToolCallIds,
+  );
+  const candidateAgentIds = getStringArray(
+    source.metadataJson.candidateAgentIds,
+  );
+  const candidateTaskIds = getStringArray(source.metadataJson.candidateTaskIds);
+  if (candidateToolCallIds.length > 0)
+    attribution.candidateToolCallIds = candidateToolCallIds;
+  if (candidateAgentIds.length > 0)
+    attribution.candidateAgentIds = candidateAgentIds;
+  if (candidateTaskIds.length > 0)
+    attribution.candidateTaskIds = candidateTaskIds;
+  return attribution;
 }
 
 function resolveDiffPatchText(
   currentVersion: PersistedArtifactVersion,
   patch: Record<string, unknown> | undefined,
 ): string {
-  const patchText = getString(patch?.text)
-  if (patchText !== undefined) return patchText
-  return looksLikeUnifiedDiff(currentVersion.content) ? currentVersion.content : ''
+  const patchText = getString(patch?.text);
+  if (patchText !== undefined) return patchText;
+  return looksLikeUnifiedDiff(currentVersion.content)
+    ? currentVersion.content
+    : "";
 }
 
 function looksLikeUnifiedDiff(value: string): boolean {
-  return /(^|\n)(diff --git |--- |\+\+\+ |@@ )/.test(value)
+  return /(^|\n)(diff --git |--- |\+\+\+ |@@ )/.test(value);
 }
 
 function normalizeDiffFileSummaries(value: unknown): DiffFileSummary[] {
-  if (!Array.isArray(value)) return []
+  if (!Array.isArray(value)) return [];
   return value
     .map((item) => getRecord(item))
     .filter((item): item is Record<string, unknown> => Boolean(item))
     .flatMap((file) => {
-      const path = getString(file.path) ??
+      const path =
+        getString(file.path) ??
         getString(file.newPath) ??
-        getString(file.pathAfter)
-      if (!path) return []
-      const oldPath = getString(file.oldPath) ??
+        getString(file.pathAfter);
+      if (!path) return [];
+      const oldPath =
+        getString(file.oldPath) ??
         getString(file.pathBefore) ??
-        getString(file.previousPath)
-      const status = getString(file.status) ??
+        getString(file.previousPath);
+      const status =
+        getString(file.status) ??
         getString(file.statusAfter) ??
         getString(file.statusBefore) ??
-        'changed'
+        "changed";
 
-      return [{
-        path,
-        ...(oldPath && oldPath !== path ? { oldPath } : {}),
-        status,
-        ...(getNumber(file.additions) !== undefined ? { additions: getNumber(file.additions) } : {}),
-        ...(getNumber(file.deletions) !== undefined ? { deletions: getNumber(file.deletions) } : {}),
-        ...(file.binary === true ? { binary: true } : {}),
-        ...(file.truncated === true ? { truncated: true } : {}),
-      }]
-    })
+      return [
+        {
+          path,
+          ...(oldPath && oldPath !== path ? { oldPath } : {}),
+          status,
+          ...(getNumber(file.additions) !== undefined
+            ? { additions: getNumber(file.additions) }
+            : {}),
+          ...(getNumber(file.deletions) !== undefined
+            ? { deletions: getNumber(file.deletions) }
+            : {}),
+          ...(file.binary === true ? { binary: true } : {}),
+          ...(file.truncated === true ? { truncated: true } : {}),
+        },
+      ];
+    });
 }
 
 function collectDiffLimitations(
   summary: Record<string, unknown>,
   options: {
-    baselineDirty: boolean
-    patchText: string
-    patchTruncated: boolean
-    runOnlyReliable: boolean
+    baselineDirty: boolean;
+    patchText: string;
+    patchTruncated: boolean;
+    runOnlyReliable: boolean;
   },
 ): string[] {
-  const limitations = getStringArray(summary.limitations)
-  const error = getRecord(summary.error)
-  const errorMessage = getString(error?.message)
-  if (errorMessage) limitations.push(errorMessage)
+  const limitations = getStringArray(summary.limitations);
+  const error = getRecord(summary.error);
+  const errorMessage = getString(error?.message);
+  if (errorMessage) limitations.push(errorMessage);
   if (!options.patchText) {
-    limitations.push('没有可用的 bounded patch，仅展示文件级摘要。')
+    limitations.push("没有可用的 bounded patch，仅展示文件级摘要。");
   }
   if (options.patchTruncated) {
-    limitations.push('补丁内容已按大小预算截断。')
+    limitations.push("补丁内容已按大小预算截断。");
   }
   if (options.baselineDirty || !options.runOnlyReliable) {
-    limitations.push('运行前已有未提交变更，当前 Diff 不能保证是精确的 run-only patch。')
+    limitations.push(
+      "运行前已有未提交变更，当前 Diff 不能保证是精确的 run-only patch。",
+    );
   }
-  return Array.from(new Set(limitations))
+  return Array.from(new Set(limitations));
 }
 
 function formatWorkspaceDiffTitle(changedFileCount: number): string {
-  if (changedFileCount === 0) return 'Workspace changes'
-  return `${changedFileCount} workspace file${changedFileCount === 1 ? '' : 's'} changed`
+  if (changedFileCount === 0) return "Workspace changes";
+  return `${changedFileCount} workspace file${changedFileCount === 1 ? "" : "s"} changed`;
 }
 
-function resolveWorkspaceDiffCreatedByAgentId(run: RunOutput): string | undefined {
-  const input = run.inputJson as Record<string, unknown>
+function resolveWorkspaceDiffCreatedByAgentId(
+  run: RunOutput,
+): string | undefined {
+  const input = run.inputJson as Record<string, unknown>;
   const addressedAgentIds = Array.isArray(input.addressedAgentIds)
-    ? input.addressedAgentIds.filter((item): item is string => typeof item === 'string')
-    : []
+    ? input.addressedAgentIds.filter(
+        (item): item is string => typeof item === "string",
+      )
+    : [];
   if (addressedAgentIds.length === 1) {
-    return addressedAgentIds[0]
+    return addressedAgentIds[0];
   }
 
   const participantAgentIds = Array.isArray(input.participantAgentIds)
-    ? input.participantAgentIds.filter((item): item is string => typeof item === 'string')
-    : []
-  return participantAgentIds.length === 1 ? participantAgentIds[0] : run.orchestratorAgentId ?? undefined
+    ? input.participantAgentIds.filter(
+        (item): item is string => typeof item === "string",
+      )
+    : [];
+  return participantAgentIds.length === 1
+    ? participantAgentIds[0]
+    : (run.orchestratorAgentId ?? undefined);
 }
 
-async function updateArtifactCurrentVersion(artifactId: string, versionId: string): Promise<void> {
-  await updateArtifact(artifactId, { currentVersionId: versionId })
+async function updateArtifactCurrentVersion(
+  artifactId: string,
+  versionId: string,
+): Promise<void> {
+  await updateArtifact(artifactId, { currentVersionId: versionId });
 }
 
 async function findExistingRevertArtifact(
   conversationId: string,
   sourceArtifactId: string,
 ): Promise<PersistedArtifact | null> {
-  const pageSize = 100
-  let offset = 0
+  const pageSize = 100;
+  let offset = 0;
   while (true) {
     const artifacts = await listArtifacts({
       conversationId,
-      type: 'diff',
-      status: 'ready',
+      type: "diff",
+      status: "ready",
       limit: pageSize,
       offset,
-      order: 'desc',
-    })
+      order: "desc",
+    });
     const found = artifacts.find((artifact) => {
-      const metadata = getRecord(artifact.metadataJson) ?? {}
-      return metadata.source === 'workspace.revert' &&
+      const metadata = getRecord(artifact.metadataJson) ?? {};
+      return (
+        metadata.source === "workspace.revert" &&
         metadata.revertsArtifactId === sourceArtifactId &&
-        metadata.revertStatus === 'applied'
-    })
-    if (found) return found as PersistedArtifact
-    if (artifacts.length < pageSize) return null
-    offset += pageSize
+        metadata.revertStatus === "applied"
+      );
+    });
+    if (found) return found as PersistedArtifact;
+    if (artifacts.length < pageSize) return null;
+    offset += pageSize;
   }
 }
 
@@ -2918,137 +3331,141 @@ function normalizeArtifactRevertPreviewResponse(
   value: unknown,
   target: ArtifactRevertTarget,
 ): ArtifactRevertPreviewResponse {
-  const body = getRecord(value) ?? {}
-  const source = getRecord(body.source) ?? {}
-  const status = getString(body.status) === 'blocked' ? 'blocked' : 'available'
+  const body = getRecord(value) ?? {};
+  const source = getRecord(body.source) ?? {};
+  const status = getString(body.status) === "blocked" ? "blocked" : "available";
   const files = Array.isArray(body.files)
-    ? body.files.map((file) => getRecord(file) ?? {}).filter((file) => Object.keys(file).length > 0)
-    : target.request.source.changedFiles
+    ? body.files
+        .map((file) => getRecord(file) ?? {})
+        .filter((file) => Object.keys(file).length > 0)
+    : target.request.source.changedFiles;
   return {
     status,
     canApply: body.canApply === true,
     files,
     warnings: getStringArray(body.warnings),
-    ...(getRecord(body.blockedReason) ? { blockedReason: getRecord(body.blockedReason)! } : {}),
+    ...(getRecord(body.blockedReason)
+      ? { blockedReason: getRecord(body.blockedReason)! }
+      : {}),
     source: {
       artifactId: getString(source.artifactId) ?? target.artifact.id,
-      ...(getString(source.changeSetId) ?? target.changeSet?.id
+      ...((getString(source.changeSetId) ?? target.changeSet?.id)
         ? { changeSetId: getString(source.changeSetId) ?? target.changeSet?.id }
         : {}),
       runId: getString(source.runId) ?? target.run.id,
-      patchDirection: 'reverse-applied',
+      patchDirection: "reverse-applied",
     },
-  }
+  };
 }
 
 async function persistAppliedArtifactRevert(options: {
-  conversationId: string
-  target: ArtifactRevertTarget
-  operationId: string
-  appliedAt: string
-  preview: ArtifactRevertPreviewResponse
+  conversationId: string;
+  target: ArtifactRevertTarget;
+  operationId: string;
+  appliedAt: string;
+  preview: ArtifactRevertPreviewResponse;
 }): Promise<ArtifactRevertApplyResponse> {
-  const { conversationId, target, operationId, appliedAt, preview } = options
-  const revertsChangeSetId = target.changeSet?.id
+  const { conversationId, target, operationId, appliedAt, preview } = options;
+  const revertsChangeSetId = target.changeSet?.id;
   const operation: DiffArtifactOperation = {
-    type: 'revert',
-    status: 'applied',
+    type: "revert",
+    status: "applied",
     revertsArtifactId: target.artifact.id,
     ...(revertsChangeSetId ? { revertsChangeSetId } : {}),
-    patchDirection: 'reverse-applied',
-  }
+    patchDirection: "reverse-applied",
+  };
   const operationMetadata = {
-    source: 'workspace.revert',
+    source: "workspace.revert",
     revertsArtifactId: target.artifact.id,
     ...(revertsChangeSetId ? { revertsChangeSetId } : {}),
     revertOperationId: operationId,
-    revertStatus: 'applied',
-    patchDirection: 'reverse-applied',
-  }
-  const messageText = '已撤销本次工作区变更。'
+    revertStatus: "applied",
+    patchDirection: "reverse-applied",
+  };
+  const messageText = "已撤销本次工作区变更。";
 
   const message = await createMessage({
     conversationId,
     runId: target.run.id,
-    surface: 'chat',
-    role: 'assistant',
-    senderType: 'system',
-    senderId: 'system',
-    status: 'completed',
-    finishReason: 'stop',
+    surface: "chat",
+    role: "assistant",
+    senderType: "system",
+    senderId: "system",
+    status: "completed",
+    finishReason: "stop",
     completedAt: appliedAt,
     metadataJson: operationMetadata,
-  })
+  });
   await createMessagePart({
     messageId: message.id,
     conversationId,
     runId: target.run.id,
-    partKey: 'text',
+    partKey: "text",
     partIndex: 0,
-    entityType: 'workspace_revert',
+    entityType: "workspace_revert",
     entityId: operationId,
-    type: 'text',
-    state: 'done',
+    type: "text",
+    state: "done",
     text: messageText,
     payloadJson: operationMetadata,
-  })
+  });
   await updateConversation(conversationId, {
     lastMessageId: message.id,
     lastMessageAt: appliedAt,
-  })
+  });
 
-  const originalSummary = getString(target.workspaceDiff.summary)
-  const changedFiles = target.request.source.changedFiles
+  const originalSummary = getString(target.workspaceDiff.summary);
+  const changedFiles = target.request.source.changedFiles;
   const diffJson = {
     ...target.workspaceDiff,
     summary: originalSummary
       ? `已撤销本次工作区变更：${originalSummary}`
-      : '已撤销本次工作区变更。',
+      : "已撤销本次工作区变更。",
     operation,
-  }
+  };
   const artifact = await createArtifact({
     conversationId,
     runId: target.run.id,
     messageId: message.id,
-    type: 'diff',
-    title: '已撤销工作区变更',
-    status: 'ready',
+    type: "diff",
+    title: "已撤销工作区变更",
+    status: "ready",
     metadataJson: {
       ...operationMetadata,
-      status: getString(target.workspaceDiff.status) ?? 'available',
+      status: getString(target.workspaceDiff.status) ?? "available",
       baselineDirty: target.request.source.baselineDirty,
       changedFileCount: changedFiles.length,
     },
-  })
+  });
   const version = await createArtifactVersion({
     artifactId: artifact.id,
     version: 1,
-    source: 'diff_apply',
-    language: 'diff',
+    source: "diff_apply",
+    language: "diff",
     content: target.request.source.patchText,
-    summary: '已撤销本次工作区变更',
+    summary: "已撤销本次工作区变更",
     diffJson,
-  })
-  await updateArtifactCurrentVersion(artifact.id, version.id)
+  });
+  await updateArtifactCurrentVersion(artifact.id, version.id);
 
   const changeSet = await createWorkspaceChangeSet({
     conversationId,
     runId: target.run.id,
     artifactId: artifact.id,
     sourceEventId: operationId,
-    status: 'applied',
+    status: "applied",
     baselineDirty: target.request.source.baselineDirty,
     runOnlyReliable: target.request.source.runOnlyReliable,
-    summary: '已撤销本次工作区变更',
+    summary: "已撤销本次工作区变更",
     statsJson: getRecord(target.workspaceDiff.stats) ?? {},
     limitationsJson: [
       ...getStringArray(target.workspaceDiff.limitations),
-      '这是一次撤销记录，Diff 展示的是被撤销的原始变更。',
+      "这是一次撤销记录，Diff 展示的是被撤销的原始变更。",
     ],
-    attributionKind: 'run',
-    attributionConfidence: 'aggregate',
+    attributionKind: "run",
+    attributionConfidence: "aggregate",
     metadataJson: operationMetadata,
-  })
+  });
 
   for (const file of changedFiles) {
     await createWorkspaceChangeSetFile({
@@ -3065,90 +3482,112 @@ async function persistAppliedArtifactRevert(options: {
       deletions: file.deletions ?? null,
       binary: file.binary ?? false,
       truncated: file.truncated ?? false,
-      attributionKind: 'run',
-      attributionConfidence: 'aggregate',
+      attributionKind: "run",
+      attributionConfidence: "aggregate",
       metadataJson: operationMetadata,
-    })
+    });
   }
 
-  await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact as PersistedArtifact, {
-    id: changeSet.id,
-    attributionKind: changeSet.attributionKind,
-    attributionConfidence: changeSet.attributionConfidence,
-  })
+  await mergeWorkspaceChangeSetMetadataIntoArtifact(
+    artifact as PersistedArtifact,
+    {
+      id: changeSet.id,
+      attributionKind: changeSet.attributionKind,
+      attributionConfidence: changeSet.attributionConfidence,
+    },
+  );
 
-  const detail = await findArtifactWithVersions(artifact.id)
+  const detail = await findArtifactWithVersions(artifact.id);
   if (!detail) {
-    throw notFound('ARTIFACT_REVERT_NOT_FOUND', '撤销产物不存在')
+    throw notFound("ARTIFACT_REVERT_NOT_FOUND", "撤销产物不存在");
   }
-  const changeSetDetail = await findWorkspaceChangeSetByArtifactId(artifact.id)
+  const changeSetDetail = await findWorkspaceChangeSetByArtifactId(artifact.id);
   return {
-    status: 'applied',
+    status: "applied",
     message: messageText,
     artifact: {
       ...detail,
-      currentVersion: resolveCurrentArtifactVersion(detail as PersistedArtifact & {
-        versions?: PersistedArtifactVersion[]
-      }),
+      currentVersion: resolveCurrentArtifactVersion(
+        detail as PersistedArtifact & {
+          versions?: PersistedArtifactVersion[];
+        },
+      ),
     },
-    currentVersion: resolveCurrentArtifactVersion(detail as PersistedArtifact & {
-      versions?: PersistedArtifactVersion[]
-    }),
+    currentVersion: resolveCurrentArtifactVersion(
+      detail as PersistedArtifact & {
+        versions?: PersistedArtifactVersion[];
+      },
+    ),
     diff: buildDiffArtifactDetail(
-      resolveCurrentArtifactVersion(detail as PersistedArtifact & {
-        versions?: PersistedArtifactVersion[]
-      })!,
+      resolveCurrentArtifactVersion(
+        detail as PersistedArtifact & {
+          versions?: PersistedArtifactVersion[];
+        },
+      )!,
       changeSetDetail,
     ),
-    changeSet: changeSetDetail ? toWorkspaceChangeSetDetail(changeSetDetail) : undefined,
+    changeSet: changeSetDetail
+      ? toWorkspaceChangeSetDetail(changeSetDetail)
+      : undefined,
     preview,
-  }
+  };
 }
 
-async function findLatestVisibleContextMessage(conversationId: string): Promise<PersistedMessage | null> {
+async function findLatestVisibleContextMessage(
+  conversationId: string,
+): Promise<PersistedMessage | null> {
   const messages = await listMessagesWithParts(conversationId, {
     limit: 100,
-    order: 'desc',
-  })
+    order: "desc",
+  });
   for (const record of messages) {
-    const message = toPersistedMessage(record as Record<string, unknown>)
-    if (message.surface !== 'chat') continue
-    if (message.status !== 'completed') continue
-    if (message.role !== 'user' && message.role !== 'assistant') continue
-    const hasText = message.parts.some((part) => part.type === 'text' && part.text?.trim())
-    if (hasText) return message
+    const message = toPersistedMessage(record as Record<string, unknown>);
+    if (message.surface !== "chat") continue;
+    if (message.status !== "completed") continue;
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const hasText = message.parts.some(
+      (part) => part.type === "text" && part.text?.trim(),
+    );
+    if (hasText) return message;
   }
-  return null
+  return null;
 }
 
 function isExternalSessionScope(value: string): value is ExternalSessionScope {
-  return value === 'conversation-visible' || value === 'delegated-task'
+  return value === "conversation-visible" || value === "delegated-task";
 }
 
 async function projectRuntimeMessageDeltaEvents(
   run: RunOutput,
   items: SequencedRuntimeEvent[],
 ): Promise<void> {
-  if (!items.length) return
+  if (!items.length) return;
 
-  const orderedItems = [...items].sort((left, right) => left.sequence - right.sequence)
-  const firstItem = orderedItems[0]
-  const lastItem = orderedItems[orderedItems.length - 1]
-  const firstEvent = firstItem.event
-  const runtimeMessageId = resolveRuntimeMessageId(firstEvent)
-  const messageId = resolveLocalMessageId(run.id, runtimeMessageId)
-  const surface = resolveMessageSurface(run, firstEvent)
+  const orderedItems = [...items].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
+  const firstItem = orderedItems[0];
+  const lastItem = orderedItems[orderedItems.length - 1];
+  const firstEvent = firstItem.event;
+  const runtimeMessageId = resolveRuntimeMessageId(firstEvent);
+  const messageId = resolveLocalMessageId(run.id, runtimeMessageId);
+  const surface = resolveMessageSurface(run, firstEvent);
 
-  let message = await findMessageByRunAndRuntimeMessageId(run.id, runtimeMessageId)
+  let message = await findMessageByRunAndRuntimeMessageId(
+    run.id,
+    runtimeMessageId,
+  );
   const textPart = message
-    ? await findMessagePartByMessageAndKey(message.id, 'text')
-    : null
-  const lastProjectedSequence = textPart?.lastEventSequence ?? 0
-  const unprojectedItems = orderedItems.filter((item) => item.sequence > lastProjectedSequence)
+    ? await findMessagePartByMessageAndKey(message.id, "text")
+    : null;
+  const lastProjectedSequence = textPart?.lastEventSequence ?? 0;
+  const unprojectedItems = orderedItems.filter(
+    (item) => item.sequence > lastProjectedSequence,
+  );
   const text = unprojectedItems
-    .map((item) => getString(getEventDataRecord(item.event).delta) ?? '')
-    .join('')
-  if (!text) return
+    .map((item) => getString(getEventDataRecord(item.event).delta) ?? "")
+    .join("");
+  if (!text) return;
 
   if (!message) {
     message = await createMessage({
@@ -3159,17 +3598,18 @@ async function projectRuntimeMessageDeltaEvents(
       runtimeRunId: firstEvent.runId,
       messageIndex: firstEvent.messageIndex ?? null,
       surface,
-      role: 'assistant',
-      senderType: surface === 'chat'
-        ? firstEvent.agentId === run.orchestratorAgentId
-          ? 'orchestrator'
-          : 'agent'
-        : 'agent',
+      role: "assistant",
+      senderType:
+        surface === "chat"
+          ? firstEvent.agentId === run.orchestratorAgentId
+            ? "orchestrator"
+            : "agent"
+          : "agent",
       senderId: firstEvent.agentId,
       agentId: firstEvent.agentId,
       taskId: firstEvent.taskId ?? firstEvent.parentTaskId ?? null,
       groupId: firstEvent.groupId ?? null,
-      status: 'streaming',
+      status: "streaming",
       firstEventSequence: firstItem.sequence,
       lastEventSequence: lastItem.sequence,
       metadataJson: {
@@ -3182,42 +3622,43 @@ async function projectRuntimeMessageDeltaEvents(
           lastEventSequence: lastItem.sequence,
         },
       },
-    })
+    });
   }
 
-  const firstSequence = textPart?.firstEventSequence ?? unprojectedItems[0].sequence
-  const lastSequence = unprojectedItems[unprojectedItems.length - 1].sequence
-  const lastEvent = unprojectedItems[unprojectedItems.length - 1].event
-  const data = getEventDataRecord(lastEvent)
+  const firstSequence =
+    textPart?.firstEventSequence ?? unprojectedItems[0].sequence;
+  const lastSequence = unprojectedItems[unprojectedItems.length - 1].sequence;
+  const lastEvent = unprojectedItems[unprojectedItems.length - 1].event;
+  const data = getEventDataRecord(lastEvent);
 
   if (!textPart) {
-    const currentParts = await listMessagePartsByMessage(message.id)
+    const currentParts = await listMessagePartsByMessage(message.id);
     await createMessagePart({
       messageId: message.id,
       conversationId: run.conversationId,
       runId: run.id,
       runtimeEventId: lastEvent.id,
-      partKey: 'text',
+      partKey: "text",
       partIndex: currentParts.length,
-      entityType: 'runtime_message',
+      entityType: "runtime_message",
       entityId: message.id,
-      type: 'text',
-      state: 'streaming',
+      type: "text",
+      state: "streaming",
       text,
       payloadJson: data,
       firstEventSequence: firstSequence,
       lastEventSequence: lastSequence,
-    })
+    });
   } else {
     await updateMessagePart(textPart.id, {
-      state: 'streaming',
-      text: `${textPart.text ?? ''}${text}`,
+      state: "streaming",
+      text: `${textPart.text ?? ""}${text}`,
       payloadJson: data,
-      entityType: 'runtime_message',
+      entityType: "runtime_message",
       entityId: message.id,
       firstEventSequence: firstSequence,
       lastEventSequence: lastSequence,
-    })
+    });
   }
 
   await updateMessage(message.id, {
@@ -3229,7 +3670,7 @@ async function projectRuntimeMessageDeltaEvents(
     groupId: lastEvent.groupId ?? null,
     firstEventSequence: message.firstEventSequence ?? firstSequence,
     lastEventSequence: lastSequence,
-    status: 'streaming',
+    status: "streaming",
     metadataJson: mergeRuntimeMetadata(message.metadataJson, {
       messageId: runtimeMessageId,
       runtimeRunId: lastEvent.runId,
@@ -3238,8 +3679,12 @@ async function projectRuntimeMessageDeltaEvents(
       firstEventSequence: message.firstEventSequence ?? firstSequence,
       lastEventSequence: lastSequence,
     }),
-  })
-  await backfillToolMessagePartsForRuntimeMessage(run, message, runtimeMessageId)
+  });
+  await backfillToolMessagePartsForRuntimeMessage(
+    run,
+    message,
+    runtimeMessageId,
+  );
 }
 
 async function projectSystemAgentCompletedEvent(
@@ -3247,38 +3692,38 @@ async function projectSystemAgentCompletedEvent(
   event: RuntimeRunEvent,
   hubEventBus: HubEventBus,
 ): Promise<void> {
-  const data = getEventDataRecord(event)
+  const data = getEventDataRecord(event);
   if (
-    getString(data.systemAgentId) !== 'title' ||
-    getString(data.target) !== 'conversation.title'
+    getString(data.systemAgentId) !== "title" ||
+    getString(data.target) !== "conversation.title"
   ) {
-    return
+    return;
   }
 
-  const eventConversationId = getString(data.conversationId)
+  const eventConversationId = getString(data.conversationId);
   if (eventConversationId && eventConversationId !== run.conversationId) {
-    return
+    return;
   }
 
-  const result = getRecord(data.result)
-  const title = normalizeConversationTitle(getString(result?.title))
+  const result = getRecord(data.result);
+  const title = normalizeConversationTitle(getString(result?.title));
   if (!title) {
-    return
+    return;
   }
 
-  const conversation = await findConversationWithAgents(run.conversationId)
+  const conversation = await findConversationWithAgents(run.conversationId);
   if (!conversation) {
-    return
+    return;
   }
-  if (getTitleSource(conversation.metadataJson) === 'manual') {
-    return
+  if (getTitleSource(conversation.metadataJson) === "manual") {
+    return;
   }
 
   await updateConversation(run.conversationId, {
     title,
     metadataJson: {
       ...conversation.metadataJson,
-      titleSource: 'auto',
+      titleSource: "auto",
       autoTitle: {
         runId: run.id,
         runtimeRunId: event.runId,
@@ -3286,13 +3731,13 @@ async function projectSystemAgentCompletedEvent(
         updatedAt: event.timestamp,
       },
     },
-  })
-  hubEventBus.publish('conversation.title.updated', {
+  });
+  hubEventBus.publish("conversation.title.updated", {
     conversationId: run.conversationId,
     runId: run.id,
     runtimeRunId: event.runId,
     title,
-  })
+  });
 }
 
 async function projectToolEvent(
@@ -3300,16 +3745,21 @@ async function projectToolEvent(
   event: RuntimeRunEvent,
   sequence: number,
 ): Promise<void> {
-  if (!event.toolCallId || !event.toolName) return
-  const data = getEventDataRecord(event)
-  const state = event.type === 'tool.started'
-    ? 'input-available'
-    : event.type === 'tool.completed'
-      ? 'output-available'
-      : 'output-error'
-  const displayPolicy = event.toolName === 'run_task' ? 'event_log_only' : 'timeline'
+  if (!event.toolCallId || !event.toolName) return;
+  const data = getEventDataRecord(event);
+  const state =
+    event.type === "tool.started"
+      ? "input-available"
+      : event.type === "tool.completed"
+        ? "output-available"
+        : "output-error";
+  const displayPolicy =
+    event.toolName === "run_task" ? "event_log_only" : "timeline";
 
-  let toolCall = await findRunToolCallByRunAndToolCall(run.id, event.toolCallId)
+  let toolCall = await findRunToolCallByRunAndToolCall(
+    run.id,
+    event.toolCallId,
+  );
   if (!toolCall) {
     toolCall = await createRunToolCall({
       runId: run.id,
@@ -3333,9 +3783,9 @@ async function projectToolEvent(
       payloadJson: data,
       firstEventSequence: sequence,
       lastEventSequence: sequence,
-      startedAt: event.type === 'tool.started' ? event.timestamp : null,
-      completedAt: event.type === 'tool.started' ? null : event.timestamp,
-    })
+      startedAt: event.type === "tool.started" ? event.timestamp : null,
+      completedAt: event.type === "tool.started" ? null : event.timestamp,
+    });
   } else {
     await updateRunToolCall(toolCall.id, {
       agentId: event.agentId ?? toolCall.agentId,
@@ -3350,38 +3800,46 @@ async function projectToolEvent(
       state,
       riskLevel: getString(data.riskLevel) ?? toolCall.riskLevel,
       summary: getString(data.summary) ?? toolCall.summary,
-      inputJson: getRecord(data.input) ?? getRecord(data.parameters) ?? toolCall.inputJson,
+      inputJson:
+        getRecord(data.input) ??
+        getRecord(data.parameters) ??
+        toolCall.inputJson,
       outputJson: resolveToolOutputJson(data) ?? toolCall.outputJson,
       errorJson: getRecord(data.error) ?? toolCall.errorJson,
       payloadJson: data,
       firstEventSequence: toolCall.firstEventSequence ?? sequence,
       lastEventSequence: sequence,
-      startedAt: event.type === 'tool.started' ? event.timestamp : toolCall.startedAt,
-      completedAt: event.type === 'tool.started' ? toolCall.completedAt : event.timestamp,
-    })
+      startedAt:
+        event.type === "tool.started" ? event.timestamp : toolCall.startedAt,
+      completedAt:
+        event.type === "tool.started" ? toolCall.completedAt : event.timestamp,
+    });
   }
 
-  if (displayPolicy === 'event_log_only' || !event.messageId) {
-    return
+  if (displayPolicy === "event_log_only" || !event.messageId) {
+    return;
   }
 
-  let message = await findMessageByRunAndRuntimeMessageId(run.id, resolveRuntimeMessageId(event))
+  let message = await findMessageByRunAndRuntimeMessageId(
+    run.id,
+    resolveRuntimeMessageId(event),
+  );
   if (!message) {
-    return
+    return;
   }
   await upsertMessagePartForRuntimeEvent(
     run,
     message,
     event,
     sequence,
-    'tool',
+    "tool",
     `tool:${event.toolCallId}`,
-    'tool_call',
+    "tool_call",
     event.toolCallId,
     state,
     resolveToolDisplayText(data),
     true,
-  )
+  );
 }
 
 async function backfillToolMessagePartsForRuntimeMessage(
@@ -3389,27 +3847,30 @@ async function backfillToolMessagePartsForRuntimeMessage(
   message: MessageOutput,
   runtimeMessageId: string,
 ): Promise<void> {
-  const toolCalls = await listRunToolCallsByRun(run.id)
+  const toolCalls = await listRunToolCallsByRun(run.id);
   for (const toolCall of toolCalls) {
-    if (toolCall.displayPolicy === 'event_log_only') continue
-    if (toolCall.messageId !== runtimeMessageId) continue
+    if (toolCall.displayPolicy === "event_log_only") continue;
+    if (toolCall.messageId !== runtimeMessageId) continue;
 
-    const sequence = toolCall.lastEventSequence ?? toolCall.firstEventSequence ?? 0
-    const event = runtimeEventFromToolCall(run, toolCall, runtimeMessageId)
+    const sequence =
+      toolCall.lastEventSequence ?? toolCall.firstEventSequence ?? 0;
+    const event = runtimeEventFromToolCall(run, toolCall, runtimeMessageId);
     await upsertMessagePartForRuntimeEvent(
       run,
       message,
       event,
       sequence,
-      'tool',
+      "tool",
       `tool:${toolCall.toolCallId}`,
-      'tool_call',
+      "tool_call",
       toolCall.toolCallId,
       toolCall.state,
-      resolveToolDisplayText(toolCall.payloadJson) ?? toolCall.summary ?? undefined,
+      resolveToolDisplayText(toolCall.payloadJson) ??
+        toolCall.summary ??
+        undefined,
       true,
       toolCall.firstEventSequence ?? sequence,
-    )
+    );
   }
 }
 
@@ -3418,11 +3879,12 @@ function runtimeEventFromToolCall(
   toolCall: RunToolCallOutput,
   runtimeMessageId: string,
 ): RuntimeRunEvent {
-  const type = toolCall.state === 'output-error'
-    ? 'tool.failed'
-    : toolCall.state === 'output-available'
-      ? 'tool.completed'
-      : 'tool.started'
+  const type =
+    toolCall.state === "output-error"
+      ? "tool.failed"
+      : toolCall.state === "output-available"
+        ? "tool.completed"
+        : "tool.started";
   return {
     id: `tool_backfill_${toolCall.id}`,
     runId: run.runtimeId ?? run.id,
@@ -3438,20 +3900,31 @@ function runtimeEventFromToolCall(
     messageId: runtimeMessageId,
     messageIndex: toolCall.messageIndex ?? undefined,
     data: toolCall.payloadJson,
-  }
+  };
 }
 
-function resolveToolOutputJson(data: Record<string, unknown>): Record<string, unknown> | null {
-  return getRecord(data.data) ?? getRecord(data.result) ?? getRecord(data.output) ?? null
+function resolveToolOutputJson(
+  data: Record<string, unknown>,
+): Record<string, unknown> | null {
+  return (
+    getRecord(data.data) ??
+    getRecord(data.result) ??
+    getRecord(data.output) ??
+    null
+  );
 }
 
-function resolveToolDisplayText(data: Record<string, unknown>): string | undefined {
-  const output = resolveToolOutputJson(data)
-  return getString(data.summary) ??
+function resolveToolDisplayText(
+  data: Record<string, unknown>,
+): string | undefined {
+  const output = resolveToolOutputJson(data);
+  return (
+    getString(data.summary) ??
     getString(data.message) ??
     getString(output?.summary) ??
     getString(output?.title) ??
     undefined
+  );
 }
 
 async function projectReasoningEvent(
@@ -3459,15 +3932,16 @@ async function projectReasoningEvent(
   event: RuntimeRunEvent,
   sequence: number,
 ): Promise<void> {
-  const data = getEventDataRecord(event)
-  const reasoningId = getString(data.reasoningId) ?? 'default'
-  const state = event.type === 'reasoning.completed' ? 'completed' : 'streaming'
-  const delta = getString(data.delta)
-  const content = getString(data.content)
+  const data = getEventDataRecord(event);
+  const reasoningId = getString(data.reasoningId) ?? "default";
+  const state =
+    event.type === "reasoning.completed" ? "completed" : "streaming";
+  const delta = getString(data.delta);
+  const content = getString(data.content);
 
-  let block = await findRunReasoningBlockByRunAndReasoning(run.id, reasoningId)
+  let block = await findRunReasoningBlockByRunAndReasoning(run.id, reasoningId);
   if (block && (block.lastEventSequence ?? 0) >= sequence) {
-    return
+    return;
   }
   if (!block) {
     block = await createRunReasoningBlock({
@@ -3481,18 +3955,20 @@ async function projectReasoningEvent(
       groupId: event.groupId ?? null,
       messageId: event.messageId ?? null,
       messageIndex: event.messageIndex ?? null,
-      content: content ?? delta ?? '',
+      content: content ?? delta ?? "",
       state,
       payloadJson: data,
       firstEventSequence: sequence,
       lastEventSequence: sequence,
-      startedAt: event.type === 'reasoning.started' ? event.timestamp : null,
-      completedAt: event.type === 'reasoning.completed' ? event.timestamp : null,
-    })
+      startedAt: event.type === "reasoning.started" ? event.timestamp : null,
+      completedAt:
+        event.type === "reasoning.completed" ? event.timestamp : null,
+    });
   } else {
-    const nextContent = event.type === 'reasoning.delta'
-      ? `${block.content ?? ''}${delta ?? ''}`
-      : content ?? block.content
+    const nextContent =
+      event.type === "reasoning.delta"
+        ? `${block.content ?? ""}${delta ?? ""}`
+        : (content ?? block.content);
     await updateRunReasoningBlock(block.id, {
       agentId: event.agentId ?? block.agentId,
       parentAgentId: event.parentAgentId ?? block.parentAgentId,
@@ -3506,57 +3982,70 @@ async function projectReasoningEvent(
       payloadJson: data,
       firstEventSequence: block.firstEventSequence ?? sequence,
       lastEventSequence: sequence,
-      startedAt: event.type === 'reasoning.started' ? event.timestamp : block.startedAt,
-      completedAt: event.type === 'reasoning.completed' ? event.timestamp : block.completedAt,
-    })
+      startedAt:
+        event.type === "reasoning.started" ? event.timestamp : block.startedAt,
+      completedAt:
+        event.type === "reasoning.completed"
+          ? event.timestamp
+          : block.completedAt,
+    });
   }
 
   if (!event.messageId) {
-    return
+    return;
   }
 
-  const message = await findMessageByRunAndRuntimeMessageId(run.id, resolveRuntimeMessageId(event))
-  if (!message) return
+  const message = await findMessageByRunAndRuntimeMessageId(
+    run.id,
+    resolveRuntimeMessageId(event),
+  );
+  if (!message) return;
   await upsertMessagePartForRuntimeEvent(
     run,
     message,
     event,
     sequence,
-    'reasoning',
+    "reasoning",
     `reasoning:${reasoningId}`,
-    'reasoning_block',
+    "reasoning_block",
     reasoningId,
-    state === 'completed' ? 'done' : 'streaming',
-    state === 'completed' ? (content ?? delta ?? '') : delta ?? content ?? '',
-    state === 'completed',
-  )
+    state === "completed" ? "done" : "streaming",
+    state === "completed" ? (content ?? delta ?? "") : (delta ?? content ?? ""),
+    state === "completed",
+  );
 }
 
 async function projectReasoningDeltaEvents(
   run: RunOutput,
   items: SequencedRuntimeEvent[],
 ): Promise<void> {
-  if (!items.length) return
+  if (!items.length) return;
 
-  const orderedItems = [...items].sort((left, right) => left.sequence - right.sequence)
-  const firstItem = orderedItems[0]
-  const lastItem = orderedItems[orderedItems.length - 1]
-  const firstEvent = firstItem.event
-  const lastEvent = lastItem.event
-  const firstData = getEventDataRecord(firstEvent)
-  const lastData = getEventDataRecord(lastEvent)
-  const reasoningId = getString(firstData.reasoningId) ?? 'default'
+  const orderedItems = [...items].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
+  const firstItem = orderedItems[0];
+  const lastItem = orderedItems[orderedItems.length - 1];
+  const firstEvent = firstItem.event;
+  const lastEvent = lastItem.event;
+  const firstData = getEventDataRecord(firstEvent);
+  const lastData = getEventDataRecord(lastEvent);
+  const reasoningId = getString(firstData.reasoningId) ?? "default";
 
-  let block = await findRunReasoningBlockByRunAndReasoning(run.id, reasoningId)
-  const blockLastSequence = block?.lastEventSequence ?? 0
-  const unprojectedBlockItems = orderedItems.filter((item) => item.sequence > blockLastSequence)
+  let block = await findRunReasoningBlockByRunAndReasoning(run.id, reasoningId);
+  const blockLastSequence = block?.lastEventSequence ?? 0;
+  const unprojectedBlockItems = orderedItems.filter(
+    (item) => item.sequence > blockLastSequence,
+  );
   const blockText = unprojectedBlockItems
-    .map((item) => getString(getEventDataRecord(item.event).delta) ?? '')
-    .join('')
+    .map((item) => getString(getEventDataRecord(item.event).delta) ?? "")
+    .join("");
 
   if (blockText) {
-    const firstSequence = block?.firstEventSequence ?? unprojectedBlockItems[0].sequence
-    const lastSequence = unprojectedBlockItems[unprojectedBlockItems.length - 1].sequence
+    const firstSequence =
+      block?.firstEventSequence ?? unprojectedBlockItems[0].sequence;
+    const lastSequence =
+      unprojectedBlockItems[unprojectedBlockItems.length - 1].sequence;
     if (!block) {
       block = await createRunReasoningBlock({
         runId: run.id,
@@ -3570,13 +4059,13 @@ async function projectReasoningDeltaEvents(
         messageId: lastEvent.messageId ?? null,
         messageIndex: lastEvent.messageIndex ?? null,
         content: blockText,
-        state: 'streaming',
+        state: "streaming",
         payloadJson: lastData,
         firstEventSequence: firstSequence,
         lastEventSequence: lastSequence,
         startedAt: null,
         completedAt: null,
-      })
+      });
     } else {
       block = await updateRunReasoningBlock(block.id, {
         agentId: lastEvent.agentId ?? block.agentId,
@@ -3586,44 +4075,52 @@ async function projectReasoningDeltaEvents(
         groupId: lastEvent.groupId ?? block.groupId,
         messageId: lastEvent.messageId ?? block.messageId,
         messageIndex: lastEvent.messageIndex ?? block.messageIndex,
-        content: `${block.content ?? ''}${blockText}`,
-        state: 'streaming',
+        content: `${block.content ?? ""}${blockText}`,
+        state: "streaming",
         payloadJson: lastData,
         firstEventSequence: firstSequence,
         lastEventSequence: lastSequence,
-      })
+      });
     }
   }
 
   if (!lastEvent.messageId) {
-    return
+    return;
   }
 
-  const message = await findMessageByRunAndRuntimeMessageId(run.id, resolveRuntimeMessageId(lastEvent))
-  if (!message) return
+  const message = await findMessageByRunAndRuntimeMessageId(
+    run.id,
+    resolveRuntimeMessageId(lastEvent),
+  );
+  if (!message) return;
 
-  const existingPart = await findMessagePartByMessageAndKey(message.id, `reasoning:${reasoningId}`)
-  const partLastSequence = existingPart?.lastEventSequence ?? 0
-  const unprojectedPartItems = orderedItems.filter((item) => item.sequence > partLastSequence)
+  const existingPart = await findMessagePartByMessageAndKey(
+    message.id,
+    `reasoning:${reasoningId}`,
+  );
+  const partLastSequence = existingPart?.lastEventSequence ?? 0;
+  const unprojectedPartItems = orderedItems.filter(
+    (item) => item.sequence > partLastSequence,
+  );
   const partText = unprojectedPartItems
-    .map((item) => getString(getEventDataRecord(item.event).delta) ?? '')
-    .join('')
-  if (!partText) return
+    .map((item) => getString(getEventDataRecord(item.event).delta) ?? "")
+    .join("");
+  if (!partText) return;
 
   await upsertMessagePartForRuntimeEvent(
     run,
     message,
     lastEvent,
     unprojectedPartItems[unprojectedPartItems.length - 1].sequence,
-    'reasoning',
+    "reasoning",
     `reasoning:${reasoningId}`,
-    'reasoning_block',
+    "reasoning_block",
     reasoningId,
-    'streaming',
+    "streaming",
     partText,
     false,
     existingPart?.firstEventSequence ?? unprojectedPartItems[0].sequence,
-  )
+  );
 }
 
 async function projectPermissionEvent(
@@ -3631,34 +4128,42 @@ async function projectPermissionEvent(
   event: RuntimeRunEvent,
   sequence: number,
 ): Promise<void> {
-  const data = getEventDataRecord(event)
-  const requestData = getRecord(data.data)
-  const requestId = getString(data.requestId) ?? event.toolCallId ?? event.id
-  const status = mapPermissionStatus(event.type)
-  const reason = getString(data.reason) ?? getString(data.message) ?? getString(data.summary) ?? null
+  const data = getEventDataRecord(event);
+  const requestData = getRecord(data.data);
+  const requestId = getString(data.requestId) ?? event.toolCallId ?? event.id;
+  const status = mapPermissionStatus(event.type);
+  const reason =
+    getString(data.reason) ??
+    getString(data.message) ??
+    getString(data.summary) ??
+    null;
   const permissionType = normalizePermissionType(
-    getString(data.permissionType) ?? getString(requestData?.permissionType)
-  )
-  const target = getString(data.target) ??
+    getString(data.permissionType) ?? getString(requestData?.permissionType),
+  );
+  const target =
+    getString(data.target) ??
     getString(requestData?.url) ??
     getString(requestData?.logicalPath) ??
     getString(requestData?.host) ??
     event.toolName ??
-    'tool'
+    "tool";
   const metadataJson = buildPermissionMetadata(
     undefined,
     requestData,
     data,
     requestId,
     event.type,
-  )
+  );
 
-  let request = await findPermissionRequestByRunAndRuntimeRequestId(run.id, requestId)
+  let request = await findPermissionRequestByRunAndRuntimeRequestId(
+    run.id,
+    requestId,
+  );
   if (!request) {
     request = await createPermissionRequest({
       conversationId: run.conversationId,
       runId: run.id,
-      agentId: event.agentId ?? 'unknown',
+      agentId: event.agentId ?? "unknown",
       runtimeRequestId: requestId,
       messageId: event.messageId ?? null,
       messageIndex: event.messageIndex ?? null,
@@ -3671,7 +4176,7 @@ async function projectPermissionEvent(
       riskLevel: getString(data.riskLevel) ?? null,
       permissionType,
       target,
-      description: reason ?? 'Runtime permission request',
+      description: reason ?? "Runtime permission request",
       status,
       reason,
       decisionReason: getString(data.decisionReason) ?? null,
@@ -3682,13 +4187,14 @@ async function projectPermissionEvent(
       lastEventSequence: sequence,
       metadataJson,
       expiresAt: getString(data.expiresAt) ?? null,
-    })
+    });
   } else {
     await updatePermissionRequest(request.id, {
       status,
-      resolvedAt: status === 'pending' ? request.resolvedAt : event.timestamp,
+      resolvedAt: status === "pending" ? request.resolvedAt : event.timestamp,
       reason,
-      decisionReason: getString(data.decisionReason) ?? request.decisionReason ?? undefined,
+      decisionReason:
+        getString(data.decisionReason) ?? request.decisionReason ?? undefined,
       grantJson: getRecord(data.grant) ?? request.grantJson,
       dataJson: getRecord(data.data) ?? request.dataJson,
       payloadJson: data,
@@ -3701,28 +4207,35 @@ async function projectPermissionEvent(
         requestId,
         event.type,
       ),
-    })
+    });
   }
 
   if (!event.messageId) {
-    return
+    return;
   }
 
-  const message = await findMessageByRunAndRuntimeMessageId(run.id, resolveRuntimeMessageId(event))
-  if (!message) return
+  const message = await findMessageByRunAndRuntimeMessageId(
+    run.id,
+    resolveRuntimeMessageId(event),
+  );
+  if (!message) return;
   await upsertMessagePartForRuntimeEvent(
     run,
     message,
     event,
     sequence,
-    'permission',
+    "permission",
     `permission:${requestId}`,
-    'permission_request',
+    "permission_request",
     requestId,
-    status === 'approved' ? 'done' : status === 'pending' ? 'streaming' : 'error',
+    status === "approved"
+      ? "done"
+      : status === "pending"
+        ? "streaming"
+        : "error",
     reason ?? getString(data.description) ?? undefined,
     true,
-  )
+  );
 }
 
 async function projectTaskGroupEvent(
@@ -3730,10 +4243,10 @@ async function projectTaskGroupEvent(
   event: RuntimeRunEvent,
   sequence: number,
 ): Promise<void> {
-  if (!event.groupId) return
-  const data = getEventDataRecord(event)
-  const state = event.type === 'task.group.completed' ? 'completed' : 'running'
-  let group = await findRunTaskGroupByRunAndGroupId(run.id, event.groupId)
+  if (!event.groupId) return;
+  const data = getEventDataRecord(event);
+  const state = event.type === "task.group.completed" ? "completed" : "running";
+  let group = await findRunTaskGroupByRunAndGroupId(run.id, event.groupId);
   if (!group) {
     group = await createRunTaskGroup({
       runId: run.id,
@@ -3748,9 +4261,10 @@ async function projectTaskGroupEvent(
       payloadJson: data,
       firstEventSequence: sequence,
       lastEventSequence: sequence,
-      startedAt: event.type === 'task.group.started' ? event.timestamp : null,
-      completedAt: event.type === 'task.group.completed' ? event.timestamp : null,
-    })
+      startedAt: event.type === "task.group.started" ? event.timestamp : null,
+      completedAt:
+        event.type === "task.group.completed" ? event.timestamp : null,
+    });
   } else {
     await updateRunTaskGroup(group.id, {
       agentId: event.agentId ?? group.agentId,
@@ -3762,9 +4276,13 @@ async function projectTaskGroupEvent(
       payloadJson: data,
       firstEventSequence: group.firstEventSequence ?? sequence,
       lastEventSequence: sequence,
-      startedAt: event.type === 'task.group.started' ? event.timestamp : group.startedAt,
-      completedAt: event.type === 'task.group.completed' ? event.timestamp : group.completedAt,
-    })
+      startedAt:
+        event.type === "task.group.started" ? event.timestamp : group.startedAt,
+      completedAt:
+        event.type === "task.group.completed"
+          ? event.timestamp
+          : group.completedAt,
+    });
   }
 }
 
@@ -3773,27 +4291,45 @@ async function projectTaskEvent(
   event: RuntimeRunEvent,
   sequence: number,
 ): Promise<void> {
-  if (!event.taskId) return
-  const data = getEventDataRecord(event)
-  const state = event.type === 'task.started'
-    ? 'running'
-    : event.type === 'task.completed'
-      ? 'completed'
-      : 'failed'
-  const taskSummary = getString(data.summary) ?? getString(data.message) ?? null
-  const taskTitle = getString(data.title) ?? getString(getRecord(data.task)?.title) ?? null
-  const expectedOutput = getString(data.expectedOutput) ?? getString(getRecord(data.task)?.expectedOutput) ?? null
-  const targetAgentId = getString(data.targetAgentId) ?? getString(getRecord(data.task)?.targetAgentId) ?? null
-  const dependsOn = Array.isArray(data.dependsOn) ? data.dependsOn.filter((item): item is string => typeof item === 'string') : []
+  if (!event.taskId) return;
+  const data = getEventDataRecord(event);
+  const state =
+    event.type === "task.started"
+      ? "running"
+      : event.type === "task.completed"
+        ? "completed"
+        : "failed";
+  const taskSummary =
+    getString(data.summary) ?? getString(data.message) ?? null;
+  const taskTitle =
+    getString(data.title) ?? getString(getRecord(data.task)?.title) ?? null;
+  const expectedOutput =
+    getString(data.expectedOutput) ??
+    getString(getRecord(data.task)?.expectedOutput) ??
+    null;
+  const targetAgentId =
+    getString(data.targetAgentId) ??
+    getString(getRecord(data.task)?.targetAgentId) ??
+    null;
+  const dependsOn = Array.isArray(data.dependsOn)
+    ? data.dependsOn.filter((item): item is string => typeof item === "string")
+    : [];
 
   if (event.groupId) {
-    const existingGroup = await findRunTaskGroupByRunAndGroupId(run.id, event.groupId)
+    const existingGroup = await findRunTaskGroupByRunAndGroupId(
+      run.id,
+      event.groupId,
+    );
     if (!existingGroup) {
-      await projectTaskGroupEvent(run, { ...event, type: 'task.group.started' }, sequence)
+      await projectTaskGroupEvent(
+        run,
+        { ...event, type: "task.group.started" },
+        sequence,
+      );
     }
   }
 
-  let task = await findRunTaskByRunAndTaskId(run.id, event.taskId)
+  let task = await findRunTaskByRunAndTaskId(run.id, event.taskId);
   if (!task) {
     task = await createRunTask({
       runId: run.id,
@@ -3805,7 +4341,10 @@ async function projectTaskEvent(
       parentTaskId: event.parentTaskId ?? null,
       targetAgentId,
       title: taskTitle,
-      instruction: getString(data.instruction) ?? getString(getRecord(data.task)?.instruction) ?? null,
+      instruction:
+        getString(data.instruction) ??
+        getString(getRecord(data.task)?.instruction) ??
+        null,
       expectedOutput,
       summary: taskSummary,
       state,
@@ -3813,9 +4352,12 @@ async function projectTaskEvent(
       payloadJson: data,
       firstEventSequence: sequence,
       lastEventSequence: sequence,
-      startedAt: event.type === 'task.started' ? event.timestamp : null,
-      completedAt: event.type === 'task.completed' || event.type === 'task.failed' ? event.timestamp : null,
-    })
+      startedAt: event.type === "task.started" ? event.timestamp : null,
+      completedAt:
+        event.type === "task.completed" || event.type === "task.failed"
+          ? event.timestamp
+          : null,
+    });
   } else {
     await updateRunTask(task.id, {
       groupId: event.groupId ?? task.groupId,
@@ -3832,19 +4374,26 @@ async function projectTaskEvent(
       payloadJson: data,
       firstEventSequence: task.firstEventSequence ?? sequence,
       lastEventSequence: sequence,
-      startedAt: event.type === 'task.started' ? event.timestamp : task.startedAt,
-      completedAt: event.type === 'task.completed' || event.type === 'task.failed' ? event.timestamp : task.completedAt,
-    })
+      startedAt:
+        event.type === "task.started" ? event.timestamp : task.startedAt,
+      completedAt:
+        event.type === "task.completed" || event.type === "task.failed"
+          ? event.timestamp
+          : task.completedAt,
+    });
   }
 
-  const latestPlan = await findLatestRunPlanByRun(run.id)
+  const latestPlan = await findLatestRunPlanByRun(run.id);
   if (!latestPlan) {
-    return
+    return;
   }
 
-  const planTask = await findRunPlanTaskByPlanAndTaskId(latestPlan.id, event.taskId)
+  const planTask = await findRunPlanTaskByPlanAndTaskId(
+    latestPlan.id,
+    event.taskId,
+  );
   if (!planTask) {
-    return
+    return;
   }
 
   await updateRunPlanTask(planTask.id, {
@@ -3859,7 +4408,7 @@ async function projectTaskEvent(
     firstEventSequence: planTask.firstEventSequence ?? sequence,
     lastEventSequence: sequence,
     sortOrder: planTask.sortOrder,
-  })
+  });
 }
 
 async function projectPlanEvent(
@@ -3867,48 +4416,55 @@ async function projectPlanEvent(
   event: RuntimeRunEvent,
   sequence: number,
 ): Promise<void> {
-  const plan = extractPlan(event)
-  if (!plan) return
+  const plan = extractPlan(event);
+  if (!plan) return;
 
-  const plans = await listRunPlansByConversation(run.conversationId)
-  const revision = plans.filter((candidate) => candidate.runId === run.id).length + 1
-  let existing = await findRunPlanByRunAndSourceEvent(run.id, event.id)
+  const plans = await listRunPlansByConversation(run.conversationId);
+  const revision =
+    plans.filter((candidate) => candidate.runId === run.id).length + 1;
+  let existing = await findRunPlanByRunAndSourceEvent(run.id, event.id);
   if (!existing) {
     existing = await createRunPlan({
       runId: run.id,
       conversationId: run.conversationId,
       sourceEventId: event.id,
       revision,
-      entryAgentId: getString(plan.entryAgentId) ?? run.orchestratorAgentId ?? null,
+      entryAgentId:
+        getString(plan.entryAgentId) ?? run.orchestratorAgentId ?? null,
       intent: getString(plan.intent) ?? null,
       summaryInstruction: getString(plan.summaryInstruction) ?? null,
-      state: 'completed',
+      state: "completed",
       payloadJson: plan,
       firstEventSequence: sequence,
       lastEventSequence: sequence,
       completedAt: event.timestamp,
-    })
+    });
   } else {
     existing = await updateRunPlan(existing.id, {
       revision,
       entryAgentId: getString(plan.entryAgentId) ?? existing.entryAgentId,
       intent: getString(plan.intent) ?? existing.intent,
-      summaryInstruction: getString(plan.summaryInstruction) ?? existing.summaryInstruction,
-      state: 'completed',
+      summaryInstruction:
+        getString(plan.summaryInstruction) ?? existing.summaryInstruction,
+      state: "completed",
       payloadJson: plan,
       firstEventSequence: existing.firstEventSequence ?? sequence,
       lastEventSequence: sequence,
       completedAt: event.timestamp,
-    })
+    });
   }
 
-  const tasks = Array.isArray(plan.tasks) ? plan.tasks : []
+  const tasks = Array.isArray(plan.tasks) ? plan.tasks : [];
   for (let index = 0; index < tasks.length; index += 1) {
-    const task = getRecord(tasks[index])
-    if (!task) continue
-    const taskId = getString(task.taskId) ?? getString(task.id) ?? `plan-task-${index}`
-    const existingTask = await findRunPlanTaskByPlanAndTaskId(existing.id, taskId)
-    const taskState = getString(task.status) ?? 'pending'
+    const task = getRecord(tasks[index]);
+    if (!task) continue;
+    const taskId =
+      getString(task.taskId) ?? getString(task.id) ?? `plan-task-${index}`;
+    const existingTask = await findRunPlanTaskByPlanAndTaskId(
+      existing.id,
+      taskId,
+    );
+    const taskState = getString(task.status) ?? "pending";
     if (!existingTask) {
       await createRunPlanTask({
         planId: existing.id,
@@ -3921,102 +4477,128 @@ async function projectPlanEvent(
         state: taskState,
         riskLevel: getString(task.riskLevel) ?? null,
         dependsOnJson: Array.isArray(task.dependsOn)
-          ? task.dependsOn.filter((item: unknown): item is string => typeof item === 'string')
+          ? task.dependsOn.filter(
+              (item: unknown): item is string => typeof item === "string",
+            )
           : [],
         payloadJson: task,
         firstEventSequence: sequence,
         lastEventSequence: sequence,
         sortOrder: index,
-      })
+      });
     } else {
       await updateRunPlanTask(existingTask.id, {
-        targetAgentId: getString(task.targetAgentId) ?? existingTask.targetAgentId,
-        title: getString(task.title) ?? getString(task.instruction) ?? existingTask.title,
+        targetAgentId:
+          getString(task.targetAgentId) ?? existingTask.targetAgentId,
+        title:
+          getString(task.title) ??
+          getString(task.instruction) ??
+          existingTask.title,
         instruction: getString(task.instruction) ?? existingTask.instruction,
-        expectedOutput: getString(task.expectedOutput) ?? existingTask.expectedOutput,
+        expectedOutput:
+          getString(task.expectedOutput) ?? existingTask.expectedOutput,
         state: taskState,
         riskLevel: getString(task.riskLevel) ?? existingTask.riskLevel,
         dependsOnJson: Array.isArray(task.dependsOn)
-          ? task.dependsOn.filter((item: unknown): item is string => typeof item === 'string')
+          ? task.dependsOn.filter(
+              (item: unknown): item is string => typeof item === "string",
+            )
           : existingTask.dependsOnJson,
         payloadJson: task,
         firstEventSequence: existingTask.firstEventSequence ?? sequence,
         lastEventSequence: sequence,
         sortOrder: index,
-      })
+      });
     }
   }
 
-  await updateRun(run.id, { planJson: plan })
+  await updateRun(run.id, { planJson: plan });
 }
 
 async function finalizeRunProjection(
   runId: string,
-  status: 'completed' | 'failed' | 'cancelled',
+  status: "completed" | "failed" | "cancelled",
   completedAt: string,
 ): Promise<void> {
-  const messages = await listMessagesByRun(runId, 'streaming')
+  const messages = await listMessagesByRun(runId, "streaming");
   for (const message of messages) {
-    const parts = await listMessagePartsByMessage(message.id)
+    const parts = await listMessagePartsByMessage(message.id);
     await Promise.all(
       parts
-        .filter((part) => part.state === 'streaming')
+        .filter((part) => part.state === "streaming")
         .map((part) =>
           updateMessagePart(part.id, {
-            state: status === 'completed' ? 'done' : 'error',
+            state: status === "completed" ? "done" : "error",
           }),
         ),
-    )
+    );
     await updateMessage(message.id, {
       status,
-      finishReason: status === 'completed' ? 'stop' : status === 'cancelled' ? 'cancelled' : 'error',
+      finishReason:
+        status === "completed"
+          ? "stop"
+          : status === "cancelled"
+            ? "cancelled"
+            : "error",
       completedAt,
-    })
+    });
   }
 
-  const toolCalls = await listRunToolCallsByRun(runId)
-  for (const toolCall of toolCalls.filter((call) => call.state === 'input-available' || call.state === 'output-available')) {
+  const toolCalls = await listRunToolCallsByRun(runId);
+  for (const toolCall of toolCalls.filter(
+    (call) =>
+      call.state === "input-available" || call.state === "output-available",
+  )) {
     await updateRunToolCall(toolCall.id, {
-      state: status === 'completed' ? 'output-available' : 'output-error',
+      state: status === "completed" ? "output-available" : "output-error",
       completedAt,
       lastEventSequence: toolCall.lastEventSequence,
-    })
+    });
   }
 
-  const reasoningBlocks = await listRunReasoningBlocksByRun(runId)
-  for (const block of reasoningBlocks.filter((candidate) => candidate.state === 'streaming')) {
+  const reasoningBlocks = await listRunReasoningBlocksByRun(runId);
+  for (const block of reasoningBlocks.filter(
+    (candidate) => candidate.state === "streaming",
+  )) {
     await updateRunReasoningBlock(block.id, {
-      state: 'completed',
+      state: "completed",
       completedAt,
       lastEventSequence: block.lastEventSequence,
-    })
+    });
   }
 
-  const tasks = await listRunTasksByRun(runId)
-  for (const task of tasks.filter((candidate) => candidate.state === 'running' || candidate.state === 'pending')) {
+  const tasks = await listRunTasksByRun(runId);
+  for (const task of tasks.filter(
+    (candidate) =>
+      candidate.state === "running" || candidate.state === "pending",
+  )) {
     await updateRunTask(task.id, {
       state: status,
       completedAt,
       lastEventSequence: task.lastEventSequence,
-    })
+    });
   }
 
-  const groups = await listRunTaskGroupsByRun(runId)
-  for (const group of groups.filter((candidate) => candidate.state === 'running')) {
+  const groups = await listRunTaskGroupsByRun(runId);
+  for (const group of groups.filter(
+    (candidate) => candidate.state === "running",
+  )) {
     await updateRunTaskGroup(group.id, {
       state: status,
       completedAt,
       lastEventSequence: group.lastEventSequence,
-    })
+    });
   }
 
-  const permissions = await listPermissionRequests({ runId })
-  for (const request of permissions.filter((candidate) => candidate.status === 'pending')) {
+  const permissions = await listPermissionRequests({ runId });
+  for (const request of permissions.filter(
+    (candidate) => candidate.status === "pending",
+  )) {
     await updatePermissionRequest(request.id, {
-      status: 'cancelled',
+      status: "cancelled",
       resolvedAt: completedAt,
       lastEventSequence: request.lastEventSequence,
-    })
+    });
   }
 }
 
@@ -4034,13 +4616,13 @@ async function upsertMessagePartForRuntimeEvent(
   replace = false,
   firstSequence = sequence,
 ): Promise<void> {
-  const data = getEventDataRecord(event)
-  const existing = await findMessagePartByMessageAndKey(message.id, partKey)
+  const data = getEventDataRecord(event);
+  const existing = await findMessagePartByMessageAndKey(message.id, partKey);
   if (existing && (existing.lastEventSequence ?? 0) >= sequence) {
-    return
+    return;
   }
   if (!existing) {
-    const parts = await listMessagePartsByMessage(message.id)
+    const parts = await listMessagePartsByMessage(message.id);
     await createMessagePart({
       messageId: message.id,
       conversationId: run.conversationId,
@@ -4052,19 +4634,19 @@ async function upsertMessagePartForRuntimeEvent(
       entityId,
       type,
       state,
-      text: text ?? '',
+      text: text ?? "",
       payloadJson: data,
       firstEventSequence: firstSequence,
       lastEventSequence: sequence,
-    })
-    return
+    });
+    return;
   }
 
   const nextText = replace
-    ? text ?? existing.text ?? ''
+    ? (text ?? existing.text ?? "")
     : text !== undefined
-      ? `${existing.text ?? ''}${text}`
-      : existing.text ?? ''
+      ? `${existing.text ?? ""}${text}`
+      : (existing.text ?? "");
   await updateMessagePart(existing.id, {
     state,
     text: nextText,
@@ -4073,94 +4655,117 @@ async function upsertMessagePartForRuntimeEvent(
     entityId,
     firstEventSequence: existing.firstEventSequence ?? firstSequence,
     lastEventSequence: sequence,
-  })
+  });
 }
 
 function resolveRuntimeMessageId(event: RuntimeRunEvent): string {
-  return event.messageId ??
-    `msg_${event.runId}_${event.agentId ?? 'assistant'}_${event.taskId ?? 'entry'}`
+  return (
+    event.messageId ??
+    `msg_${event.runId}_${event.agentId ?? "assistant"}_${event.taskId ?? "entry"}`
+  );
 }
 
 function getMessageProjectionKey(event: RuntimeRunEvent): string {
-  return resolveRuntimeMessageId(event)
+  return resolveRuntimeMessageId(event);
 }
 
 function getReasoningProjectionKey(event: RuntimeRunEvent): string {
-  const data = getEventDataRecord(event)
-  const reasoningId = getString(data.reasoningId) ?? 'default'
-  return `${event.messageId ?? 'no-message'}:${event.agentId ?? 'unknown'}:${reasoningId}`
+  const data = getEventDataRecord(event);
+  const reasoningId = getString(data.reasoningId) ?? "default";
+  return `${event.messageId ?? "no-message"}:${event.agentId ?? "unknown"}:${reasoningId}`;
 }
 
-function resolveLocalMessageId(runId: string, runtimeMessageId: string): string {
-  return `msg_${runId}_${runtimeMessageId}`
+function resolveLocalMessageId(
+  runId: string,
+  runtimeMessageId: string,
+): string {
+  return `msg_${runId}_${runtimeMessageId}`;
 }
 
-function resolveMessageSurface(run: RunOutput, event: RuntimeRunEvent): MessageSurface {
-  if (event.agentId === 'system:title') {
-    return 'system'
+function resolveMessageSurface(
+  run: RunOutput,
+  event: RuntimeRunEvent,
+): MessageSurface {
+  if (event.agentId === "system:title") {
+    return "system";
   }
 
-  const participantAgentIds = getParticipantAgentIds(run)
+  const participantAgentIds = getParticipantAgentIds(run);
   if (
     event.agentId &&
-    (participantAgentIds.has(event.agentId) || event.agentId === run.orchestratorAgentId)
+    (participantAgentIds.has(event.agentId) ||
+      event.agentId === run.orchestratorAgentId)
   ) {
-    return 'chat'
+    return "chat";
   }
 
-  if (event.taskId || event.parentTaskId || event.groupId || event.parentAgentId) {
-    return 'task'
+  if (
+    event.taskId ||
+    event.parentTaskId ||
+    event.groupId ||
+    event.parentAgentId
+  ) {
+    return "task";
   }
 
-  return 'hidden'
+  return "hidden";
 }
 
 function getParticipantAgentIds(run: RunOutput): Set<string> {
-  const input = run.inputJson as Record<string, unknown>
+  const input = run.inputJson as Record<string, unknown>;
   const participantAgentIds = Array.isArray(input.participantAgentIds)
     ? input.participantAgentIds
-    : []
-  return new Set(participantAgentIds.filter((candidate): candidate is string => typeof candidate === 'string'))
+    : [];
+  return new Set(
+    participantAgentIds.filter(
+      (candidate): candidate is string => typeof candidate === "string",
+    ),
+  );
 }
 
 function isRunForOpenCode(run: RunOutput): boolean {
-  return getParticipantAgentIds(run).has('opencode') || run.orchestratorAgentId === 'opencode'
+  return (
+    getParticipantAgentIds(run).has("opencode") ||
+    run.orchestratorAgentId === "opencode"
+  );
 }
 
 function isOpenCodeEvent(event: RuntimeRunEvent): boolean {
-  if (event.agentId === 'opencode') return true
-  const data = getEventDataRecord(event)
-  if (getString(data.externalProvider) === 'opencode') return true
-  const externalSession = getRecord(data.externalSession)
-  return getString(externalSession?.provider) === 'opencode'
+  if (event.agentId === "opencode") return true;
+  const data = getEventDataRecord(event);
+  if (getString(data.externalProvider) === "opencode") return true;
+  const externalSession = getRecord(data.externalSession);
+  return getString(externalSession?.provider) === "opencode";
 }
 
 function mergeRuntimeMetadata(
   metadata: Record<string, unknown>,
   runtime: Record<string, unknown>,
 ): Record<string, unknown> {
-  const currentRuntime = getRecord(metadata.runtime) ?? {}
+  const currentRuntime = getRecord(metadata.runtime) ?? {};
   return {
     ...metadata,
     runtime: {
       ...currentRuntime,
       ...runtime,
     },
-  }
+  };
 }
 
-function getExternalModelFromEvent(event: RuntimeRunEvent): Record<string, unknown> | undefined {
-  const data = getEventDataRecord(event)
-  const externalModel = getRecord(data.externalModel)
-  if (!externalModel) return undefined
+function getExternalModelFromEvent(
+  event: RuntimeRunEvent,
+): Record<string, unknown> | undefined {
+  const data = getEventDataRecord(event);
+  const externalModel = getRecord(data.externalModel);
+  if (!externalModel) return undefined;
 
-  const provider = getString(externalModel.provider)
-  const providerId = getString(externalModel.providerId)
-  const modelId = getString(externalModel.modelId)
-  const providerName = getString(externalModel.providerName)
-  const modelName = getString(externalModel.modelName)
+  const provider = getString(externalModel.provider);
+  const providerId = getString(externalModel.providerId);
+  const modelId = getString(externalModel.modelId);
+  const providerName = getString(externalModel.providerName);
+  const modelName = getString(externalModel.modelName);
   if (!provider || !providerId || !modelId) {
-    return undefined
+    return undefined;
   }
 
   return {
@@ -4169,7 +4774,7 @@ function getExternalModelFromEvent(event: RuntimeRunEvent): Record<string, unkno
     modelId,
     ...(providerName ? { providerName } : {}),
     ...(modelName ? { modelName } : {}),
-  }
+  };
 }
 
 function buildPermissionMetadata(
@@ -4177,9 +4782,9 @@ function buildPermissionMetadata(
   requestData: Record<string, unknown> | undefined,
   payloadData: Record<string, unknown>,
   requestId: string,
-  eventType: RuntimeRunEvent['type'],
+  eventType: RuntimeRunEvent["type"],
 ): Record<string, unknown> {
-  const current = existing ?? {}
+  const current = existing ?? {};
   const next: Record<string, unknown> = {
     ...current,
     runtime: {
@@ -4187,16 +4792,24 @@ function buildPermissionMetadata(
       requestId,
       eventType,
     },
-  }
-  const externalProvider = getString(requestData?.externalProvider) ?? getString(current.externalProvider)
-  const providerSessionId = getString(requestData?.providerSessionId) ?? getString(current.providerSessionId)
+  };
+  const externalProvider =
+    getString(requestData?.externalProvider) ??
+    getString(current.externalProvider);
+  const providerSessionId =
+    getString(requestData?.providerSessionId) ??
+    getString(current.providerSessionId);
   const providerPermissionId =
-    getString(requestData?.providerPermissionId) ?? getString(current.providerPermissionId)
-  const permissionKind = getString(requestData?.permissionKind) ?? getString(current.permissionKind)
+    getString(requestData?.providerPermissionId) ??
+    getString(current.providerPermissionId);
+  const permissionKind =
+    getString(requestData?.permissionKind) ?? getString(current.permissionKind);
   const providerToolCallId =
-    getString(requestData?.providerToolCallId) ?? getString(current.providerToolCallId)
+    getString(requestData?.providerToolCallId) ??
+    getString(current.providerToolCallId);
   const providerMessageId =
-    getString(requestData?.providerMessageId) ?? getString(current.providerMessageId)
+    getString(requestData?.providerMessageId) ??
+    getString(current.providerMessageId);
 
   for (const [key, value] of Object.entries({
     externalProvider,
@@ -4205,51 +4818,64 @@ function buildPermissionMetadata(
     permissionKind,
     providerToolCallId,
     providerMessageId,
-    permissionType: getString(requestData?.permissionType) ?? getString(payloadData.permissionType) ?? getString(current.permissionType),
+    permissionType:
+      getString(requestData?.permissionType) ??
+      getString(payloadData.permissionType) ??
+      getString(current.permissionType),
   })) {
     if (value !== undefined) {
-      next[key] = value
+      next[key] = value;
     }
   }
 
-  return next
+  return next;
 }
 
-function mapPermissionStatus(eventType: RuntimeRunEvent['type']) {
+function mapPermissionStatus(eventType: RuntimeRunEvent["type"]) {
   switch (eventType) {
-    case 'permission.requested':
-      return 'pending'
-    case 'permission.approved':
-      return 'approved'
-    case 'permission.denied':
-      return 'denied'
-    case 'permission.cancelled':
-      return 'cancelled'
+    case "permission.requested":
+      return "pending";
+    case "permission.approved":
+      return "approved";
+    case "permission.denied":
+      return "denied";
+    case "permission.cancelled":
+      return "cancelled";
     default:
-      return 'pending'
+      return "pending";
   }
 }
 
 function normalizePermissionType(value: string | undefined): PermissionType {
   switch (value) {
-    case 'file_read':
-    case 'file_write':
-    case 'command_execute':
-    case 'network_access':
-    case 'deployment':
-      return value
+    case "file_read":
+    case "file_write":
+    case "command_execute":
+    case "network_access":
+    case "deployment":
+      return value;
     default:
-      return 'command_execute'
+      return "command_execute";
   }
 }
 
 function planToRecord(plan: RunPlanOutput): Record<string, unknown> {
-  const payload = getRecord(plan.payloadJson) ?? {}
+  const payload = getRecord(plan.payloadJson) ?? {};
   return {
     ...payload,
-    intent: plan.intent ?? (typeof payload.intent === 'string' ? payload.intent : undefined),
-    entryAgentId: plan.entryAgentId ?? (typeof payload.entryAgentId === 'string' ? payload.entryAgentId : undefined),
-    summaryInstruction: plan.summaryInstruction ?? (typeof payload.summaryInstruction === 'string' ? payload.summaryInstruction : undefined),
+    intent:
+      plan.intent ??
+      (typeof payload.intent === "string" ? payload.intent : undefined),
+    entryAgentId:
+      plan.entryAgentId ??
+      (typeof payload.entryAgentId === "string"
+        ? payload.entryAgentId
+        : undefined),
+    summaryInstruction:
+      plan.summaryInstruction ??
+      (typeof payload.summaryInstruction === "string"
+        ? payload.summaryInstruction
+        : undefined),
     tasks: (plan.tasks ?? []).map((task) => ({
       taskId: task.taskId,
       targetAgentId: task.targetAgentId,
@@ -4261,64 +4887,216 @@ function planToRecord(plan: RunPlanOutput): Record<string, unknown> {
       status: task.state,
     })),
     revision: plan.revision,
-  }
+  };
 }
 
 function comparePersistedMessages(
-  left: Pick<MessageOutput, 'id' | 'runId' | 'role' | 'firstEventSequence' | 'createdAt'>,
-  right: Pick<MessageOutput, 'id' | 'runId' | 'role' | 'firstEventSequence' | 'createdAt'>,
+  left: Pick<
+    MessageOutput,
+    "id" | "runId" | "role" | "firstEventSequence" | "createdAt"
+  >,
+  right: Pick<
+    MessageOutput,
+    "id" | "runId" | "role" | "firstEventSequence" | "createdAt"
+  >,
 ): number {
   if (left.runId && right.runId && left.runId === right.runId) {
-    const leftSeq = getPersistedMessageOrderSequence(left)
-    const rightSeq = getPersistedMessageOrderSequence(right)
+    const leftSeq = getPersistedMessageOrderSequence(left);
+    const rightSeq = getPersistedMessageOrderSequence(right);
     if (leftSeq !== rightSeq) {
-      return leftSeq - rightSeq
+      return leftSeq - rightSeq;
     }
   }
 
-  const leftTime = Date.parse(left.createdAt)
-  const rightTime = Date.parse(right.createdAt)
-  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
-    return leftTime - rightTime
+  const leftTime = Date.parse(left.createdAt);
+  const rightTime = Date.parse(right.createdAt);
+  if (
+    Number.isFinite(leftTime) &&
+    Number.isFinite(rightTime) &&
+    leftTime !== rightTime
+  ) {
+    return leftTime - rightTime;
   }
-  return left.id.localeCompare(right.id)
+  return left.id.localeCompare(right.id);
 }
 
 function compareTimelineRuns(
   left: ConversationTimelineRunSnapshot,
   right: ConversationTimelineRunSnapshot,
 ): number {
-  const leftTime = Date.parse(left.triggerMessage?.createdAt ?? left.run.createdAt)
-  const rightTime = Date.parse(right.triggerMessage?.createdAt ?? right.run.createdAt)
-  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
-    return leftTime - rightTime
+  const leftTime = Date.parse(
+    left.triggerMessage?.createdAt ?? left.run.createdAt,
+  );
+  const rightTime = Date.parse(
+    right.triggerMessage?.createdAt ?? right.run.createdAt,
+  );
+  if (
+    Number.isFinite(leftTime) &&
+    Number.isFinite(rightTime) &&
+    leftTime !== rightTime
+  ) {
+    return leftTime - rightTime;
   }
-  return left.run.id.localeCompare(right.run.id)
+  return left.run.id.localeCompare(right.run.id);
 }
 
 function getPersistedMessageOrderSequence(
-  message: Pick<MessageOutput, 'role' | 'firstEventSequence'>,
+  message: Pick<MessageOutput, "role" | "firstEventSequence">,
 ): number {
-  if (typeof message.firstEventSequence === 'number') {
-    return message.firstEventSequence
+  if (typeof message.firstEventSequence === "number") {
+    return message.firstEventSequence;
   }
-  if (message.role === 'user') {
-    return 0
+  if (message.role === "user") {
+    return 0;
   }
-  return Number.MAX_SAFE_INTEGER
+  return Number.MAX_SAFE_INTEGER;
 }
 
 function getRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? value as Record<string, unknown>
-    : undefined
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
-const MAX_PIN_CONTENT_LENGTH = 2000
+const MAX_PIN_CONTENT_LENGTH = 2000;
+const MAX_REPLY_EXCERPT_LENGTH = 300;
 
 function truncatePinContent(content: string): string {
-  if (content.length <= MAX_PIN_CONTENT_LENGTH) return content
-  return content.slice(0, MAX_PIN_CONTENT_LENGTH) + '\n...[截断]'
+  if (content.length <= MAX_PIN_CONTENT_LENGTH) return content;
+  return content.slice(0, MAX_PIN_CONTENT_LENGTH) + "\n...[截断]";
+}
+
+function extractMessageTextContent(
+  message: Pick<PersistedMessage, "parts">,
+): string {
+  return message.parts
+    .filter((part) => part.type === "text" && part.text)
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+}
+
+function compactReplyExcerpt(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function buildReplySnapshot(target: PersistedMessage): MessageReplySnapshot {
+  const content = compactReplyExcerpt(extractMessageTextContent(target));
+  const fallback =
+    target.role === "assistant" ? "Assistant message" : "User message";
+  return {
+    messageId: target.id,
+    role: target.role as MessageReplySnapshot["role"],
+    senderType: target.senderType,
+    senderId: target.senderId,
+    agentId: target.agentId,
+    createdAt: target.createdAt,
+    excerpt: truncateText(content || fallback, MAX_REPLY_EXCERPT_LENGTH),
+  };
+}
+
+function getNullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function getReplySnapshot(
+  metadata: MetadataJson | undefined,
+): MessageReplySnapshot | null {
+  const replyTo = getRecord(metadata?.replyTo);
+  if (!replyTo) return null;
+
+  const messageId = getString(replyTo.messageId);
+  const role = getString(replyTo.role);
+  const excerpt = getString(replyTo.excerpt);
+  if (!messageId || (role !== "user" && role !== "assistant") || !excerpt) {
+    return null;
+  }
+
+  return {
+    messageId,
+    role,
+    senderType: getString(replyTo.senderType) ?? role,
+    senderId: getNullableString(replyTo.senderId),
+    agentId: getNullableString(replyTo.agentId),
+    createdAt: getString(replyTo.createdAt) ?? "",
+    excerpt,
+  };
+}
+
+function formatReplyTargetLabel(replyTo: MessageReplySnapshot): string {
+  const sender = replyTo.agentId ?? replyTo.senderId;
+  const senderLabel = sender && sender !== replyTo.role ? ` ${sender}` : "";
+  return `${replyTo.role}${senderLabel}`;
+}
+
+function formatContentWithReplyContext(
+  content: string,
+  replyTo: MessageReplySnapshot | null,
+): string {
+  const trimmed = content.trim();
+  if (!replyTo) return trimmed;
+
+  const quoted = replyTo.excerpt
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join("\n");
+
+  return [
+    `[Replying to ${formatReplyTargetLabel(replyTo)} (${replyTo.messageId})]`,
+    quoted,
+    "",
+    trimmed,
+  ].join("\n");
+}
+
+function formatMessageContentForModel(message: PersistedMessage): string {
+  const content = extractMessageTextContent(message);
+  if (!content) return "";
+  return formatContentWithReplyContext(
+    content,
+    getReplySnapshot(message.metadataJson),
+  );
+}
+
+function formatPinnedMessageContentForModel(
+  pin: MessagePinWithContent,
+): string | null {
+  const content = pin.messageContent?.trim() ?? "";
+  if (!content) return null;
+  const metadata = safeJsonParse(pin.messageMetadataJson, {}) as MetadataJson;
+  return formatContentWithReplyContext(content, getReplySnapshot(metadata));
+}
+
+async function resolveReplySnapshot(
+  conversationId: string,
+  replyToMessageId: string | undefined,
+): Promise<MessageReplySnapshot | null> {
+  if (!replyToMessageId) return null;
+
+  const targetRecord = await findMessageWithParts(replyToMessageId);
+  if (!targetRecord) {
+    throw invalidReplyTarget();
+  }
+
+  const target = toPersistedMessage(targetRecord as Record<string, unknown>);
+  if (
+    target.conversationId !== conversationId ||
+    target.surface !== "chat" ||
+    target.status !== "completed" ||
+    (target.role !== "user" && target.role !== "assistant")
+  ) {
+    throw invalidReplyTarget();
+  }
+
+  return buildReplySnapshot(target);
+}
+
+function invalidReplyTarget(): AppError {
+  return new AppError(
+    400 as ContentfulStatusCode,
+    "REPLY_TARGET_INVALID",
+    "回复目标不存在、不可见或不属于当前会话",
+  );
 }
 
 function buildRuntimeRunInput(
@@ -4329,27 +5107,37 @@ function buildRuntimeRunInput(
   externalSessionHints: RuntimeExternalSessionHint[] = [],
   externalContext: RuntimeExternalContextPacket[] = [],
   userMessageId?: string,
-  pinnedMessages?: Array<{ id: string; messageId: string; content: string; note: string | null; pinnedAt: string; sortOrder: number }>,
+  pinnedMessages?: Array<{
+    id: string;
+    messageId: string;
+    content: string;
+    note: string | null;
+    pinnedAt: string;
+    sortOrder: number;
+  }>,
 ): RuntimeRunInput {
-  const workspace = getRuntimeWorkspace(conversation.metadataJson)
-  const titleSource = getTitleSource(conversation.metadataJson)
-  const titleSeedUserMessage = resolveTitleSeedUserMessage(history, userContent)
+  const workspace = getRuntimeWorkspace(conversation.metadataJson);
+  const titleSource = getTitleSource(conversation.metadataJson);
+  const titleSeedUserMessage = resolveTitleSeedUserMessage(
+    history,
+    userContent,
+  );
 
   return {
     conversationId: conversation.id,
-    mode: conversation.mode as 'single' | 'group',
+    mode: conversation.mode as "single" | "group",
     participantAgentIds: conversation.agents.map((agent) => agent.agentId),
     addressedAgentIds,
     userMessage: {
       ...(userMessageId ? { id: userMessageId } : {}),
-      role: 'user',
+      role: "user",
       content: userContent,
     },
     history,
     conversationState: {
       messageCountBeforeRun: history.length,
       titleSource,
-      ...(titleSource === 'default' && titleSeedUserMessage
+      ...(titleSource === "default" && titleSeedUserMessage
         ? { titleSeedUserMessage }
         : {}),
     },
@@ -4358,39 +5146,46 @@ function buildRuntimeRunInput(
     ...(externalSessionHints.length > 0 ? { externalSessionHints } : {}),
     ...(externalContext.length > 0 ? { externalContext } : {}),
     ...(pinnedMessages && pinnedMessages.length > 0 ? { pinnedMessages } : {}),
-  }
+  };
 }
 
 async function resolveDirectOpenCodeSession(
   conversation: ConversationDetailOutput,
   addressedAgentIds: string[],
 ): Promise<ExternalAgentSessionOutput | null> {
-  const workspace = getRuntimeWorkspace(conversation.metadataJson)
-  if (!workspace) return null
+  const workspace = getRuntimeWorkspace(conversation.metadataJson);
+  if (!workspace) return null;
 
-  const directAgentId = resolveDirectExternalAgentId(conversation, addressedAgentIds)
-  if (directAgentId !== 'opencode') return null
+  const directAgentId = resolveDirectExternalAgentId(
+    conversation,
+    addressedAgentIds,
+  );
+  if (directAgentId !== "opencode") return null;
 
   return findExternalAgentSessionHint({
-    provider: 'opencode',
+    provider: "opencode",
     agentId: directAgentId,
     conversationId: conversation.id,
     workspaceIdentity: workspace.workspaceId,
-    scope: 'conversation-visible',
-    status: 'active',
-  })
+    scope: "conversation-visible",
+    status: "active",
+  });
 }
 
-function toRuntimeExternalSessionHint(session: ExternalAgentSessionOutput): RuntimeExternalSessionHint {
+function toRuntimeExternalSessionHint(
+  session: ExternalAgentSessionOutput,
+): RuntimeExternalSessionHint {
   return {
-    provider: 'opencode',
+    provider: "opencode",
     agentId: session.agentId,
     scope: session.scope,
     providerSessionId: session.providerSessionId,
     conversationId: session.conversationId,
     workspaceId: session.workspaceIdentity,
-    ...(session.handoffSummary ? { handoffSummary: session.handoffSummary } : {}),
-  }
+    ...(session.handoffSummary
+      ? { handoffSummary: session.handoffSummary }
+      : {}),
+  };
 }
 
 async function resolveExternalContextPackets(
@@ -4399,176 +5194,193 @@ async function resolveExternalContextPackets(
   historyMessages: unknown[],
   directOpenCodeSession: ExternalAgentSessionOutput | null,
 ): Promise<RuntimeExternalContextPacket[]> {
-  const workspace = getRuntimeWorkspace(conversation.metadataJson)
-  if (!workspace) return []
+  const workspace = getRuntimeWorkspace(conversation.metadataJson);
+  if (!workspace) return [];
 
-  const directAgentId = resolveDirectExternalAgentId(conversation, addressedAgentIds)
-  if (directAgentId !== 'opencode') return []
+  const directAgentId = resolveDirectExternalAgentId(
+    conversation,
+    addressedAgentIds,
+  );
+  if (directAgentId !== "opencode") return [];
 
   const delegatedSessions = await listExternalAgentSessions({
     conversationId: conversation.id,
-    provider: 'opencode',
+    provider: "opencode",
     agentId: directAgentId,
-    scope: 'delegated-task',
-    status: 'active',
+    scope: "delegated-task",
+    status: "active",
     limit: 20,
-    order: 'desc',
-  })
+    order: "desc",
+  });
   const packet = buildOpenCodeExternalContextPacket({
     agentId: directAgentId,
     sessionMetadata: directOpenCodeSession?.metadataJson ?? {},
     historyMessages,
     delegatedSessions,
-  })
-  return packet ? [packet] : []
+  });
+  return packet ? [packet] : [];
 }
 
 export function buildOpenCodeExternalContextPacket(options: {
-  agentId: string
-  sessionMetadata?: MetadataJson
-  historyMessages: unknown[]
-  delegatedSessions?: ExternalAgentSessionOutput[]
+  agentId: string;
+  sessionMetadata?: MetadataJson;
+  historyMessages: unknown[];
+  delegatedSessions?: ExternalAgentSessionOutput[];
 }): RuntimeExternalContextPacket | null {
-  const bridge = getContextBridgeMetadata(options.sessionMetadata)
-  const messages = projectMessagesToExternalContextMessages(options.historyMessages)
+  const bridge = getContextBridgeMetadata(options.sessionMetadata);
+  const messages = projectMessagesToExternalContextMessages(
+    options.historyMessages,
+  );
   const cursorIndex = bridge.lastSyncedMessageId
     ? messages.findIndex((message) => message.id === bridge.lastSyncedMessageId)
-    : -1
-  const mode: RuntimeExternalContextPacket['mode'] =
-    bridge.lastSyncedMessageId && cursorIndex >= 0 ? 'delta' : 'bootstrap'
-  const candidateMessages = mode === 'delta'
-    ? messages.slice(cursorIndex + 1)
-    : messages
-  const boundedMessages = takeBoundedExternalContextMessages(candidateMessages)
+    : -1;
+  const mode: RuntimeExternalContextPacket["mode"] =
+    bridge.lastSyncedMessageId && cursorIndex >= 0 ? "delta" : "bootstrap";
+  const candidateMessages =
+    mode === "delta" ? messages.slice(cursorIndex + 1) : messages;
+  const boundedMessages = takeBoundedExternalContextMessages(candidateMessages);
   const handoffs = selectExternalContextHandoffs(
     options.delegatedSessions ?? [],
     mode,
     bridge.lastSyncedAt,
-  )
+  );
 
-  if (boundedMessages.messages.length === 0 && handoffs.summaries.length === 0) {
-    return null
+  if (
+    boundedMessages.messages.length === 0 &&
+    handoffs.summaries.length === 0
+  ) {
+    return null;
   }
 
-  const throughMessage = boundedMessages.messages.at(-1)
+  const throughMessage = boundedMessages.messages.at(-1);
   const omitted = compactOmitted({
     messageCount: boundedMessages.omittedMessageCount,
     characterCount: boundedMessages.omittedCharacterCount,
     handoffSummaryCount: handoffs.omittedHandoffSummaryCount,
-  })
+  });
 
   return {
-    provider: 'opencode',
+    provider: "opencode",
     agentId: options.agentId,
-    scope: 'conversation-visible',
+    scope: "conversation-visible",
     mode,
     messages: boundedMessages.messages,
     handoffSummaries: handoffs.summaries,
     cursorCandidate: {
-      ...(throughMessage ? {
-        throughMessageId: throughMessage.id,
-        throughMessageCreatedAt: throughMessage.createdAt,
-      } : {}),
+      ...(throughMessage
+        ? {
+            throughMessageId: throughMessage.id,
+            throughMessageCreatedAt: throughMessage.createdAt,
+          }
+        : {}),
       includedMessageIds: boundedMessages.messages.map((message) => message.id),
       includedHandoffSessionIds: handoffs.summaries
         .map((summary) => summary.sessionId)
         .filter((id): id is string => Boolean(id)),
     },
     ...(omitted ? { omitted } : {}),
-  }
+  };
 }
 
 function getContextBridgeMetadata(metadata: MetadataJson | undefined): {
-  lastSyncedMessageId?: string
-  lastSyncedAt?: string
+  lastSyncedMessageId?: string;
+  lastSyncedAt?: string;
 } {
-  const bridge = getRecord(metadata?.contextBridge)
-  const lastSyncedMessageId = getString(bridge?.lastSyncedMessageId)
-  const lastSyncedAt = getString(bridge?.lastSyncedAt)
+  const bridge = getRecord(metadata?.contextBridge);
+  const lastSyncedMessageId = getString(bridge?.lastSyncedMessageId);
+  const lastSyncedAt = getString(bridge?.lastSyncedAt);
   return {
     ...(lastSyncedMessageId ? { lastSyncedMessageId } : {}),
     ...(lastSyncedAt ? { lastSyncedAt } : {}),
-  }
+  };
 }
 
-function projectMessagesToExternalContextMessages(records: unknown[]): RuntimeExternalContextMessage[] {
+function projectMessagesToExternalContextMessages(
+  records: unknown[],
+): RuntimeExternalContextMessage[] {
   return records.flatMap((record) => {
-    const message = toPersistedMessage(record as Record<string, unknown>)
-    if (message.surface !== 'chat') return []
-    if (message.status !== 'completed') return []
-    if (message.role !== 'user' && message.role !== 'assistant') return []
-    const content = message.parts
-      .filter((part) => part.type === 'text' && part.text)
-      .map((part) => part.text)
-      .join('\n')
-      .trim()
-    if (!content) return []
+    const message = toPersistedMessage(record as Record<string, unknown>);
+    if (message.surface !== "chat") return [];
+    if (message.status !== "completed") return [];
+    if (message.role !== "user" && message.role !== "assistant") return [];
+    const content = formatMessageContentForModel(message);
+    if (!content) return [];
 
-    const senderLabel = resolveExternalContextSenderLabel(message)
-    return [{
-      id: message.id,
-      role: message.role as RuntimeExternalContextMessage['role'],
-      ...(message.agentId ? { agentId: message.agentId } : {}),
-      ...(senderLabel ? { senderLabel } : {}),
-      createdAt: message.createdAt,
-      content: truncateText(content, OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS),
-    }]
-  })
+    const senderLabel = resolveExternalContextSenderLabel(message);
+    return [
+      {
+        id: message.id,
+        role: message.role as RuntimeExternalContextMessage["role"],
+        ...(message.agentId ? { agentId: message.agentId } : {}),
+        ...(senderLabel ? { senderLabel } : {}),
+        createdAt: message.createdAt,
+        content: truncateText(
+          content,
+          OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS,
+        ),
+      },
+    ];
+  });
 }
 
-function resolveExternalContextSenderLabel(message: PersistedMessage): string | undefined {
-  if (message.role === 'user') return 'user'
-  if (message.agentId) return message.agentId
-  if (message.senderType) return message.senderType
-  return undefined
+function resolveExternalContextSenderLabel(
+  message: PersistedMessage,
+): string | undefined {
+  if (message.role === "user") return "user";
+  if (message.agentId) return message.agentId;
+  if (message.senderType) return message.senderType;
+  return undefined;
 }
 
-function takeBoundedExternalContextMessages(messages: RuntimeExternalContextMessage[]): {
-  messages: RuntimeExternalContextMessage[]
-  omittedMessageCount: number
-  omittedCharacterCount: number
+function takeBoundedExternalContextMessages(
+  messages: RuntimeExternalContextMessage[],
+): {
+  messages: RuntimeExternalContextMessage[];
+  omittedMessageCount: number;
+  omittedCharacterCount: number;
 } {
-  const selected: RuntimeExternalContextMessage[] = []
-  let usedCharacters = 0
-  let omittedMessageCount = 0
-  let omittedCharacterCount = 0
+  const selected: RuntimeExternalContextMessage[] = [];
+  let usedCharacters = 0;
+  let omittedMessageCount = 0;
+  let omittedCharacterCount = 0;
 
   for (const message of [...messages].reverse()) {
-    const characterCount = message.content.length
-    const wouldExceedCount = selected.length >= OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGES
-    const wouldExceedChars = usedCharacters + characterCount > OPENCODE_EXTERNAL_CONTEXT_MAX_CHARS
+    const characterCount = message.content.length;
+    const wouldExceedCount =
+      selected.length >= OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGES;
+    const wouldExceedChars =
+      usedCharacters + characterCount > OPENCODE_EXTERNAL_CONTEXT_MAX_CHARS;
     if (wouldExceedCount || wouldExceedChars) {
-      omittedMessageCount += 1
-      omittedCharacterCount += characterCount
-      continue
+      omittedMessageCount += 1;
+      omittedCharacterCount += characterCount;
+      continue;
     }
-    selected.push(message)
-    usedCharacters += characterCount
+    selected.push(message);
+    usedCharacters += characterCount;
   }
 
   return {
     messages: selected.reverse(),
     omittedMessageCount,
     omittedCharacterCount,
-  }
+  };
 }
 
 function selectExternalContextHandoffs(
   sessions: ExternalAgentSessionOutput[],
-  mode: RuntimeExternalContextPacket['mode'],
+  mode: RuntimeExternalContextPacket["mode"],
   lastSyncedAt?: string,
 ): {
-  summaries: RuntimeExternalContextHandoffSummary[]
-  omittedHandoffSummaryCount: number
+  summaries: RuntimeExternalContextHandoffSummary[];
+  omittedHandoffSummaryCount: number;
 } {
-  const candidates = sessions
-    .filter((session) => {
-      if (!session.handoffSummary?.trim()) return false
-      if (mode !== 'delta' || !lastSyncedAt) return true
-      return session.updatedAt > lastSyncedAt
-    })
+  const candidates = sessions.filter((session) => {
+    if (!session.handoffSummary?.trim()) return false;
+    if (mode !== "delta" || !lastSyncedAt) return true;
+    return session.updatedAt > lastSyncedAt;
+  });
 
-  const selected = candidates.slice(0, OPENCODE_EXTERNAL_CONTEXT_MAX_HANDOFFS)
+  const selected = candidates.slice(0, OPENCODE_EXTERNAL_CONTEXT_MAX_HANDOFFS);
   return {
     summaries: selected.reverse().map((session) => ({
       sessionId: session.id,
@@ -4577,188 +5389,207 @@ function selectExternalContextHandoffs(
       ...(session.runId ? { runId: session.runId } : {}),
       summary: session.handoffSummary!.trim(),
     })),
-    omittedHandoffSummaryCount: Math.max(0, candidates.length - selected.length),
-  }
+    omittedHandoffSummaryCount: Math.max(
+      0,
+      candidates.length - selected.length,
+    ),
+  };
 }
 
 function compactOmitted(omitted: {
-  messageCount: number
-  characterCount: number
-  handoffSummaryCount: number
-}): RuntimeExternalContextPacket['omitted'] | undefined {
+  messageCount: number;
+  characterCount: number;
+  handoffSummaryCount: number;
+}): RuntimeExternalContextPacket["omitted"] | undefined {
   const result = {
     ...(omitted.messageCount > 0 ? { messageCount: omitted.messageCount } : {}),
-    ...(omitted.characterCount > 0 ? { characterCount: omitted.characterCount } : {}),
-    ...(omitted.handoffSummaryCount > 0 ? { handoffSummaryCount: omitted.handoffSummaryCount } : {}),
-  }
-  return Object.keys(result).length > 0 ? result : undefined
+    ...(omitted.characterCount > 0
+      ? { characterCount: omitted.characterCount }
+      : {}),
+    ...(omitted.handoffSummaryCount > 0
+      ? { handoffSummaryCount: omitted.handoffSummaryCount }
+      : {}),
+  };
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function truncateText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value
-  return `${value.slice(0, maxLength)}...`
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}...`;
 }
 
 function resolveDirectExternalAgentId(
   conversation: ConversationDetailOutput,
   addressedAgentIds: string[],
 ): string | null {
-  if (conversation.mode === 'single') {
-    return conversation.agents.length === 1 ? conversation.agents[0]?.agentId ?? null : null
+  if (conversation.mode === "single") {
+    return conversation.agents.length === 1
+      ? (conversation.agents[0]?.agentId ?? null)
+      : null;
   }
 
-  return addressedAgentIds.length === 1 ? addressedAgentIds[0] ?? null : null
+  return addressedAgentIds.length === 1 ? (addressedAgentIds[0] ?? null) : null;
 }
 
 export function resolveAddressedAgentIds(
   conversation: {
-    mode: string
-    agents: Array<{ agentId: string }>
+    mode: string;
+    agents: Array<{ agentId: string }>;
   },
   addressedAgentIds: string[] | undefined,
 ): string[] {
-  const normalized = (addressedAgentIds ?? []).map((agentId) => agentId.trim())
+  const normalized = (addressedAgentIds ?? []).map((agentId) => agentId.trim());
   if (normalized.some((agentId) => !agentId)) {
-    throw invalidEntryAgent('Addressed agent id cannot be empty')
+    throw invalidEntryAgent("Addressed agent id cannot be empty");
   }
 
   if (new Set(normalized).size !== normalized.length) {
-    throw invalidEntryAgent('Addressed agents must be unique')
+    throw invalidEntryAgent("Addressed agents must be unique");
   }
 
   if (normalized.length > 1) {
-    throw invalidEntryAgent('Only one addressed agent is supported in this version')
+    throw invalidEntryAgent(
+      "Only one addressed agent is supported in this version",
+    );
   }
 
   if (normalized.length === 0) {
-    return []
+    return [];
   }
 
-  const agentId = normalized[0]
+  const agentId = normalized[0];
   if (!agentId) {
-    return []
+    return [];
   }
   const participantIds = new Set(
-    conversation.agents.map((agent) => agent.agentId)
-  )
+    conversation.agents.map((agent) => agent.agentId),
+  );
   if (!participantIds.has(agentId)) {
-    throw invalidEntryAgent('Addressed agent must be a conversation member')
+    throw invalidEntryAgent("Addressed agent must be a conversation member");
   }
 
-  if (conversation.mode === 'single') {
-    const [singleAgent] = conversation.agents
+  if (conversation.mode === "single") {
+    const [singleAgent] = conversation.agents;
     if (conversation.agents.length !== 1 || singleAgent?.agentId !== agentId) {
-      throw invalidEntryAgent('Single chat can only address its only member')
+      throw invalidEntryAgent("Single chat can only address its only member");
     }
   }
 
-  return [agentId]
+  return [agentId];
 }
 
 function invalidEntryAgent(message: string): AppError {
   return new AppError(
     400 as ContentfulStatusCode,
-    'RUN_INVALID_ENTRY_AGENT',
+    "RUN_INVALID_ENTRY_AGENT",
     message,
-  )
+  );
 }
 
 function projectMessagesToRuntimeHistory(records: unknown[]): RuntimeMessage[] {
   return records.flatMap((record) => {
-    const message = toPersistedMessage(record as Record<string, unknown>)
-    if (message.surface !== 'chat') return []
-    if (message.role !== 'user' && message.role !== 'assistant') return []
-    const content = message.parts
-      .filter((part) => part.type === 'text' && part.text)
-      .map((part) => part.text)
-      .join('\n')
-      .trim()
-    if (!content) return []
-    return [{
-      id: message.id,
-      role: message.role as RuntimeMessage['role'],
-      agentId: message.agentId ?? undefined,
-      content,
-    }]
-  })
+    const message = toPersistedMessage(record as Record<string, unknown>);
+    if (message.surface !== "chat") return [];
+    if (message.role !== "user" && message.role !== "assistant") return [];
+    const content = formatMessageContentForModel(message);
+    if (!content) return [];
+    return [
+      {
+        id: message.id,
+        role: message.role as RuntimeMessage["role"],
+        agentId: message.agentId ?? undefined,
+        content,
+      },
+    ];
+  });
 }
 
 function resolveTitleSeedUserMessage(
   history: RuntimeMessage[],
   currentUserContent: string,
 ): string | undefined {
-  const firstHistoryUserMessage = history.find((message) =>
-    message.role === 'user' && message.content.trim().length > 0
-  )?.content.trim()
+  const firstHistoryUserMessage = history
+    .find(
+      (message) => message.role === "user" && message.content.trim().length > 0,
+    )
+    ?.content.trim();
   if (firstHistoryUserMessage) {
-    return firstHistoryUserMessage
+    return firstHistoryUserMessage;
   }
 
-  const current = currentUserContent.trim()
-  return current || undefined
+  const current = currentUserContent.trim();
+  return current || undefined;
 }
 
 function safeJsonParse(value: unknown, fallback: unknown = {}): unknown {
-  if (!value) return fallback
-  if (typeof value === 'object') return value
-  if (typeof value !== 'string') return fallback
+  if (!value) return fallback;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return fallback;
   try {
-    return JSON.parse(value)
+    return JSON.parse(value);
   } catch {
-    return fallback
+    return fallback;
   }
 }
 
 function toPersistedMessage(record: Record<string, unknown>): PersistedMessage {
-  const parts = ((record.parts as Record<string, unknown>[] | undefined) ?? [])
-    .map((part) => ({
-      ...part,
-      payloadJson: safeJsonParse(part.payloadJson, {}),
-    })) as PersistedMessagePart[]
+  const parts = (
+    (record.parts as Record<string, unknown>[] | undefined) ?? []
+  ).map((part) => ({
+    ...part,
+    payloadJson: safeJsonParse(part.payloadJson, {}),
+  })) as PersistedMessagePart[];
 
   return {
     ...record,
     metadataJson: safeJsonParse(record.metadataJson, {}),
-    uiMessageJson: record.uiMessageJson ? safeJsonParse(record.uiMessageJson, null) : null,
+    uiMessageJson: record.uiMessageJson
+      ? safeJsonParse(record.uiMessageJson, null)
+      : null,
     parts,
-  } as PersistedMessage
+  } as PersistedMessage;
 }
 
-async function attachArtifactsToMessages(messages: PersistedMessage[]): Promise<PersistedMessage[]> {
-  const messageIds = messages.map((message) => message.id)
-  const artifacts = await listArtifactsByMessageIds(messageIds)
-  if (artifacts.length === 0) return messages
+async function attachArtifactsToMessages(
+  messages: PersistedMessage[],
+): Promise<PersistedMessage[]> {
+  const messageIds = messages.map((message) => message.id);
+  const artifacts = await listArtifactsByMessageIds(messageIds);
+  if (artifacts.length === 0) return messages;
 
-  const artifactsByMessageId = new Map<string, PersistedArtifact[]>()
+  const artifactsByMessageId = new Map<string, PersistedArtifact[]>();
   for (const artifact of artifacts) {
-    const messageId = typeof artifact.messageId === 'string' ? artifact.messageId : null
-    if (!messageId) continue
-    const current = artifactsByMessageId.get(messageId) ?? []
-    current.push(artifact as PersistedArtifact)
-    artifactsByMessageId.set(messageId, current)
+    const messageId =
+      typeof artifact.messageId === "string" ? artifact.messageId : null;
+    if (!messageId) continue;
+    const current = artifactsByMessageId.get(messageId) ?? [];
+    current.push(artifact as PersistedArtifact);
+    artifactsByMessageId.set(messageId, current);
   }
 
   return messages.map((message) => ({
     ...message,
     artifacts: artifactsByMessageId.get(message.id) ?? [],
-  }))
+  }));
 }
 
 function toHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
-  const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
-  if (!runtimeEvent) return []
-  return [{
-    sequence: event.sequence,
-    event: {
-      ...runtimeEvent,
-      runId: event.runId,
-      runtimeRunId: event.runtimeRunId ?? runtimeEvent.runId,
+  const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event;
+  if (!runtimeEvent) return [];
+  return [
+    {
+      sequence: event.sequence,
+      event: {
+        ...runtimeEvent,
+        runId: event.runId,
+        runtimeRunId: event.runtimeRunId ?? runtimeEvent.runId,
+      },
     },
-  }]
+  ];
 }
 
 function toProductHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
-  return toHubEnvelope(event).map(toProductHubRunEventEnvelope)
+  return toHubEnvelope(event).map(toProductHubRunEventEnvelope);
 }
 
 export function toProductHubRunEventEnvelope(
@@ -4767,303 +5598,322 @@ export function toProductHubRunEventEnvelope(
   return {
     ...envelope,
     event: toProductRuntimeEvent(envelope.event),
-  }
+  };
 }
 
 function toProductRuntimeEvent(event: RuntimeRunEvent): RuntimeRunEvent {
-  if (event.type !== 'tool.completed' && event.type !== 'tool.failed') {
-    return event
+  if (event.type !== "tool.completed" && event.type !== "tool.failed") {
+    return event;
   }
 
-  const data = getRecord(event.data)
-  if (!data) return event
+  const data = getRecord(event.data);
+  if (!data) return event;
 
   const outputKey = getRecord(data.data)
-    ? 'data'
+    ? "data"
     : getRecord(data.result)
-      ? 'result'
+      ? "result"
       : getRecord(data.output)
-        ? 'output'
-        : null
-  if (!outputKey) return event
+        ? "output"
+        : null;
+  if (!outputKey) return event;
 
-  const output = getRecord(data[outputKey])
-  if (!output) return event
+  const output = getRecord(data[outputKey]);
+  if (!output) return event;
 
-  if (event.toolName === 'web_fetch') {
+  if (event.toolName === "web_fetch") {
     return {
       ...event,
       data: {
         ...data,
         [outputKey]: toWebFetchUiSummary(output),
       },
-    }
+    };
   }
 
-  if (event.toolName === 'bash') {
+  if (event.toolName === "bash") {
     return {
       ...event,
       data: {
         ...data,
         [outputKey]: toBashUiSummary(output),
       },
-    }
+    };
   }
 
-  return event
+  return event;
 }
 
-function toWebFetchUiSummary(output: Record<string, unknown>): Record<string, unknown> {
-  const summary: Record<string, unknown> = {}
+function toWebFetchUiSummary(
+  output: Record<string, unknown>,
+): Record<string, unknown> {
+  const summary: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(output)) {
-    if (key !== 'body' && key !== 'headers') {
-      summary[key] = value
+    if (key !== "body" && key !== "headers") {
+      summary[key] = value;
     }
   }
 
-  const body = output.body
-  const headers = getRecord(output.headers)
+  const body = output.body;
+  const headers = getRecord(output.headers);
   return {
     ...summary,
     ...(headers ? { headerCount: Object.keys(headers).length } : {}),
-    ...(typeof body === 'string' ? { bodyCharacters: body.length } : {}),
+    ...(typeof body === "string" ? { bodyCharacters: body.length } : {}),
     bodyOmittedForUi: true,
-  }
+  };
 }
 
-function toBashUiSummary(output: Record<string, unknown>): Record<string, unknown> {
-  const summary: Record<string, unknown> = {}
+function toBashUiSummary(
+  output: Record<string, unknown>,
+): Record<string, unknown> {
+  const summary: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(output)) {
-    if (key !== 'stdout' && key !== 'stderr') {
-      summary[key] = value
+    if (key !== "stdout" && key !== "stderr") {
+      summary[key] = value;
     }
   }
 
-  const stdout = typeof output.stdout === 'string' ? output.stdout : ''
-  const stderr = typeof output.stderr === 'string' ? output.stderr : ''
-  const stdoutTruncatedForUi = stdout.length > BASH_OUTPUT_UI_PREVIEW_CHARS
-  const stderrTruncatedForUi = stderr.length > BASH_OUTPUT_UI_PREVIEW_CHARS
+  const stdout = typeof output.stdout === "string" ? output.stdout : "";
+  const stderr = typeof output.stderr === "string" ? output.stderr : "";
+  const stdoutTruncatedForUi = stdout.length > BASH_OUTPUT_UI_PREVIEW_CHARS;
+  const stderrTruncatedForUi = stderr.length > BASH_OUTPUT_UI_PREVIEW_CHARS;
 
   return {
     ...summary,
-    stdout: stdoutTruncatedForUi ? stdout.slice(0, BASH_OUTPUT_UI_PREVIEW_CHARS) : stdout,
-    stderr: stderrTruncatedForUi ? stderr.slice(0, BASH_OUTPUT_UI_PREVIEW_CHARS) : stderr,
+    stdout: stdoutTruncatedForUi
+      ? stdout.slice(0, BASH_OUTPUT_UI_PREVIEW_CHARS)
+      : stdout,
+    stderr: stderrTruncatedForUi
+      ? stderr.slice(0, BASH_OUTPUT_UI_PREVIEW_CHARS)
+      : stderr,
     stdoutCharacters: stdout.length,
     stderrCharacters: stderr.length,
     stdoutTruncatedForUi,
     stderrTruncatedForUi,
-  }
+  };
 }
 
-function toSequencedRuntimeEvent(event: RunEventOutput): SequencedRuntimeEvent[] {
-  const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event
-  if (!runtimeEvent) return []
-  return [{ sequence: event.sequence, event: runtimeEvent }]
+function toSequencedRuntimeEvent(
+  event: RunEventOutput,
+): SequencedRuntimeEvent[] {
+  const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event;
+  if (!runtimeEvent) return [];
+  return [{ sequence: event.sequence, event: runtimeEvent }];
 }
 
-export function isPersistedTerminalRuntimeEvent(
-  record: { type?: string | null; payloadJson?: unknown },
-): boolean {
+export function isPersistedTerminalRuntimeEvent(record: {
+  type?: string | null;
+  payloadJson?: unknown;
+}): boolean {
   if (isTerminalRuntimeEventType(getString(record.type))) {
-    return true
+    return true;
   }
 
-  const payload = getRecord(record.payloadJson)
-  const event = getRecord(payload?.event)
-  return isTerminalRuntimeEventType(getString(event?.type))
+  const payload = getRecord(record.payloadJson);
+  const event = getRecord(payload?.event);
+  return isTerminalRuntimeEventType(getString(event?.type));
 }
 
 function isTerminalRuntimeEventType(type: string | undefined): boolean {
-  return type === 'run.completed' ||
-    type === 'run.failed' ||
-    type === 'run.cancelled'
+  return (
+    type === "run.completed" ||
+    type === "run.failed" ||
+    type === "run.cancelled"
+  );
 }
 
 export function isRetryableRuntimeEventStreamError(error: unknown): boolean {
-  if (error instanceof AppError && error.code === 'RUNTIME_NOT_READY') {
-    return true
+  if (error instanceof AppError && error.code === "RUNTIME_NOT_READY") {
+    return true;
   }
 
-  const record = getRecord(error)
-  const code = getString(record?.code)
-  const name = error instanceof Error
-    ? error.name
-    : getString(record?.name)
-  const message = error instanceof Error
-    ? error.message
-    : getString(record?.message) ?? ''
+  const record = getRecord(error);
+  const code = getString(record?.code);
+  const name = error instanceof Error ? error.name : getString(record?.name);
+  const message =
+    error instanceof Error ? error.message : (getString(record?.message) ?? "");
 
-  return code === 'ECONNRESET' ||
-    code === 'EPIPE' ||
-    code === 'ETIMEDOUT' ||
-    name === 'AbortError' ||
-    message.includes('socket connection was closed unexpectedly') ||
-    message.includes('fetch failed') ||
-    message.includes('terminated')
+  return (
+    code === "ECONNRESET" ||
+    code === "EPIPE" ||
+    code === "ETIMEDOUT" ||
+    name === "AbortError" ||
+    message.includes("socket connection was closed unexpectedly") ||
+    message.includes("fetch failed") ||
+    message.includes("terminated")
+  );
 }
 
 function delayRuntimeEventStreamRetry(retryCount: number): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(resolve, RUNTIME_EVENT_STREAM_RETRY_DELAY_MS * retryCount)
-  })
+    setTimeout(resolve, RUNTIME_EVENT_STREAM_RETRY_DELAY_MS * retryCount);
+  });
 }
 
 async function* readSseRuntimeEvents(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<RuntimeRunEvent> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
 
   try {
     while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split(/\r?\n\r?\n/)
-      buffer = chunks.pop() ?? ''
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split(/\r?\n\r?\n/);
+      buffer = chunks.pop() ?? "";
       for (const chunk of chunks) {
-        const event = parseSseRuntimeEvent(chunk)
-        if (event) yield event
+        const event = parseSseRuntimeEvent(chunk);
+        if (event) yield event;
       }
     }
-    const tail = parseSseRuntimeEvent(buffer)
-    if (tail) yield tail
+    const tail = parseSseRuntimeEvent(buffer);
+    if (tail) yield tail;
   } finally {
-    reader.releaseLock()
+    reader.releaseLock();
   }
 }
 
 function parseSseRuntimeEvent(chunk: string): RuntimeRunEvent | null {
   const dataLines = chunk
     .split(/\r?\n/)
-    .filter((line) => line.startsWith('data:'))
-    .map((line) => line.slice(5).trimStart())
-  if (!dataLines.length) return null
-  return JSON.parse(dataLines.join('\n')) as RuntimeRunEvent
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart());
+  if (!dataLines.length) return null;
+  return JSON.parse(dataLines.join("\n")) as RuntimeRunEvent;
 }
 
 function getRuntimeWorkspace(metadata: Record<string, unknown>) {
-  const workspace = metadata.workspace
-  if (typeof workspace !== 'object' || workspace === null) return undefined
-  const snapshot = workspace as Record<string, unknown>
+  const workspace = metadata.workspace;
+  if (typeof workspace !== "object" || workspace === null) return undefined;
+  const snapshot = workspace as Record<string, unknown>;
   if (
-    typeof snapshot.workspaceId !== 'string' ||
-    snapshot.backendType !== 'local' ||
-    typeof snapshot.rootPath !== 'string'
+    typeof snapshot.workspaceId !== "string" ||
+    snapshot.backendType !== "local" ||
+    typeof snapshot.rootPath !== "string"
   ) {
-    return undefined
+    return undefined;
   }
   return {
     workspaceId: snapshot.workspaceId,
-    backendType: 'local' as const,
+    backendType: "local" as const,
     rootPath: snapshot.rootPath,
-  }
+  };
 }
 
-function getTitleSource(metadata: Record<string, unknown>): 'default' | 'auto' | 'manual' {
-  const source = metadata.titleSource
-  return source === 'auto' || source === 'manual' ? source : 'default'
+function getTitleSource(
+  metadata: Record<string, unknown>,
+): "default" | "auto" | "manual" {
+  const source = metadata.titleSource;
+  return source === "auto" || source === "manual" ? source : "default";
 }
 
 function normalizeConversationTitle(value: string | undefined): string | null {
   const title = value
     ?.trim()
-    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/[。.!！?？]+$/g, '')
-    .trim()
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[。.!！?？]+$/g, "")
+    .trim();
 
   if (!title) {
-    return null
+    return null;
   }
 
-  return title.length > 80 ? title.slice(0, 80).trim() : title
+  return title.length > 80 ? title.slice(0, 80).trim() : title;
 }
 
 function getEventDataRecord(event: RuntimeRunEvent): Record<string, unknown> {
-  return typeof event.data === 'object' && event.data !== null
-    ? event.data as Record<string, unknown>
-    : {}
+  return typeof event.data === "object" && event.data !== null
+    ? (event.data as Record<string, unknown>)
+    : {};
 }
 
 function extractPlan(event: RuntimeRunEvent): Record<string, unknown> | null {
-  const data = getEventDataRecord(event)
-  const nested = typeof data.data === 'object' && data.data !== null
-    ? data.data as Record<string, unknown>
-    : {}
-  const plan = nested.plan
-  return typeof plan === 'object' && plan !== null
-    ? plan as Record<string, unknown>
-    : null
+  const data = getEventDataRecord(event);
+  const nested =
+    typeof data.data === "object" && data.data !== null
+      ? (data.data as Record<string, unknown>)
+      : {};
+  const plan = nested.plan;
+  return typeof plan === "object" && plan !== null
+    ? (plan as Record<string, unknown>)
+    : null;
 }
 
 function getString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
+  return typeof value === "string" ? value : undefined;
 }
 
 function getNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function getStringArray(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : []
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function truncatePreview(value: string): string {
-  const normalized = value.replace(/\s+/g, ' ').trim()
-  return Array.from(normalized).slice(0, 50).join('')
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return Array.from(normalized).slice(0, 50).join("");
 }
 
 function normalizeRuntimeError(data: unknown): Record<string, unknown> {
-  return typeof data === 'object' && data !== null
-    ? data as Record<string, unknown>
-    : { message: 'Runtime run creation failed' }
+  return typeof data === "object" && data !== null
+    ? (data as Record<string, unknown>)
+    : { message: "Runtime run creation failed" };
 }
 
 function getRuntimeErrorMessage(data: unknown): string {
-  const record = normalizeRuntimeError(data)
-  const nested = record.error
-  if (typeof nested === 'object' && nested !== null) {
-    const message = (nested as Record<string, unknown>).message
-    if (typeof message === 'string') return message
+  const record = normalizeRuntimeError(data);
+  const nested = record.error;
+  if (typeof nested === "object" && nested !== null) {
+    const message = (nested as Record<string, unknown>).message;
+    if (typeof message === "string") return message;
   }
-  if (typeof record.message === 'string') return record.message
-  return 'Runtime run creation failed'
+  if (typeof record.message === "string") return record.message;
+  return "Runtime run creation failed";
 }
 
 function getRuntimeErrorCode(data: unknown): string | undefined {
-  const record = normalizeRuntimeError(data)
-  const nested = record.error
-  if (typeof nested === 'object' && nested !== null) {
-    const code = (nested as Record<string, unknown>).code
-    if (typeof code === 'string') return code
+  const record = normalizeRuntimeError(data);
+  const nested = record.error;
+  if (typeof nested === "object" && nested !== null) {
+    const code = (nested as Record<string, unknown>).code;
+    if (typeof code === "string") return code;
   }
-  if (typeof record.code === 'string') return record.code
-  return undefined
+  if (typeof record.code === "string") return record.code;
+  return undefined;
 }
 
 function getTerminalRunStatusFromRuntimeResponse(
   data: unknown,
-): 'completed' | 'failed' | 'cancelled' | undefined {
-  const status = getString(getRecord(data)?.status)
-  return status === 'completed' || status === 'failed' || status === 'cancelled'
+): "completed" | "failed" | "cancelled" | undefined {
+  const status = getString(getRecord(data)?.status);
+  return status === "completed" || status === "failed" || status === "cancelled"
     ? status
-    : undefined
+    : undefined;
 }
 
 function isAbandonableRuntimeCancelFailure(
   status: number,
   code: string | undefined,
 ): boolean {
-  return status === 404 ||
+  return (
+    status === 404 ||
     status === 503 ||
-    code === 'RUN_NOT_FOUND' ||
-    code === 'RUNTIME_NOT_READY'
+    code === "RUN_NOT_FOUND" ||
+    code === "RUNTIME_NOT_READY"
+  );
 }
 
 function isAbandonableRuntimeCancelError(error: unknown): boolean {
-  return error instanceof AppError && error.code === 'RUNTIME_NOT_READY'
+  return error instanceof AppError && error.code === "RUNTIME_NOT_READY";
 }

@@ -37,9 +37,10 @@ HubServer 启动 Agent Runtime 时，传入以下命令行参数：
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `--port` | number | 否 | Agent Runtime 监听端口，默认 `3001` |
-| `--host` | string | 否 | 监听地址，默认 `127.0.0.1` |
+| `--hostname` | string | 否 | 监听地址，默认 `127.0.0.1`；`--host` 只能作为兼容别名 |
 | `--hub-callback` | string | 否 | HubServer 回调地址 |
-| `--workdir` | string | 否 | 工作目录根路径 |
+| `--data-dir` | string | 否 | Runtime 配置数据目录 |
+| `--workdir` | string | 否 | Runtime 进程级工作目录 |
 | `--log-level` | string | 否 | 日志级别，默认 `info` |
 
 ### 健康检查
@@ -56,7 +57,7 @@ HubServer 启动 Agent Runtime 时，传入以下命令行参数：
 }
 ```
 
-HubServer 通过轮询此端点判断 Agent Runtime 是否就绪。超时（默认 10 秒）未返回 `200` 则视为启动失败。
+HubServer 通过轮询此端点判断 Agent Runtime 是否就绪。Runtime 只有在 ProviderService、AgentRegistry 等启动依赖初始化完成后，才能返回 `200` 且 `status = "ok"`。HTTP server 已监听但内部服务仍初始化时，可以返回非 200 或 `status = "starting"`；HubServer 不得把该状态视为可接收执行请求。超时（默认 10 秒）未返回 ready 则视为启动失败。
 
 ### Runtime 服务状态快照
 
@@ -101,7 +102,15 @@ type RuntimeServicesStatusResponse = {
 
 ### 内部调用鉴权
 
-HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服务凭证。MVP 阶段可使用共享密钥（通过环境变量或启动参数传递），后续可升级为更安全的鉴权机制。
+HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服务凭证。MVP 阶段使用每次 HubServer 启动生成的随机共享密钥：
+
+- HubServer 通过环境变量向 Runtime 传递 token，例如 `AGENTHUB_RUNTIME_TOKEN`。
+- HubServer 调用 Runtime 时携带请求头 `x-agenthub-runtime-token`。
+- Runtime 检测到 token 后必须校验该请求头；缺失或错误时返回 401/403。
+- 开发环境未设置 token 时可跳过校验。
+- `/health` 是否要求 token 可由实现决定，但不得泄露敏感信息。
+
+后续可升级为更安全的鉴权机制，例如命名管道、Unix socket、mTLS 或本机进程认证。
 
 ### 错误码约定
 

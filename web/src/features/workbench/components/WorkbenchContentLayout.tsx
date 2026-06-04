@@ -211,10 +211,14 @@ export function WorkbenchContentLayout({
 
     try {
       const addressedAgentIds = input.addressedAgentIds?.filter(Boolean) ?? []
+      const sendOptions = {
+        ...(addressedAgentIds.length ? { addressedAgentIds } : {}),
+        ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
+      }
       const result = await conversationMessagesApi.send(
         activeConversationId,
         trimmedContent,
-        addressedAgentIds.length ? { addressedAgentIds } : undefined
+        Object.keys(sendOptions).length ? sendOptions : undefined
       )
       queryClient.setQueryData(
         workbenchQueryKeys.conversations.messages(activeConversationId),
