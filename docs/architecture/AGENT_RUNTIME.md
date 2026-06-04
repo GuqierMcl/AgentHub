@@ -43,8 +43,10 @@ Agent Runtime 定位为 HubServer 的 Sidecar 进程。这意味着：
 - **开发环境**：支持手动独立启动 Agent Runtime，便于调试和热重载。
 - **进程隔离**：Agent Runtime 作为独立进程运行，拥有独立的端口和工作目录。
 - **生命周期绑定**：Agent Runtime 的生命周期由 HubServer 管理。
+- **生产入口约束**：生产发行包中 Runtime 是独立二进制，但不是用户入口；CLI 和 Desktop 都通过 HubServer 间接启动 Runtime。
 
 架构决策详见 `docs/adr/ADR-001-sidecar-architecture.md`。
+生产分发和入口约束详见 `docs/architecture/PRODUCTION_DISTRIBUTION.md`。
 
 ### 2.2 启动与参数传递
 
@@ -55,12 +57,15 @@ HubServer 在启动时通过 `Bun.spawn` 或等价方式启动 Agent Runtime 子
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `--port` | number | 否 | Agent Runtime 监听端口，默认 `3001` |
-| `--host` | string | 否 | 监听地址，默认 `127.0.0.1` |
+| `--hostname` | string | 否 | 监听地址，默认 `127.0.0.1`；`--host` 只能作为兼容别名 |
 | `--hub-callback` | string | 否 | HubServer 回调地址，用于 Runtime 反向通知 |
 | `--workdir` | string | 否 | Runtime 进程级工作目录；不再作为普通 Run 文件工具的隐式 workspace |
+| `--data-dir` | string | 否 | Runtime 配置数据目录 |
 | `--log-level` | string | 否 | 日志级别：`debug` / `info` / `warn` / `error`，默认 `info` |
 
 配置优先级：命令行参数 > 环境变量 > 默认值。
+
+生产环境中，HubServer 应生成每次启动唯一的内部 token，并通过环境变量传给 Runtime（例如 `AGENTHUB_RUNTIME_TOKEN`）。Runtime 检测到 token 后必须校验 HubServer 对 `/runtime/*` 的请求头 `x-agenthub-runtime-token`。开发环境未设置 token 时可跳过该校验。
 
 开发环境示例：
 
@@ -78,8 +83,10 @@ Agent Runtime 必须暴露 `/health` 端点，用于 HubServer 判断其是否�
 
 1. HubServer 启动 Agent Runtime 子进程。
 2. HubServer 轮询 `GET http://127.0.0.1:{port}/health`。
-3. Agent Runtime 返回 `200 OK` 且响应体包含 `"status": "ok"` 时，视为就绪。
+3. Agent Runtime 完成 ProviderService、AgentRegistry 等启动依赖初始化后，返回 `200 OK` 且响应体包含 `"status": "ok"`，视为就绪。
 4. 超时（默认 10 秒）未就绪则标记启动失败，HubServer 应上报错误并决定是否重试。
+
+Runtime 可以在 HTTP server 已监听但内部服务仍初始化时返回非 200 或 `"status": "starting"`；HubServer 不得把该状态视为可接收执行请求。
 
 Runtime 另外暴露 `GET /runtime/services/status` 供 HubServer 读取服务状态快照。该端点只读，不会启动 OpenCode server、创建外部 Session 或修改 workspace。当前返回 OpenCode、Codex、Claude Code 三类服务状态，其中 Codex 与 Claude Code 在未接入前返回 `not_integrated`。OpenCode 状态来自默认 `ManagedOpenCodeServer`：`idle` 表示待命，`starting` 表示 workspace server 启动中，`running` 表示至少一个 workspace connection 已就绪，`error` 表示最近一次启动或 workspace 校验失败。
 

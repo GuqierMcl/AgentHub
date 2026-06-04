@@ -22,6 +22,10 @@ web -> hub-server -> agent-runtime
 
 Agent Runtime 定位为 HubServer 的**侧车进程（Sidecar）**。生产环境中，HubServer 启动时自动拉起 Agent Runtime 子进程并传入参数；开发环境下支持手动独立启动。架构决策详见 `docs/adr/ADR-001-sidecar-architecture.md`。
 
+## 生产入口
+
+生产分发采用 CLI/Desktop 入口启动 HubServer，再由 HubServer 托管 Web 并拉起 Agent Runtime Sidecar。首版 CLI 与 Desktop 都打开 HubServer 托管的本地 Web URL，保持浏览器侧只访问 HubServer。完整约束见 `docs/architecture/PRODUCTION_DISTRIBUTION.md`。
+
 ## 边界规则
 
 - 前端到后端的请求必须经过 `hub-server`。
