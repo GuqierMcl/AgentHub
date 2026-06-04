@@ -5,6 +5,7 @@ import {
 } from "@/components/ai-elements/conversation"
 
 import type { ConversationAgentProfile, WorkbenchTimelineItem } from "../types"
+import type { MessageReplySnapshot } from "../api/messages"
 import { getTimelineMessagePinTargetId } from "../utils/message-pin-target"
 import { TimelineItem } from "./MessageItem"
 
@@ -13,6 +14,7 @@ type TimelineListProps = {
   agentProfiles: ConversationAgentProfile[]
   pinnedMessageIds?: Set<string>
   onPinToggle?: (messageId: string) => void
+  onReply?: (target: MessageReplySnapshot) => void
 }
 
 export function TimelineList({
@@ -20,6 +22,7 @@ export function TimelineList({
   timelineItems,
   pinnedMessageIds,
   onPinToggle,
+  onReply,
 }: TimelineListProps) {
   return (
     <Conversation className="min-h-0 flex-1">
@@ -41,6 +44,7 @@ export function TimelineList({
               isPinned={isPinned}
               pinTargetMessageId={pinTargetMessageId}
               onPinToggle={onPinToggle}
+              onReply={onReply}
             />
           )
         })}

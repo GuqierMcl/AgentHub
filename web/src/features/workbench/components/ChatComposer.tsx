@@ -53,6 +53,7 @@ import type {
   Conversation,
   ConversationAgentProfile,
   MentionTarget,
+  MessageReplySnapshot,
 } from "../types"
 
 function AttachmentItem({
@@ -157,8 +158,10 @@ type ChatComposerProps = {
   canCancelRun?: boolean
   disabled?: boolean
   onCancelRun?: () => Promise<void> | void
+  onCancelReply?: () => void
   onValueChange: (value: string) => void
   onSubmit: (input: ChatSubmitInput) => Promise<void> | void
+  replyTo?: MessageReplySnapshot | null
 }
 
 type ChatComposerInnerProps = Omit<ChatComposerProps, "conversationId">
@@ -169,8 +172,10 @@ function ChatComposerInner({
   conversationMode,
   disabled = false,
   onCancelRun,
+  onCancelReply,
   onSubmit,
   onValueChange,
+  replyTo,
   status,
   value,
 }: ChatComposerInnerProps) {
@@ -341,6 +346,28 @@ function ChatComposerInner({
       <PromptInput globalDrop multiple onSubmit={handleSubmit}>
         <PromptInputHeader>
           <PromptInputAttachmentsDisplay />
+          {replyTo ? (
+            <div className="flex min-w-0 max-w-full items-start gap-2 rounded-md border border-border/70 bg-muted/40 px-2.5 py-2 text-xs">
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-muted-foreground">
+                  回复 {formatReplyTargetLabel(replyTo)}
+                </div>
+                <div className="mt-0.5 line-clamp-2 whitespace-pre-wrap break-words text-muted-foreground/90">
+                  {replyTo.excerpt}
+                </div>
+              </div>
+              <Button
+                aria-label="取消回复"
+                className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={onCancelReply}
+                size="icon-xs"
+                type="button"
+                variant="ghost"
+              >
+                <XIcon />
+              </Button>
+            </div>
+          ) : null}
           {mentionTarget ? (
             <Badge className="h-6 max-w-full gap-1 px-1.5" variant="default">
               <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15 text-[10px]">
@@ -477,4 +504,11 @@ function ChatComposerInner({
 
 export function ChatComposer({ conversationId, ...rest }: ChatComposerProps) {
   return <ChatComposerInner key={conversationId} {...rest} />
+}
+
+function formatReplyTargetLabel(replyTo: MessageReplySnapshot): string {
+  const sender = replyTo.agentId ?? replyTo.senderId
+  return sender && sender !== replyTo.role
+    ? `${replyTo.role} ${sender}`
+    : replyTo.role
 }

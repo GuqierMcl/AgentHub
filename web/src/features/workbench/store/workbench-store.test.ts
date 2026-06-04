@@ -18,6 +18,7 @@ function persistedMessage(input: Partial<PersistedMessage>): PersistedMessage {
     agentId: "opencode",
     taskId: null,
     groupId: null,
+    parentMessageId: null,
     status: "completed",
     finishReason: "stop",
     firstEventSequence: 1,
@@ -174,6 +175,77 @@ describe("workbench persisted message replay", () => {
           },
         },
       ],
+    })
+  })
+
+  it("restores reply snapshots into chat message timeline items", () => {
+    const conversationId = "conv_reply"
+    const message = persistedMessage({
+      id: "msg_reply",
+      conversationId,
+      runId: "run_reply",
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      parentMessageId: "msg_parent",
+      metadataJson: {
+        replyTo: {
+          messageId: "msg_parent",
+          role: "assistant",
+          senderType: "agent",
+          senderId: "coder",
+          agentId: "coder",
+          createdAt: "2026-06-03T09:59:00.000Z",
+          excerpt: "Original assistant answer.",
+        },
+      },
+      parts: [
+        {
+          id: "part_reply_text",
+          messageId: "msg_reply",
+          conversationId,
+          runId: "run_reply",
+          runtimeEventId: null,
+          partKey: "text",
+          partIndex: 0,
+          entityType: null,
+          entityId: null,
+          type: "text",
+          state: "done",
+          text: "Can you expand?",
+          payloadJson: {},
+          firstEventSequence: 0,
+          lastEventSequence: 0,
+          createdAt: "2026-06-03T10:00:00.000Z",
+          updatedAt: "2026-06-03T10:00:00.000Z",
+        },
+      ],
+    })
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [message],
+      [],
+      null
+    )
+
+    const [item] = useWorkbenchStore.getState().getConversationState(conversationId).timelineItems
+    expect(item).toMatchObject({
+      kind: "chat_message",
+      persistedMessageId: "msg_reply",
+      replyTo: {
+        messageId: "msg_parent",
+        role: "assistant",
+        senderType: "agent",
+        senderId: "coder",
+        agentId: "coder",
+        excerpt: "Original assistant answer.",
+      },
+      text: "Can you expand?",
     })
   })
 })

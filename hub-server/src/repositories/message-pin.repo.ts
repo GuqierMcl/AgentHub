@@ -68,6 +68,13 @@ export interface MessagePinWithContent {
   sortOrder: number
   createdAt: string
   messageContent: string | null
+  messageRole: string
+  messageSenderType: string
+  messageSenderId: string | null
+  messageAgentId: string | null
+  messageParentMessageId: string | null
+  messageCreatedAt: string
+  messageMetadataJson: string
 }
 
 export async function listMessagePinsWithContent(conversationId: string): Promise<MessagePinWithContent[]> {
@@ -76,7 +83,14 @@ export async function listMessagePinsWithContent(conversationId: string): Promis
     where: { conversationId },
     include: {
       message: {
-        include: {
+        select: {
+          role: true,
+          senderType: true,
+          senderId: true,
+          agentId: true,
+          parentMessageId: true,
+          createdAt: true,
+          metadataJson: true,
           parts: {
             where: { type: 'text' },
             select: { text: true },
@@ -97,5 +111,12 @@ export async function listMessagePinsWithContent(conversationId: string): Promis
     sortOrder: record.sortOrder,
     createdAt: record.createdAt,
     messageContent: record.message.parts[0]?.text ?? null,
+    messageRole: record.message.role,
+    messageSenderType: record.message.senderType,
+    messageSenderId: record.message.senderId,
+    messageAgentId: record.message.agentId,
+    messageParentMessageId: record.message.parentMessageId,
+    messageCreatedAt: record.message.createdAt,
+    messageMetadataJson: record.message.metadataJson,
   }))
 }

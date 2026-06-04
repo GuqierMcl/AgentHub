@@ -1,5 +1,5 @@
 import type { ChatStatus } from "ai"
-import { useMemo } from "react"
+import { useCallback, useMemo, useState } from "react"
 
 import { ChatComposer } from "./ChatComposer"
 import { ChatHeader } from "./ChatHeader"
@@ -12,6 +12,7 @@ import type { SingletonTabId } from "@/store/tab-store"
 import type {
   Conversation,
   ChatSubmitInput,
+  MessageReplySnapshot,
   WorkbenchTimelineItem,
   WorkbenchTimelineQuestionItem,
 } from "../types"
@@ -48,6 +49,14 @@ export function ChatPanel({
   onToggleWorkspace,
   runStatus,
 }: ChatPanelProps) {
+  const [replyTargetState, setReplyTargetState] = useState<{
+    conversationId: string
+    target: MessageReplySnapshot
+  } | null>(null)
+  const replyTarget =
+    replyTargetState?.conversationId === conversation.id
+      ? replyTargetState.target
+      : null
   const submitStatus = getSubmitStatus(runStatus, connectionStatus)
   const { pins, pinnedMessageIds, togglePin } = usePinnedMessages(conversation.id)
   const pendingQuestions = useMemo(
@@ -65,6 +74,18 @@ export function ChatPanel({
     runStatus === "running" ||
     runStatus === "waiting_approval" ||
     runStatus === "waiting_input"
+
+  const handleSubmit = useCallback(async (input: ChatSubmitInput) => {
+    await onSubmit({
+      ...input,
+      ...(replyTarget ? { replyToMessageId: replyTarget.messageId } : {}),
+    })
+    setReplyTargetState(null)
+  }, [onSubmit, replyTarget])
+
+  const handleReply = useCallback((target: MessageReplySnapshot) => {
+    setReplyTargetState({ conversationId: conversation.id, target })
+  }, [conversation.id])
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -91,6 +112,7 @@ export function ChatPanel({
             timelineItems={conversation.timelineItems}
             pinnedMessageIds={pinnedMessageIds}
             onPinToggle={togglePin}
+            onReply={handleReply}
           />
         </>
       )}
@@ -108,8 +130,10 @@ export function ChatPanel({
           onCancelRun={() => onCancelRun()}
           agentProfiles={conversation.agents ?? []}
           conversationMode={conversation.mode}
-          onSubmit={onSubmit}
+          onCancelReply={() => setReplyTargetState(null)}
+          onSubmit={handleSubmit}
           onValueChange={onDraftChange}
+          replyTo={replyTarget}
           status={submitStatus}
           value={draft}
         />

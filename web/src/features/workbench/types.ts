@@ -9,6 +9,9 @@ import type {
   RuntimeGeneration,
   RuntimeRunStatus,
 } from "./api/runtime-runs"
+import type { MessageReplySnapshot } from "./api/messages"
+
+export type { MessageReplySnapshot } from "./api/messages"
 
 export type AgentStatus = "online" | "busy" | "idle"
 
@@ -102,6 +105,7 @@ export type WorkbenchTimelineChatMessageItem = {
   error?: string
   generation?: RuntimeGeneration
   externalModel?: RuntimeExternalModel
+  replyTo?: MessageReplySnapshot
   reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
   toolItems?: WorkbenchTimelineToolItem[]
   permissionItems?: WorkbenchTimelinePermissionItem[]
@@ -280,6 +284,7 @@ export type MentionTarget = {
 export type ChatSubmitInput = {
   content: string
   addressedAgentIds?: string[]
+  replyToMessageId?: string
 }
 
 export type Conversation = {

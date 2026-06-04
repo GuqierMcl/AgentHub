@@ -79,8 +79,10 @@ HubServer 的职责：
 
 - 会话列表 API 返回最近一条消息的 `lastMessageContent`，内容来自 `lastMessageId` 对应消息 text parts，最多 50 个字符；列表 API 不承担 Run 运行状态初始化，卡片运行状态由 Web 已打开 conversation 的本地 Zustand 状态展示。
 - 创建 user `Message` 和 text `MessagePart`。
+- `POST /api/conversations/:conversationId/messages/send` 支持可选 `replyToMessageId`。HubServer 校验回复目标属于同一会话、是可见 chat user/assistant 消息，然后在新 user `Message` 上写入 `parentMessageId` 和 `metadataJson.replyTo` 快照；原始 text `MessagePart` 仍只保存用户正文。
 - 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
 - 从持久化 messages 组装 Runtime `history` 和 `RunInput`。
+- 回复引用进入模型上下文时不扩展 Agent Runtime 协议。HubServer 使用统一 formatter 从持久化消息派生模型可见文本：当前触发消息、Runtime history、OpenCode external context bootstrap/delta、以及 pinned message context 都按同一规则把 `metadataJson.replyTo` 拼成引用块。这样内部智能体和外部智能体 replay 都能看到相同的回复语义，即使父消息不在当前 history/delta 窗口内。
 - 创建 direct 外部智能体 Run 前，按 provider、agentId、conversation、workspace 与 `conversation-visible` scope 查询可复用外部 Session，并通过 Runtime `externalSessionHints` 注入。
 - 后台消费 Runtime SSE，将 Runtime events 以 per-run micro-batch 持久化为 `RunEvent.id = event.id`、本地递增 `sequence`；raw payload 永久保留，未知事件也不丢。
 - 持久化成功后才向 run-level SSE 订阅者发布 envelope；默认 batch 延迟约 50ms，terminal event 强制 flush。

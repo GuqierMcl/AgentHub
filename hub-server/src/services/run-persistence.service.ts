@@ -249,6 +249,17 @@ type RuntimeRunCreateResponse = {
 
 export type SendMessageOptions = {
   addressedAgentIds?: string[]
+  replyToMessageId?: string
+}
+
+type MessageReplySnapshot = {
+  messageId: string
+  role: 'user' | 'assistant'
+  senderType: string
+  senderId: string | null
+  agentId: string | null
+  createdAt: string
+  excerpt: string
 }
 
 export type PersistedMessagePart = {
@@ -648,6 +659,9 @@ export class RunPersistenceService {
       throw new AppError(409 as ContentfulStatusCode, 'RUN_ALREADY_ACTIVE', '当前会话已有正在运行的回复')
     }
 
+    const replySnapshot = await resolveReplySnapshot(conversationId, options.replyToMessageId)
+    const runtimeUserContent = formatContentWithReplyContext(trimmed, replySnapshot)
+
     const historyMessages = (
       await listMessagesWithParts(conversationId, { limit: 100, order: 'desc' })
     ).reverse()
@@ -655,16 +669,18 @@ export class RunPersistenceService {
 
     // Load pinned messages for system prompt injection
     const pinnedRecords = await listMessagePinsWithContent(conversationId)
-    const pinnedMessages = pinnedRecords
-      .filter((pin) => pin.messageContent != null)
-      .map((pin) => ({
+    const pinnedMessages = pinnedRecords.flatMap((pin) => {
+      const formattedContent = formatPinnedMessageContentForModel(pin)
+      if (!formattedContent) return []
+      return [{
         id: pin.id,
         messageId: pin.messageId,
-        content: truncatePinContent(pin.messageContent!),
+        content: truncatePinContent(formattedContent),
         note: pin.note,
         pinnedAt: pin.createdAt,
         sortOrder: pin.sortOrder,
-      }))
+      }]
+    })
 
     const userMessage = await createMessage({
       conversationId,
@@ -672,9 +688,11 @@ export class RunPersistenceService {
       role: 'user',
       senderType: 'user',
       senderId: 'user',
+      parentMessageId: replySnapshot?.messageId ?? null,
       status: 'completed',
       firstEventSequence: 0,
       lastEventSequence: 0,
+      metadataJson: replySnapshot ? { replyTo: replySnapshot } : undefined,
       completedAt: new Date().toISOString(),
     })
     const userMessagePart = await createMessagePart({
@@ -756,7 +774,7 @@ export class RunPersistenceService {
     }
     const input = buildRuntimeRunInput(
       conversation,
-      trimmed,
+      runtimeUserContent,
       history,
       addressedAgentIds,
       externalSessionHints,
@@ -3073,7 +3091,6 @@ async function persistAppliedArtifactRevert(options: {
 
   await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact as PersistedArtifact, {
     ...changeSet,
-    files: [],
   })
 
   const detail = await findArtifactWithVersions(artifact.id)
@@ -4314,10 +4331,133 @@ function getRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 const MAX_PIN_CONTENT_LENGTH = 2000
+const MAX_REPLY_EXCERPT_LENGTH = 300
 
 function truncatePinContent(content: string): string {
   if (content.length <= MAX_PIN_CONTENT_LENGTH) return content
   return content.slice(0, MAX_PIN_CONTENT_LENGTH) + '\n...[截断]'
+}
+
+function extractMessageTextContent(message: Pick<PersistedMessage, 'parts'>): string {
+  return message.parts
+    .filter((part) => part.type === 'text' && part.text)
+    .map((part) => part.text)
+    .join('\n')
+    .trim()
+}
+
+function compactReplyExcerpt(value: string): string {
+  return value
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildReplySnapshot(target: PersistedMessage): MessageReplySnapshot {
+  const content = compactReplyExcerpt(extractMessageTextContent(target))
+  const fallback = target.role === 'assistant' ? 'Assistant message' : 'User message'
+  return {
+    messageId: target.id,
+    role: target.role as MessageReplySnapshot['role'],
+    senderType: target.senderType,
+    senderId: target.senderId,
+    agentId: target.agentId,
+    createdAt: target.createdAt,
+    excerpt: truncateText(content || fallback, MAX_REPLY_EXCERPT_LENGTH),
+  }
+}
+
+function getNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function getReplySnapshot(metadata: MetadataJson | undefined): MessageReplySnapshot | null {
+  const replyTo = getRecord(metadata?.replyTo)
+  if (!replyTo) return null
+
+  const messageId = getString(replyTo.messageId)
+  const role = getString(replyTo.role)
+  const excerpt = getString(replyTo.excerpt)
+  if (!messageId || (role !== 'user' && role !== 'assistant') || !excerpt) {
+    return null
+  }
+
+  return {
+    messageId,
+    role,
+    senderType: getString(replyTo.senderType) ?? role,
+    senderId: getNullableString(replyTo.senderId),
+    agentId: getNullableString(replyTo.agentId),
+    createdAt: getString(replyTo.createdAt) ?? '',
+    excerpt,
+  }
+}
+
+function formatReplyTargetLabel(replyTo: MessageReplySnapshot): string {
+  const sender = replyTo.agentId ?? replyTo.senderId
+  const senderLabel = sender && sender !== replyTo.role ? ` ${sender}` : ''
+  return `${replyTo.role}${senderLabel}`
+}
+
+function formatContentWithReplyContext(content: string, replyTo: MessageReplySnapshot | null): string {
+  const trimmed = content.trim()
+  if (!replyTo) return trimmed
+
+  const quoted = replyTo.excerpt
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join('\n')
+
+  return [
+    `[Replying to ${formatReplyTargetLabel(replyTo)} (${replyTo.messageId})]`,
+    quoted,
+    '',
+    trimmed,
+  ].join('\n')
+}
+
+function formatMessageContentForModel(message: PersistedMessage): string {
+  const content = extractMessageTextContent(message)
+  if (!content) return ''
+  return formatContentWithReplyContext(content, getReplySnapshot(message.metadataJson))
+}
+
+function formatPinnedMessageContentForModel(pin: MessagePinWithContent): string | null {
+  const content = pin.messageContent?.trim() ?? ''
+  if (!content) return null
+  const metadata = safeJsonParse(pin.messageMetadataJson, {}) as MetadataJson
+  return formatContentWithReplyContext(content, getReplySnapshot(metadata))
+}
+
+async function resolveReplySnapshot(
+  conversationId: string,
+  replyToMessageId: string | undefined,
+): Promise<MessageReplySnapshot | null> {
+  if (!replyToMessageId) return null
+
+  const targetRecord = await findMessageWithParts(replyToMessageId)
+  if (!targetRecord) {
+    throw invalidReplyTarget()
+  }
+
+  const target = toPersistedMessage(targetRecord as Record<string, unknown>)
+  if (
+    target.conversationId !== conversationId ||
+    target.surface !== 'chat' ||
+    target.status !== 'completed' ||
+    (target.role !== 'user' && target.role !== 'assistant')
+  ) {
+    throw invalidReplyTarget()
+  }
+
+  return buildReplySnapshot(target)
+}
+
+function invalidReplyTarget(): AppError {
+  return new AppError(
+    400 as ContentfulStatusCode,
+    'REPLY_TARGET_INVALID',
+    '回复目标不存在、不可见或不属于当前会话',
+  )
 }
 
 function buildRuntimeRunInput(
@@ -4496,11 +4636,7 @@ function projectMessagesToExternalContextMessages(records: unknown[]): RuntimeEx
     if (message.surface !== 'chat') return []
     if (message.status !== 'completed') return []
     if (message.role !== 'user' && message.role !== 'assistant') return []
-    const content = message.parts
-      .filter((part) => part.type === 'text' && part.text)
-      .map((part) => part.text)
-      .join('\n')
-      .trim()
+    const content = formatMessageContentForModel(message)
     if (!content) return []
 
     const senderLabel = resolveExternalContextSenderLabel(message)
@@ -4667,11 +4803,7 @@ function projectMessagesToRuntimeHistory(records: unknown[]): RuntimeMessage[] {
     const message = toPersistedMessage(record as Record<string, unknown>)
     if (message.surface !== 'chat') return []
     if (message.role !== 'user' && message.role !== 'assistant') return []
-    const content = message.parts
-      .filter((part) => part.type === 'text' && part.text)
-      .map((part) => part.text)
-      .join('\n')
-      .trim()
+    const content = formatMessageContentForModel(message)
     if (!content) return []
     return [{
       id: message.id,

@@ -84,6 +84,49 @@ describe('messages router', () => {
     ]])
   })
 
+  it('forwards reply target ids to RunPersistenceService', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      sendMessage: async (...args: unknown[]) => {
+        calls.push(args)
+        return {
+          messages: [],
+          activeRun: null,
+          latestPlan: null,
+          runItems: {
+            toolCalls: [],
+            reasoningBlocks: [],
+            taskGroups: [],
+            tasks: [],
+            plans: [],
+            planTasks: [],
+            permissionRequests: [],
+          },
+          timelineRuns: [],
+        }
+      },
+    })
+
+    const response = await app.request('/api/conversations/conv_1/messages/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        content: 'follow up',
+        replyToMessageId: 'msg_parent',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    expect(calls).toEqual([[
+      'conv_1',
+      'follow up',
+      {
+        addressedAgentIds: [],
+        replyToMessageId: 'msg_parent',
+      },
+    ]])
+  })
+
   it('defaults addressed agent ids to an empty list', async () => {
     const calls: unknown[] = []
     const app = createApp({
