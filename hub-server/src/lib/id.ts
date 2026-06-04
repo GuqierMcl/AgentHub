@@ -19,6 +19,8 @@ type IdPrefix =
   | "rt"
   | "rtc"
   | "eas"
+  | "wcs"
+  | "wcf"
   | "term";
 
 const prefixes: Record<IdPrefix, string> = {
@@ -39,6 +41,8 @@ const prefixes: Record<IdPrefix, string> = {
   rtc: "rtc_",
   term: "term_",
   eas: "eas_",
+  wcs: "wcs_",
+  wcf: "wcf_",
 };
 
 export function generateId(prefix: IdPrefix): string {

@@ -22,6 +22,12 @@ import {
   type UnifiedDiffFile,
   type UnifiedDiffLine,
 } from "../../utils/unified-diff"
+import {
+  formatWorkspaceAttributionCandidateSummary,
+  formatWorkspaceAttributionDetailRows,
+  formatWorkspaceChangeSource,
+  formatWorkspaceFileAttributionBadge,
+} from "../../utils/workspace-change-attribution"
 
 type CodeReviewPanelProps = {
   payload?: DiffReviewTabPayload
@@ -135,6 +141,8 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
           ) : null}
         </div>
 
+        <AttributionSummary attribution={detail.changeSet?.attribution} />
+
         {limitationMessages.length ? (
           <div className="mt-3 space-y-1">
             {limitationMessages.map((limitation) => (
@@ -183,6 +191,9 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     {formatFileStats(file)}
+                    <Badge variant={file.attribution ? "outline" : "secondary"}>
+                      {formatWorkspaceFileAttributionBadge(file.attribution)}
+                    </Badge>
                     <Badge variant="secondary">{formatStatus(file.status)}</Badge>
                   </div>
                 </button>
@@ -196,7 +207,10 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
               <h4 className="font-medium text-sm">文件 Diff</h4>
             </div>
             {selectedFile ? (
-              <FilePatchView file={selectedFile} />
+              <div className="space-y-2">
+                <FileAttributionDetails attribution={selectedFile.attribution} />
+                <FilePatchView file={selectedFile} />
+              </div>
             ) : (
               <div className="rounded-md border bg-muted/20 p-3 text-muted-foreground text-xs">
                 没有可展示的文件变更。
@@ -205,6 +219,78 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
           </section>
         </div>
       </ScrollArea>
+    </div>
+  )
+}
+
+function AttributionSummary({
+  attribution,
+}: {
+  attribution: DiffFileSummary["attribution"]
+}) {
+  const candidateSummary = formatWorkspaceAttributionCandidateSummary(attribution)
+  return (
+    <div className="mt-3 rounded-md border bg-muted/20 px-2.5 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={attribution ? "secondary" : "outline"}>
+          {formatWorkspaceChangeSource(attribution)}
+        </Badge>
+        {attribution ? (
+          <Badge variant="outline">置信度：{formatAttributionConfidence(attribution.confidence)}</Badge>
+        ) : null}
+      </div>
+      {candidateSummary ? (
+        <div className="mt-2 flex gap-2 text-muted-foreground">
+          <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
+          <span>{candidateSummary}</span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function FileAttributionDetails({
+  attribution,
+}: {
+  attribution: DiffFileSummary["attribution"]
+}) {
+  const rows = formatWorkspaceAttributionDetailRows(attribution)
+  const candidateSummary = formatWorkspaceAttributionCandidateSummary(attribution)
+
+  if (!attribution) {
+    return (
+      <div className="rounded-md border bg-muted/20 px-2.5 py-2 text-muted-foreground text-xs">
+        归因未记录：这个 Diff Artifact 创建于 ChangeSet 归因落库之前，或当前详情尚未刷新。
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-md border bg-muted/20 px-2.5 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="secondary">
+          {formatWorkspaceFileAttributionBadge(attribution)}
+        </Badge>
+        <span className="text-muted-foreground">
+          {formatWorkspaceChangeSource(attribution)}
+        </span>
+      </div>
+      {rows.length ? (
+        <div className="mt-2 grid gap-1 sm:grid-cols-2">
+          {rows.map((row) => (
+            <div className="min-w-0" key={`${row.label}:${row.value}`}>
+              <span className="text-muted-foreground">{row.label}：</span>
+              <span className="break-all font-mono">{row.value}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {candidateSummary ? (
+        <div className="mt-2 flex gap-2 text-muted-foreground">
+          <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
+          <span>{candidateSummary}</span>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -472,6 +558,21 @@ function formatLimitationMessage(limitation: string): string {
       return "部分文件指纹不可用，dirty baseline 下的 run-only 判断可能不完整。"
     default:
       return limitation
+  }
+}
+
+function formatAttributionConfidence(confidence: string): string {
+  switch (confidence) {
+    case "inferred":
+      return "推断"
+    case "aggregate":
+      return "汇总"
+    case "ambiguous":
+      return "不确定"
+    case "unknown":
+      return "未知"
+    default:
+      return confidence
   }
 }
 

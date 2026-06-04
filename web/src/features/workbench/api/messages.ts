@@ -57,6 +57,44 @@ export type DiffFileSummary = {
   deletions?: number
   binary?: boolean
   truncated?: boolean
+  attribution?: WorkspaceChangeAttribution
+}
+
+export type WorkspaceChangeAttribution = {
+  kind: "tool" | "task" | "agent" | "run"
+  confidence: "inferred" | "aggregate" | "ambiguous" | "unknown"
+  agentId?: string
+  taskId?: string
+  toolCallId?: string
+  toolName?: string
+  messageId?: string
+  candidateToolCallIds?: string[]
+  candidateAgentIds?: string[]
+  candidateTaskIds?: string[]
+}
+
+export type WorkspaceChangeSetFileDetail = {
+  id: string
+  path: string
+  oldPath?: string
+  statusBefore?: string
+  statusAfter?: string
+  origin?: string
+  additions?: number
+  deletions?: number
+  binary?: boolean
+  truncated?: boolean
+  attribution: WorkspaceChangeAttribution
+}
+
+export type WorkspaceChangeSetDetail = {
+  id: string
+  attribution: WorkspaceChangeAttribution
+  files: WorkspaceChangeSetFileDetail[]
+  summary: string | null
+  status: string
+  baselineDirty: boolean
+  runOnlyReliable: boolean
 }
 
 export type DiffArtifactDetail = {
@@ -67,6 +105,7 @@ export type DiffArtifactDetail = {
   baselineDirty: boolean
   runOnlyReliable: boolean
   limitations: string[]
+  changeSet?: WorkspaceChangeSetDetail
 }
 
 export type ArtifactDetailResponse = {

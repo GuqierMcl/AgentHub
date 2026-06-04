@@ -111,6 +111,16 @@ import {
   updateArtifact,
 } from '../repositories/artifact.repo'
 import { createArtifactVersion } from '../repositories/artifact-version.repo'
+import {
+  createWorkspaceChangeSet,
+  createWorkspaceChangeSetFile,
+  findWorkspaceChangeSetByArtifactId,
+  findWorkspaceChangeSetBySourceEventId,
+  type WorkspaceChangeAttributionConfidence,
+  type WorkspaceChangeAttributionKind,
+  type WorkspaceChangeSetFileOutput,
+  type WorkspaceChangeSetWithFilesOutput,
+} from '../repositories/workspace-change-set.repo'
 import type { HubEventBus } from './hub-event-bus.service'
 import { loadSettings } from '../routers/settings'
 
@@ -336,6 +346,44 @@ export type DiffFileSummary = {
   deletions?: number
   binary?: boolean
   truncated?: boolean
+  attribution?: WorkspaceChangeAttribution
+}
+
+export type WorkspaceChangeAttribution = {
+  kind: WorkspaceChangeAttributionKind
+  confidence: WorkspaceChangeAttributionConfidence
+  agentId?: string
+  taskId?: string
+  toolCallId?: string
+  toolName?: string
+  messageId?: string
+  candidateToolCallIds?: string[]
+  candidateAgentIds?: string[]
+  candidateTaskIds?: string[]
+}
+
+export type WorkspaceChangeSetFileDetail = {
+  id: string
+  path: string
+  oldPath?: string
+  statusBefore?: string
+  statusAfter?: string
+  origin?: string
+  additions?: number
+  deletions?: number
+  binary?: boolean
+  truncated?: boolean
+  attribution: WorkspaceChangeAttribution
+}
+
+export type WorkspaceChangeSetDetail = {
+  id: string
+  attribution: WorkspaceChangeAttribution
+  files: WorkspaceChangeSetFileDetail[]
+  summary: string | null
+  status: string
+  baselineDirty: boolean
+  runOnlyReliable: boolean
 }
 
 export type DiffArtifactDetail = {
@@ -346,6 +394,7 @@ export type DiffArtifactDetail = {
   baselineDirty: boolean
   runOnlyReliable: boolean
   limitations: string[]
+  changeSet?: WorkspaceChangeSetDetail
 }
 
 export type ArtifactDetailResponse = {
@@ -745,7 +794,8 @@ export class RunPersistenceService {
     }
 
     if (artifact.type === 'diff' && currentVersion) {
-      response.diff = buildDiffArtifactDetail(currentVersion)
+      const changeSet = await findWorkspaceChangeSetByArtifactId(artifact.id)
+      response.diff = buildDiffArtifactDetail(currentVersion, changeSet)
     }
 
     return response
@@ -1865,6 +1915,7 @@ async function projectWorkspaceDiffArtifact(
 
   const existing = await findArtifactByRunAndSourceEvent(run.id, event.id)
   if (existing) {
+    await ensureWorkspaceChangeSetForDiffArtifact(run, event, existing as PersistedArtifact, workspaceDiff)
     return
   }
 
@@ -1904,6 +1955,15 @@ async function projectWorkspaceDiffArtifact(
     createdByAgentId: resolveWorkspaceDiffCreatedByAgentId(run),
   })
   await updateArtifactCurrentVersion(artifact.id as string, version.id as string)
+  const changeSet = await ensureWorkspaceChangeSetForDiffArtifact(
+    run,
+    event,
+    {
+      ...(artifact as PersistedArtifact),
+      currentVersionId: version.id as string,
+    },
+    workspaceDiff,
+  )
 
   runPersistenceLogger.info({
     conversationId: run.conversationId,
@@ -1915,7 +1975,379 @@ async function projectWorkspaceDiffArtifact(
     changedFileCount,
     status,
     baselineDirty,
+    changeSetId: changeSet?.id,
   }, 'Workspace diff artifact projected')
+}
+
+async function ensureWorkspaceChangeSetForDiffArtifact(
+  run: RunOutput,
+  event: RuntimeRunEvent,
+  artifact: PersistedArtifact,
+  workspaceDiff: Record<string, unknown>,
+): Promise<WorkspaceChangeSetWithFilesOutput | null> {
+  const existing = await findWorkspaceChangeSetBySourceEventId(event.id)
+  if (existing) {
+    await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact, existing)
+    return findWorkspaceChangeSetByArtifactId(existing.artifactId)
+  }
+
+  const changedFiles = normalizeWorkspaceChangedFilesForProjection(workspaceDiff.changedFiles)
+  if (changedFiles.length === 0) {
+    return null
+  }
+
+  const context = await buildWorkspaceChangeAttributionContext(run)
+  const fileProjections = changedFiles.map((file) => ({
+    file,
+    attribution: deriveWorkspaceFileAttribution(file, context),
+  }))
+  const changeSetAttribution = deriveWorkspaceChangeSetAttribution(
+    fileProjections.map((projection) => projection.attribution),
+    context,
+  )
+  const status = getString(workspaceDiff.status) ?? 'degraded'
+  const baselineDirty = workspaceDiff.baselineDirty === true
+  const runOnlyReliable = workspaceDiff.runOnlyReliable !== false
+  const summary = getString(workspaceDiff.summary) ?? null
+  const stats = getRecord(workspaceDiff.stats) ?? {}
+  const limitations = getStringArray(workspaceDiff.limitations)
+
+  const changeSet = await createWorkspaceChangeSet({
+    conversationId: run.conversationId,
+    runId: run.id,
+    artifactId: artifact.id,
+    sourceEventId: event.id,
+    status,
+    baselineDirty,
+    runOnlyReliable,
+    summary,
+    statsJson: stats,
+    limitationsJson: limitations,
+    attributionKind: changeSetAttribution.kind,
+    attributionConfidence: changeSetAttribution.confidence,
+    agentId: changeSetAttribution.agentId ?? null,
+    taskId: changeSetAttribution.taskId ?? null,
+    toolCallId: changeSetAttribution.toolCallId ?? null,
+    toolName: changeSetAttribution.toolName ?? null,
+    messageId: changeSetAttribution.messageId ?? null,
+    metadataJson: attributionMetadata(changeSetAttribution),
+  })
+
+  for (const projection of fileProjections) {
+    await createWorkspaceChangeSetFile({
+      changeSetId: changeSet.id,
+      conversationId: run.conversationId,
+      runId: run.id,
+      artifactId: artifact.id,
+      path: projection.file.path,
+      oldPath: projection.file.oldPath ?? null,
+      statusBefore: projection.file.statusBefore ?? null,
+      statusAfter: projection.file.statusAfter ?? null,
+      origin: projection.file.origin ?? null,
+      additions: projection.file.additions ?? null,
+      deletions: projection.file.deletions ?? null,
+      binary: projection.file.binary ?? false,
+      truncated: projection.file.truncated ?? false,
+      attributionKind: projection.attribution.kind,
+      attributionConfidence: projection.attribution.confidence,
+      agentId: projection.attribution.agentId ?? null,
+      taskId: projection.attribution.taskId ?? null,
+      toolCallId: projection.attribution.toolCallId ?? null,
+      toolName: projection.attribution.toolName ?? null,
+      messageId: projection.attribution.messageId ?? null,
+      metadataJson: attributionMetadata(projection.attribution),
+    })
+  }
+
+  await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact, changeSet)
+  return findWorkspaceChangeSetByArtifactId(changeSet.artifactId)
+}
+
+async function mergeWorkspaceChangeSetMetadataIntoArtifact(
+  artifact: PersistedArtifact,
+  changeSet: Pick<
+    WorkspaceChangeSetWithFilesOutput,
+    'id' | 'attributionKind' | 'attributionConfidence'
+  >,
+): Promise<void> {
+  const existingMetadata = getRecord(artifact.metadataJson) ?? {}
+  await updateArtifact(artifact.id, {
+    metadataJson: {
+      ...existingMetadata,
+      changeSetId: changeSet.id,
+      attributionKind: changeSet.attributionKind,
+      attributionConfidence: changeSet.attributionConfidence,
+    },
+  })
+}
+
+type WorkspaceChangedFileProjection = {
+  path: string
+  oldPath?: string
+  statusBefore?: string
+  statusAfter?: string
+  origin?: string
+  additions?: number
+  deletions?: number
+  binary?: boolean
+  truncated?: boolean
+}
+
+type WorkspaceChangeAttributionContext = {
+  internalWritesByPath: Map<string, RunToolCallOutput[]>
+  fallbackAttribution: WorkspaceChangeAttribution
+}
+
+async function buildWorkspaceChangeAttributionContext(
+  run: RunOutput,
+): Promise<WorkspaceChangeAttributionContext> {
+  const [toolCalls, messages, tasks] = await Promise.all([
+    listRunToolCallsByRun(run.id),
+    listMessagesByRun(run.id),
+    listRunTasksByRun(run.id),
+  ])
+  const internalWritesByPath = new Map<string, RunToolCallOutput[]>()
+  for (const toolCall of toolCalls) {
+    if (!isInternalWorkspaceWriteTool(toolCall)) continue
+    const path = resolveWorkspaceWriteToolPath(toolCall)
+    if (!path) continue
+    const existing = internalWritesByPath.get(path) ?? []
+    existing.push(toolCall)
+    internalWritesByPath.set(path, existing)
+  }
+
+  return {
+    internalWritesByPath,
+    fallbackAttribution: deriveFallbackWorkspaceAttribution(run, toolCalls, messages, tasks),
+  }
+}
+
+function normalizeWorkspaceChangedFilesForProjection(value: unknown): WorkspaceChangedFileProjection[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => getRecord(item))
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .flatMap((file) => {
+      const path = normalizeOptionalWorkspacePath(
+        getString(file.path) ??
+        getString(file.newPath) ??
+        getString(file.pathAfter),
+      )
+      if (!path) return []
+      const oldPath = normalizeOptionalWorkspacePath(
+        getString(file.oldPath) ??
+        getString(file.pathBefore) ??
+        getString(file.previousPath),
+      )
+      return [{
+        path,
+        ...(oldPath && oldPath !== path ? { oldPath } : {}),
+        ...(getString(file.statusBefore) ? { statusBefore: getString(file.statusBefore) } : {}),
+        ...(getString(file.statusAfter) ? { statusAfter: getString(file.statusAfter) } : {}),
+        ...(getString(file.origin) ? { origin: getString(file.origin) } : {}),
+        ...(getNumber(file.additions) !== undefined ? { additions: getNumber(file.additions) } : {}),
+        ...(getNumber(file.deletions) !== undefined ? { deletions: getNumber(file.deletions) } : {}),
+        ...(file.binary === true ? { binary: true } : {}),
+        ...(file.truncated === true ? { truncated: true } : {}),
+      }]
+    })
+}
+
+function deriveWorkspaceFileAttribution(
+  file: WorkspaceChangedFileProjection,
+  context: WorkspaceChangeAttributionContext,
+): WorkspaceChangeAttribution {
+  const matches = context.internalWritesByPath.get(normalizeWorkspacePath(file.path)) ?? []
+  if (matches.length === 1) {
+    return attributionFromToolCall(matches[0]!)
+  }
+  if (matches.length > 1) {
+    return {
+      kind: 'run',
+      confidence: 'ambiguous',
+      candidateToolCallIds: uniqueStrings(matches.map((toolCall) => toolCall.toolCallId)),
+      candidateAgentIds: uniqueStrings(matches.map((toolCall) => toolCall.agentId)),
+    }
+  }
+  return context.fallbackAttribution
+}
+
+function deriveWorkspaceChangeSetAttribution(
+  attributions: WorkspaceChangeAttribution[],
+  context: WorkspaceChangeAttributionContext,
+): WorkspaceChangeAttribution {
+  if (attributions.length === 0) {
+    return context.fallbackAttribution
+  }
+  const signatures = new Map<string, WorkspaceChangeAttribution>()
+  for (const attribution of attributions) {
+    signatures.set(workspaceAttributionSignature(attribution), attribution)
+  }
+  if (signatures.size === 1) {
+    return attributions[0]!
+  }
+  return {
+    kind: 'run',
+    confidence: 'ambiguous',
+    candidateToolCallIds: uniqueStrings(attributions.flatMap((item) => item.candidateToolCallIds ?? [])),
+    candidateAgentIds: uniqueStrings(attributions.map((item) => item.agentId)),
+    candidateTaskIds: uniqueStrings(attributions.map((item) => item.taskId)),
+  }
+}
+
+function attributionFromToolCall(toolCall: RunToolCallOutput): WorkspaceChangeAttribution {
+  return {
+    kind: 'tool',
+    confidence: 'inferred',
+    ...(toolCall.agentId ? { agentId: toolCall.agentId } : {}),
+    ...(toolCall.taskId ? { taskId: toolCall.taskId } : {}),
+    toolCallId: toolCall.toolCallId,
+    toolName: toolCall.toolName,
+    ...(toolCall.messageId ? { messageId: toolCall.messageId } : {}),
+  }
+}
+
+function deriveFallbackWorkspaceAttribution(
+  run: RunOutput,
+  toolCalls: RunToolCallOutput[],
+  messages: MessageOutput[],
+  tasks: RunTaskOutput[],
+): WorkspaceChangeAttribution {
+  const completedTasks = tasks.filter((task) => task.state === 'completed')
+  const taskCandidates = completedTasks.length > 0 ? completedTasks : tasks
+  const taskIds = uniqueStrings(taskCandidates.map((task) => task.taskId))
+  const taskAgentIds = uniqueStrings(taskCandidates.map((task) => task.targetAgentId ?? task.agentId))
+  const messageAgentIds = uniqueStrings(
+    messages
+      .filter((message) => message.surface === 'chat' && message.role === 'assistant')
+      .map((message) => message.agentId ?? message.senderId),
+  )
+  const toolAgentIds = uniqueStrings(toolCalls.map((toolCall) => toolCall.agentId))
+  const inputAgentIds = resolveRunInputSingleAgentCandidates(run)
+  const agentIds = uniqueStrings([
+    ...messageAgentIds,
+    ...taskAgentIds,
+    ...toolAgentIds,
+    ...inputAgentIds,
+  ])
+
+  if (agentIds.length === 1) {
+    const agentId = agentIds[0]!
+    return {
+      kind: 'agent',
+      confidence: 'aggregate',
+      agentId,
+      ...(taskIds.length === 1 ? { taskId: taskIds[0] } : {}),
+    }
+  }
+  if (taskIds.length === 1) {
+    return {
+      kind: 'task',
+      confidence: 'aggregate',
+      taskId: taskIds[0]!,
+      ...(taskAgentIds.length === 1 ? { agentId: taskAgentIds[0] } : {}),
+    }
+  }
+  if (agentIds.length > 1 || taskIds.length > 1) {
+    return {
+      kind: 'run',
+      confidence: 'ambiguous',
+      candidateAgentIds: agentIds,
+      candidateTaskIds: taskIds,
+    }
+  }
+  return {
+    kind: 'run',
+    confidence: 'unknown',
+  }
+}
+
+function resolveRunInputSingleAgentCandidates(run: RunOutput): string[] {
+  const input = run.inputJson as Record<string, unknown>
+  const addressedAgentIds = getStringArray(input.addressedAgentIds)
+  if (addressedAgentIds.length === 1) return addressedAgentIds
+  const participantAgentIds = getStringArray(input.participantAgentIds)
+  if (participantAgentIds.length === 1) return participantAgentIds
+  return run.orchestratorAgentId ? [run.orchestratorAgentId] : []
+}
+
+function isInternalWorkspaceWriteTool(toolCall: RunToolCallOutput): boolean {
+  if (toolCall.state !== 'output-available') return false
+  if (toolCall.toolName !== 'write_file' && toolCall.toolName !== 'edit_file') return false
+  if (getString(toolCall.payloadJson.externalProvider)) return false
+  return true
+}
+
+function resolveWorkspaceWriteToolPath(toolCall: RunToolCallOutput): string | undefined {
+  const output = toolCall.outputJson ?? {}
+  const input = toolCall.inputJson ?? {}
+  const payload = toolCall.payloadJson ?? {}
+  const payloadData = getRecord(payload.data) ?? {}
+  const payloadResult = getRecord(payload.result) ?? {}
+  const payloadOutput = getRecord(payload.output) ?? {}
+  const payloadInput = getRecord(payload.input) ?? {}
+  const payloadParameters = getRecord(payload.parameters) ?? {}
+  return normalizeOptionalWorkspacePath(
+    getString(output.path) ??
+    getString(output.filePath) ??
+    getString(output.targetPath) ??
+    getString(input.path) ??
+    getString(input.filePath) ??
+    getString(input.targetPath) ??
+    getString(payloadData.path) ??
+    getString(payloadData.filePath) ??
+    getString(payloadResult.path) ??
+    getString(payloadResult.filePath) ??
+    getString(payloadOutput.path) ??
+    getString(payloadOutput.filePath) ??
+    getString(payloadInput.path) ??
+    getString(payloadInput.filePath) ??
+    getString(payloadParameters.path) ??
+    getString(payloadParameters.filePath),
+  )
+}
+
+function normalizeOptionalWorkspacePath(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  const normalized = normalizeWorkspacePath(value)
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function normalizeWorkspacePath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+}
+
+function workspaceAttributionSignature(attribution: WorkspaceChangeAttribution): string {
+  return [
+    attribution.kind,
+    attribution.confidence,
+    attribution.agentId ?? '',
+    attribution.taskId ?? '',
+    attribution.toolCallId ?? '',
+    attribution.toolName ?? '',
+    attribution.messageId ?? '',
+    (attribution.candidateToolCallIds ?? []).join(','),
+    (attribution.candidateAgentIds ?? []).join(','),
+    (attribution.candidateTaskIds ?? []).join(','),
+  ].join('|')
+}
+
+function attributionMetadata(attribution: WorkspaceChangeAttribution): Record<string, unknown> {
+  return {
+    ...(attribution.candidateToolCallIds && attribution.candidateToolCallIds.length > 0
+      ? { candidateToolCallIds: attribution.candidateToolCallIds }
+      : {}),
+    ...(attribution.candidateAgentIds && attribution.candidateAgentIds.length > 0
+      ? { candidateAgentIds: attribution.candidateAgentIds }
+      : {}),
+    ...(attribution.candidateTaskIds && attribution.candidateTaskIds.length > 0
+      ? { candidateTaskIds: attribution.candidateTaskIds }
+      : {}),
+  }
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))))
 }
 
 async function resolveWorkspaceDiffArtifactMessageId(run: RunOutput): Promise<string> {
@@ -1976,6 +2408,7 @@ function resolveCurrentArtifactVersion(
 
 function buildDiffArtifactDetail(
   currentVersion: PersistedArtifactVersion,
+  changeSet?: WorkspaceChangeSetWithFilesOutput | null,
 ): DiffArtifactDetail {
   const summary = getRecord(currentVersion.diffJson) ?? {}
   const patch = getRecord(summary.patch)
@@ -1992,13 +2425,90 @@ function buildDiffArtifactDetail(
 
   return {
     summary,
-    changedFiles: normalizeDiffFileSummaries(summary.changedFiles),
+    changedFiles: attachChangeSetAttributionToDiffFiles(
+      normalizeDiffFileSummaries(summary.changedFiles),
+      changeSet,
+    ),
     patchText,
     patchTruncated,
     baselineDirty,
     runOnlyReliable,
     limitations,
+    ...(changeSet ? { changeSet: toWorkspaceChangeSetDetail(changeSet) } : {}),
   }
+}
+
+function attachChangeSetAttributionToDiffFiles(
+  files: DiffFileSummary[],
+  changeSet?: WorkspaceChangeSetWithFilesOutput | null,
+): DiffFileSummary[] {
+  if (!changeSet) return files
+  const byPath = new Map(changeSet.files.map((file) => [normalizeWorkspacePath(file.path), file]))
+  return files.map((file) => {
+    const changeSetFile = byPath.get(normalizeWorkspacePath(file.path))
+    if (!changeSetFile) return file
+    return {
+      ...file,
+      attribution: toWorkspaceChangeAttribution(changeSetFile),
+    }
+  })
+}
+
+function toWorkspaceChangeSetDetail(
+  changeSet: WorkspaceChangeSetWithFilesOutput,
+): WorkspaceChangeSetDetail {
+  return {
+    id: changeSet.id,
+    attribution: toWorkspaceChangeAttribution(changeSet),
+    files: changeSet.files.map((file) => ({
+      id: file.id,
+      path: file.path,
+      ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+      ...(file.statusBefore ? { statusBefore: file.statusBefore } : {}),
+      ...(file.statusAfter ? { statusAfter: file.statusAfter } : {}),
+      ...(file.origin ? { origin: file.origin } : {}),
+      ...(typeof file.additions === 'number' ? { additions: file.additions } : {}),
+      ...(typeof file.deletions === 'number' ? { deletions: file.deletions } : {}),
+      ...(file.binary ? { binary: true } : {}),
+      ...(file.truncated ? { truncated: true } : {}),
+      attribution: toWorkspaceChangeAttribution(file),
+    })),
+    summary: changeSet.summary,
+    status: changeSet.status,
+    baselineDirty: changeSet.baselineDirty,
+    runOnlyReliable: changeSet.runOnlyReliable,
+  }
+}
+
+function toWorkspaceChangeAttribution(
+  source: Pick<
+    WorkspaceChangeSetWithFilesOutput | WorkspaceChangeSetFileOutput,
+    | 'attributionKind'
+    | 'attributionConfidence'
+    | 'agentId'
+    | 'taskId'
+    | 'toolCallId'
+    | 'toolName'
+    | 'messageId'
+    | 'metadataJson'
+  >,
+): WorkspaceChangeAttribution {
+  const attribution: WorkspaceChangeAttribution = {
+    kind: source.attributionKind,
+    confidence: source.attributionConfidence,
+    ...(source.agentId ? { agentId: source.agentId } : {}),
+    ...(source.taskId ? { taskId: source.taskId } : {}),
+    ...(source.toolCallId ? { toolCallId: source.toolCallId } : {}),
+    ...(source.toolName ? { toolName: source.toolName } : {}),
+    ...(source.messageId ? { messageId: source.messageId } : {}),
+  }
+  const candidateToolCallIds = getStringArray(source.metadataJson.candidateToolCallIds)
+  const candidateAgentIds = getStringArray(source.metadataJson.candidateAgentIds)
+  const candidateTaskIds = getStringArray(source.metadataJson.candidateTaskIds)
+  if (candidateToolCallIds.length > 0) attribution.candidateToolCallIds = candidateToolCallIds
+  if (candidateAgentIds.length > 0) attribution.candidateAgentIds = candidateAgentIds
+  if (candidateTaskIds.length > 0) attribution.candidateTaskIds = candidateTaskIds
+  return attribution
 }
 
 function resolveDiffPatchText(
@@ -3252,7 +3762,10 @@ function planToRecord(plan: RunPlanOutput): Record<string, unknown> {
   }
 }
 
-function comparePersistedMessages(left: PersistedMessage, right: PersistedMessage): number {
+function comparePersistedMessages(
+  left: Pick<MessageOutput, 'id' | 'runId' | 'role' | 'firstEventSequence' | 'createdAt'>,
+  right: Pick<MessageOutput, 'id' | 'runId' | 'role' | 'firstEventSequence' | 'createdAt'>,
+): number {
   if (left.runId && right.runId && left.runId === right.runId) {
     const leftSeq = getPersistedMessageOrderSequence(left)
     const rightSeq = getPersistedMessageOrderSequence(right)
@@ -3281,7 +3794,9 @@ function compareTimelineRuns(
   return left.run.id.localeCompare(right.run.id)
 }
 
-function getPersistedMessageOrderSequence(message: PersistedMessage): number {
+function getPersistedMessageOrderSequence(
+  message: Pick<MessageOutput, 'role' | 'firstEventSequence'>,
+): number {
   if (typeof message.firstEventSequence === 'number') {
     return message.firstEventSequence
   }

@@ -29,6 +29,7 @@ model Conversation {
   artifacts    Artifact[]
   permissions  PermissionRequest[]
   externalAgentSessions ExternalAgentSession[]
+  workspaceChangeSets WorkspaceChangeSet[]
 
   @@index([status, lastMessageAt], map: "idx_conversations_status_last_message_at")
   @@index([pinnedAt], map: "idx_conversations_pinned_at")
@@ -197,6 +198,7 @@ model Run {
   taskGroups      RunTaskGroup[]
   tasks           RunTask[]
   plans           RunPlan[]
+  workspaceChangeSets WorkspaceChangeSet[]
 
   @@index([conversationId, createdAt], map: "idx_runs_conversation_id_created_at")
   @@index([triggerMessageId], map: "idx_runs_trigger_message_id")
@@ -446,6 +448,7 @@ model Artifact {
   conversation Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   run         Run?             @relation(fields: [runId], references: [id])
   versions    ArtifactVersion[]
+  workspaceChangeSet WorkspaceChangeSet?
 
   @@index([conversationId], map: "idx_artifacts_conversation_id")
   @@index([runId], map: "idx_artifacts_run_id")
@@ -471,6 +474,77 @@ model ArtifactVersion {
   @@unique([artifactId, version], map: "uq_artifact_versions_artifact_version")
   @@index([artifactId, version], map: "idx_artifact_versions_artifact_id_version")
   @@map("artifact_versions")
+}
+
+model WorkspaceChangeSet {
+  id                    String  @id @map("id")
+  conversationId        String  @map("conversation_id")
+  runId                 String  @map("run_id")
+  artifactId            String  @unique(map: "uq_workspace_change_sets_artifact_id") @map("artifact_id")
+  sourceEventId         String  @unique(map: "uq_workspace_change_sets_source_event_id") @map("source_event_id")
+  status                String  @map("status")
+  baselineDirty         Boolean @default(false) @map("baseline_dirty")
+  runOnlyReliable       Boolean @default(true) @map("run_only_reliable")
+  summary               String? @map("summary")
+  statsJson             String  @default("{}") @map("stats_json")
+  limitationsJson       String  @default("[]") @map("limitations_json")
+  attributionKind       String  @map("attribution_kind")
+  attributionConfidence String  @map("attribution_confidence")
+  agentId               String? @map("agent_id")
+  taskId                String? @map("task_id")
+  toolCallId            String? @map("tool_call_id")
+  toolName              String? @map("tool_name")
+  messageId             String? @map("message_id")
+  metadataJson          String  @default("{}") @map("metadata_json")
+  createdAt             String  @map("created_at")
+  updatedAt             String  @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  run          Run          @relation(fields: [runId], references: [id], onDelete: Cascade)
+  artifact     Artifact     @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  files        WorkspaceChangeSetFile[]
+
+  @@index([conversationId], map: "idx_workspace_change_sets_conversation_id")
+  @@index([runId], map: "idx_workspace_change_sets_run_id")
+  @@index([attributionKind, attributionConfidence], map: "idx_workspace_change_sets_attribution")
+  @@map("workspace_change_sets")
+}
+
+model WorkspaceChangeSetFile {
+  id                    String  @id @map("id")
+  changeSetId           String  @map("change_set_id")
+  conversationId        String  @map("conversation_id")
+  runId                 String  @map("run_id")
+  artifactId            String  @map("artifact_id")
+  path                  String  @map("path")
+  oldPath               String? @map("old_path")
+  statusBefore          String? @map("status_before")
+  statusAfter           String? @map("status_after")
+  origin                String? @map("origin")
+  additions             Int?    @map("additions")
+  deletions             Int?    @map("deletions")
+  binary                Boolean @default(false) @map("binary")
+  truncated             Boolean @default(false) @map("truncated")
+  attributionKind       String  @map("attribution_kind")
+  attributionConfidence String  @map("attribution_confidence")
+  agentId               String? @map("agent_id")
+  taskId                String? @map("task_id")
+  toolCallId            String? @map("tool_call_id")
+  toolName              String? @map("tool_name")
+  messageId             String? @map("message_id")
+  metadataJson          String  @default("{}") @map("metadata_json")
+  createdAt             String  @map("created_at")
+  updatedAt             String  @map("updated_at")
+
+  changeSet WorkspaceChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+
+  @@unique([changeSetId, path], map: "uq_workspace_change_set_files_change_set_path")
+  @@index([conversationId], map: "idx_workspace_change_set_files_conversation_id")
+  @@index([runId], map: "idx_workspace_change_set_files_run_id")
+  @@index([artifactId], map: "idx_workspace_change_set_files_artifact_id")
+  @@index([path], map: "idx_workspace_change_set_files_path")
+  @@index([attributionKind, attributionConfidence], map: "idx_workspace_change_set_files_attribution")
+  @@map("workspace_change_set_files")
 }
 
 model PermissionRequest {

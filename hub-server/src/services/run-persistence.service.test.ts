@@ -464,6 +464,121 @@ describe('workspace diff artifact projection', () => {
     })
   })
 
+  it('projects internal write_file changes into a tool-attributed ChangeSet', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture()
+    const terminalEventId = `event_workspace_diff_changeset_${randomUUID()}`
+
+    await (service as any).projectRuntimeEventsBatch(runId, [
+      {
+        sequence: 1,
+        event: {
+          id: `event_write_started_${randomUUID()}`,
+          runId: 'runtime_workspace_diff_changeset',
+          type: 'tool.started',
+          timestamp: '2026-06-04T00:00:00.000Z',
+          agentId: 'writer',
+          messageId: 'msg_writer_changeset',
+          toolCallId: 'tool_write_index',
+          toolName: 'write_file',
+          data: {
+            riskLevel: 'medium',
+          },
+        },
+      },
+      {
+        sequence: 2,
+        event: {
+          id: `event_write_completed_${randomUUID()}`,
+          runId: 'runtime_workspace_diff_changeset',
+          type: 'tool.completed',
+          timestamp: '2026-06-04T00:00:01.000Z',
+          agentId: 'writer',
+          messageId: 'msg_writer_changeset',
+          toolCallId: 'tool_write_index',
+          toolName: 'write_file',
+          data: {
+            status: 'completed',
+            summary: 'Wrote src/index.ts',
+            data: {
+              path: 'src/index.ts',
+              created: false,
+            },
+          },
+        },
+      },
+      {
+        sequence: 3,
+        event: {
+          id: `event_writer_message_${randomUUID()}`,
+          runId: 'runtime_workspace_diff_changeset',
+          type: 'message.completed',
+          timestamp: '2026-06-04T00:00:02.000Z',
+          agentId: 'writer',
+          messageId: 'msg_writer_changeset',
+          messageIndex: 0,
+          data: {
+            content: 'Updated src/index.ts.',
+          },
+        },
+      },
+      {
+        sequence: 4,
+        event: {
+          id: terminalEventId,
+          runId: 'runtime_workspace_diff_changeset',
+          type: 'run.completed',
+          timestamp: '2026-06-04T00:00:03.000Z',
+          data: {
+            status: 'completed',
+            workspaceDiff: createWorkspaceDiffSummary(),
+          },
+        },
+      },
+    ])
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]?.metadataJson).toMatchObject({
+      source: 'runtime.workspaceDiff',
+      runtimeEventId: terminalEventId,
+      attributionKind: 'tool',
+      attributionConfidence: 'inferred',
+      changeSetId: expect.any(String),
+    })
+
+    const detail = await service.getArtifactDetail(conversationId, artifacts[0]!.id as string)
+    expect(detail.diff?.changeSet).toMatchObject({
+      id: artifacts[0]?.metadataJson.changeSetId,
+      status: 'available',
+      baselineDirty: false,
+      runOnlyReliable: true,
+      attribution: {
+        kind: 'tool',
+        confidence: 'inferred',
+        agentId: 'writer',
+        toolCallId: 'tool_write_index',
+        toolName: 'write_file',
+        messageId: 'msg_writer_changeset',
+      },
+    })
+    expect(detail.diff?.changedFiles[0]?.attribution).toMatchObject({
+      kind: 'tool',
+      confidence: 'inferred',
+      agentId: 'writer',
+      toolCallId: 'tool_write_index',
+      toolName: 'write_file',
+      messageId: 'msg_writer_changeset',
+    })
+    expect(detail.diff?.changeSet?.files[0]).toMatchObject({
+      path: 'src/index.ts',
+      attribution: {
+        kind: 'tool',
+        confidence: 'inferred',
+        toolCallId: 'tool_write_index',
+      },
+    })
+  })
+
   it('attributes group addressed workspaceDiff artifacts to the addressed agent', async () => {
     const { service, conversationId, runId } = await createProjectionFixture({
       mode: 'group',
@@ -515,6 +630,44 @@ describe('workspace diff artifact projection', () => {
 
     const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
     expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]?.metadataJson).toMatchObject({
+      changeSetId: expect.any(String),
+    })
+  })
+
+  it('marks same-file internal write attribution as ambiguous when multiple tools match', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture()
+
+    await (service as any).projectRuntimeEventsBatch(runId, [
+      createCompletedWorkspaceWriteEvent(1, 'tool_write_first', 'writer'),
+      createCompletedWorkspaceWriteEvent(2, 'tool_write_second', 'writer'),
+      {
+        sequence: 3,
+        event: {
+          id: `event_workspace_diff_ambiguous_${randomUUID()}`,
+          runId: 'runtime_workspace_diff_ambiguous',
+          type: 'run.completed',
+          timestamp: '2026-06-04T00:00:03.000Z',
+          data: {
+            status: 'completed',
+            workspaceDiff: createWorkspaceDiffSummary(),
+          },
+        },
+      },
+    ])
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'diff' })
+    const detail = await service.getArtifactDetail(conversationId, artifacts[0]!.id as string)
+
+    expect(detail.diff?.changeSet?.attribution).toMatchObject({
+      kind: 'run',
+      confidence: 'ambiguous',
+    })
+    expect(detail.diff?.changedFiles[0]?.attribution).toMatchObject({
+      kind: 'run',
+      confidence: 'ambiguous',
+      candidateToolCallIds: ['tool_write_first', 'tool_write_second'],
+    })
   })
 
   it('skips no-change workspaceDiff summaries', async () => {
@@ -654,9 +807,20 @@ describe('tool message projection', () => {
     expect(assistantMessage?.artifacts?.[0]).toMatchObject({
       type: 'diff',
       createdByAgentId: 'opencode',
+      metadataJson: {
+        attributionKind: 'agent',
+        attributionConfidence: 'aggregate',
+        changeSetId: expect.any(String),
+      },
       currentVersion: {
         summary: '1 workspace file changed (+3/-1)',
       },
+    })
+    const detail = await service.getArtifactDetail(conversationId, assistantMessage!.artifacts![0]!.id)
+    expect(detail.diff?.changeSet?.attribution).toMatchObject({
+      kind: 'agent',
+      confidence: 'aggregate',
+      agentId: 'opencode',
     })
   })
 })
@@ -1003,5 +1167,29 @@ function createWorkspaceDiffSummary() {
     },
     summary: '1 workspace file changed (+3/-1)',
     limitations: [],
+  }
+}
+
+function createCompletedWorkspaceWriteEvent(sequence: number, toolCallId: string, agentId: string) {
+  return {
+    sequence,
+    event: {
+      id: `event_${toolCallId}_${randomUUID()}`,
+      runId: 'runtime_workspace_diff_ambiguous',
+      type: 'tool.completed',
+      timestamp: `2026-06-04T00:00:0${sequence}.000Z`,
+      agentId,
+      messageId: `msg_${toolCallId}`,
+      toolCallId,
+      toolName: 'write_file',
+      data: {
+        status: 'completed',
+        summary: 'Wrote src/index.ts',
+        data: {
+          path: 'src/index.ts',
+          created: false,
+        },
+      },
+    },
   }
 }

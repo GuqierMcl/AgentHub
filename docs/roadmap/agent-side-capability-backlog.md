@@ -26,18 +26,18 @@ Agent-side Capability Backlog
 - 基础文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file` 已接入 Runtime Tool Registry。
 - 内部权限审批：文件敏感读写、沙箱外访问、命令执行等已有 Runtime permission lifecycle、HubServer 投影和 Web 交互基础。
 - 用户问答续跑：`question` 工具已有 Runtime / HubServer / Web 基础闭环。
-- 通用 Workspace Diff V0：Runtime 在 Run 前后计算 git-based diff summary，HubServer 投影为 diff Artifact，Web 支持摘要卡与只读 Diff Viewer。
+- 通用 Workspace Diff 与 ChangeSet 归因 V0：Runtime 在 Run 前后计算 git-based diff summary，HubServer 投影为 diff Artifact 与 Workspace ChangeSet，Web 支持摘要卡、只读 Diff Viewer 和 agent/task/tool/run 归因展示。
 - OpenCode 基础接入：OpenCode 已作为外部可见主智能体接入，支持 direct conversation、Orchestrator delegated task、Session 持久化、模型只读展示、direct context bridge、event stream/tool timeline 和 permission bridge。
 
 ## 当前缺口与后续增强
 
 ### 1. 通用 Workspace Diff
 
-状态：已闭环 V0，后续做归因和交互增强。
+状态：已闭环 V0 + ChangeSet 归因 V0，后续做交互增强。
 
-当前 Runtime 已统一记录 Run 前后 baseline、变更文件列表、diffstat 和 bounded patch summary。Diff 不作为 OpenCode 私有能力实现，而是内部预设智能体、用户自定义写入智能体和外部智能体共享的平台能力。
+当前 Runtime 已统一记录 Run 前后 baseline、变更文件列表、diffstat 和 bounded patch summary。Diff 不作为 OpenCode 私有能力实现，而是内部预设智能体、用户自定义写入智能体和外部智能体共享的平台能力。HubServer 已将有 changed files 的 terminal workspaceDiff 投影为 WorkspaceChangeSet；内部 `write_file` / `edit_file` 可基于路径唯一匹配归因到具体 toolCallId，OpenCode 等外部智能体 V0 保守展示 agent aggregate。
 
-后续增强：agent/task 归因、冲突提示、完整版本历史、apply/revert 和更强的非 git workspace fallback。
+后续增强：Run revert / restore、冲突提示、完整版本历史、apply/pre-apply review 和更强的非 git workspace fallback。
 
 ### 2. OpenCode Event Stream 与工具 timeline
 
@@ -121,7 +121,7 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 
 ## 建议执行顺序
 
-1. AgentHub Native Patch Review Phase 2：Workspace ChangeSet 与 agent/task/tool 归因。
+1. AgentHub Native Patch Review Phase 3：Run Revert / Restore。
 2. Artifact Projection V1：把文件、网页预览、部署状态等结构化产物接到真实消息卡片；Diff 已作为首个 artifact 闭环。
 3. 第二个外部 Agent Adapter：优先选择 Codex 或 Claude Code。
 4. 用户自建 Agent 产品化：HubServer API、Web Authoring UI、工具集授权。
@@ -144,3 +144,4 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 - 2026-06-02：创建本文档，对照原始需求梳理智能体侧尚未接入或尚未闭环的能力，并确定 Phase 4B-4D 后续执行顺序。
 - 2026-06-03：同步 OpenCode 4B/4C/4D 进度：通用 Workspace Diff V0、OpenCode Event Stream/Tool Timeline 与 Permission Bridge 均已落地；下一步转向 OpenCode V1 集成硬化和 Artifact Projection V1。
 - 2026-06-03：同步 OpenCode V1 基础集成硬化：新增真实 write smoke 开关、event stream fallback 回归和产品级 replay 回归；下一步建议转向 AgentHub Native Patch Review Phase 2。
+- 2026-06-04：同步 AgentHub Native Patch Review Phase 2：Workspace ChangeSet 与归因 V0 已落地；下一步建议进入 Run Revert / Restore 或 Artifact Projection V1。

@@ -20,14 +20,27 @@ export interface UpdateArtifactVersionInput {
   diffJson?: DiffJson | null
 }
 
-function toOutput(record: Record<string, unknown>) {
+export interface ArtifactVersionOutput {
+  id: string
+  artifactId: string
+  version: number
+  source: string
+  language: string | null
+  content: string
+  summary: string | null
+  diffJson: DiffJson | null
+  createdByAgentId: string | null
+  createdAt: string
+}
+
+function toOutput(record: Record<string, unknown>): ArtifactVersionOutput {
   return {
     ...record,
     diffJson: safeJsonParse(record.diffJson as string | undefined, null),
-  }
+  } as ArtifactVersionOutput
 }
 
-export async function createArtifactVersion(input: CreateArtifactVersionInput) {
+export async function createArtifactVersion(input: CreateArtifactVersionInput): Promise<ArtifactVersionOutput> {
   const db = getPrismaClient()
   const record = await db.artifactVersion.create({
     data: {
@@ -46,14 +59,17 @@ export async function createArtifactVersion(input: CreateArtifactVersionInput) {
   return toOutput(record as Record<string, unknown>)
 }
 
-export async function findArtifactVersionById(id: string) {
+export async function findArtifactVersionById(id: string): Promise<ArtifactVersionOutput | null> {
   const db = getPrismaClient()
   const record = await db.artifactVersion.findUnique({ where: { id } })
   if (!record) return null
   return toOutput(record as Record<string, unknown>)
 }
 
-export async function findArtifactVersionByArtifactAndVersion(artifactId: string, version: number) {
+export async function findArtifactVersionByArtifactAndVersion(
+  artifactId: string,
+  version: number,
+): Promise<ArtifactVersionOutput | null> {
   const db = getPrismaClient()
   const record = await db.artifactVersion.findUnique({
     where: { artifactId_version: { artifactId, version } },
@@ -62,7 +78,7 @@ export async function findArtifactVersionByArtifactAndVersion(artifactId: string
   return toOutput(record as Record<string, unknown>)
 }
 
-export async function listArtifactVersionsByArtifact(artifactId: string) {
+export async function listArtifactVersionsByArtifact(artifactId: string): Promise<ArtifactVersionOutput[]> {
   const db = getPrismaClient()
   const records = await db.artifactVersion.findMany({
     where: { artifactId },
@@ -71,7 +87,7 @@ export async function listArtifactVersionsByArtifact(artifactId: string) {
   return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
-export async function findLatestArtifactVersion(artifactId: string) {
+export async function findLatestArtifactVersion(artifactId: string): Promise<ArtifactVersionOutput | null> {
   const db = getPrismaClient()
   const record = await db.artifactVersion.findFirst({
     where: { artifactId },
@@ -81,7 +97,10 @@ export async function findLatestArtifactVersion(artifactId: string) {
   return toOutput(record as Record<string, unknown>)
 }
 
-export async function updateArtifactVersion(id: string, input: UpdateArtifactVersionInput) {
+export async function updateArtifactVersion(
+  id: string,
+  input: UpdateArtifactVersionInput,
+): Promise<ArtifactVersionOutput> {
   const db = getPrismaClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data: Record<string, any> = {}

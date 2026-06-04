@@ -97,13 +97,13 @@ AgentHub Native Patch Review / Workspace Change Review
 - Revert、pre-apply review、hunk accept/reject 都需要一个可靠的 Diff Viewer 作为交互基础。
 - 不需要先接 OpenCode event stream 或 permission bridge；那些是外部智能体链路增强，不是 AgentHub 原生 Patch Review 的最短路径。
 
-### Phase 2：Workspace ChangeSet 与变更归因
+### Phase 2：Workspace ChangeSet 与变更归因（已完成 V0）
 
 目标：
 
 - 引入平台级 `WorkspaceChangeSet` 概念，表达一次 Run 或一次工具调用造成的文件变化集合。
-- 对内部 `write_file` / `edit_file` 工具记录 proposed / applied patch、toolCallId、messageId、agentId、taskId。
-- 外部智能体先保守归因到 Run 和 agent；后续结合 external event stream 细化到 provider tool / message。
+- 对内部 `write_file` / `edit_file` 工具基于路径匹配记录 toolCallId、messageId、agentId、taskId 归因。
+- 外部智能体先保守归因到 Run 和 agent；V0 不解析 provider 私有工具 payload。
 - HubServer 将 ChangeSet 与 Artifact、RunEvent、Message 建立可恢复关联。
 
 验收：
@@ -112,6 +112,16 @@ AgentHub Native Patch Review / Workspace Change Review
 - 内部写入工具的文件变化可归因到具体 toolCallId。
 - 外部智能体无法细分时，UI 明确展示为 Run-level / agent-level aggregate。
 - 多个 agent 在同一 Run 写入时，ChangeSet 不把归因说得比实际更精确。
+
+实现边界：
+
+- HubServer 新增 `WorkspaceChangeSet` / `WorkspaceChangeSetFile` 持久化模型，`sourceEventId` 唯一保证 terminal RunEvent replay 幂等。
+- Terminal `workspaceDiff` 投影继续创建 `diff` Artifact，同时为有 changed files 的结果创建 ChangeSet；no-change summary 不创建。
+- 单个内部 `write_file` / `edit_file` 匹配某个 changed file path 时，该文件归因为 `tool + inferred`。
+- 同一文件匹配多个写入工具时，文件与 ChangeSet 归因为 `run + ambiguous`，候选 toolCallIds 进入 metadata，UI 显示“归因不确定”。
+- OpenCode 等外部智能体 V0 只归因为 `agent + aggregate`，并可携带 taskId；不把 OpenCode 原生工具伪装成 AgentHub 内部写入工具。
+- `GET /api/conversations/:conversationId/artifacts/:artifactId` 的 diff detail 返回 `changeSet` 与文件级 `attribution`；旧 Diff Artifact 没有关联 ChangeSet 时继续兼容。
+- 本阶段仍不做 revert、pre-apply review、hunk accept/reject、隔离 workspace 或 per-tool 精确 patch capture。
 
 ### Phase 3：Run Revert / Restore
 
@@ -182,7 +192,8 @@ AgentHub Native Patch Review / Workspace Change Review
 - Phase 0 已落地：通用 Workspace Diff Summary V0、HubServer diff Artifact 投影、Web live/persisted 摘要卡片。
 - Diff 卡片已中文化，并修正了未跟踪文本文件行数与 `+0/-0` 展示问题。
 - Phase 1 已落地：HubServer 提供 conversation-scoped Diff Artifact Detail API；Web 支持从 live/persisted Diff 卡片打开右侧“代码审查”只读 Diff Viewer，展示文件列表、hunk、增删行、binary、truncated、dirty baseline 和 runOnlyReliable 提示。
-- 还没有 ChangeSet 归因、Run revert、pre-apply review 或隔离合入。
+- Phase 2 已落地 V0：HubServer 从 terminal `workspaceDiff` 推导并持久化 Workspace ChangeSet；Web 右侧“代码审查”展示顶部来源、文件级归因 badge、tool/task/agent/message 细节与 ambiguous 候选提示。
+- 还没有 Run revert、pre-apply review 或隔离合入。
 - OpenCode Adapter roadmap 中的 Phase 4C/4D 仍重要，但它们主要服务外部智能体事件和权限桥接，不应替代 AgentHub Native Patch Review 主线。
 
 ## 已完成
@@ -192,13 +203,14 @@ AgentHub Native Patch Review / Workspace Change Review
 - Diff 摘要卡片 live / persisted replay。
 - Diff Artifact Detail API。
 - 只读 Diff Viewer。
+- WorkspaceChangeSet / WorkspaceChangeSetFile 归因 V0。
+- Diff Viewer 归因展示。
 - dirty baseline 过滤。
 - 未跟踪文本文件新增行数 best-effort 统计。
 - 无有效行数时不展示 `+0/-0`。
 
 ## 待办
 
-- Phase 2：Workspace ChangeSet 与归因。
 - Phase 3：Run Revert / Restore。
 - Phase 4：AgentHub 内部写入工具 proposed patch / pre-apply review。
 - Phase 5：外部智能体隔离执行与合入策略。
@@ -217,3 +229,4 @@ AgentHub Native Patch Review / Workspace Change Review
 
 - 2026-06-02：创建路线图，将“类似 OpenCode 的代码变更体验”定义为 AgentHub 平台级 Native Patch Review，而不是 OpenCode Adapter 专属体验；确认下一步最适合做 Phase 1：Diff Artifact Detail 与只读 Diff Viewer。
 - 2026-06-02：完成 Phase 1：新增 `GET /api/conversations/:conversationId/artifacts/:artifactId` 详情 API，Web Diff 卡片可打开右侧只读 Diff Viewer；live 卡片使用内存 `workspaceDiff` 即时展示，persisted 卡片可通过 Artifact Detail API 恢复。
+- 2026-06-04：完成 Phase 2 V0：新增 Workspace ChangeSet 持久化与归因展示，内部写入工具可归因到 toolCallId，外部智能体保守展示 agent aggregate，ambiguous 情况不做伪精确归因。

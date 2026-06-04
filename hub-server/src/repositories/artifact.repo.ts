@@ -2,6 +2,7 @@ import { getPrismaClient } from '../lib/db'
 import { generateId } from '../lib/id'
 import { safeJsonParse } from '../lib/utils'
 import type { ArtifactType, ArtifactStatus, MetadataJson, SortOrder } from '../lib/types'
+import type { ArtifactVersionOutput } from './artifact-version.repo'
 
 export interface CreateArtifactInput {
   conversationId: string
@@ -32,21 +33,41 @@ export interface ListArtifactsFilter {
   order?: SortOrder
 }
 
-function toOutput(record: Record<string, unknown>) {
+export interface ArtifactOutput {
+  id: string
+  conversationId: string
+  runId: string | null
+  messageId: string | null
+  createdByAgentId: string | null
+  type: string
+  title: string
+  status: string
+  currentVersionId: string | null
+  metadataJson: MetadataJson
+  createdAt: string
+  updatedAt: string
+}
+
+export type ArtifactWithVersionsOutput = ArtifactOutput & {
+  versions: ArtifactVersionOutput[]
+  currentVersion: ArtifactVersionOutput | null
+}
+
+function toOutput(record: Record<string, unknown>): ArtifactOutput {
   return {
     ...record,
     metadataJson: safeJsonParse(record.metadataJson as string | undefined, {}),
-  }
+  } as ArtifactOutput
 }
 
-function toVersionOutput(record: Record<string, unknown>) {
+function toVersionOutput(record: Record<string, unknown>): ArtifactVersionOutput {
   return {
     ...record,
     diffJson: safeJsonParse(record.diffJson as string | undefined, null),
-  }
+  } as ArtifactVersionOutput
 }
 
-function toOutputWithVersions(record: Record<string, unknown>) {
+function toOutputWithVersions(record: Record<string, unknown>): ArtifactWithVersionsOutput {
   const output = toOutput(record)
   const versions = ((record.versions as Record<string, unknown>[] | undefined) ?? [])
     .map(toVersionOutput)
@@ -58,7 +79,7 @@ function toOutputWithVersions(record: Record<string, unknown>) {
   }
 }
 
-export async function createArtifact(input: CreateArtifactInput) {
+export async function createArtifact(input: CreateArtifactInput): Promise<ArtifactOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()
   const record = await db.artifact.create({
@@ -80,14 +101,14 @@ export async function createArtifact(input: CreateArtifactInput) {
   return toOutput(record as Record<string, unknown>)
 }
 
-export async function findArtifactById(id: string) {
+export async function findArtifactById(id: string): Promise<ArtifactOutput | null> {
   const db = getPrismaClient()
   const record = await db.artifact.findUnique({ where: { id } })
   if (!record) return null
   return toOutput(record as Record<string, unknown>)
 }
 
-export async function listArtifacts(filter: ListArtifactsFilter = {}) {
+export async function listArtifacts(filter: ListArtifactsFilter = {}): Promise<ArtifactOutput[]> {
   const db = getPrismaClient()
   const { conversationId, runId, type, status, limit = 50, offset = 0, order = 'desc' } = filter
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -106,7 +127,7 @@ export async function listArtifacts(filter: ListArtifactsFilter = {}) {
   return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
-export async function listArtifactsByMessageIds(messageIds: string[]) {
+export async function listArtifactsByMessageIds(messageIds: string[]): Promise<ArtifactWithVersionsOutput[]> {
   if (messageIds.length === 0) return []
   const db = getPrismaClient()
   const records = await db.artifact.findMany({
@@ -124,7 +145,7 @@ export async function listArtifactsByMessageIds(messageIds: string[]) {
 export async function findArtifactByRunAndSourceEvent(
   runId: string,
   sourceEventId: string,
-) {
+): Promise<ArtifactOutput | null> {
   const db = getPrismaClient()
   const records = await db.artifact.findMany({
     where: {
@@ -142,7 +163,7 @@ export async function findArtifactByRunAndSourceEvent(
   return artifact ?? null
 }
 
-export async function updateArtifact(id: string, input: UpdateArtifactInput) {
+export async function updateArtifact(id: string, input: UpdateArtifactInput): Promise<ArtifactOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -171,7 +192,7 @@ export async function countArtifacts(filter: { conversationId?: string; type?: A
   return db.artifact.count({ where })
 }
 
-export async function findArtifactWithVersions(id: string) {
+export async function findArtifactWithVersions(id: string): Promise<ArtifactWithVersionsOutput | null> {
   const db = getPrismaClient()
   const record = await db.artifact.findUnique({
     where: { id },
