@@ -12,6 +12,7 @@ import terminal from './terminal'
 import artifacts from './artifacts'
 import system from './system'
 import avatarOverrides from './avatar-overrides'
+import remoteServer from './remote-server'
 
 const router = new Hono()
 
@@ -37,5 +38,6 @@ router.route('/', terminal)
 router.route('/', artifacts)
 router.route('/', system)
 router.route('/', avatarOverrides)
+router.route('/', remoteServer)
 
 export default router
