@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,22 +21,14 @@ const defaultForm: CreateRemoteServerInput = {
 }
 
 export function RemoteServerDialog({ open, onOpenChange, server, onSave }: RemoteServerDialogProps) {
-  const [form, setForm] = useState<CreateRemoteServerInput>(defaultForm)
+  const [form, setForm] = useState<CreateRemoteServerInput>(() => server ? {
+    hostname: server.hostname,
+    host: server.host,
+    username: server.username,
+    port: server.port,
+    identityFilePath: server.identityFilePath ?? "",
+  } : defaultForm)
   const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (server) {
-      setForm({
-        hostname: server.hostname,
-        host: server.host,
-        username: server.username,
-        port: server.port,
-        identityFilePath: server.identityFilePath ?? "",
-      })
-    } else {
-      setForm(defaultForm)
-    }
-  }, [server, open])
 
   const handleSave = async () => {
     if (!form.hostname.trim() || !form.host.trim() || !form.username.trim()) return

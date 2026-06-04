@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { Client } from 'ssh2'
 import {
@@ -153,6 +153,29 @@ export class RemoteServerService {
     return result
   }
 
+  private resolvePrivateKey(identityFilePath?: string): string | Buffer | undefined {
+    if (identityFilePath) {
+      try {
+        return readFileSync(identityFilePath, 'utf-8')
+      } catch {
+        // specified key not readable, continue
+      }
+    }
+
+    const home = homedir()
+    const defaultKeys = ['id_rsa', 'id_ed25519', 'id_ecdsa', 'id_dsa']
+    for (const keyName of defaultKeys) {
+      const keyPath = join(home, '.ssh', keyName)
+      try {
+        return readFileSync(keyPath, 'utf-8')
+      } catch {
+        // key not found, continue
+      }
+    }
+
+    return undefined
+  }
+
   async testConnection(id: string): Promise<TestConnectionResult> {
     const server = await findRemoteServerById(id)
     if (!server) throw notFound('REMOTE_SERVER_NOT_FOUND', 'Server not found')
@@ -175,11 +198,14 @@ export class RemoteServerService {
         resolve({ success: false, message: `Connection failed: ${err.message}` })
       })
 
+      const agent = process.env.SSH_AUTH_SOCK || (platform() === 'win32' ? '\\\\.\\pipe\\openssh-ssh-agent' : undefined)
+
       conn.connect({
         host: server.host,
         port: server.port,
         username: server.username,
-        privateKey: server.identityFilePath ? readFileSync(server.identityFilePath, 'utf-8') : undefined,
+        privateKey: this.resolvePrivateKey(server.identityFilePath ?? undefined),
+        agent,
         readyTimeout: 10000,
         keepaliveInterval: 0,
       })

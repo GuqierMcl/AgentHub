@@ -92,11 +92,12 @@ export function CodeReviewPanel({ payload }: CodeReviewPanelProps) {
     )
   }, [files])
   /* eslint-enable react-hooks/set-state-in-effect */
-
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setRevertPreview(null)
     setRevertError(null)
   }, [artifactId, conversationId])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!payload) {
     return <ReviewEmptyState />

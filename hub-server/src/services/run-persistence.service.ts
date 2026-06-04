@@ -3072,8 +3072,9 @@ async function persistAppliedArtifactRevert(options: {
   }
 
   await mergeWorkspaceChangeSetMetadataIntoArtifact(artifact as PersistedArtifact, {
-    ...changeSet,
-    files: [],
+    id: changeSet.id,
+    attributionKind: changeSet.attributionKind,
+    attributionConfidence: changeSet.attributionConfidence,
   })
 
   const detail = await findArtifactWithVersions(artifact.id)

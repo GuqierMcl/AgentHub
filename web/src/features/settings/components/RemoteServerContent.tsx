@@ -138,6 +138,7 @@ export function RemoteServerContent() {
       )}
 
       <RemoteServerDialog
+        key={editingServer?.id ?? 'add-new'}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         server={editingServer}

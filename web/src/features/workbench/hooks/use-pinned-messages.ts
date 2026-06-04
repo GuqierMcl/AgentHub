@@ -18,9 +18,11 @@ export function usePinnedMessages(conversationId: string | undefined) {
     }
   }, [conversationId])
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     void fetchPins()
   }, [fetchPins])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const pinnedMessageIds = new Set(pins.map((pin) => pin.messageId))
 
