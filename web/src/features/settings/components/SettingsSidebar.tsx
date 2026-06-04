@@ -90,6 +90,19 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
             ))}
           </SidebarMenu>
         </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>连接管理</SidebarGroupLabel>
+          <SidebarMenu>
+            <SidebarMenuItem key="remote-server">
+              <SidebarMenuButton
+                isActive={activeTab === "remote-server"}
+                onClick={() => onTabChange("remote-server")}
+              >
+                远程服务器
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
         <div className="px-2 text-xs" style={{ color: "var(--sidebar-foreground, oklch(0.48 0.015 250))" }}>
