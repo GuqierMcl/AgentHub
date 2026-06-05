@@ -406,3 +406,31 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 ```
 
 用户提交答案后 Runtime 发送 `question.answered`，`data.answers` 包含 `{ questionId, optionId?, answer?, custom }`，并发送 `tool.completed(toolName="question")`。取消 Run 时 Runtime 发送 `question.cancelled` 和 `tool.failed`，错误码为 `QUESTION_CANCELLED`。当没有其他 active task 时，pending question 会使 Run 进入 `waiting_input`。
+
+## 12. Task File Lock Payload
+
+`task.started`、`task.completed`、`task.failed` 的 `data.task` 是 Orchestrator delegated task 的结构化快照，其中 `data.task.lockPaths` 表示本次 `run_task` 声明的 workspace-relative 文件锁路径。未声明锁时该字段为 `[]`。
+
+当 `run_task.lockPaths` 非空且 Run 未绑定 workspace 时，Runtime 输出 `task.failed` 和对应的 `tool.failed(toolName="run_task")`，错误码为 `TASK_FILE_LOCK_WORKSPACE_NOT_BOUND`。当任一声明路径已被其他 active delegated task 锁定时，Runtime 输出 `TASK_FILE_LOCK_CONFLICT`，且 `task.failed.data.details` 至少包含：
+
+```ts
+{
+  taskId: string
+  targetAgentId: string
+  sourceAgentId: string
+  workspaceId?: string
+  lockPaths: string[]
+  conflicts?: Array<{
+    path: string
+    owner: {
+      runId: string
+      taskId: string
+      targetAgentId: string
+      sourceAgentId: string
+      groupId?: string
+    }
+  }>
+}
+```
+
+锁冲突发生在目标智能体执行前，因此同一 `taskId` 不应出现目标智能体的 `agent.started`。该锁是声明式 advisory lock，只覆盖显式传入 `run_task.lockPaths` 的委派任务。

@@ -269,6 +269,217 @@ describe("RunManager tool smoke", () => {
     expect(toolStartedEvents.every((event) => event.toolName === "run_task")).toBe(true)
   })
 
+  test("declared file locks block concurrent delegated tasks and release after completion", async () => {
+    const registry = await createInitializedRegistry()
+    const providerService = {} as ProviderService
+    const runManager = new RunManager(registry, providerService)
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "agent-runtime-locks-"))
+
+    ;(runManager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+        task?: { taskId: string }
+      }): AsyncIterable<RunEvent> {
+        if (context.task?.taskId === "task_lock_coder") {
+          await sleep(40)
+        }
+        yield createRunEvent(context.runId, "agent.started", context.agent.id, {
+          agentName: context.agent.id,
+        })
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: `${context.agent.id} handled ${context.task?.taskId ?? "task"}.`,
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    ;(runManager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+        runTask?: (task: OrchestratorTask, options?: { groupId?: string }) => Promise<{
+          status: "completed" | "failed" | "cancelled"
+          summary: string
+        }>
+      }): AsyncIterable<RunEvent> {
+        const [coderResult, reviewerResult] = await Promise.all([
+          context.runTask?.({
+            taskId: "task_lock_coder",
+            targetAgentId: "coder",
+            title: "Edit app",
+            instruction: "Edit src/App.tsx.",
+            expectedOutput: "App edit",
+            requiredCapabilities: ["implementation"],
+            riskLevel: "medium",
+            dependsOn: [],
+            lockPaths: ["src/App.tsx"],
+          }, {
+            groupId: "group_lock_conflict",
+          }),
+          context.runTask?.({
+            taskId: "task_lock_reviewer",
+            targetAgentId: "reviewer",
+            title: "Review app",
+            instruction: "Also edit src/App.tsx.",
+            expectedOutput: "Review edit",
+            requiredCapabilities: ["review"],
+            riskLevel: "medium",
+            dependsOn: [],
+            lockPaths: ["src/App.tsx"],
+          }, {
+            groupId: "group_lock_conflict",
+          }),
+        ])
+
+        const retryResult = await context.runTask?.({
+          taskId: "task_lock_retry",
+          targetAgentId: "coder",
+          title: "Retry app edit",
+          instruction: "Retry src/App.tsx after the first task releases its lock.",
+          expectedOutput: "Retry edit",
+          requiredCapabilities: ["implementation"],
+          riskLevel: "medium",
+          dependsOn: [],
+          lockPaths: ["src/App.tsx"],
+        }, {
+          groupId: "group_lock_conflict",
+        })
+
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: [
+            coderResult?.status,
+            reviewerResult?.status,
+            retryResult?.status,
+          ].join(","),
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_file_locks",
+      mode: "group",
+      participantAgentIds: ["orchestrator", "coder", "reviewer"],
+      addressedAgentIds: [],
+      userMessage: {
+        role: "user",
+        content: "Run two tasks that both want to edit src/App.tsx.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_file_locks",
+        backendType: "local",
+        rootPath: workspaceRoot,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const failedLockTask = events.find((event) =>
+      event.type === "task.failed" &&
+      (event.data as { code?: string }).code === "TASK_FILE_LOCK_CONFLICT"
+    )
+    const failedLockTaskId = failedLockTask?.taskId
+    const failedLockTargetAgentId = (failedLockTask?.data as { details?: { targetAgentId?: string } })
+      ?.details?.targetAgentId
+
+    expect(runManager.getRun(run.id)?.status).toBe("completed")
+    expect(failedLockTaskId).toBeTruthy()
+    expect(events.some((event) => event.type === "tool.failed" && event.toolName === "run_task")).toBe(true)
+    expect(events.some((event) => event.type === "task.completed" && event.taskId === "task_lock_retry")).toBe(true)
+    expect(events.some((event) =>
+      event.type === "agent.started" &&
+      event.taskId === failedLockTaskId &&
+      event.agentId === failedLockTargetAgentId
+    )).toBe(false)
+  })
+
+  test("declared file locks fail fast when a run has no workspace", async () => {
+    const registry = await createInitializedRegistry()
+    const providerService = {} as ProviderService
+    const runManager = new RunManager(registry, providerService)
+
+    ;(runManager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+      }): AsyncIterable<RunEvent> {
+        yield createRunEvent(context.runId, "agent.started", context.agent.id, {
+          agentName: context.agent.id,
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    ;(runManager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+        runTask?: (task: OrchestratorTask) => Promise<{
+          status: "completed" | "failed" | "cancelled"
+          summary: string
+        }>
+      }): AsyncIterable<RunEvent> {
+        const result = await context.runTask?.({
+          taskId: "task_lock_without_workspace",
+          targetAgentId: "coder",
+          title: "Edit app without workspace",
+          instruction: "This should not start because locks need a workspace.",
+          expectedOutput: "Nothing",
+          requiredCapabilities: ["implementation"],
+          riskLevel: "medium",
+          dependsOn: [],
+          lockPaths: ["src/App.tsx"],
+        })
+
+        yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+          content: result?.summary ?? "",
+        })
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_file_locks_no_workspace",
+      mode: "group",
+      participantAgentIds: ["orchestrator", "coder"],
+      addressedAgentIds: [],
+      userMessage: {
+        role: "user",
+        content: "Run a task with declared file locks but no workspace.",
+      },
+      history: [],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    expect(events.some((event) =>
+      event.type === "task.failed" &&
+      event.taskId === "task_lock_without_workspace" &&
+      (event.data as { code?: string }).code === "TASK_FILE_LOCK_WORKSPACE_NOT_BOUND"
+    )).toBe(true)
+    expect(events.some((event) =>
+      event.type === "agent.started" &&
+      event.taskId === "task_lock_without_workspace" &&
+      event.agentId === "coder"
+    )).toBe(false)
+  })
+
   test("delegated subagents inherit the direct caller model source while keeping their own tools", async () => {
     const registry = await createInitializedRegistry()
     const providerService = {} as ProviderService

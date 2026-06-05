@@ -287,6 +287,42 @@ export type RunEvent = z.infer<typeof RunEventSchema>
 export const OrchestratorRiskLevelSchema = z.enum(["low", "medium", "high"])
 export type OrchestratorRiskLevel = z.infer<typeof OrchestratorRiskLevelSchema>
 
+export function normalizeTaskLockPath(rawPath: string): string {
+  const path = rawPath.trim().replace(/\\/g, "/")
+  const absolutePrefix = path.startsWith("/") ? "/" : ""
+  const normalizedSegments = path
+    .split("/")
+    .filter((segment) => segment.length > 0 && segment !== ".")
+  return `${absolutePrefix}${normalizedSegments.join("/")}`
+}
+
+export const TaskLockPathSchema = z.string()
+  .min(1)
+  .transform((path) => normalizeTaskLockPath(path))
+  .superRefine((path, ctx) => {
+    const segments = path.split("/")
+    const hasWindowsDrive = /^[A-Za-z]:/.test(path)
+    if (
+      path.length === 0 ||
+      path === "." ||
+      path.startsWith("/") ||
+      hasWindowsDrive ||
+      segments.some((segment) => segment === ".." || segment.length === 0)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Lock paths must be workspace-relative file paths without absolute paths or .. segments",
+      })
+    }
+  })
+export type TaskLockPath = z.infer<typeof TaskLockPathSchema>
+
+export const TaskLockPathsSchema = z.array(TaskLockPathSchema)
+  .max(100)
+  .default([])
+  .transform((paths) => Array.from(new Set(paths)))
+export type TaskLockPaths = z.infer<typeof TaskLockPathsSchema>
+
 export const OrchestratorTaskSchema = z.object({
   taskId: z.string().min(1),
   targetAgentId: z.string().min(1),
@@ -296,8 +332,12 @@ export const OrchestratorTaskSchema = z.object({
   requiredCapabilities: z.array(z.string()).default([]),
   riskLevel: OrchestratorRiskLevelSchema,
   dependsOn: z.array(z.string().min(1)).default([]),
+  lockPaths: TaskLockPathsSchema,
 })
-export type OrchestratorTask = z.infer<typeof OrchestratorTaskSchema>
+type ParsedOrchestratorTask = z.infer<typeof OrchestratorTaskSchema>
+export type OrchestratorTask = Omit<ParsedOrchestratorTask, "lockPaths"> & {
+  lockPaths?: ParsedOrchestratorTask["lockPaths"]
+}
 
 export const OrchestratorPlanSchema = z.object({
   intent: z.string().min(1),
@@ -320,12 +360,16 @@ export const TaskExecutionResultSchema = z.object({
   status: TaskExecutionStatusSchema,
   summary: z.string(),
   dependsOn: z.array(z.string().min(1)).default([]),
+  lockPaths: TaskLockPathsSchema,
   groupId: z.string().optional(),
   parentTaskId: z.string().optional(),
   data: z.unknown().optional(),
   events: z.array(RunEventSchema),
 })
-export type TaskExecutionResult = z.infer<typeof TaskExecutionResultSchema>
+type ParsedTaskExecutionResult = z.infer<typeof TaskExecutionResultSchema>
+export type TaskExecutionResult = Omit<ParsedTaskExecutionResult, "lockPaths"> & {
+  lockPaths?: ParsedTaskExecutionResult["lockPaths"]
+}
 
 export type RunRecord = {
   id: string

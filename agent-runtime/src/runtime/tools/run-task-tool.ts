@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { OrchestratorTask, TaskExecutionResult } from "../types"
+import { TaskLockPathsSchema, type OrchestratorTask, type TaskExecutionResult } from "../types"
 import type { ToolDefinition, ToolExecutionResult } from "./types"
 
 const RunTaskInputSchema = z.object({
@@ -11,6 +11,7 @@ const RunTaskInputSchema = z.object({
   requiredCapabilities: z.array(z.string()).default([]),
   riskLevel: z.enum(["low", "medium", "high"]).default("low"),
   dependsOn: z.array(z.string().min(1)).default([]),
+  lockPaths: TaskLockPathsSchema,
   context: z.unknown().optional(),
   contextRef: z.string().optional(),
 })
@@ -20,6 +21,7 @@ type RunTaskInput = z.infer<typeof RunTaskInputSchema>
 type RunTaskModelData = {
   taskId: string
   targetAgentId: string
+  lockPaths: string[]
   groupId?: string
   parentTaskId?: string
   eventCount?: number
@@ -54,6 +56,7 @@ export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelDa
         }
       }
 
+      const lockPaths = context.task?.lockPaths ?? input.lockPaths
       const task: OrchestratorTask = {
         taskId: context.task?.taskId ?? input.taskId ?? `task_${input.targetAgentId}_${crypto.randomUUID().slice(0, 8)}`,
         targetAgentId: input.targetAgentId,
@@ -63,6 +66,7 @@ export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelDa
         requiredCapabilities: input.requiredCapabilities,
         riskLevel: input.riskLevel,
         dependsOn: context.task?.dependsOn ?? input.dependsOn,
+        lockPaths,
       }
 
       const taskResult = await executeTask(task, {
@@ -76,6 +80,7 @@ export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelDa
         data: {
           taskId: taskResult.taskId,
           targetAgentId: taskResult.targetAgentId,
+          lockPaths: taskResult.lockPaths ?? lockPaths,
           groupId: taskResult.groupId,
           parentTaskId: taskResult.parentTaskId,
           eventCount: taskResult.events.length,

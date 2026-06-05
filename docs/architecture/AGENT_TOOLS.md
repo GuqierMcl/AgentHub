@@ -242,8 +242,13 @@ UI 或 HubServer 应从事件流中选择最后一个成功的 `tool.completed(t
 - `expectedOutput`
 - `riskLevel`
 - `context` 或 `contextRef`
+- `lockPaths?: string[]`
 
 不建议把 DAG 依赖塞进单个 `run_task` 工具输入里。
+
+`lockPaths` 是 Orchestrator 声明式文件锁 V0。路径必须是 workspace-relative 的精确文件路径，不能为空、不能是绝对路径、不能包含 `..` 越界段，Runtime 会统一规范化为 `/`。当 `lockPaths` 非空时，Runtime 在目标智能体真正执行前按 `{ workspaceId, path }` 申请内存锁；任一文件已被其他 active delegated task 锁定，则该 `run_task` 失败并返回 `TASK_FILE_LOCK_CONFLICT`，不启动目标智能体。未绑定 workspace 的 Run 使用非空 `lockPaths` 会失败为 `TASK_FILE_LOCK_WORKSPACE_NOT_BOUND`。
+
+V0 是 advisory lock：只保护 Orchestrator 主动在 `run_task.lockPaths` 中声明的文件，不新增 SQLite 锁表，不拦截普通单聊智能体直接使用 `write_file` / `edit_file`，也不拦截外部 Agent 未声明文件的真实写入。未知文件时 Orchestrator 应先委派只读探索任务，拿到文件列表后再委派写入任务并声明锁。
 
 ### 8.3 输出
 
@@ -409,6 +414,7 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - `write_plan` 通过 `tool.completed.data.plan` 输出 UI 可渲染计划，只产生 `tool.*` 事件，不产生 `task.*` 事件。
 - 已将 `run_task` 正式封装为 Runtime Tool，且仅 `orchestrator` 可见、可调用。
 - `run_task` 单次只拉起一个目标智能体执行一个任务，返回统一结构化结果。
+- `run_task.lockPaths` 已支持声明式内存文件锁 V0：同一 workspace 内同一路径的并发 delegated task 会产生结构化锁冲突，任务终态或 Run 终态会释放锁。
 - 已将 `bash` 正式封装为 Runtime Tool，开放给内部预设主智能体；命令级规则写入 agent schema，用户自定义智能体暂不开放 shell。
 - 已将 `question` 正式封装为 Runtime Tool，隐式开放给内部 AI SDK 智能体；用户自定义智能体无需配置即可使用，但 authoring options 不展示该工具，外部 adapter 不注入。
 - `tool.*` 以及 `permission.requested`、`permission.approved`、`permission.denied`、`permission.cancelled` 已纳入 RunEvent 协议。

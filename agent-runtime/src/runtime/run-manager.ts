@@ -34,6 +34,7 @@ import {
   WorkspaceDiffService,
   type WorkspaceDiffBaseline,
 } from "./workspace-diff"
+import { TaskFileLockManager } from "./task-file-lock-manager"
 import type {
   AgentExecutionContext,
   AgentExecutor,
@@ -141,6 +142,8 @@ class TaskExecutionError extends Error {
       | "TASK_TARGET_NOT_ALLOWED"
       | "TASK_DEPENDENCY_FAILED"
       | "TASK_DEPENDENCY_CYCLE"
+      | "TASK_FILE_LOCK_WORKSPACE_NOT_BOUND"
+      | "TASK_FILE_LOCK_CONFLICT"
       | "TASK_EXECUTION_ABORTED"
       | "TASK_EXECUTION_FAILED",
     message: string,
@@ -164,6 +167,7 @@ export class RunManager {
   private orchestratorExecutor: OrchestratorExecutor
   private systemAgentRunner: SystemAgentRunner
   private workspaceDiffService = new WorkspaceDiffService()
+  private fileLockManager = new TaskFileLockManager()
   private toolRegistry: RuntimeToolRegistry
   private runs: Map<string, RunRecord> = new Map()
   private events: Map<string, RunEvent[]> = new Map()
@@ -513,6 +517,7 @@ export class RunManager {
     }
     this.updateRunStatus(run, "cancelled")
     const workspaceDiff = await this.resolveWorkspaceDiffSummary(runId)
+    this.fileLockManager.releaseByRun(runId)
     state?.workspaceService?.close()
     this.emit(createRunEvent(runId, "run.cancelled", undefined, {
       reason: "cancelled_by_request",
@@ -624,6 +629,7 @@ export class RunManager {
       log.error({ runId, error: message }, "Run failed")
     } finally {
       if (isTerminalStatus(run.status)) {
+        this.fileLockManager.releaseByRun(runId)
         this.executionState.get(runId)?.workspaceService?.close()
       }
     }
@@ -935,6 +941,7 @@ export class RunManager {
           status: toolResult.status === "cancelled" ? "cancelled" : "failed",
           summary: toolResult.summary,
           dependsOn: nextTask.dependsOn,
+          lockPaths: nextTask.lockPaths,
           groupId: dispatchOptions.groupId,
           parentTaskId: dispatchOptions.parentTaskId,
           data: toolResult.error,
@@ -987,12 +994,18 @@ export class RunManager {
     const { run, sourceAgent, task, abortController, groupId, parentTaskId } = options
     const lifecycleEvents: RunEvent[] = []
     const taskParentTaskId = parentTaskId ?? task.dependsOn[0]
+    const lockPaths = task.lockPaths ?? []
+    const taskWithLocks: OrchestratorTask = {
+      ...task,
+      lockPaths,
+    }
+    let locksAcquired = false
 
     const startedEvent = this.createTaskLifecycleEvent(
       run.id,
       sourceAgent.id,
       "task.started",
-      task,
+      taskWithLocks,
       {
         targetAgentId: task.targetAgentId,
         title: task.title,
@@ -1007,6 +1020,50 @@ export class RunManager {
 
     try {
       const targetAgent = this.resolveTaskTarget(run, sourceAgent, task.targetAgentId)
+
+      if (lockPaths.length > 0) {
+        const state = this.executionState.get(run.id)
+        const workspaceHandle = state?.workspaceService?.getHandle()
+        if (!workspaceHandle) {
+          throw new TaskExecutionError(
+            "TASK_FILE_LOCK_WORKSPACE_NOT_BOUND",
+            "Declared file locks require the run to be bound to a workspace",
+            {
+              taskId: task.taskId,
+              targetAgentId: targetAgent.id,
+              sourceAgentId: sourceAgent.id,
+              lockPaths,
+            }
+          )
+        }
+
+        const lockResult = this.fileLockManager.tryAcquire({
+          workspaceId: workspaceHandle.workspaceId,
+          paths: lockPaths,
+          owner: {
+            runId: run.id,
+            taskId: task.taskId,
+            targetAgentId: targetAgent.id,
+            sourceAgentId: sourceAgent.id,
+            groupId,
+          },
+        })
+        if (!lockResult.acquired) {
+          throw new TaskExecutionError(
+            "TASK_FILE_LOCK_CONFLICT",
+            `Declared file lock conflict for ${lockResult.conflicts.map((conflict) => conflict.path).join(", ")}`,
+            {
+              taskId: task.taskId,
+              targetAgentId: targetAgent.id,
+              sourceAgentId: sourceAgent.id,
+              workspaceId: workspaceHandle.workspaceId,
+              lockPaths,
+              conflicts: lockResult.conflicts,
+            }
+          )
+        }
+        locksAcquired = true
+      }
 
       if (abortController.signal.aborted || run.status === "cancelled") {
         throw new TaskExecutionError(
@@ -1034,7 +1091,7 @@ export class RunManager {
         abortController,
         parentAgentId: sourceAgent.id,
         modelSourceAgent: targetAgent.tier === "subagent" ? sourceAgent : undefined,
-        task,
+        task: taskWithLocks,
         groupId,
         parentTaskId: task.taskId,
         onEvent: (event) => this.emit(event),
@@ -1050,12 +1107,12 @@ export class RunManager {
         )
       }
 
-      const summary = this.extractTaskSummary(childEvents, targetAgent, task)
+      const summary = this.extractTaskSummary(childEvents, targetAgent, taskWithLocks)
       const completedEvent = this.createTaskLifecycleEvent(
         run.id,
         sourceAgent.id,
         "task.completed",
-        task,
+        taskWithLocks,
         {
           targetAgentId: targetAgent.id,
           summary,
@@ -1084,7 +1141,8 @@ export class RunManager {
         targetAgentId: targetAgent.id,
         status: "completed",
         summary,
-        dependsOn: task.dependsOn,
+        dependsOn: taskWithLocks.dependsOn,
+        lockPaths,
         groupId,
         parentTaskId: taskParentTaskId,
         data: {
@@ -1105,7 +1163,7 @@ export class RunManager {
         run.id,
         sourceAgent.id,
         "task.failed",
-        task,
+        taskWithLocks,
         {
           code: taskError.code,
           message: taskError.message,
@@ -1135,11 +1193,16 @@ export class RunManager {
         targetAgentId: task.targetAgentId,
         status: taskError.code === "TASK_EXECUTION_ABORTED" ? "cancelled" : "failed",
         summary: taskError.message,
-        dependsOn: task.dependsOn,
+        dependsOn: taskWithLocks.dependsOn,
+        lockPaths,
         groupId,
         parentTaskId: taskParentTaskId,
         data: taskError.details,
         events: lifecycleEvents,
+      }
+    } finally {
+      if (locksAcquired) {
+        this.fileLockManager.releaseByTask(run.id, task.taskId)
       }
     }
   }
