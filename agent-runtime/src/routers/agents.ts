@@ -280,7 +280,7 @@ agents.get("/runtime/agents/:agentId", (c: Context) => {
     return registryUnavailable(c)
   }
 
-  const agentId = c.req.param("agentId")
+  const agentId = c.req.param("agentId")!
   const agent = registry.getAgent(agentId)
   const includeHidden = result.data.includeHidden === "true"
 
@@ -304,7 +304,7 @@ agents.put("/runtime/agents/:agentId", async (c: Context) => {
     return agentInvalidInput(c, result.error.issues)
   }
 
-  const agentId = c.req.param("agentId")
+  const agentId = c.req.param("agentId")!
 
   try {
     const updatedAgent = await registry.updateUserAgent(agentId, result.data)
@@ -324,7 +324,7 @@ agents.delete("/runtime/agents/:agentId", async (c: Context) => {
     return registryUnavailable(c)
   }
 
-  const agentId = c.req.param("agentId")
+  const agentId = c.req.param("agentId")!
 
   try {
     const deleted = await registry.deleteUserAgent(agentId)
@@ -348,7 +348,7 @@ agents.put("/runtime/agents/:agentId/model", async (c: Context) => {
     return registryUnavailable(c)
   }
 
-  const agentId = c.req.param("agentId")
+  const agentId = c.req.param("agentId")!
   const agent = registry.getAgent(agentId)
   if (!agent || agent.visibility === "hidden") {
     return agentNotFound(c, agentId)
@@ -417,7 +417,7 @@ agents.delete("/runtime/agents/:agentId/model", async (c: Context) => {
     return registryUnavailable(c)
   }
 
-  const agentId = c.req.param("agentId")
+  const agentId = c.req.param("agentId")!
   const agent = registry.getAgent(agentId)
   if (!agent || agent.visibility === "hidden") {
     return agentNotFound(c, agentId)

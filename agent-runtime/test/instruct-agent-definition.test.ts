@@ -74,7 +74,7 @@ describe("instruct-agent definition", () => {
     const registry = new InstructAgentRegistry()
     const agent = registry.getAgent("instruct-agent")!
 
-    expect(agent.visibility).toBe("hidden")
+    expect(agent.visibility).toBe("visible")
     expect(agent.delegationPolicy).toBe("terminal")
   })
 })

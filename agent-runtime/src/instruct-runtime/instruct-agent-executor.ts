@@ -149,7 +149,7 @@ export class InstructAgentExecutor implements AgentExecutor {
     try {
       const resolution = resolveSystemDefaultLanguageModel(this.providerService, fallbackRef, {
         agentId: context.agent.id,
-        fallbackFromModelRef: failedModelRef,
+        fallbackFromModelRef: failedModelRef ?? undefined,
       })
       return {
         id: createAttemptId(resolution.modelRef, "system-default"),

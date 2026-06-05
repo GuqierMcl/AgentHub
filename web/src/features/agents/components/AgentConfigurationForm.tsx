@@ -39,6 +39,8 @@ type AgentConfigurationFormProps = {
   onCancel?: () => void
   onConfigureModel?: () => void
   onSaved: (agent: AgentDetail) => void
+  hideAvatar?: boolean
+  hideFooter?: boolean
 }
 
 const FILESYSTEM_OPTIONS: Array<{
@@ -96,6 +98,8 @@ export function AgentConfigurationForm({
   active,
   agent,
   canConfigureModel = false,
+  hideAvatar = false,
+  hideFooter = false,
   mode,
   onCancel,
   onConfigureModel,
@@ -295,7 +299,7 @@ export function AgentConfigurationForm({
   const requiresWrite = allowedTools.some((tool) => WRITE_TOOLS.includes(tool))
 
   return (
-    <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+    <form className="flex flex-col gap-5" id={hideFooter ? "agent-create-form" : undefined} onSubmit={handleSubmit}>
       <div className="flex flex-col gap-2">
         <label className="text-sm font-medium" htmlFor={`${mode}-agent-id`}>
           ID
@@ -314,23 +318,25 @@ export function AgentConfigurationForm({
         )}
       </div>
 
-      <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
-        <AgentAvatar agent={agent ?? { id: agentId, name: name || "?" }} override={currentOverride} size="lg" />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-sm font-medium">自定义头像</span>
-          <span className="text-xs text-muted-foreground">为智能体设置本地显示的自定义头像</span>
+      {hideAvatar ? null : (
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+          <AgentAvatar agent={agent ?? { id: agentId, name: name || "?" }} override={currentOverride} size="lg" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-sm font-medium">自定义头像</span>
+            <span className="text-xs text-muted-foreground">为智能体设置本地显示的自定义头像</span>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setAvatarEditOpen(true)}>
+            <CameraIcon className="mr-1 size-3.5" />
+            更换头像
+          </Button>
+          <AvatarEditDialog
+            agent={agent ?? { id: agentId, name: name || "?" }}
+            currentOverride={currentOverride}
+            open={avatarEditOpen}
+            onOpenChange={setAvatarEditOpen}
+          />
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => setAvatarEditOpen(true)}>
-          <CameraIcon className="mr-1 size-3.5" />
-          更换头像
-        </Button>
-        <AvatarEditDialog
-          agent={agent ?? { id: agentId, name: name || "?" }}
-          currentOverride={currentOverride}
-          open={avatarEditOpen}
-          onOpenChange={setAvatarEditOpen}
-        />
-      </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <label className="text-sm font-medium" htmlFor={`${mode}-agent-name`}>
@@ -533,19 +539,21 @@ export function AgentConfigurationForm({
         </p>
       </div>
 
-      <div className="flex justify-end gap-2 border-border border-t pt-4">
-        {onCancel ? (
-          <Button onClick={onCancel} type="button" variant="outline">
-            取消
+      {hideFooter ? null : (
+        <div className="flex justify-end gap-2 border-border border-t pt-4">
+          {onCancel ? (
+            <Button onClick={onCancel} type="button" variant="outline">
+              取消
+            </Button>
+          ) : null}
+          <Button
+            disabled={saving || !name.trim() || !description.trim() || !systemPrompt.trim()}
+            type="submit"
+          >
+            {saving ? "保存中..." : isEdit ? "保存修改" : "创建智能体"}
           </Button>
-        ) : null}
-        <Button
-          disabled={saving || !name.trim() || !description.trim() || !systemPrompt.trim()}
-          type="submit"
-        >
-          {saving ? "保存中..." : isEdit ? "保存修改" : "创建智能体"}
-        </Button>
-      </div>
+        </div>
+      )}
     </form>
   )
 }

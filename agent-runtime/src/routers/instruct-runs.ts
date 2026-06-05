@@ -57,7 +57,7 @@ instructRuns.post("/runtime/instruct-runs", async (c: Context) => {
 })
 
 instructRuns.get("/runtime/instruct-runs/:runId/events", (c: Context) => {
-  const runId = c.req.param("runId")!
+  const runId = c.req.param("runId")!!
   const manager = c.get("instructRunManager")
 
   const existingEvents = manager.getEvents(runId)
@@ -175,7 +175,7 @@ instructRuns.get("/runtime/instruct-runs/:runId/events", (c: Context) => {
 })
 
 instructRuns.get("/runtime/instruct-runs/:runId", (c: Context) => {
-  const runId = c.req.param("runId")
+  const runId = c.req.param("runId")!
   const run = c.get("instructRunManager").getRun(runId)
   if (!run) {
     return c.json({
@@ -189,8 +189,8 @@ instructRuns.get("/runtime/instruct-runs/:runId", (c: Context) => {
 })
 
 instructRuns.post("/runtime/instruct-runs/:runId/questions/:requestId/answer", async (c: Context) => {
-  const runId = c.req.param("runId")
-  const requestId = c.req.param("requestId")
+  const runId = c.req.param("runId")!
+  const requestId = c.req.param("requestId")!
   const body = await c.req.json().catch(() => null)
   const parsed = QuestionAnswerRequestSchema.safeParse(body)
 
@@ -222,7 +222,7 @@ instructRuns.post("/runtime/instruct-runs/:runId/questions/:requestId/answer", a
 })
 
 instructRuns.post("/runtime/instruct-runs/:runId/cancel", async (c: Context) => {
-  const runId = c.req.param("runId")
+  const runId = c.req.param("runId")!
   const run = c.get("instructRunManager").cancelRun(runId)
   if (!run) {
     return c.json({

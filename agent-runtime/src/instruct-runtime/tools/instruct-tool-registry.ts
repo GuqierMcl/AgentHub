@@ -104,9 +104,9 @@ export class InstructToolRegistry {
   }
 
   buildAiSdkToolSettings(
-    context: { agent: AgentDefinition; runId: string; signal: AbortSignal; getCurrentMessageId?: () => string }
+    baseContext: AgentExecutionContext
   ): AiSdkToolSettings | null {
-    const visibleTools = this.listToolsForAgent(context.agent)
+    const visibleTools = this.listToolsForAgent(baseContext.agent)
     if (visibleTools.length === 0) {
       return null
     }
@@ -121,19 +121,22 @@ export class InstructToolRegistry {
         continue
       }
 
-      const toolCallId = `tool_${crypto.randomUUID()}`
-      const toolContext = this.buildContext(context, toolCallId)
-
-      tools[definition.name] = tool({
-        description: definition.description,
-        inputSchema: definition.inputSchema,
-        execute: async (input) => {
-          const result = await this.executeTool(definition.name, input, toolContext)
-          return {
-            status: result.status,
-            summary: result.summary,
-            data: result.data,
-            error: result.error,
+        tools[definition.name] = tool({
+          description: definition.description,
+          inputSchema: definition.inputSchema,
+          execute: async (input, options) => {
+            const result = await this.executeTool(
+              definition.name,
+              input,
+              this.buildContext(baseContext, options.toolCallId ?? `tool_${crypto.randomUUID()}`, {
+                signal: options.abortSignal,
+              })
+            )
+            return {
+              status: result.status,
+              summary: result.summary,
+              data: result.data,
+              error: result.error,
           }
         },
       })
@@ -146,16 +149,26 @@ export class InstructToolRegistry {
   }
 
   private buildContext(
-    baseContext: { runId: string; agent: AgentDefinition; signal: AbortSignal; getCurrentMessageId?: () => string },
-    toolCallId: string
+    baseContext: AgentExecutionContext,
+    toolCallId: string,
+    options: { signal?: AbortSignal } = {}
   ): ToolExecutionContext {
     return {
       runId: baseContext.runId,
-      input: {} as any,
+      input: baseContext.input,
       agent: baseContext.agent,
-      signal: baseContext.signal,
+      signal: options.signal ?? baseContext.signal,
       toolCallId,
-      emitEvent: () => {},
+      parentAgentId: baseContext.parentAgentId,
+      groupId: baseContext.groupId,
+      parentTaskId: baseContext.parentTaskId,
+      task: baseContext.task,
+      executionId: baseContext.executionId,
+      executeTask: baseContext.executeTask,
+      runTask: baseContext.runTask,
+      emitEvent: baseContext.emitEvent ?? (() => {}),
+      workspaceService: baseContext.workspaceService,
+      permissionService: baseContext.permissionService,
       getCurrentMessageId: baseContext.getCurrentMessageId,
     }
   }
@@ -174,10 +187,15 @@ export class InstructToolRegistry {
   }
 }
 
-export function createInstructRuntimeToolRegistry(dataDir: string): InstructToolRegistry {
+export function createInstructRuntimeToolRegistry(
+  dataDir: string,
+  options: {
+    onSavedAgent?: (agent: AgentDefinition) => Promise<void> | void
+  } = {}
+): InstructToolRegistry {
   const registry = new InstructToolRegistry()
   const store = new AgentStore(dataDir)
   registry.register(createQuestionTool())
-  registry.register(createSaveAgentTool(store))
+  registry.register(createSaveAgentTool(store, options))
   return registry
 }

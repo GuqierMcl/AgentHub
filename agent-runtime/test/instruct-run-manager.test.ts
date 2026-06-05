@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
+import type { ModelMessage } from "ai"
 import { InstructAgentRegistry } from "../src/agents/instruct-agent-registry"
 import { InstructRunManager } from "../src/instruct-runtime/instruct-run-manager"
 import type { InstructRunInput } from "../src/instruct-runtime/types"
+import { createRunEvent } from "../src/runtime/run-events"
 
 function makeRunInput(overrides: Partial<InstructRunInput> = {}): InstructRunInput {
   return {
@@ -150,5 +152,108 @@ describe("InstructRunManager", () => {
     expect(unsubscribe).toBeDefined()
     // Should not throw when called
     expect(() => unsubscribe()).not.toThrow()
+  })
+
+  test("answerQuestion resumes with structured tool-result answers", async () => {
+    const registry = new InstructAgentRegistry()
+    let executions = 0
+    let resumedMessages: ModelMessage[] | undefined
+
+    const manager = new InstructRunManager(registry, {
+      async *execute(context: any) {
+        executions += 1
+        if (!context.resumeMessages) {
+          context.onQuestionPending?.({
+            calls: [{
+              toolCallId: "tool_question_policy",
+              messageId: "msg_question_policy",
+              input: {
+                questions: [{
+                  id: "policy",
+                  title: "权限策略",
+                  body: "请选择权限策略",
+                  options: [{ id: "read_only", label: "只读" }],
+                  allowCustom: true,
+                  required: true,
+                }],
+              },
+            }],
+            resumeMessages: [{
+              role: "assistant",
+              content: [],
+            } as unknown as ModelMessage],
+          })
+          return
+        }
+
+        resumedMessages = context.resumeMessages
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    } as any)
+
+    const response = manager.createRun(makeRunInput())
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const requested = (manager.getEvents(response.runId) ?? []).find(
+      (event) => event.type === "question.requested"
+    )
+    expect(requested).toBeDefined()
+    const requestId = (requested?.data as { requestId?: string } | undefined)?.requestId
+    expect(requestId).toBeTruthy()
+
+    manager.answerQuestion(response.runId, requestId!, [{
+      questionId: "policy",
+      optionId: "read_only",
+    }])
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(executions).toBe(2)
+    expect(JSON.stringify(resumedMessages)).toContain("\"toolName\":\"question\"")
+    expect(JSON.stringify(resumedMessages)).toContain("\"requestId\":\"question_")
+    expect(JSON.stringify(resumedMessages)).toContain("\"questionId\":\"policy\"")
+    expect(JSON.stringify(resumedMessages)).toContain("\"optionId\":\"read_only\"")
+  })
+
+  test("invalid question input emits tool.failed instead of an empty question request", async () => {
+    const registry = new InstructAgentRegistry()
+    const manager = new InstructRunManager(registry, {
+      async *execute(context: any) {
+        const accepted = context.onQuestionPending?.({
+          calls: [{
+            toolCallId: "tool_question_invalid",
+            messageId: "msg_question_invalid",
+            input: {},
+          }],
+          resumeMessages: [{
+            role: "assistant",
+            content: [],
+          } as unknown as ModelMessage],
+        }) ?? false
+
+        if (!accepted) {
+          yield createRunEvent(context.runId, "message.completed", context.agent.id, {
+            content: "我换一种方式继续说明。",
+          })
+          yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+            status: "completed",
+          })
+        }
+      },
+    } as any)
+
+    const response = manager.createRun(makeRunInput())
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const events = manager.getEvents(response.runId) ?? []
+    expect(events.some((event) => event.type === "question.requested")).toBe(false)
+    expect(events.some((event) =>
+      event.type === "tool.failed" &&
+      event.toolName === "question" &&
+      (event.data as { error?: { code?: string } } | undefined)?.error?.code === "TOOL_INVALID_INPUT"
+    )).toBe(true)
+    expect(manager.getRun(response.runId)?.status).toBe("completed")
   })
 })

@@ -130,7 +130,7 @@ runs.post("/runtime/runs", async (c: Context) => {
 })
 
 runs.get("/runtime/runs/:runId/events", (c: Context) => {
-  const runId = c.req.param("runId")
+  const runId = c.req.param("runId")!
   log.info({ runId }, "GET /runtime/runs/:runId/events - streaming events")
 
   const manager = c.get("runManager")
@@ -273,7 +273,7 @@ runs.get("/runtime/runs/:runId/events", (c: Context) => {
 })
 
 runs.get("/runtime/runs/:runId", (c: Context) => {
-  const runId = c.req.param("runId")
+  const runId = c.req.param("runId")!
   log.info({ runId }, "GET /runtime/runs/:runId - getting run status")
 
   const run = c.get("runManager").getRunResponse(runId)
@@ -287,7 +287,7 @@ runs.get("/runtime/runs/:runId", (c: Context) => {
 })
 
 runs.get("/runtime/runs/:runId/permissions", (c: Context) => {
-  const runId = c.req.param("runId")
+  const runId = c.req.param("runId")!
   const manager = c.get("runManager")
   if (!manager.getRun(runId)) {
     return runNotFound(c, runId)
@@ -298,8 +298,8 @@ runs.get("/runtime/runs/:runId/permissions", (c: Context) => {
 })
 
 runs.post("/runtime/runs/:runId/permissions/:requestId/decision", async (c: Context) => {
-  const runId = c.req.param("runId")
-  const requestId = c.req.param("requestId")
+  const runId = c.req.param("runId")!
+  const requestId = c.req.param("requestId")!
   const body = await c.req.json().catch(() => null)
   const parsed = PermissionDecisionSchema.safeParse(body)
   if (!parsed.success) {
@@ -333,8 +333,8 @@ runs.post("/runtime/runs/:runId/permissions/:requestId/decision", async (c: Cont
 })
 
 runs.post("/runtime/runs/:runId/questions/:requestId/answer", async (c: Context) => {
-  const runId = c.req.param("runId")
-  const requestId = c.req.param("requestId")
+  const runId = c.req.param("runId")!
+  const requestId = c.req.param("requestId")!
   const body = await c.req.json().catch(() => null)
   const parsed = QuestionAnswerRequestSchema.safeParse(body)
   if (!parsed.success) {
@@ -368,7 +368,7 @@ runs.post("/runtime/runs/:runId/questions/:requestId/answer", async (c: Context)
 })
 
 runs.post("/runtime/runs/:runId/cancel", async (c: Context) => {
-  const runId = c.req.param("runId")
+  const runId = c.req.param("runId")!
   log.info({ runId }, "POST /runtime/runs/:runId/cancel - cancelling run")
 
   const run = await c.get("runManager").cancelRun(runId)

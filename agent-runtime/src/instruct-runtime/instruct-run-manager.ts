@@ -1,7 +1,7 @@
 import type { ModelMessage } from "ai"
 import { createChildLogger } from "../logger"
 import { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "../runtime/run-events"
-import type { AgentExecutionContext, RunEvent, RunStatus } from "../runtime/types"
+import type { AgentExecutionContext, RunEvent } from "../runtime/types"
 import type { PendingQuestionToolCall, QuestionContinuationRequest } from "../runtime/question"
 import {
   normalizeQuestionToolInput,
@@ -16,6 +16,7 @@ import type {
   InstructRunInput,
   InstructRunRecord,
   InstructRunCreateResponse,
+  InstructRunStatus,
 } from "./types"
 import type { AgentDefinition } from "../agents"
 
@@ -41,6 +42,9 @@ type InstructRunStore = {
   subscriptions: Set<InstructRunSubscription>
   questionRecord: QuestionContinuationRecord | null
   abortController: AbortController
+  messageBlockCounters: Map<string, number>
+  messageIndexById: Map<string, number>
+  nextMessageIndex: number
 }
 
 export class InstructRunManager {
@@ -78,6 +82,9 @@ export class InstructRunManager {
       subscriptions: new Set(),
       questionRecord: null,
       abortController,
+      messageBlockCounters: new Map(),
+      messageIndexById: new Map(),
+      nextMessageIndex: 0,
     }
 
     this.runs.set(runId, run)
@@ -190,7 +197,13 @@ export class InstructRunManager {
       type: "tool-result" as const,
       toolCallId: call.toolCallId,
       toolName: "question",
-      output: "The user answered the questions.",
+      output: {
+        type: "json" as const,
+        value: {
+          requestId: store.questionRecord!.requestId,
+          answers: normalized,
+        },
+      },
     }))
 
     const resumeMessages: ModelMessage[] = [
@@ -247,7 +260,7 @@ export class InstructRunManager {
     return run
   }
 
-  private updateRunStatus(run: InstructRunRecord, status: RunStatus): void {
+  private updateRunStatus(run: InstructRunRecord, status: InstructRunStatus): void {
     run.status = status
     run.updatedAt = new Date().toISOString()
   }
@@ -276,13 +289,19 @@ export class InstructRunManager {
       this.updateRunStatus(run, "running")
       this.emit(createRunEvent(runId, "run.started", agent.id, {}))
 
+      const executionId = `execution_${crypto.randomUUID()}`
+
       const context: AgentExecutionContext = {
         runId,
         agent,
         signal: abortController.signal,
         input: input as any,
-        executionId: runId,
+        executionId,
         resumeMessages,
+        createMessageId: () => this.createExecutionMessageId(runId, store, executionId),
+        emitEvent: (event) => {
+          this.emit(event)
+        },
         onQuestionPending: (request: QuestionContinuationRequest): boolean => {
           if (abortController.signal.aborted) {
             return false
@@ -290,12 +309,34 @@ export class InstructRunManager {
 
           const toolCallId = request.calls[0]?.toolCallId ?? `tool_${crypto.randomUUID()}`
           const messageId = request.calls[0]?.messageId
-          const requestId = `question_${crypto.randomUUID()}`
-
           const parsed = QuestionToolInputSchema.safeParse(request.calls[0]?.input)
-          const questions = parsed.success
-            ? normalizeQuestionToolInput(parsed.data)
-            : normalizeQuestionToolInput({ questions: [] })
+          if (!parsed.success) {
+            const toolStarted = createRunEvent(runId, "tool.started", agent.id, {
+              riskLevel: "low",
+            })
+            toolStarted.toolCallId = toolCallId
+            toolStarted.toolName = "question"
+            toolStarted.messageId = messageId
+            this.emit(toolStarted)
+
+            const toolFailed = createRunEvent(runId, "tool.failed", agent.id, {
+              status: "failed",
+              summary: "Invalid input for question",
+              error: {
+                code: "TOOL_INVALID_INPUT",
+                message: "Invalid input for question",
+                details: parsed.error.issues,
+              },
+            })
+            toolFailed.toolCallId = toolCallId
+            toolFailed.toolName = "question"
+            toolFailed.messageId = messageId
+            this.emit(toolFailed)
+            return false
+          }
+
+          const requestId = `question_${crypto.randomUUID()}`
+          const questions = normalizeQuestionToolInput(parsed.data)
 
           store.questionRecord = {
             requestId,
@@ -382,30 +423,62 @@ export class InstructRunManager {
     log.error({ runId, error: message }, "Instruct run failed")
   }
 
+  private createExecutionMessageId(
+    runId: string,
+    store: InstructRunStore,
+    executionId: string
+  ): string {
+    const blockIndex = store.messageBlockCounters.get(executionId) ?? 0
+    store.messageBlockCounters.set(executionId, blockIndex + 1)
+    return `msg_${runId}_${executionId}_${blockIndex}`
+  }
+
+  private assignMessageIndex(
+    event: RunEvent,
+    store: InstructRunStore | undefined = this.stores.get(event.runId)
+  ): RunEvent {
+    if (!store || !event.messageId) {
+      return event
+    }
+
+    const current = store.messageIndexById.get(event.messageId)
+    if (typeof current === "number") {
+      event.messageIndex = current
+      return event
+    }
+
+    const nextIndex = store.nextMessageIndex
+    store.nextMessageIndex += 1
+    store.messageIndexById.set(event.messageId, nextIndex)
+    event.messageIndex = nextIndex
+    return event
+  }
+
   private emit(event: RunEvent): void {
-    const events = this.events.get(event.runId)
+    const normalizedEvent = this.assignMessageIndex(event)
+    const events = this.events.get(normalizedEvent.runId)
     if (events) {
-      events.push(event)
+      events.push(normalizedEvent)
     }
 
-    const run = this.runs.get(event.runId)
+    const run = this.runs.get(normalizedEvent.runId)
     if (run) {
-      run.updatedAt = event.timestamp
+      run.updatedAt = normalizedEvent.timestamp
     }
 
-    const subscriptions = this.subscriptions.get(event.runId)
+    const subscriptions = this.subscriptions.get(normalizedEvent.runId)
     if (subscriptions) {
       for (const handler of subscriptions) {
         try {
-          handler(event)
+          handler(normalizedEvent)
         } catch (subscriptionError) {
-          log.warn({ eventType: event.type }, "Instruct subscription error")
+          log.warn({ eventType: normalizedEvent.type }, "Instruct subscription error")
         }
       }
     }
 
-    if (isTerminalRunEvent(event)) {
-      this.subscriptions.delete(event.runId)
+    if (isTerminalRunEvent(normalizedEvent)) {
+      this.subscriptions.delete(normalizedEvent.runId)
     }
   }
 }

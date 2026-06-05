@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { AgentStore } from "../src/agents"
+import { AgentRegistry, AgentStore } from "../src/agents"
 import { createInstructRuntimeToolRegistry } from "../src/instruct-runtime/tools"
 import { createSaveAgentTool } from "../src/instruct-runtime/tools/save-agent-tool"
+import { createDefaultRuntimeToolRegistry } from "../src/runtime"
 import type { ToolExecutionResult } from "../src/runtime/tools"
 import type { InstructSaveAgentInput, InstructSaveAgentResult } from "../src/instruct-runtime/types"
 
@@ -393,6 +394,80 @@ describe("InstructToolRegistry", () => {
 
     expect(tool).not.toBeNull()
     expect(tool!.deferred).toBe(true)
+
+    await cleanup(dataDir)
+  })
+
+  test("executeTool emits tool.started and tool.completed for save_agent", async () => {
+    const { dataDir } = await createTempStore()
+
+    const registry = createInstructRuntimeToolRegistry(dataDir)
+    const events: Array<{ type: string; toolName?: string }> = []
+
+    const result = await registry.executeTool("save_agent", makeValidInput({
+      id: "registry_save_agent",
+    }), {
+      runId: "run-registry-1",
+      input: {} as any,
+      agent: {
+        id: "instruct-agent",
+        permissionPolicy: {
+          filesystem: "none",
+          shell: "none",
+          network: "none",
+          deploy: "none",
+        },
+        allowedTools: ["save_agent"],
+      } as any,
+      signal: new AbortController().signal,
+      toolCallId: "tc-registry-1",
+      emitEvent: (event) => {
+        events.push({ type: event.type, toolName: event.toolName })
+      },
+    })
+
+    expect(result.status).toBe("completed")
+    expect(events).toEqual([
+      { type: "tool.started", toolName: "save_agent" },
+      { type: "tool.completed", toolName: "save_agent" },
+    ])
+
+    await cleanup(dataDir)
+  })
+
+  test("save_agent immediately makes the created agent readable from AgentRegistry", async () => {
+    const { dataDir } = await createTempStore()
+    const agentRegistry = new AgentRegistry(dataDir, createDefaultRuntimeToolRegistry())
+    await agentRegistry.initialize()
+
+    const registry = createInstructRuntimeToolRegistry(dataDir, {
+      onSavedAgent: async (agent) => {
+        await agentRegistry.syncPersistedUserAgent(agent)
+      },
+    })
+
+    const result = await registry.executeTool("save_agent", makeValidInput({
+      id: "readable_after_instruct_create",
+    }), {
+      runId: "run-registry-2",
+      input: {} as any,
+      agent: {
+        id: "instruct-agent",
+        permissionPolicy: {
+          filesystem: "none",
+          shell: "none",
+          network: "none",
+          deploy: "none",
+        },
+        allowedTools: ["save_agent"],
+      } as any,
+      signal: new AbortController().signal,
+      toolCallId: "tc-registry-2",
+      emitEvent: () => {},
+    })
+
+    expect(result.status).toBe("completed")
+    expect(agentRegistry.getAgent("readable_after_instruct_create")).not.toBeNull()
 
     await cleanup(dataDir)
   })

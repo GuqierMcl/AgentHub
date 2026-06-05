@@ -20,7 +20,14 @@ import {
 
 const IMPLICIT_INSTRUCT_TOOLS = ["question"] as const
 
-export function createSaveAgentTool(agentStore: AgentStore): ToolDefinition<InstructSaveAgentInput, InstructSaveAgentResult> {
+type SaveAgentToolOptions = {
+  onSavedAgent?: (agent: AgentDefinition) => Promise<void> | void
+}
+
+export function createSaveAgentTool(
+  agentStore: AgentStore,
+  options: SaveAgentToolOptions = {}
+): ToolDefinition<InstructSaveAgentInput, InstructSaveAgentResult> {
   return {
     name: "save_agent",
     displayName: "Save Agent",
@@ -100,6 +107,7 @@ export function createSaveAgentTool(agentStore: AgentStore): ToolDefinition<Inst
 
         existing.push(agent)
         await agentStore.saveAgents(existing)
+        await options.onSavedAgent?.(structuredClone(agent))
 
         const result: InstructSaveAgentResult = {
           agent: {
