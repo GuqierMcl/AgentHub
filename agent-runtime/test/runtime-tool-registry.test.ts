@@ -346,6 +346,92 @@ describe("RuntimeToolRegistry", () => {
     )
   })
 
+  test("run_task accepts normalized declarative lock paths and passes them to delegated tasks", async () => {
+    const registry = new RuntimeToolRegistry()
+    registry.register(createRunTaskTool())
+
+    let observedLockPaths: string[] | undefined
+    const { context } = createBaseContext({
+      runTask: async (task, options) => {
+        observedLockPaths = task.lockPaths
+        return {
+          taskId: task.taskId,
+          targetAgentId: task.targetAgentId,
+          status: "completed",
+          summary: "Task completed with declared file locks.",
+          dependsOn: task.dependsOn,
+          lockPaths: task.lockPaths,
+          groupId: options?.groupId,
+          parentTaskId: options?.parentTaskId,
+          data: {},
+          events: [],
+        }
+      },
+    })
+
+    const result = await registry.executeTool(
+      "run_task",
+      {
+        targetAgentId: "explore",
+        title: "Edit known files",
+        instruction: "Update the declared files.",
+        expectedOutput: "Updated files",
+        requiredCapabilities: ["file-write"],
+        riskLevel: "medium",
+        dependsOn: [],
+        lockPaths: ["src\\App.tsx", "./src/utils/format.ts"],
+      },
+      context,
+      { toolCallId: "tool_declared_locks" }
+    )
+
+    expect(result.status).toBe("completed")
+    expect(observedLockPaths).toEqual(["src/App.tsx", "src/utils/format.ts"])
+    expect(result.data).toMatchObject({
+      lockPaths: ["src/App.tsx", "src/utils/format.ts"],
+    })
+  })
+
+  test("run_task rejects invalid lock paths before task execution begins", async () => {
+    const registry = new RuntimeToolRegistry()
+    registry.register(createRunTaskTool())
+
+    let executed = false
+    const { context, events } = createBaseContext({
+      runTask: async (task) => {
+        executed = true
+        return {
+          taskId: task.taskId,
+          targetAgentId: task.targetAgentId,
+          status: "completed",
+          summary: "Unexpected execution",
+          dependsOn: task.dependsOn,
+          lockPaths: task.lockPaths,
+          events: [],
+        }
+      },
+    })
+
+    const result = await registry.executeTool(
+      "run_task",
+      {
+        targetAgentId: "explore",
+        title: "Invalid lock path",
+        instruction: "This should not execute.",
+        expectedOutput: "Nothing",
+        lockPaths: ["../outside.ts"],
+      },
+      context,
+      { toolCallId: "tool_invalid_lock_path" }
+    )
+
+    expect(result.status).toBe("failed")
+    expect(result.error?.code).toBe("TOOL_INVALID_INPUT")
+    expect(executed).toBe(false)
+    expect(events.some((event) => event.type === "task.started")).toBe(false)
+    expect(events.filter((event) => event.type === "tool.failed")).toHaveLength(1)
+  })
+
   test("concurrent run_task calls keep success and failure isolated", async () => {
     const registry = new RuntimeToolRegistry()
     registry.register(createRunTaskTool())

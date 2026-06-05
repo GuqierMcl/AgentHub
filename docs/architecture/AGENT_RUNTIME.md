@@ -162,6 +162,8 @@ Orchestrator 的职责包括：
 
 MVP 阶段，Orchestrator 不需要做复杂 DAG 调度器外置化，可以直接在 Runtime 内采用“`write_plan` 计划工具 + `run_task` 任务工具 + 批次并行执行 + 汇总结果”的模式。`write_plan` 是 Runtime 内部计划工具，只对 Orchestrator 可见，用于输出 UI 可渲染计划；`run_task` 是 Runtime 内部任务工具，只对 Orchestrator 可见，用于调度当前群聊 participants 中的其他主智能体，或调度 Orchestrator 自身 `allowedSubagents` 中的隐藏子智能体。任务之间可通过 `dependsOn` 表达依赖关系。后续再扩展更复杂的并行恢复和冲突处理。
 
+P1 冲突规避底座采用声明式文件锁 V0：Orchestrator 在委派可能写入已知文件的 `run_task` 时，可传入 `lockPaths` 申请 workspace-relative 精确文件锁。Runtime 使用单进程内存锁管理器按 `{ workspaceId, path }` 阻止其他 active delegated task 并发锁定同一文件；锁冲突以 `TASK_FILE_LOCK_CONFLICT` 形成 `task.failed` / `tool.failed`，不启动目标智能体。该能力只覆盖显式声明的 delegated task，不替代文件工具权限审批、外部 Agent workspace 隔离、强制写入拦截或自动合并。
+
 Runtime 不再通过全局 `AgentRelation` 或 `agent-relations.json` 判断委派关系。主智能体之间的协作边界来自每次 Run 的 `participantAgentIds`，主智能体到隐藏子智能体的授权来自 `allowedSubagents`。
 
 `planner` 与 `orchestrator` 的边界需要保持清晰：`orchestrator` 产出的是当前 Run 的执行计划，并可以通过 `run_task` 真实委派任务；`planner` 产出的是面向人类评审和决策的方案，不负责运行时路由、委派或汇总。当前 preset 中 `planner.delegationPolicy = "terminal"`，避免它成为第二个调度器。
@@ -223,7 +225,7 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - `PUT /runtime/agents/:agentId/model` 可以为可见、启用的内部主智能体绑定 provider/model，外部智能体和隐藏子智能体不可绑定。
 - `POST /runtime/runs` 可以接收单聊或群聊 RunInput，并通过 `EntryResolver` 实现单聊入口、群聊默认 `orchestrator`、群聊显式 @ 单个主智能体。
 - `coder`、`reviewer`、`writer`、`planner` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和非内部 Runtime Tools。
-- `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派当前 Run participants 中的其他主智能体或自身 `allowedSubagents` 中的子智能体。
+- `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派当前 Run participants 中的其他主智能体或自身 `allowedSubagents` 中的子智能体；`run_task.lockPaths` 已提供 P1 声明式文件锁 V0，用于规避已知文件的并发委派写入冲突。
 - `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*`、`model.stream.part`、`reasoning.*`、完整 `permission.*` 与 `question.*` 事件。
 - Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取、沙箱外敏感读取、敏感写入和沙箱外写入请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
 - Runtime 已支持 `waiting_input`：AI SDK 智能体调用 `question` 后，Runtime 保存 continuation frame；用户通过 question answer API 回答后，同一 Run 恢复原执行分支。

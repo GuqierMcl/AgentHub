@@ -366,6 +366,8 @@ type CustomProviderUpdateRequest = Omit<Partial<CustomProviderCreateRequest>, "i
 | `TASK_TARGET_NOT_ALLOWED` | RunEvent | `run_task` 目标不在当前 participants 或 allowedSubagents 范围内 |
 | `TASK_DEPENDENCY_FAILED` | RunEvent | 任务依赖失败，当前任务不能继续 |
 | `TASK_DEPENDENCY_CYCLE` | RunEvent | 任务依赖形成环 |
+| `TASK_FILE_LOCK_WORKSPACE_NOT_BOUND` | RunEvent | `run_task.lockPaths` 非空，但当前 Run 未绑定 workspace |
+| `TASK_FILE_LOCK_CONFLICT` | RunEvent | `run_task.lockPaths` 中至少一个文件已被其他 active delegated task 锁定 |
 | `TASK_EXECUTION_ABORTED` | RunEvent | 任务执行被取消 |
 | `TASK_EXECUTION_FAILED` | RunEvent | 任务执行发生未分类失败 |
 | `AGENT_MODEL_BINDING_INVALID` | 400 | 智能体模型绑定参数或 provider/model 不可用 |
@@ -1435,6 +1437,32 @@ Runtime Runs API 用于启动一次智能体执行。Run 与权限状态当前�
 - 如果目标是子智能体，目标必须在发起智能体的 `allowedSubagents` 中。
 - Runtime 不再读取 `agent-relations.json`，也不再使用 `AgentRelation` 作为委派依据。
 
+`OrchestratorTask` / `run_task` 输入结构：
+
+```ts
+type OrchestratorTask = {
+  taskId: string
+  targetAgentId: string
+  title: string
+  instruction: string
+  expectedOutput: string
+  requiredCapabilities?: string[]
+  riskLevel: "low" | "medium" | "high"
+  dependsOn?: string[]
+  lockPaths?: string[]
+}
+
+type RunTaskInput = Omit<OrchestratorTask, "requiredCapabilities"> & {
+  requiredCapabilities?: string[]
+  context?: unknown
+  contextRef?: string
+}
+```
+
+`lockPaths` 是声明式 advisory file lock。路径必须是 workspace-relative 精确文件路径，不能为空、不能是绝对路径、不能包含 `..` 越界段，Runtime 会统一规范化为 `/` 并去重。非空 `lockPaths` 会在目标智能体执行前申请 `{ workspaceId, path }` 内存锁；任一冲突则 `run_task` 返回失败，不启动目标智能体。
+
+锁失败的 `task.failed.data.details` 至少包含 `taskId`、`targetAgentId`、`sourceAgentId`、`lockPaths`，锁冲突还包含 `workspaceId` 与 `conflicts[]`，其中每个 conflict 包含 `path` 和当前 owner 摘要 `{ runId, taskId, targetAgentId, sourceAgentId, groupId? }`。该机制只覆盖显式传入 `run_task.lockPaths` 的委派任务，不拦截普通文件写工具或外部 Agent 未声明写入。
+
 workspace 规则：
 
 - `workspace` 可省略；省略时 Run 可纯对话，但文件工具返回 `WORKSPACE_NOT_BOUND`。
@@ -1867,6 +1895,7 @@ type WorkspaceRevertApplyResponse =
 - `reasoning.started`、`reasoning.delta`、`reasoning.completed` 仅表示 provider/AI SDK 显式暴露的 reasoning/thinking 内容；默认开启，可通过 `diagnostics.includeReasoning = false` 关闭；当 reasoning 属于当前智能体输出时，应携带同一条消息的 `messageId/messageIndex`。
 - `write_plan` 的成功结果通过 `tool.completed.data.data.plan` 承载；HubServer/UI 应选择最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。
 - `run_task` 的工具事件只用于追踪与持久化原始 RunEvent，不作为父智能体的模型上下文输入；产品 UI 不应把它渲染为普通工具卡片，应优先展示对应的 `task.*`、子智能体输出和 task summary。
+- `task.started`、`task.completed`、`task.failed` 的 `data.task.lockPaths` 携带该 delegated task 声明的文件锁路径；未声明时为 `[]`。`TASK_FILE_LOCK_CONFLICT` 的 `task.failed.data.details.conflicts` 携带冲突路径和 owner 摘要。
 
 `write_plan` 成功事件示例：
 

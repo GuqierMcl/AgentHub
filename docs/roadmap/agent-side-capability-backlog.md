@@ -105,9 +105,9 @@ HubServer 已有 Artifact / ArtifactVersion repository，Web 也有 Artifact 卡
 
 ### 10. Orchestrator 高级协作能力
 
-状态：基础编排已完成，高级策略未闭环。
+状态：基础编排已完成，声明式文件锁 V0 已部分覆盖代码冲突规避，高级策略仍未闭环。
 
-当前 Orchestrator 能写计划、委派任务并做基础汇总。尚未完成更强的失败降级、代码冲突处理、计划任务与实际 `run_task` 的强校验、复杂 DAG 恢复、多轮计划更新策略，以及多个显式 `@` 主智能体的并行入口与聚合策略。
+当前 Orchestrator 能写计划、委派任务并做基础汇总。`run_task.lockPaths` 已提供 P1 advisory file lock：Orchestrator 可在委派写入任务时声明 workspace-relative 文件路径，Runtime 对同一 workspace 内同一路径的 active delegated task 返回 `TASK_FILE_LOCK_CONFLICT` 并阻止目标智能体启动。该能力只覆盖主动声明的委派任务；强制写入拦截、外部 Agent 未声明写入隔离、自动合并、pre-apply review、计划任务与实际 `run_task` 的强校验、复杂 DAG 恢复、多轮计划更新策略，以及多个显式 `@` 主智能体的并行入口与聚合策略仍未完成。
 
 建议阶段：Orchestrator Hardening V2。
 
@@ -146,3 +146,4 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 - 2026-06-04：同步 AgentHub Native Patch Review Phase 3 进度：Run 级完整 Diff 撤销 V0 已落地；下一步建议转向内部写入工具 proposed patch / pre-apply review，或按产品优先级推进 Artifact Projection V1。
 - 2026-06-03：同步 OpenCode V1 基础集成硬化：新增真实 write smoke 开关、event stream fallback 回归和产品级 replay 回归；下一步建议转向 AgentHub Native Patch Review Phase 2。
 - 2026-06-04：同步 AgentHub Native Patch Review Phase 2：Workspace ChangeSet 与归因 V0 已落地；下一步建议进入 Run Revert / Restore 或 Artifact Projection V1。
+- 2026-06-05：同步 Orchestrator 冲突规避 P1：`run_task.lockPaths` 声明式文件锁 V0 已覆盖显式委派任务的同文件并发冲突；强制写入拦截、自动合并、隔离 workspace / pre-apply review 仍未完成。
