@@ -197,6 +197,8 @@ export type AgentResolvedModelResponse = {
   providerId: string
   modelId: string
   modelSourceAgentId?: string
+  modelSourceType?: "agent-binding" | "system-default"
+  fallbackFromModelRef?: AgentModelRef
   providerProtocol: ProviderProtocol
   providerName: string
   modelName: string

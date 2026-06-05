@@ -4,6 +4,13 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 import { config } from '../config'
 import { logger } from '../lib/logger'
+import type { RuntimeClient } from '../lib/runtime'
+
+declare module 'hono' {
+  interface ContextVariableMap {
+    runtimeClient: RuntimeClient
+  }
+}
 
 const SETTINGS_FILE = resolve(config.dataDir, 'setting.json')
 const OLD_DIAGNOSTICS_FILE = resolve(config.dataDir, 'diagnostics.json')
@@ -203,6 +210,40 @@ settings.put('/api/settings/terminal', async (c: Context) => {
   }
   const updated = updateSection('terminal', parsed.data)
   return c.json(updated.terminal)
+})
+
+settings.get('/api/settings/model', async (c: Context) => {
+  const client = c.get('runtimeClient')
+  const { data, status } = await client.forward(
+    'GET',
+    '/runtime/settings/model',
+    undefined,
+    { raw: true },
+  )
+  return c.json(data, status as 200)
+})
+
+settings.put('/api/settings/model', async (c: Context) => {
+  const client = c.get('runtimeClient')
+  const body = await c.req.json().catch(() => null)
+  const { data, status } = await client.forward(
+    'PUT',
+    '/runtime/settings/model',
+    body,
+    { raw: true },
+  )
+  return c.json(data, status as 200)
+})
+
+settings.delete('/api/settings/model', async (c: Context) => {
+  const client = c.get('runtimeClient')
+  const { data, status } = await client.forward(
+    'DELETE',
+    '/runtime/settings/model',
+    undefined,
+    { raw: true },
+  )
+  return c.json(data, status as 200)
 })
 
 export { loadSettings }

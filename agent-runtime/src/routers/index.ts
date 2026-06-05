@@ -4,6 +4,7 @@ import agents from './agents'
 import runs from './runs'
 import services from './services'
 import workspaceRevert from './workspace-revert'
+import settings from './settings'
 
 const router = new Hono()
 
@@ -25,5 +26,6 @@ router.route('/', agents)
 router.route('/', runs)
 router.route('/', services)
 router.route('/', workspaceRevert)
+router.route('/', settings)
 
 export default router

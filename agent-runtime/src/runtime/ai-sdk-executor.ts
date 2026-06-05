@@ -1,6 +1,11 @@
 import { stepCountIs, streamText, type ModelMessage } from "ai"
 import { createChildLogger } from "../logger"
-import { resolveAgentLanguageModel } from "./model-resolver"
+import type { AgentModelRef } from "../agents"
+import {
+  AgentModelResolutionError,
+  resolveAgentLanguageModel,
+  resolveSystemDefaultLanguageModel,
+} from "./model-resolver"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
@@ -8,6 +13,11 @@ import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { createRunEvent } from "./run-events"
 import type { PendingQuestionToolCall } from "./question"
+import {
+  runWithPreVisibleFallback,
+  type ModelAttempt,
+} from "./pre-visible-model-fallback"
+import type { SystemModelSettingsService } from "./system-model-settings"
 import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
 import type { RuntimeToolRegistry } from "./tools"
 import type { ProviderService } from "../provider"
@@ -20,6 +30,12 @@ type AiSdkExecutionSettings = {
   messages: ModelMessage[]
   maxOutputTokens: number
   temperature?: number
+}
+
+type AiSdkModelResolution = ReturnType<typeof resolveAgentLanguageModel>
+
+type AiSdkModelAttempt = ModelAttempt & {
+  resolution: AiSdkModelResolution
 }
 
 export function buildSystemPrompt(context: AgentExecutionContext): string {
@@ -102,20 +118,102 @@ export class AiSdkExecutor implements AgentExecutor {
 
   constructor(
     private providerService: ProviderService,
-    private toolRegistry?: RuntimeToolRegistry
+    private toolRegistry?: RuntimeToolRegistry,
+    private systemModelSettingsService?: SystemModelSettingsService,
+    private streamTextImpl: typeof streamText = streamText
   ) {}
 
   async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
-    const { agent, runId, signal, task, parentAgentId, groupId, parentTaskId } = context
+    const { agent, runId, signal } = context
 
     if (signal.aborted) {
       log.info({ runId, agentId: agent.id }, "AI SDK execution aborted before start")
       return
     }
 
-    const resolution = resolveAgentLanguageModel(this.providerService, agent, {
-      modelSourceAgent: context.modelSourceAgent,
+    yield* runWithPreVisibleFallback<AiSdkModelAttempt>({
+      getPrimary: () => this.createPrimaryAttempt(context),
+      getFallback: (error, failedAttempt) => this.createFallbackAttempt(context, error, failedAttempt),
+      executeAttempt: (attempt) => this.executeResolved(context, attempt.resolution),
     })
+  }
+
+  private createPrimaryAttempt(context: AgentExecutionContext): AiSdkModelAttempt {
+    const resolution = resolveAgentLanguageModel(this.providerService, context.agent, {
+      modelSourceAgent: context.modelSourceAgent,
+      systemDefaultModelRef: this.systemModelSettingsService?.getSystemDefaultModelRef(),
+    })
+    return {
+      id: createAttemptId(resolution.modelRef, resolution.resolvedModel.modelSourceType ?? "agent-binding"),
+      resolution,
+    }
+  }
+
+  private createFallbackAttempt(
+    context: AgentExecutionContext,
+    error: unknown,
+    failedAttempt?: AiSdkModelAttempt
+  ): AiSdkModelAttempt | null {
+    if (context.signal.aborted) {
+      return null
+    }
+
+    const fallbackRef = this.systemModelSettingsService?.getSystemDefaultModelRef()
+    if (!fallbackRef) {
+      return null
+    }
+
+    const failedModelRef = failedAttempt?.resolution.modelRef ?? resolveConfiguredModelRef(context)
+    if (!failedModelRef && isMissingBindingError(error)) {
+      return null
+    }
+
+    if (failedModelRef && sameModelRef(fallbackRef, failedModelRef)) {
+      return null
+    }
+
+    try {
+      const resolution = resolveSystemDefaultLanguageModel(this.providerService, fallbackRef, {
+        agentId: context.agent.id,
+        fallbackFromModelRef: failedModelRef,
+      })
+      log.warn(
+        {
+          runId: context.runId,
+          agentId: context.agent.id,
+          failedProviderId: failedModelRef?.providerId,
+          failedModelId: failedModelRef?.modelId,
+          fallbackProviderId: fallbackRef.providerId,
+          fallbackModelId: fallbackRef.modelId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Falling back to system default model before visible output"
+      )
+      return {
+        id: createAttemptId(resolution.modelRef, "system-default"),
+        resolution,
+      }
+    } catch (fallbackError) {
+      log.warn(
+        {
+          runId: context.runId,
+          agentId: context.agent.id,
+          fallbackProviderId: fallbackRef.providerId,
+          fallbackModelId: fallbackRef.modelId,
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        },
+        "System default model fallback is unavailable"
+      )
+      return null
+    }
+  }
+
+  private async *executeResolved(
+    context: AgentExecutionContext,
+    resolution: AiSdkModelResolution
+  ): AsyncIterable<RunEvent> {
+    const { agent, runId, signal, task, parentAgentId, groupId, parentTaskId } = context
+
     log.info(
       {
         runId,
@@ -161,7 +259,7 @@ export class AiSdkExecutor implements AgentExecutor {
       : null
     const diagnostics = resolveRunDiagnostics(context.input)
 
-    const result = streamText({
+    const result = this.streamTextImpl({
       model: resolution.languageModel,
       ...buildExecutionSettings(
         context,
@@ -324,4 +422,24 @@ export class AiSdkExecutor implements AgentExecutor {
       throw error
     }
   }
+}
+
+function resolveConfiguredModelRef(context: AgentExecutionContext): AgentModelRef | null {
+  if (context.agent.tier === "subagent") {
+    return context.modelSourceAgent?.modelRef ?? null
+  }
+
+  return context.agent.modelRef ?? null
+}
+
+function isMissingBindingError(error: unknown): boolean {
+  return error instanceof AgentModelResolutionError && error.code === "MODEL_BINDING_MISSING"
+}
+
+function sameModelRef(left: AgentModelRef, right: AgentModelRef): boolean {
+  return left.providerId === right.providerId && left.modelId === right.modelId
+}
+
+function createAttemptId(modelRef: AgentModelRef, source: string): string {
+  return `${source}:${modelRef.providerId}/${modelRef.modelId}`
 }

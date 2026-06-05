@@ -83,7 +83,7 @@ MVP 子智能体建议如下：
 
 首版系统智能体只包含 `title`：当 Runtime 判断当前会话仍需要自动命名时，后台异步生成短标题。标题只使用会话第一条用户输入；如果首次自动标题错过而 `titleSource` 仍为 `default`，HubServer 会在后续 Run 中继续传入第一条用户输入作为 `titleSeedUserMessage` 供 Runtime 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即输出同一条 Run SSE 流中的 `system_agent.completed` 事件；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。如果模型标题没有赶上或生成失败，Runtime 会在 `run.completed` 前输出一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务；Run 被取消时仍静默跳过。
 
-系统智能体执行时继承当前 Run 入口主智能体的模型快照。继承只用于模型选择，不继承入口智能体的工具、权限、身份或系统提示词。Runtime 只输出事件，不直接写业务状态；HubServer 消费 `system_agent.completed(systemAgentId="title")` 后，在标题未被用户手动修改时更新 `Conversation.title`。
+系统智能体执行时优先使用 Runtime 的系统默认模型；如果未配置系统默认模型，当前 `title` 保留继承 Run 入口主智能体模型快照的兼容行为。继承只用于模型选择，不继承入口智能体的工具、权限、身份或系统提示词。Runtime 只输出事件，不直接写业务状态；HubServer 消费 `system_agent.completed(systemAgentId="title")` 后，在标题未被用户手动修改时更新 `Conversation.title`。完成事件可附带 `modelSource` 与 `resolvedModel`，用于追踪系统默认模型或入口继承来源。
 
 ## 3. Orchestrator 的核心位置
 
@@ -488,7 +488,31 @@ type AgentExecutorType =
 - 子智能体执行使用调用方模型绑定。
 - 模型继承只影响模型选择，不继承调用方的 `allowedTools`、`permissionPolicy`、`systemPrompt` 或身份。
 - `resolvedModel.modelSourceAgentId` 用于记录本次模型来源。
-- 如果调用方没有可解析模型绑定，子智能体执行返回 `MODEL_BINDING_MISSING`。
+- 如果调用方没有可解析模型绑定且不能使用系统默认模型，子智能体执行返回 `MODEL_BINDING_MISSING`。
+
+### 5.2.2 系统默认模型
+
+Runtime 在 `dataDir/system-model-settings.json` 中保存系统默认模型：
+
+```json
+{
+  "version": 1,
+  "systemDefaultModel": {
+    "providerId": "openai",
+    "modelId": "gpt-5.1"
+  }
+}
+```
+
+该设置是系统预设主智能体缺少绑定时的默认模型来源，也是系统智能体和后续内部任务型 Instruct Agent 的默认模型来源。保存时必须校验 provider 存在、启用、已配置 API key，model 存在、启用且支持 tools；因此它可安全服务 `orchestrator`、`title` 和未来“对话式创建智能体”等内置任务能力。
+
+模型选择规则：
+
+- 系统预设主智能体有绑定时优先使用绑定；没有绑定时使用系统默认模型。
+- 用户自定义主智能体没有绑定时仍返回 `MODEL_BINDING_MISSING`，不隐式使用系统默认模型。
+- 隐藏子智能体继续继承直接调用方模型；调用方是系统预设主智能体且无绑定时，可经同一策略使用系统默认模型。
+- 外部智能体不使用 Runtime 系统默认模型。
+- 若绑定模型解析失败或 stream 在首个 `message.*`、`tool.*`、`reasoning.*`、`permission.*`、`question.*` 事件前失败，内部 AI SDK 执行可降级到系统默认模型一次；降级模型再次失败时沿用原有失败事件和错误码映射。
 
 ### 5.3 权限策略
 
@@ -780,9 +804,10 @@ agent-runtime/src/agents/preset-subagents.ts
 dataDir/
   agents.json
   agent-model-bindings.json
+  system-model-settings.json
 ```
 
-`agents.json` 存储非系统预设的本地智能体定义。Runtime CRUD 本轮只会写入用户自定义主智能体；外部智能体和子智能体的自定义能力后续再单独设计。模型绑定继续由 `agent-model-bindings.json` 承载，不混入 Agent CRUD 主体流程。
+`agents.json` 存储非系统预设的本地智能体定义。Runtime CRUD 本轮只会写入用户自定义主智能体；外部智能体和子智能体的自定义能力后续再单独设计。模型绑定继续由 `agent-model-bindings.json` 承载，不混入 Agent CRUD 主体流程。系统默认模型由 `system-model-settings.json` 独立承载，不迁移、不覆盖已有智能体绑定。
 
 未来接入 HubServer 后，HubServer 可以成为产品状态源；Runtime 的 `AgentRegistry` 则负责加载 HubServer 传入的执行态配置，或缓存运行时需要的智能体定义。
 

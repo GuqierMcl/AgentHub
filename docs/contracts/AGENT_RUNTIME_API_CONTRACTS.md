@@ -100,6 +100,91 @@ type RuntimeServicesStatusResponse = {
 - `codex` 与 `claude-code` 当前只返回 `not_integrated` 占位，避免误导为故障。
 - 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt 或 provider 凭据。
 
+### Runtime 系统默认模型设置
+
+系统默认模型设置只由 Agent Runtime 保存，存储文件为 Runtime `--data-dir` 下的 `system-model-settings.json`。HubServer 通过本节端点代理给 Web 设置页，不写入 HubServer 自身 `setting.json`。
+
+存储结构：
+
+```json
+{
+  "version": 1,
+  "systemDefaultModel": {
+    "providerId": "openai",
+    "modelId": "gpt-5.1"
+  }
+}
+```
+
+响应类型：
+
+```ts
+type SystemModelSettingsStatus = "configured" | "unset" | "invalid"
+
+type AgentModelRef = {
+  providerId: string
+  modelId: string
+}
+
+type SystemModelSettingsResponse = {
+  status: SystemModelSettingsStatus
+  systemDefaultModel?: AgentModelRef
+  resolvedModel?: AgentResolvedModelResponse
+  invalidReason?: {
+    code: string
+    message: string
+  }
+}
+```
+
+**端点**：`GET /runtime/settings/model`
+
+返回当前配置。未配置时返回 `{ "status": "unset" }`；已配置且可解析时返回 `status = "configured"`、`systemDefaultModel` 与 `resolvedModel`；配置文件存在但 provider/model 后续失效时返回 `status = "invalid"`、原始 `systemDefaultModel` 与 `invalidReason`。
+
+**端点**：`PUT /runtime/settings/model`
+
+请求体：
+
+```json
+{
+  "providerId": "openai",
+  "modelId": "gpt-5.1"
+}
+```
+
+成功响应为 `SystemModelSettingsResponse`。Runtime 必须校验 provider 存在、启用、已配置 API key，model 存在、启用且 `capabilities.supports_tools = true`；校验失败返回：
+
+```json
+{
+  "error": {
+    "code": "SYSTEM_DEFAULT_MODEL_INVALID",
+    "message": "Model openai/gpt-x does not support tools",
+    "details": {
+      "providerId": "openai",
+      "modelId": "gpt-x"
+    }
+  }
+}
+```
+
+**端点**：`DELETE /runtime/settings/model`
+
+清除系统默认模型，成功响应：
+
+```json
+{
+  "status": "unset"
+}
+```
+
+模型选择与降级规则：
+
+- 系统预设主智能体没有模型绑定时使用系统默认模型；用户自定义主智能体没有绑定时仍返回 `MODEL_BINDING_MISSING`。
+- 系统智能体与后续内部任务型 Instruct Agent 优先使用系统默认模型；当前 `title` 未配置系统默认模型时保留入口智能体模型继承兼容行为。
+- 绑定模型解析失败、provider/model 不可用、`orchestrator` 绑定模型不支持 tools，或 AI SDK stream 在首个用户可见事件前失败时，可降级到系统默认模型一次。
+- 首个用户可见事件定义为任意 `message.*`、`tool.*`、`reasoning.*`、`permission.*` 或 `question.*`。一旦发出这些事件，本次执行不再降级。
+- 系统默认模型为空、无效或与失败模型相同时不降级；降级模型再次失败时不引入新错误码，沿用 `AgentModelResolutionError` 或普通 `RUN_FAILED` 映射。
+
 ### 内部调用鉴权
 
 HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服务凭证。MVP 阶段使用每次 HubServer 启动生成的随机共享密钥：
@@ -146,6 +231,7 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `RUN_INVALID_ENTRY_AGENT` | 400 | RunInput 无法解析合法入口智能体 |
 | `AGENT_MODEL_BINDING_INVALID` | 400 | 智能体模型绑定参数或 provider/model 不可用 |
 | `AGENT_MODEL_BINDING_NOT_ALLOWED` | 403 | 当前智能体不允许绑定模型 |
+| `SYSTEM_DEFAULT_MODEL_INVALID` | 400 | 系统默认模型参数无效，或 provider/model 不可调用、未启用、不支持 tools |
 | `PERMISSION_INVALID_INPUT` | 400 | 权限决定请求体无效 |
 | `PERMISSION_NOT_FOUND` | 404 | 指定的权限请求不存在 |
 | `PERMISSION_ALREADY_RESOLVED` | 409 | 权限请求已经决定或取消 |

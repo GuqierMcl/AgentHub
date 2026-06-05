@@ -6,12 +6,15 @@ import { AgentRegistry } from "../src/agents"
 import {
   RunManager,
   SystemAgentRunner,
+  SystemModelSettingsService,
+  SystemModelSettingsStore,
   createDefaultRuntimeToolRegistry,
   createRunEvent,
   type RunEvent,
   type SystemAgentCompletedData,
 } from "../src/runtime"
-import type { ProviderService } from "../src/provider"
+import type { ProviderInfo, ProviderModel, ProviderService } from "../src/provider"
+import type { AgentDefinition } from "../src/agents"
 import type { RunInput } from "../src/runtime"
 
 function sleep(ms: number): Promise<void> {
@@ -36,6 +39,74 @@ async function createInitializedRegistry(): Promise<AgentRegistry> {
   const registry = new AgentRegistry(dataDir, createDefaultRuntimeToolRegistry())
   await registry.initialize()
   return registry
+}
+
+function createModel(providerId: string, modelId: string): ProviderModel {
+  return {
+    id: modelId,
+    provider_id: providerId,
+    upstream_id: modelId,
+    name: modelId,
+    context_length: 128000,
+    output_length: 4096,
+    capabilities: {
+      supports_tools: true,
+      supports_vision: false,
+      supports_reasoning: false,
+      temperature: true,
+    },
+    cost: { input: 0, output: 0 },
+    source: "custom",
+    enabled: true,
+  }
+}
+
+function createProvider(providerId: string, model: ProviderModel): ProviderInfo {
+  return {
+    id: providerId,
+    name: providerId,
+    api_base: "https://example.test/v1",
+    api_key: "test-key",
+    enabled: true,
+    source: "custom",
+    api_protocol: "openai_compatible",
+    models: { [model.id]: model },
+  }
+}
+
+function createProviderService(providers: ProviderInfo[]): ProviderService {
+  const providerMap = new Map(providers.map((provider) => [provider.id, provider]))
+  return {
+    getProvider: (providerId: string) => providerMap.get(providerId) ?? null,
+    getModel: (providerId: string, modelId: string) =>
+      providerMap.get(providerId)?.models[modelId] ?? null,
+  } as unknown as ProviderService
+}
+
+function createEntryAgent(modelProviderId = "entry", modelId = "bound"): AgentDefinition {
+  return {
+    id: "coder",
+    name: "Coder",
+    description: "Writes code.",
+    tier: "primary",
+    origin: "system",
+    visibility: "visible",
+    entryPolicy: "callable",
+    delegationPolicy: "terminal",
+    executorType: "ai-sdk",
+    capabilities: ["Implementation"],
+    allowedSubagents: [],
+    allowedTools: [],
+    permissionPolicy: {
+      filesystem: "none",
+      shell: "none",
+      network: "none",
+      deploy: "none",
+    },
+    enabled: true,
+    readonly: true,
+    modelRef: { providerId: modelProviderId, modelId },
+  }
 }
 
 function createTitleResult(conversationId: string, inheritedModelFromAgentId: string): SystemAgentCompletedData {
@@ -375,5 +446,59 @@ describe("title system agent", () => {
       ...input,
       history: [{ role: "user", content: "第一轮" }],
     })).toBe(false)
+  })
+
+  test("prefers the system default model for title generation when configured", async () => {
+    const defaultModel = createModel("system", "default-title-model")
+    const entryModel = createModel("entry", "bound")
+    const providerService = createProviderService([
+      createProvider("system", defaultModel),
+      createProvider("entry", entryModel),
+    ])
+    const dataDir = await mkdtemp(join(tmpdir(), "agent-runtime-title-system-default-"))
+    const systemModelSettingsService = new SystemModelSettingsService(
+      new SystemModelSettingsStore(dataDir),
+      providerService
+    )
+    await systemModelSettingsService.initialize()
+    await systemModelSettingsService.setSystemDefaultModel({
+      providerId: "system",
+      modelId: "default-title-model",
+    })
+
+    const runner = new SystemAgentRunner(
+      providerService,
+      systemModelSettingsService,
+      async () => ({ text: "默认标题" }) as any
+    )
+
+    const result = await runner.runTitle({
+      runId: "run_title_default",
+      input: {
+        conversationId: "conv_title_default",
+        mode: "single",
+        participantAgentIds: ["coder"],
+        userMessage: {
+          role: "user",
+          content: "帮我规划一个系统智能体。",
+        },
+        history: [],
+      },
+      entryAgent: createEntryAgent(),
+      signal: new AbortController().signal,
+    })
+
+    expect(result).toMatchObject({
+      systemAgentId: "title",
+      inheritedModelFromAgentId: "coder",
+      modelSource: "system-default",
+      resolvedModel: {
+        providerId: "system",
+        modelId: "default-title-model",
+      },
+      result: {
+        title: "默认标题",
+      },
+    })
   })
 })

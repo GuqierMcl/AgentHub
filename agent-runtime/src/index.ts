@@ -3,7 +3,13 @@ import { cors } from 'hono/cors'
 import { config } from './config'
 import { AgentRegistry } from './agents'
 import { ProviderService } from './provider'
-import { RunManager, WorkspaceRevertService, createDefaultRuntimeToolRegistry } from './runtime'
+import {
+  RunManager,
+  SystemModelSettingsService,
+  SystemModelSettingsStore,
+  WorkspaceRevertService,
+  createDefaultRuntimeToolRegistry,
+} from './runtime'
 import router from './routers'
 
 const app = new Hono()
@@ -27,7 +33,18 @@ if (config.cors.length > 0) {
 const providerService = new ProviderService(config.dataDir)
 const toolRegistry = createDefaultRuntimeToolRegistry()
 const agentRegistry = new AgentRegistry(config.dataDir, toolRegistry)
-const runManager = new RunManager(agentRegistry, providerService, undefined, toolRegistry)
+const systemModelSettingsService = new SystemModelSettingsService(
+  new SystemModelSettingsStore(config.dataDir),
+  providerService
+)
+const runManager = new RunManager(
+  agentRegistry,
+  providerService,
+  undefined,
+  toolRegistry,
+  undefined,
+  systemModelSettingsService
+)
 const workspaceRevertService = new WorkspaceRevertService()
 
 // 注入 ProviderService 到 Context
@@ -37,6 +54,7 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('runManager', runManager)
   c.set('workspaceRevertService', workspaceRevertService)
   c.set('toolRegistry', toolRegistry)
+  c.set('systemModelSettingsService', systemModelSettingsService)
   await next()
 })
 
@@ -66,6 +84,7 @@ const server = Bun.serve({
 Promise.all([
   providerService.initialize(),
   agentRegistry.initialize(),
+  systemModelSettingsService.initialize(),
 ]).then(() => {
   console.log(banner)
   console.log(`Agent Runtime listening on ${server.url}`)

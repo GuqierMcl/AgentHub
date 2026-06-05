@@ -46,7 +46,10 @@ export function resolveAgentModelSnapshot(
     return null
   }
 
-  return buildResolvedModelSnapshot(provider, model, agent.id)
+  return buildResolvedModelSnapshot(provider, model, {
+    modelSourceAgentId: agent.id,
+    modelSourceType: "agent-binding",
+  })
 }
 
 export function resolveAgentLanguageModel(
@@ -54,15 +57,18 @@ export function resolveAgentLanguageModel(
   agent: AgentDefinition,
   options: {
     modelSourceAgent?: AgentDefinition
+    systemDefaultModelRef?: AgentModelRef | null
   } = {}
 ): {
   provider: ProviderInfo
   model: ProviderModel
+  modelRef: AgentModelRef
   languageModel: LanguageModel
   resolvedModel: AgentResolvedModelResponse
 } {
   const modelSourceAgent = resolveModelSourceAgent(agent, options.modelSourceAgent)
-  const modelRef = requireModelRef(agent, modelSourceAgent)
+  const modelSelection = resolveModelRef(agent, modelSourceAgent, options.systemDefaultModelRef)
+  const modelRef = modelSelection.modelRef
   const provider = providerService.getProvider(modelRef.providerId)
   if (!provider) {
     throw new AgentModelResolutionError(
@@ -99,7 +105,10 @@ export function resolveAgentLanguageModel(
 
   const providerInstance = getProviderInstance(provider)
   const languageModel = providerInstance.languageModel(model.upstream_id)
-  const resolvedModel = buildResolvedModelSnapshot(provider, model, modelSourceAgent.id)
+  const resolvedModel = buildResolvedModelSnapshot(provider, model, {
+    modelSourceAgentId: modelSelection.modelSourceAgentId,
+    modelSourceType: modelSelection.modelSourceType,
+  })
 
   log.info(
     {
@@ -115,8 +124,70 @@ export function resolveAgentLanguageModel(
   return {
     provider,
     model,
+    modelRef,
     languageModel,
     resolvedModel,
+  }
+}
+
+export function resolveSystemDefaultLanguageModel(
+  providerService: ProviderService,
+  modelRef: AgentModelRef,
+  options: {
+    agentId?: string
+    fallbackFromModelRef?: AgentModelRef
+  } = {}
+): {
+  provider: ProviderInfo
+  model: ProviderModel
+  modelRef: AgentModelRef
+  languageModel: LanguageModel
+  resolvedModel: AgentResolvedModelResponse
+} {
+  const provider = providerService.getProvider(modelRef.providerId)
+  if (!provider) {
+    throw new AgentModelResolutionError(
+      "MODEL_PROVIDER_NOT_FOUND",
+      `Provider ${modelRef.providerId} not found for system default model`,
+      { agentId: options.agentId, modelRef }
+    )
+  }
+
+  if (!provider.enabled) {
+    throw new AgentModelResolutionError(
+      "MODEL_DISABLED",
+      `Provider ${provider.id} is disabled for system default model`,
+      { agentId: options.agentId, providerId: provider.id, modelRef }
+    )
+  }
+
+  const model = providerService.getModel(modelRef.providerId, modelRef.modelId)
+  if (!model) {
+    throw new AgentModelResolutionError(
+      "MODEL_NOT_FOUND",
+      `Model ${modelRef.providerId}/${modelRef.modelId} not found for system default model`,
+      { agentId: options.agentId, modelRef }
+    )
+  }
+
+  if (!model.enabled) {
+    throw new AgentModelResolutionError(
+      "MODEL_DISABLED",
+      `Model ${modelRef.providerId}/${modelRef.modelId} is disabled for system default model`,
+      { agentId: options.agentId, modelRef }
+    )
+  }
+
+  const providerInstance = getProviderInstance(provider)
+  return {
+    provider,
+    model,
+    modelRef,
+    languageModel: providerInstance.languageModel(model.upstream_id),
+    resolvedModel: buildResolvedModelSnapshot(provider, model, {
+      modelSourceType: "system-default",
+      fallbackFromModelRef: options.fallbackFromModelRef,
+    }),
   }
 }
 
@@ -136,8 +207,24 @@ function resolveModelSourceAgent(agent: AgentDefinition, modelSourceAgent?: Agen
   return modelSourceAgent
 }
 
-function requireModelRef(agent: AgentDefinition, modelSourceAgent: AgentDefinition): AgentModelRef {
+function resolveModelRef(
+  agent: AgentDefinition,
+  modelSourceAgent: AgentDefinition,
+  systemDefaultModelRef?: AgentModelRef | null
+): {
+  modelRef: AgentModelRef
+  modelSourceAgentId?: string
+  modelSourceType: "agent-binding" | "system-default"
+} {
   if (!modelSourceAgent.modelRef) {
+    if (systemDefaultModelRef && canUseSystemDefaultForMissingModel(agent, modelSourceAgent)) {
+      return {
+        modelRef: systemDefaultModelRef,
+        modelSourceAgentId: modelSourceAgent.id,
+        modelSourceType: "system-default",
+      }
+    }
+
     throw new AgentModelResolutionError(
       "MODEL_BINDING_MISSING",
       agent.tier === "subagent"
@@ -147,18 +234,58 @@ function requireModelRef(agent: AgentDefinition, modelSourceAgent: AgentDefiniti
     )
   }
 
-  return modelSourceAgent.modelRef
+  return {
+    modelRef: modelSourceAgent.modelRef,
+    modelSourceAgentId: modelSourceAgent.id,
+    modelSourceType: "agent-binding",
+  }
+}
+
+function canUseSystemDefaultForMissingModel(
+  agent: AgentDefinition,
+  modelSourceAgent: AgentDefinition
+): boolean {
+  const source = agent.tier === "subagent" ? modelSourceAgent : agent
+  return source.origin === "system" &&
+    source.tier === "primary" &&
+    source.visibility === "visible" &&
+    (source.executorType === "ai-sdk" || source.executorType === "orchestrator")
+}
+
+export function resolveModelRefSnapshot(
+  providerService: ProviderService,
+  modelRef: AgentModelRef,
+  options: {
+    modelSourceAgentId?: string
+    modelSourceType?: "agent-binding" | "system-default"
+    fallbackFromModelRef?: AgentModelRef
+  } = {}
+): AgentResolvedModelResponse | null {
+  const provider = providerService.getProvider(modelRef.providerId)
+  const model = providerService.getModel(modelRef.providerId, modelRef.modelId)
+
+  if (!provider || !model) {
+    return null
+  }
+
+  return buildResolvedModelSnapshot(provider, model, options)
 }
 
 function buildResolvedModelSnapshot(
   provider: ProviderInfo,
   model: ProviderModel,
-  modelSourceAgentId?: string
+  options: {
+    modelSourceAgentId?: string
+    modelSourceType?: "agent-binding" | "system-default"
+    fallbackFromModelRef?: AgentModelRef
+  } = {}
 ): AgentResolvedModelResponse {
   return {
     providerId: provider.id,
     modelId: model.id,
-    modelSourceAgentId,
+    modelSourceAgentId: options.modelSourceAgentId,
+    modelSourceType: options.modelSourceType,
+    fallbackFromModelRef: options.fallbackFromModelRef,
     providerProtocol: provider.api_protocol,
     providerName: provider.name,
     modelName: model.name,

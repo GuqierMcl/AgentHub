@@ -1,8 +1,12 @@
 import { stepCountIs, streamText, type ModelMessage } from "ai"
-import type { AgentDefinition, AgentRegistry } from "../agents"
+import type { AgentDefinition, AgentModelRef, AgentRegistry } from "../agents"
 import { createChildLogger } from "../logger"
 import type { ProviderService } from "../provider"
-import { AgentModelResolutionError, resolveAgentLanguageModel } from "./model-resolver"
+import {
+  AgentModelResolutionError,
+  resolveAgentLanguageModel,
+  resolveSystemDefaultLanguageModel,
+} from "./model-resolver"
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
 import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
@@ -10,6 +14,11 @@ import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { createRunEvent } from "./run-events"
 import type { PendingQuestionToolCall } from "./question"
+import {
+  runWithPreVisibleFallback,
+  type ModelAttempt,
+} from "./pre-visible-model-fallback"
+import type { SystemModelSettingsService } from "./system-model-settings"
 import type {
   AgentExecutionContext,
   AgentExecutor,
@@ -20,6 +29,12 @@ import type { RuntimeToolRegistry } from "./tools"
 const log = createChildLogger("orchestrator-executor")
 const DEFAULT_TEMPERATURE = 0.2
 const ORCHESTRATOR_MAX_STEPS = 6
+
+type OrchestratorModelResolution = ReturnType<typeof resolveAgentLanguageModel>
+
+type OrchestratorModelAttempt = ModelAttempt & {
+  resolution: OrchestratorModelResolution
+}
 
 function normalizeHistoryMessages(context: AgentExecutionContext): ModelMessage[] {
   if (context.resumeMessages) {
@@ -49,19 +64,102 @@ export class OrchestratorExecutor implements AgentExecutor {
   constructor(
     private registry: AgentRegistry,
     private providerService: ProviderService,
-    private toolRegistry: RuntimeToolRegistry
+    private toolRegistry: RuntimeToolRegistry,
+    private systemModelSettingsService?: SystemModelSettingsService,
+    private streamTextImpl: typeof streamText = streamText
   ) {}
 
   async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
-    const { agent, runId, signal, task, parentAgentId, groupId, parentTaskId } = context
-    const diagnostics = resolveRunDiagnostics(context.input)
+    const { agent, runId, signal } = context
 
     if (signal.aborted) {
       log.info({ runId, agentId: agent.id }, "Orchestrator execution aborted before start")
       return
     }
 
-    const resolution = resolveAgentLanguageModel(this.providerService, agent)
+    yield* runWithPreVisibleFallback<OrchestratorModelAttempt>({
+      getPrimary: () => this.createPrimaryAttempt(context),
+      getFallback: (error, failedAttempt) => this.createFallbackAttempt(context, error, failedAttempt),
+      executeAttempt: (attempt) => this.executeResolved(context, attempt.resolution),
+    })
+  }
+
+  private createPrimaryAttempt(context: AgentExecutionContext): OrchestratorModelAttempt {
+    const resolution = resolveAgentLanguageModel(this.providerService, context.agent, {
+      systemDefaultModelRef: this.systemModelSettingsService?.getSystemDefaultModelRef(),
+    })
+    return {
+      id: createAttemptId(resolution.modelRef, resolution.resolvedModel.modelSourceType ?? "agent-binding"),
+      resolution,
+    }
+  }
+
+  private createFallbackAttempt(
+    context: AgentExecutionContext,
+    error: unknown,
+    failedAttempt?: OrchestratorModelAttempt
+  ): OrchestratorModelAttempt | null {
+    if (context.signal.aborted) {
+      return null
+    }
+
+    const fallbackRef = this.systemModelSettingsService?.getSystemDefaultModelRef()
+    if (!fallbackRef) {
+      return null
+    }
+
+    const failedModelRef = failedAttempt?.resolution.modelRef ?? context.agent.modelRef ?? null
+    if (!failedModelRef && isMissingBindingError(error)) {
+      return null
+    }
+
+    if (failedModelRef && sameModelRef(fallbackRef, failedModelRef)) {
+      return null
+    }
+
+    try {
+      const resolution = resolveSystemDefaultLanguageModel(this.providerService, fallbackRef, {
+        agentId: context.agent.id,
+        fallbackFromModelRef: failedModelRef,
+      })
+      log.warn(
+        {
+          runId: context.runId,
+          agentId: context.agent.id,
+          failedProviderId: failedModelRef?.providerId,
+          failedModelId: failedModelRef?.modelId,
+          fallbackProviderId: fallbackRef.providerId,
+          fallbackModelId: fallbackRef.modelId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Falling back to system default orchestrator model before visible output"
+      )
+      return {
+        id: createAttemptId(resolution.modelRef, "system-default"),
+        resolution,
+      }
+    } catch (fallbackError) {
+      log.warn(
+        {
+          runId: context.runId,
+          agentId: context.agent.id,
+          fallbackProviderId: fallbackRef.providerId,
+          fallbackModelId: fallbackRef.modelId,
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        },
+        "System default orchestrator model fallback is unavailable"
+      )
+      return null
+    }
+  }
+
+  private async *executeResolved(
+    context: AgentExecutionContext,
+    resolution: OrchestratorModelResolution
+  ): AsyncIterable<RunEvent> {
+    const { agent, runId, signal, task, parentAgentId, groupId, parentTaskId } = context
+    const diagnostics = resolveRunDiagnostics(context.input)
+
     if (!resolution.resolvedModel.capabilities.supports_tools) {
       throw new AgentModelResolutionError(
         "MODEL_TOOLS_UNSUPPORTED",
@@ -117,7 +215,7 @@ export class OrchestratorExecutor implements AgentExecutor {
     started.groupId = groupId
     yield started
 
-    const result = streamText({
+    const result = this.streamTextImpl({
       model: resolution.languageModel,
       system: this.buildSystemPrompt(streamContext),
       messages: normalizeHistoryMessages(streamContext),
@@ -378,4 +476,16 @@ export class OrchestratorExecutor implements AgentExecutor {
         `description: ${target.description}`,
       ].join(" | "))
   }
+}
+
+function isMissingBindingError(error: unknown): boolean {
+  return error instanceof AgentModelResolutionError && error.code === "MODEL_BINDING_MISSING"
+}
+
+function sameModelRef(left: AgentModelRef, right: AgentModelRef): boolean {
+  return left.providerId === right.providerId && left.modelId === right.modelId
+}
+
+function createAttemptId(modelRef: AgentModelRef, source: string): string {
+  return `${source}:${modelRef.providerId}/${modelRef.modelId}`
 }

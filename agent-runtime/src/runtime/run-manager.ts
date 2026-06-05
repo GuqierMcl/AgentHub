@@ -27,6 +27,7 @@ import {
 } from "./system-agents"
 import { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./tools"
 import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
+import type { SystemModelSettingsService } from "./system-model-settings"
 import { WorkspaceError, WorkspaceService } from "./workspace"
 import {
   WorkspaceDiffService,
@@ -166,14 +167,20 @@ export class RunManager {
     providerService: ProviderService,
     _legacyWorkspaceService?: WorkspaceService,
     toolRegistry: RuntimeToolRegistry = createDefaultRuntimeToolRegistry(),
-    _legacyPermissionService?: RuntimePermissionService
+    _legacyPermissionService?: RuntimePermissionService,
+    systemModelSettingsService?: SystemModelSettingsService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
     this.toolRegistry = toolRegistry
-    this.aiSdkExecutor = new AiSdkExecutor(providerService, this.toolRegistry)
+    this.aiSdkExecutor = new AiSdkExecutor(providerService, this.toolRegistry, systemModelSettingsService)
     this.externalAdapterExecutor = new ExternalAdapterExecutor()
-    this.orchestratorExecutor = new OrchestratorExecutor(agentRegistry, providerService, this.toolRegistry)
-    this.systemAgentRunner = new SystemAgentRunner(providerService)
+    this.orchestratorExecutor = new OrchestratorExecutor(
+      agentRegistry,
+      providerService,
+      this.toolRegistry,
+      systemModelSettingsService
+    )
+    this.systemAgentRunner = new SystemAgentRunner(providerService, systemModelSettingsService)
   }
 
   createRun(input: RunInput): RunRecord {

@@ -2,7 +2,12 @@ import { generateText, type ModelMessage } from "ai"
 import type { AgentDefinition } from "../agents"
 import { createChildLogger } from "../logger"
 import type { ProviderService } from "../provider"
-import { AgentModelResolutionError, resolveAgentLanguageModel } from "./model-resolver"
+import {
+  AgentModelResolutionError,
+  resolveAgentLanguageModel,
+  resolveSystemDefaultLanguageModel,
+} from "./model-resolver"
+import type { SystemModelSettingsService } from "./system-model-settings"
 import type { RunInput } from "./types"
 
 const log = createChildLogger("system-agents")
@@ -15,6 +20,8 @@ export type SystemAgentCompletedData = {
   target: "conversation.title"
   trigger: "first_user_message"
   inheritedModelFromAgentId: string
+  modelSource?: "entry-agent" | "system-default"
+  resolvedModel?: ReturnType<typeof resolveAgentLanguageModel>["resolvedModel"]
   result: {
     title: string
   }
@@ -156,7 +163,11 @@ export function createFallbackTitleSystemAgentResult(
 }
 
 export class SystemAgentRunner {
-  constructor(private providerService: ProviderService) {}
+  constructor(
+    private providerService: ProviderService,
+    private systemModelSettingsService?: SystemModelSettingsService,
+    private generateTextImpl: typeof generateText = generateText
+  ) {}
 
   shouldRunTitle(input: RunInput): boolean {
     return shouldRunTitleAgent(input)
@@ -169,8 +180,8 @@ export class SystemAgentRunner {
     }
 
     try {
-      const resolution = resolveAgentLanguageModel(this.providerService, entryAgent)
-      const result = await generateText({
+      const resolution = this.resolveTitleModel(entryAgent)
+      const result = await this.generateTextImpl({
         model: resolution.languageModel,
         system: TITLE_SYSTEM_PROMPT,
         messages: buildTitleMessages(input),
@@ -194,6 +205,10 @@ export class SystemAgentRunner {
         target: "conversation.title",
         trigger: "first_user_message",
         inheritedModelFromAgentId: entryAgent.id,
+        modelSource: resolution.resolvedModel.modelSourceType === "system-default"
+          ? "system-default"
+          : "entry-agent",
+        resolvedModel: resolution.resolvedModel,
         result: {
           title,
         },
@@ -214,5 +229,17 @@ export class SystemAgentRunner {
       )
       return null
     }
+  }
+
+  private resolveTitleModel(entryAgent: AgentDefinition): ReturnType<typeof resolveAgentLanguageModel> {
+    const systemDefaultModelRef = this.systemModelSettingsService?.getSystemDefaultModelRef()
+    if (systemDefaultModelRef) {
+      return resolveSystemDefaultLanguageModel(this.providerService, systemDefaultModelRef, {
+        agentId: "system:title",
+        fallbackFromModelRef: entryAgent.modelRef,
+      })
+    }
+
+    return resolveAgentLanguageModel(this.providerService, entryAgent)
   }
 }

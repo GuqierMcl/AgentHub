@@ -198,7 +198,13 @@ Agent Runtime 需要通过统一执行接口接入内部智能体。这是 Agent
 
 主智能体的模型绑定是运行时配置覆盖层，持久化到 `config.dataDir` 下的 agent 模型绑定文件中，并在注册表加载时合并到 agent 定义。`orchestrator` 已被纳入允许绑定模型的内部主智能体集合，外部智能体和隐藏子智能体仍不在这套绑定层内。隐藏子智能体执行时固定继承直接调用方智能体的模型；继承只影响模型选择，不继承调用方工具、权限、系统提示词或身份。
 
-Runtime 还支持独立的系统智能体层，用于自动执行不属于用户可见主智能体和隐藏子智能体的维护任务。首版系统智能体为 `title`：在会话仍需要自动命名时触发，继承当前 Run 入口智能体的模型快照生成短标题。标题只使用会话第一条用户输入；若首次自动标题错过且 `titleSource` 仍为 `default`，后续 Run 可通过 `conversationState.titleSeedUserMessage` 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即在同一条 Run SSE 中输出 `system_agent.completed`；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。若模型标题没有赶上或生成失败，Runtime 会在 `run.completed` 前输出一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务。Runtime 不直接更新会话标题；HubServer 消费该事件并在标题未被用户手动修改时落库。
+Runtime 还维护一份系统默认模型设置，持久化在 `config.dataDir/system-model-settings.json`，结构为 `{ version: 1, systemDefaultModel?: { providerId, modelId } }`。该模型是系统预设主智能体缺少独立绑定时的默认来源，也是智能体绑定模型在首个用户可见事件前调用失败时的一次性降级模型。保存系统默认模型时 Runtime 会校验 provider 存在、启用、已配置 API key，model 存在、启用且支持 tools，以保障 `orchestrator`、系统智能体和后续任务型 Instruct Agent 的通用能力。
+
+内部模型选择优先级为：可解析的智能体绑定优先；系统预设主智能体缺少绑定时使用系统默认模型；用户自定义智能体缺少绑定时继续返回 `MODEL_BINDING_MISSING`；隐藏子智能体仍继承直接调用方模型，但调用方是系统预设主智能体且缺少绑定时可经同一策略使用系统默认模型。外部智能体不参与这套模型策略。
+
+内部 AI SDK 执行器和 `orchestrator` 支持首包前降级：绑定模型解析失败、provider/model 不可用、模型不支持 `orchestrator` 所需 tools，或 stream 在首个用户可见事件前失败时，可以用系统默认模型重试一次。首包边界以 Runtime 尚未对外发出 `message.*`、`tool.*`、`reasoning.*`、`permission.*` 或 `question.*` 为准；`agent.started` 与 `model.stream.part` 等预事件会在第一次尝试中缓冲，若发生降级则丢弃失败尝试的预事件。系统默认模型为空、无效或与失败模型相同时不降级；降级模型再次失败时沿用现有 `AgentModelResolutionError` 或普通 `RUN_FAILED` 映射。
+
+Runtime 还支持独立的系统智能体层，用于自动执行不属于用户可见主智能体和隐藏子智能体的维护任务。首版系统智能体为 `title`：在会话仍需要自动命名时触发，优先使用系统默认模型生成短标题；未配置系统默认模型时，保留继承当前 Run 入口智能体模型快照的兼容行为。标题只使用会话第一条用户输入；若首次自动标题错过且 `titleSource` 仍为 `default`，后续 Run 可通过 `conversationState.titleSeedUserMessage` 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即在同一条 Run SSE 中输出 `system_agent.completed`；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。若模型标题没有赶上或生成失败，Runtime 会在 `run.completed` 前输出一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务。Runtime 不直接更新会话标题；HubServer 消费该事件并在标题未被用户手动修改时落库。
 
 系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`。`AiSdkExecutor` 和 `OrchestratorExecutor` 都从 `AgentDefinition.systemPrompt` 读取提示词，再追加运行态上下文、任务信息、可用工具和会话参与者等执行说明。普通主智能体不会看到 `internal` 工具；`orchestrator` 通过专用执行路径显式开启 `includeInternal=true`，因此只它能看到 `write_plan` 和 `run_task`。
 

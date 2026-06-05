@@ -9,6 +9,8 @@ import type {
   CustomProviderUpdateRequest,
   CatalogRefreshResponse,
   HealthResponse,
+  AgentModelRef,
+  SystemModelSettingsResponse,
 } from "../types"
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -57,6 +59,25 @@ export const runtimeApi = {
         body: JSON.stringify(config),
       }
     )
+  },
+
+  getSystemDefaultModel(): Promise<SystemModelSettingsResponse> {
+    return request("/api/settings/model")
+  },
+
+  updateSystemDefaultModel(
+    modelRef: AgentModelRef
+  ): Promise<SystemModelSettingsResponse> {
+    return request("/api/settings/model", {
+      method: "PUT",
+      body: JSON.stringify(modelRef),
+    })
+  },
+
+  clearSystemDefaultModel(): Promise<SystemModelSettingsResponse> {
+    return request("/api/settings/model", {
+      method: "DELETE",
+    })
   },
 
   createCustomProvider(

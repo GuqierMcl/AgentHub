@@ -36,6 +36,39 @@ export type ModelResponse = {
   enabled: boolean
 }
 
+export type AgentModelRef = {
+  providerId: string
+  modelId: string
+}
+
+export type AgentResolvedModel = {
+  providerId: string
+  modelId: string
+  modelSourceAgentId?: string
+  modelSourceType?: "agent-binding" | "system-default"
+  fallbackFromModelRef?: AgentModelRef
+  providerProtocol: ProviderProtocol
+  providerName: string
+  modelName: string
+  upstreamModelId: string
+  contextLength: number
+  outputLength: number
+  capabilities: ModelCapabilities
+  enabled: boolean
+}
+
+export type SystemModelSettingsStatus = "configured" | "unset" | "invalid"
+
+export type SystemModelSettingsResponse = {
+  status: SystemModelSettingsStatus
+  systemDefaultModel?: AgentModelRef
+  resolvedModel?: AgentResolvedModel
+  invalidReason?: {
+    code: string
+    message: string
+  }
+}
+
 export type ProviderSummary = {
   id: string
   name: string
