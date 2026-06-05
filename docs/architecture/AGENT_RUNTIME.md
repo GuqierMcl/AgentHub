@@ -256,7 +256,7 @@ Instruct Agent 是一个独立的对话式智能体创建能力，不需要参�
 
 **运行边界**：
 
-- `instruct-agent` 只进入独立的 `InstructAgentRegistry`，不加载到普通 `AgentRegistry`。
+- `instruct-agent` 只进入独立的 `InstructAgentRegistry`（位于 `agents/`，与 `AgentRegistry` 同级），不加载到普通 `AgentRegistry`。
 - 普通 `GET /runtime/agents` 不会列出 `instruct-agent`。
 - 运行入口只走 `POST /runtime/instruct-runs` 和独立的 `InstructRunManager`。
 - 不进入普通 `RunManager` 的 EntryResolver、不参与群聊、不支持任务委派。
@@ -278,13 +278,17 @@ Instruct Agent 是一个独立的对话式智能体创建能力，不需要参�
 
 **隔离策略**：
 
-- `instruct-runtime` 自带独立 `InstructAgentRegistry`、`InstructRunManager`、`InstructToolRegistry`、`InstructAgentExecutor`。
+- `instruct-runtime` 自带独立 `InstructRunManager`、`InstructToolRegistry`、`InstructAgentExecutor`，以及位于 `agents/` 的 `InstructAgentRegistry`。
+- `InstructAgentExecutor implements AgentExecutor`，使用与 `AiSdkExecutor` 相同的 `runWithPreVisibleFallback` 模型解析降级流程。
+- `InstructRunManager` 遵循与 `RunManager` 相同的 `createRun → queueMicrotask → executeRun → updateRunStatus → emit` 生命周期。
 - 只复用底层稳定积木（AI SDK、Zod schema、`question` 输入规范、RunEvent 事件形状、`AgentStore` 持久化）。
 - 不复用普通对话的 EntryResolver、RunManager、AgentRegistry、默认 RuntimeToolRegistry 和 Orchestrator 调度。
 
 **持久化**：
 
 - `save_agent` 直接调用 `AgentStore.loadAgents()` 和 `AgentStore.saveAgents()`，不经过普通 `AgentRegistry.createUserAgent()`。
+- 保存逻辑遵循与 `createUserAgent` 相同的校验模式：`normalizeStringList` 去重去空格、`normalizeAllowedToolsForInstruct` 工具白名单校验、`normalizePermissionPolicyForInstructAgent` 权限策略校验（含 filesystem 等级推导）、`normalizeUserToolPermissionRules` bash 规则拒绝。
+- 所有首版权限策略集中在 `instruct-agent-authoring-policy.ts`，后续开放 shell/network/deploy 只扩展此文件。
 - 保存时生成完整 `AgentDefinition`，`origin = "user"`、`tier = "primary"`、`visibility = "visible"`。
 - 工具结果返回完整新智能体信息，HubServer 可立即更新产品状态。
 

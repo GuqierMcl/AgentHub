@@ -2385,7 +2385,23 @@ Preview API 用于 Web 浏览器面板的网页预览功能。它通过 hub-serv
 
 **端点**：`GET /runtime/instruct-runs/:runId`
 
-返回 `InstructRunRecord`。
+返回 `InstructRunRecord`：
+
+```ts
+{
+  runId: string
+  conversationId: string
+  status: "queued" | "running" | "waiting_input" | "completed" | "failed" | "cancelled"
+  agentId: "instruct-agent"
+  createdAt: string
+  updatedAt: string
+  input: InstructRunInput
+  error?: {
+    code: string
+    message: string
+  }
+}
+```
 
 | 错误码 | HTTP Status | 说明 |
 | --- | --- | --- |
@@ -2415,6 +2431,7 @@ SSE 流，复用现有 `RunEvent` 编码规则。支持的事件类型：
 | --- | --- | --- |
 | `QUESTION_INVALID_INPUT` | 400 | 答案格式非法 |
 | `QUESTION_NOT_FOUND` | 404 | 问题请求不存在 |
+| `QUESTION_RUN_NOT_ACTIVE` | 409 | Run 不在等待用户输入状态 |
 | `QUESTION_ALREADY_ANSWERED` | 409 | 问题已被回答 |
 
 ### 取消 Instruct Run
@@ -2450,6 +2467,9 @@ SSE 流，复用现有 `RunEvent` 编码规则。支持的事件类型：
     network?: "none"
     deploy?: "none"
   }
+  toolPermissionRules?: {
+    bash?: Record<string, "allow" | "ask" | "deny">
+  }
 }
 ```
 
@@ -2465,6 +2485,7 @@ SSE 流，复用现有 `RunEvent` 编码规则。支持的事件类型：
     allowedTools: string[]
     allowedSubagents: string[]
     permissionPolicy: { filesystem, shell, network, deploy }
+    toolPermissionRules?: { bash?: Record<string, "allow" | "ask" | "deny"> }
     enabled: boolean
     readonly: false
     createdAt?: string
