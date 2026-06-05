@@ -1,6 +1,7 @@
 export { AgentStore } from "./agent-store"
 export { AgentModelBindingStore } from "./agent-model-binding-store"
 export { AgentRegistry, AgentRegistryMutationError } from "./agent-registry"
+export { InstructAgentRegistry } from "./instruct-agent-registry"
 export { presetAgentSystemPrompts } from "./preset-agent-prompts"
 export { presetAgents } from "./preset-agents"
 export { presetSubagents } from "./preset-subagents"

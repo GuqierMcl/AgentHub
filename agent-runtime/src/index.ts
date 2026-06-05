@@ -1,7 +1,7 @@
 import { Hono, Context, Next } from 'hono'
 import { cors } from 'hono/cors'
 import { config } from './config'
-import { AgentRegistry } from './agents'
+import { AgentRegistry, InstructAgentRegistry } from './agents'
 import { ProviderService } from './provider'
 import {
   RunManager,
@@ -10,6 +10,11 @@ import {
   WorkspaceRevertService,
   createDefaultRuntimeToolRegistry,
 } from './runtime'
+import {
+  InstructAgentExecutor,
+  InstructRunManager,
+  createInstructRuntimeToolRegistry,
+} from './instruct-runtime'
 import router from './routers'
 
 const app = new Hono()
@@ -47,6 +52,15 @@ const runManager = new RunManager(
 )
 const workspaceRevertService = new WorkspaceRevertService()
 
+const instructAgentRegistry = new InstructAgentRegistry()
+const instructToolRegistry = createInstructRuntimeToolRegistry(config.dataDir)
+const instructExecutor = new InstructAgentExecutor(
+  providerService,
+  instructToolRegistry,
+  systemModelSettingsService
+)
+const instructRunManager = new InstructRunManager(instructAgentRegistry, instructExecutor)
+
 // 注入 ProviderService 到 Context
 app.use('*', async (c: Context, next: Next) => {
   c.set('providerService', providerService)
@@ -55,6 +69,8 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('workspaceRevertService', workspaceRevertService)
   c.set('toolRegistry', toolRegistry)
   c.set('systemModelSettingsService', systemModelSettingsService)
+  c.set('instructAgentRegistry', instructAgentRegistry)
+  c.set('instructRunManager', instructRunManager)
   await next()
 })
 

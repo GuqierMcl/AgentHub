@@ -243,6 +243,53 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - 外部智能体 `opencode` 已进入 `ExternalAdapterExecutor`，默认使用真实 OpenCode client。Runtime 已接入 `@opencode-ai/sdk/v2`，在 SDK 暴露安全 workspace 启动参数时可走 managed server；当前 SDK 未暴露 cwd/workdir/projectPath 时，使用 `opencode serve` 子进程以 workspace root 为 `cwd` 启动，并通过 `project.current` / `path.get` 校验 workspace。HubServer 已具备外部 Session 映射、direct context bridge、通用 Workspace Diff 投影和 OpenCode event stream/tool timeline 映射；OpenCode permission bridge 仍在 `docs/roadmap/opencode-adapter-implementation.md` 后续阶段。
 - 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Workspace Diff、只读 Diff Viewer、ChangeSet 归因和可靠 Diff 的完整 Run 级撤销 V0 已开放。单文件/单 hunk revert、pre-apply proposed patch、隔离 workspace 合入和 deploy 仍未开放。
 
+### 3.3.2 Instruct Agent（对话式智能体创建）
+
+Instruct Agent 是一个独立的对话式智能体创建能力，不需要参与普通 Orchestrator 调度或群聊协作，通过独立的 instruct run 流程运行。
+
+**职责**：
+
+- 通过对话收集用户需求并创建用户自定义智能体。
+- 判断信息是否足够（name、description、systemPrompt）。
+- 信息不足时通过 `question` 工具向用户提问。
+- 信息足够时调用 `save_agent` 工具写入 `AgentStore`。
+
+**运行边界**：
+
+- `instruct-agent` 只进入独立的 `InstructAgentRegistry`，不加载到普通 `AgentRegistry`。
+- 普通 `GET /runtime/agents` 不会列出 `instruct-agent`。
+- 运行入口只走 `POST /runtime/instruct-runs` 和独立的 `InstructRunManager`。
+- 不进入普通 `RunManager` 的 EntryResolver、不参与群聊、不支持任务委派。
+
+**工具集**：
+
+| 工具 | 说明 |
+| --- | --- |
+| `question` | 复用现有 question schema 和 answer payload，用于向用户收集信息 |
+| `save_agent` | 直接通过 `AgentStore.loadAgents()` / `AgentStore.saveAgents()` 写入用户主智能体；只注册到 instruct 专用 tool registry |
+
+首版 `save_agent` 工具白名单只允许 `ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`；首版强制 `shell = "none"`、`network = "none"`、`deploy = "none"`。
+
+**模型选择**：
+
+- Instruct Agent 首版使用系统默认模型。
+- 要求模型支持 tools 能力。
+- 不修改普通 `model-resolver.ts` 行为。
+
+**隔离策略**：
+
+- `instruct-runtime` 自带独立 `InstructAgentRegistry`、`InstructRunManager`、`InstructToolRegistry`、`InstructAgentExecutor`。
+- 只复用底层稳定积木（AI SDK、Zod schema、`question` 输入规范、RunEvent 事件形状、`AgentStore` 持久化）。
+- 不复用普通对话的 EntryResolver、RunManager、AgentRegistry、默认 RuntimeToolRegistry 和 Orchestrator 调度。
+
+**持久化**：
+
+- `save_agent` 直接调用 `AgentStore.loadAgents()` 和 `AgentStore.saveAgents()`，不经过普通 `AgentRegistry.createUserAgent()`。
+- 保存时生成完整 `AgentDefinition`，`origin = "user"`、`tier = "primary"`、`visibility = "visible"`。
+- 工具结果返回完整新智能体信息，HubServer 可立即更新产品状态。
+
+
+
 ### 3.4 外部智能体 Adapter
 
 Claude Code、Codex、OpenCode 等外部 Agent 平台差异，应该被封装在 Adapter 内部，对上层只暴露统一事件。

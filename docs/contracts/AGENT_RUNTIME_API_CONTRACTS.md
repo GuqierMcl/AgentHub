@@ -2315,6 +2315,167 @@ Preview API 用于 Web 浏览器面板的网页预览功能。它通过 hub-serv
 - 对 `text/html` 响应，在 `<head>` 后注入 `<base href="...">` 标签，使页面中的相对路径资源（CSS、JS、图片）能正确解析到目标源站；同时注入轻量导航脚本，把 iframe 内链接点击和 `window.open` 转换为 `PREVIEW_NAVIGATE` postMessage，供 Web 更新预览地址栏。
 - 非 HTML 内容（如图片、CSS、字体）以流式方式直接透传。
 
+## Instruct Run API（对话式智能体创建）
+
+### 创建 Instruct Run
+
+**端点**：`POST /runtime/instruct-runs`
+
+请求体 `InstructRunInput`：
+
+```ts
+{
+  conversationId: string
+  userMessage: {
+    role: "user"
+    content: string
+  }
+  history?: Array<{
+    role: "user" | "assistant"
+    content: string
+  }>
+  draft?: {
+    id?: string
+    name?: string
+    description?: string
+    systemPrompt?: string
+    capabilities?: string[]
+    allowedTools?: string[]
+    allowedSubagents?: string[]
+    permissionPolicy?: {
+      filesystem?: "none" | "read" | "write"
+      shell?: "none"
+      network?: "none"
+      deploy?: "none"
+    }
+  }
+  diagnostics?: {
+    includeModelStream?: boolean
+    includeReasoning?: boolean
+    includeRawModelChunks?: boolean
+  }
+}
+```
+
+成功响应（201）：
+
+```ts
+{
+  runId: string
+  status: "queued"
+  agentId: "instruct-agent"
+  eventsUrl: string // e.g. "/runtime/instruct-runs/{runId}/events"
+}
+```
+
+错误响应：
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `INSTRUCT_RUN_INVALID_INPUT` | 400 | 输入参数非法 |
+
+### 查询 Instruct Run
+
+**端点**：`GET /runtime/instruct-runs/:runId`
+
+返回 `InstructRunRecord`。
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `RUN_NOT_FOUND` | 404 | Run 不存在 |
+
+### 订阅 Instruct Run 事件
+
+**端点**：`GET /runtime/instruct-runs/:runId/events`
+
+SSE 流，复用现有 `RunEvent` 编码规则。支持的事件类型：
+
+- `run.started` / `run.completed` / `run.failed` / `run.cancelled`
+- `agent.started` / `agent.completed`
+- `model.stream.part`
+- `reasoning.started` / `reasoning.delta` / `reasoning.completed`
+- `message.delta` / `message.completed`
+- `tool.started` / `tool.completed` / `tool.failed`
+- `question.requested` / `question.answered` / `question.cancelled`
+
+### 回答问题
+
+**端点**：`POST /runtime/instruct-runs/:runId/questions/:requestId/answer`
+
+请求体复用 `QuestionAnswerRequestSchema`。
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `QUESTION_INVALID_INPUT` | 400 | 答案格式非法 |
+| `QUESTION_NOT_FOUND` | 404 | 问题请求不存在 |
+| `QUESTION_ALREADY_ANSWERED` | 409 | 问题已被回答 |
+
+### 取消 Instruct Run
+
+**端点**：`POST /runtime/instruct-runs/:runId/cancel`
+
+语义复用普通 Runtime：取消运行中的 stream；若有 pending question，发出 `question.cancelled` 和 `run.cancelled`。
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `RUN_NOT_FOUND` | 404 | Run 不存在 |
+
+### `save_agent` 工具
+
+工具名称：`save_agent`，`category = "agent-authoring"`，`riskLevel = "medium"`，`approvalPolicy = "never"`，`configurableByUserAgent = false`，`internal = true`。
+
+只注册到 instruct 专用 tool registry，不加入默认 RuntimeToolRegistry。
+
+**输入** `SaveAgentInput`：
+
+```ts
+{
+  id?: string
+  name: string           // 1-120
+  description: string    // 1-1000
+  systemPrompt: string   // 1-20000
+  capabilities?: string[]
+  allowedTools?: string[]
+  allowedSubagents?: string[]
+  permissionPolicy?: {
+    filesystem?: "none" | "read" | "write"
+    shell?: "none"
+    network?: "none"
+    deploy?: "none"
+  }
+}
+```
+
+**输出** `SaveAgentResult`：
+
+```ts
+{
+  agent: {
+    id: string
+    name: string
+    description: string
+    capabilities: string[]
+    allowedTools: string[]
+    allowedSubagents: string[]
+    permissionPolicy: { filesystem, shell, network, deploy }
+    enabled: boolean
+    readonly: false
+    createdAt?: string
+    updatedAt?: string
+  }
+}
+```
+
+成功时发出 `tool.completed`，summary 使用 `Created agent <id>`。
+
+**错误码**：
+
+| 错误码 | 说明 |
+| --- | --- |
+| `AGENT_INVALID_INPUT` | 输入校验失败，包括非法权限、不在白名单的工具 |
+| `AGENT_ALREADY_EXISTS` | id 冲突或为系统预设保留 id |
+| `AGENT_STORE_WRITE_FAILED` | AgentStore 持久化失败 |
+
 ## 初始契约范围
 
 - 会话。
@@ -2325,6 +2486,7 @@ Preview API 用于 Web 浏览器面板的网页预览功能。它通过 hub-serv
 - Artifact 元数据。
 - 权限请求与审批。
 - 用户问答请求与续跑。
+- Instruct Run（对话式智能体创建）。
 - 工作区文件编辑。
 
 具体端点、事件名称和载荷结构应随着 API 实现逐步补充。

@@ -5,6 +5,7 @@ import runs from './runs'
 import services from './services'
 import workspaceRevert from './workspace-revert'
 import settings from './settings'
+import instructRuns from './instruct-runs'
 
 const router = new Hono()
 
@@ -27,5 +28,6 @@ router.route('/', runs)
 router.route('/', services)
 router.route('/', workspaceRevert)
 router.route('/', settings)
+router.route('/', instructRuns)
 
 export default router
