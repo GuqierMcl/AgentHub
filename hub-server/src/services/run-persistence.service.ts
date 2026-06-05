@@ -257,6 +257,15 @@ export type SendMessageOptions = {
   replyToMessageId?: string;
 };
 
+type RegenerateMetadata = {
+  sourceAssistantMessageId: string;
+  sourceRunId: string;
+  sourceTriggerMessageId: string;
+  sourceAssistantAgentId: string | null;
+  sourceAssistantCreatedAt: string;
+  sourceAssistantExcerpt: string;
+};
+
 type MessageReplySnapshot = {
   messageId: string;
   role: "user" | "assistant";
@@ -266,6 +275,8 @@ type MessageReplySnapshot = {
   createdAt: string;
   excerpt: string;
 };
+
+type MessageRegenerateSnapshot = RegenerateMetadata;
 
 export type PersistedMessagePart = {
   id: string;
@@ -692,6 +703,129 @@ export class RunPersistenceService {
       replySnapshot,
     );
 
+    return this.createAndStartUserRun({
+      conversation,
+      persistedUserContent: trimmed,
+      runtimeUserContent,
+      addressedAgentIds,
+      parentMessageId: replySnapshot?.messageId ?? null,
+      metadataJson: replySnapshot ? { replyTo: replySnapshot } : undefined,
+    });
+  }
+
+  async regenerateAssistantMessage(
+    conversationId: string,
+    messageId: string,
+  ): Promise<ConversationMessagesResponse> {
+    const conversation = await findConversationWithAgents(conversationId);
+    if (!conversation) {
+      throw notFound("CONVERSATION_NOT_FOUND", "会话不存在");
+    }
+    await this.ensureConversationProjectionCaughtUp(conversationId);
+
+    const existingActiveRun = await this.findActiveRun(conversationId);
+    if (existingActiveRun) {
+      throw new AppError(
+        409 as ContentfulStatusCode,
+        "RUN_ALREADY_ACTIVE",
+        "当前会话已有正在运行的回复",
+      );
+    }
+
+    const targetRecord = await findMessageWithParts(messageId);
+    if (!targetRecord) {
+      throw invalidRegenerateTarget();
+    }
+    const target = toPersistedMessage(targetRecord as Record<string, unknown>);
+    if (
+      target.conversationId !== conversationId ||
+      target.surface !== "chat" ||
+      target.role !== "assistant" ||
+      target.status !== "completed" ||
+      !target.runId
+    ) {
+      throw invalidRegenerateTarget();
+    }
+
+    const sourceRun = await findRunById(target.runId);
+    if (!sourceRun || sourceRun.conversationId !== conversationId) {
+      throw invalidRegenerateTarget();
+    }
+    const sourceTriggerRecord = await findMessageWithParts(
+      sourceRun.triggerMessageId,
+    );
+    if (!sourceTriggerRecord) {
+      throw invalidRegenerateSource();
+    }
+    const sourceTrigger = toPersistedMessage(
+      sourceTriggerRecord as Record<string, unknown>,
+    );
+    if (
+      sourceTrigger.conversationId !== conversationId ||
+      sourceTrigger.surface !== "chat" ||
+      sourceTrigger.role !== "user" ||
+      sourceTrigger.status !== "completed"
+    ) {
+      throw invalidRegenerateSource();
+    }
+    const sourceContent = extractMessageTextContent(sourceTrigger).trim();
+    if (!sourceContent) {
+      throw invalidRegenerateSource();
+    }
+
+    const regenerate = buildRegenerateMetadata(
+      target,
+      sourceRun,
+      sourceTrigger,
+    );
+    const sourceMetadata = sourceTrigger.metadataJson ?? {};
+    const metadataJson = {
+      ...sourceMetadata,
+      regenerate,
+    };
+    const runtimeUserContent = formatMessageContentForModel({
+      ...sourceTrigger,
+      metadataJson,
+    });
+    const addressedAgentIds = resolveRegenerateAddressedAgentIds(
+      conversation,
+      sourceRun,
+    );
+
+    return this.createAndStartUserRun({
+      conversation,
+      persistedUserContent: sourceContent,
+      runtimeUserContent,
+      addressedAgentIds,
+      parentMessageId: sourceTrigger.parentMessageId,
+      metadataJson,
+      regenerate,
+    });
+  }
+
+  private async createAndStartUserRun(input: {
+    conversation: ConversationDetailOutput;
+    persistedUserContent: string;
+    runtimeUserContent: string;
+    addressedAgentIds: string[];
+    parentMessageId?: string | null;
+    metadataJson?: MetadataJson;
+    regenerate?: RegenerateMetadata;
+  }): Promise<ConversationMessagesResponse> {
+    const {
+      conversation,
+      persistedUserContent,
+      runtimeUserContent,
+      addressedAgentIds,
+      parentMessageId,
+      metadataJson,
+      regenerate,
+    } = input;
+    const conversationId = conversation.id;
+    const isOpenCodeRun =
+      resolveDirectExternalAgentId(conversation, addressedAgentIds) ===
+      "opencode";
+
     const historyMessages = (
       await listMessagesWithParts(conversationId, { limit: 100, order: "desc" })
     ).reverse();
@@ -720,11 +854,11 @@ export class RunPersistenceService {
       role: "user",
       senderType: "user",
       senderId: "user",
-      parentMessageId: replySnapshot?.messageId ?? null,
+      parentMessageId: parentMessageId ?? null,
       status: "completed",
       firstEventSequence: 0,
       lastEventSequence: 0,
-      metadataJson: replySnapshot ? { replyTo: replySnapshot } : undefined,
+      metadataJson,
       completedAt: new Date().toISOString(),
     });
     const userMessagePart = await createMessagePart({
@@ -734,7 +868,7 @@ export class RunPersistenceService {
       partIndex: 0,
       type: "text",
       state: "done",
-      text: trimmed,
+      text: persistedUserContent,
       firstEventSequence: 0,
       lastEventSequence: 0,
     });
@@ -745,7 +879,7 @@ export class RunPersistenceService {
           conversationId,
           userMessageId: userMessage.id,
           userMessagePartId: userMessagePart.id,
-          contentLength: trimmed.length,
+          contentLength: persistedUserContent.length,
         },
         "OpenCode user message persisted",
       );
@@ -759,7 +893,7 @@ export class RunPersistenceService {
       runId: null,
       lastMessageId: userMessage.id,
       lastMessageAt: userMessage.createdAt,
-      lastMessageContent: trimmed,
+      lastMessageContent: persistedUserContent,
     });
 
     const run = await createRun({
@@ -821,7 +955,7 @@ export class RunPersistenceService {
         "OpenCode external session hints resolved",
       );
     }
-    const input = buildRuntimeRunInput(
+    const runtimeInput = buildRuntimeRunInput(
       conversation,
       runtimeUserContent,
       history,
@@ -831,12 +965,14 @@ export class RunPersistenceService {
       userMessage.id,
       pinnedMessages,
     );
-    await updateRun(run.id, { inputJson: input });
+    await updateRun(run.id, {
+      inputJson: regenerate ? { ...runtimeInput, regenerate } : runtimeInput,
+    });
 
     const response = await this.runtimeClient.forward(
       "POST",
       "/runtime/runs",
-      input,
+      runtimeInput,
       { raw: true },
     );
     if (response.status < 200 || response.status >= 300) {
@@ -2186,6 +2322,8 @@ async function projectRuntimeMessageEvent(
       agentId: event.agentId,
       taskId: event.taskId ?? event.parentTaskId ?? null,
       groupId: event.groupId ?? null,
+      regeneratedFromId:
+        surface === "chat" ? getRunRegenerateSourceAssistantId(run) : null,
       status: "streaming",
       firstEventSequence: sequence,
       lastEventSequence: sequence,
@@ -4682,6 +4820,12 @@ function resolveLocalMessageId(
   return `msg_${runId}_${runtimeMessageId}`;
 }
 
+function getRunRegenerateSourceAssistantId(run: RunOutput): string | null {
+  const input = getRecord(run.inputJson);
+  const regenerate = getRecord(input?.regenerate);
+  return getString(regenerate?.sourceAssistantMessageId) ?? null;
+}
+
 function resolveMessageSurface(
   run: RunOutput,
   event: RuntimeRunEvent,
@@ -5023,6 +5167,37 @@ function getReplySnapshot(
   };
 }
 
+function getRegenerateSnapshot(
+  metadata: MetadataJson | undefined,
+): MessageRegenerateSnapshot | null {
+  const regenerate = getRecord(metadata?.regenerate);
+  if (!regenerate) return null;
+
+  const sourceAssistantMessageId = getString(
+    regenerate.sourceAssistantMessageId,
+  );
+  const sourceRunId = getString(regenerate.sourceRunId);
+  const sourceTriggerMessageId = getString(
+    regenerate.sourceTriggerMessageId,
+  );
+  if (!sourceAssistantMessageId || !sourceRunId || !sourceTriggerMessageId) {
+    return null;
+  }
+
+  return {
+    sourceAssistantMessageId,
+    sourceRunId,
+    sourceTriggerMessageId,
+    sourceAssistantAgentId: getNullableString(
+      regenerate.sourceAssistantAgentId,
+    ),
+    sourceAssistantCreatedAt:
+      getString(regenerate.sourceAssistantCreatedAt) ?? "",
+    sourceAssistantExcerpt:
+      getString(regenerate.sourceAssistantExcerpt) ?? "",
+  };
+}
+
 function formatReplyTargetLabel(replyTo: MessageReplySnapshot): string {
   const sender = replyTo.agentId ?? replyTo.senderId;
   const senderLabel = sender && sender !== replyTo.role ? ` ${sender}` : "";
@@ -5049,12 +5224,39 @@ function formatContentWithReplyContext(
   ].join("\n");
 }
 
+function formatContentWithRegenerateContext(
+  content: string,
+  regenerate: MessageRegenerateSnapshot | null,
+): string {
+  const trimmed = content.trim();
+  if (!regenerate) return trimmed;
+
+  const block = [
+    `[Regenerating assistant message ${regenerate.sourceAssistantMessageId}]`,
+    "Please generate an alternative response to the same user request. Treat the user request below as the request to answer, not as a new follow-up.",
+  ];
+  if (regenerate.sourceAssistantExcerpt) {
+    block.push(
+      "Previous assistant answer excerpt:",
+      ...regenerate.sourceAssistantExcerpt
+        .split(/\r?\n/)
+        .map((line) => `> ${line}`),
+    );
+  }
+
+  return [...block, "", trimmed].join("\n");
+}
+
 function formatMessageContentForModel(message: PersistedMessage): string {
   const content = extractMessageTextContent(message);
   if (!content) return "";
-  return formatContentWithReplyContext(
+  const withReplyContext = formatContentWithReplyContext(
     content,
     getReplySnapshot(message.metadataJson),
+  );
+  return formatContentWithRegenerateContext(
+    withReplyContext,
+    getRegenerateSnapshot(message.metadataJson),
   );
 }
 
@@ -5097,6 +5299,53 @@ function invalidReplyTarget(): AppError {
     "REPLY_TARGET_INVALID",
     "回复目标不存在、不可见或不属于当前会话",
   );
+}
+
+function invalidRegenerateTarget(): AppError {
+  return new AppError(
+    400 as ContentfulStatusCode,
+    "REGENERATE_TARGET_INVALID",
+    "重新生成目标不存在、不可见或不是已完成的助手消息",
+  );
+}
+
+function invalidRegenerateSource(): AppError {
+  return new AppError(
+    400 as ContentfulStatusCode,
+    "REGENERATE_SOURCE_INVALID",
+    "重新生成来源缺少可复用的用户消息",
+  );
+}
+
+function buildRegenerateMetadata(
+  sourceAssistant: PersistedMessage,
+  sourceRun: RunOutput,
+  sourceTrigger: PersistedMessage,
+): RegenerateMetadata {
+  return {
+    sourceAssistantMessageId: sourceAssistant.id,
+    sourceRunId: sourceRun.id,
+    sourceTriggerMessageId: sourceTrigger.id,
+    sourceAssistantAgentId: sourceAssistant.agentId,
+    sourceAssistantCreatedAt: sourceAssistant.createdAt,
+    sourceAssistantExcerpt: truncateText(
+      compactReplyExcerpt(extractMessageTextContent(sourceAssistant)),
+      MAX_REPLY_EXCERPT_LENGTH,
+    ),
+  };
+}
+
+function resolveRegenerateAddressedAgentIds(
+  conversation: ConversationDetailOutput,
+  sourceRun: RunOutput,
+): string[] {
+  const sourceInput = getRecord(sourceRun.inputJson);
+  const addressedAgentIds = Array.isArray(sourceInput?.addressedAgentIds)
+    ? sourceInput.addressedAgentIds.filter(
+        (agentId): agentId is string => typeof agentId === "string",
+      )
+    : [];
+  return resolveAddressedAgentIds(conversation, addressedAgentIds);
 }
 
 function buildRuntimeRunInput(

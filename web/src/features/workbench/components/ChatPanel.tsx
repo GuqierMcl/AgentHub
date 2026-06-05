@@ -33,6 +33,7 @@ type ChatPanelProps = {
     options?: { fallbackToChat?: boolean }
   ) => Promise<void> | void
   onSubmit: (input: ChatSubmitInput) => Promise<void> | void
+  onRegenerate: (messageId: string) => Promise<void> | void
   onToggleWorkspace: () => void
 }
 
@@ -45,6 +46,7 @@ export function ChatPanel({
   onDraftChange,
   onOpenWorkspaceTab,
   onCancelRun,
+  onRegenerate,
   onSubmit,
   onToggleWorkspace,
   runStatus,
@@ -113,6 +115,7 @@ export function ChatPanel({
             pinnedMessageIds={pinnedMessageIds}
             onPinToggle={togglePin}
             onReply={handleReply}
+            onRegenerate={onRegenerate}
           />
         </>
       )}

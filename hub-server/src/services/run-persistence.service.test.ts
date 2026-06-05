@@ -7,7 +7,7 @@ import { closeDatabase, initDatabase } from '../lib/db'
 import { prepareTestDatabase } from '../test-utils/database'
 import { createConversationAgent } from '../repositories/conversation-agent.repo'
 import { createConversation } from '../repositories/conversation.repo'
-import { createMessage } from '../repositories/message.repo'
+import { createMessage, findMessageByRunAndRuntimeMessageId } from '../repositories/message.repo'
 import { createMessagePart } from '../repositories/message-part.repo'
 import { createMessagePin } from '../repositories/message-pin.repo'
 import { createRun } from '../repositories/run.repo'
@@ -290,6 +290,50 @@ describe('buildOpenCodeExternalContextPacket', () => {
     expect(packet?.messages[0]?.content).toContain('> The original answer that is already synced.')
     expect(packet?.messages[0]?.content).toContain('Can you expand that part?')
   })
+
+  it('keeps regenerate context in delta messages for external agents', () => {
+    const packet = buildOpenCodeExternalContextPacket({
+      agentId: 'opencode',
+      sessionMetadata: {
+        contextBridge: {
+          lastSyncedMessageId: 'msg_source_assistant',
+          lastSyncedAt: '2026-06-05T00:02:00.000Z',
+        },
+      },
+      historyMessages: [
+        messageRecord({
+          id: 'msg_source_assistant',
+          role: 'assistant',
+          agentId: 'opencode',
+          content: 'Original assistant answer.',
+          createdAt: '2026-06-05T00:01:00.000Z',
+        }),
+        messageRecord({
+          id: 'msg_regenerate_trigger',
+          role: 'user',
+          content: 'Original user request.',
+          createdAt: '2026-06-05T00:03:00.000Z',
+          metadataJson: {
+            regenerate: {
+              sourceAssistantMessageId: 'msg_source_assistant',
+              sourceRunId: 'run_source',
+              sourceTriggerMessageId: 'msg_source_trigger',
+              sourceAssistantAgentId: 'opencode',
+              sourceAssistantCreatedAt: '2026-06-05T00:01:00.000Z',
+              sourceAssistantExcerpt: 'Original assistant answer.',
+            },
+          },
+        }),
+      ],
+      delegatedSessions: [],
+    })
+
+    expect(packet?.mode).toBe('delta')
+    expect(packet?.messages.map((message) => message.id)).toEqual(['msg_regenerate_trigger'])
+    expect(packet?.messages[0]?.content).toContain('[Regenerating assistant message msg_source_assistant]')
+    expect(packet?.messages[0]?.content).toContain('Please generate an alternative response')
+    expect(packet?.messages[0]?.content).toContain('Original user request.')
+  })
 })
 
 describe('reply message context', () => {
@@ -453,6 +497,169 @@ describe('reply message context', () => {
     ).rejects.toMatchObject({
       code: 'REPLY_TARGET_INVALID',
     })
+  })
+})
+
+describe('regenerate assistant message', () => {
+  function createRuntimeCapture() {
+    const calls: Array<{ method: string; path: string; body: any }> = []
+    const runtimeClient = {
+      forward: async (method: string, path: string, body: unknown) => {
+        calls.push({ method, path, body })
+        return {
+          status: 201,
+          data: {
+            runId: `runtime_regenerate_${randomUUID()}`,
+            status: 'queued',
+            eventsUrl: '/runtime/runs/runtime_regenerate/events',
+          },
+        }
+      },
+    }
+    const service = new RunPersistenceService(
+      runtimeClient as never,
+      { publish: () => {} } as never,
+    )
+    ;(service as any).startRuntimeConsumer = () => {}
+    return { calls, service }
+  }
+
+  async function createSingleAgentConversation(title: string) {
+    const conversation = await createConversation({
+      title,
+      mode: 'single',
+    })
+    await createConversationAgent({
+      conversationId: conversation.id,
+      agentId: 'coder',
+      sortOrder: 0,
+    })
+    return conversation
+  }
+
+  async function createTextMessage(input: {
+    conversationId: string
+    role: 'user' | 'assistant'
+    text: string
+    runId?: string | null
+    agentId?: string | null
+    status?: 'completed' | 'streaming'
+  }) {
+    const message = await createMessage({
+      conversationId: input.conversationId,
+      runId: input.runId ?? null,
+      surface: 'chat',
+      role: input.role,
+      senderType: input.role === 'user' ? 'user' : 'agent',
+      senderId: input.role === 'user' ? 'user' : input.agentId ?? null,
+      agentId: input.agentId ?? null,
+      status: input.status ?? 'completed',
+      completedAt: input.status === 'streaming' ? null : '2026-06-05T08:00:00.000Z',
+    })
+    await createMessagePart({
+      messageId: message.id,
+      conversationId: input.conversationId,
+      runId: input.runId ?? undefined,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: input.status === 'streaming' ? 'streaming' : 'done',
+      text: input.text,
+    })
+    return message
+  }
+
+  it('copies the source trigger user message and sends a regenerate instruction to runtime', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Regenerate send')
+    const trigger = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      text: 'Original user request.',
+    })
+    const sourceRun = await createRun({
+      conversationId: conversation.id,
+      triggerMessageId: trigger.id,
+      mode: 'single',
+      status: 'completed',
+      runtimeId: 'runtime_source_regenerate',
+    })
+    const sourceAssistant = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'assistant',
+      agentId: 'coder',
+      runId: sourceRun.id,
+      text: 'Original assistant answer.',
+    })
+
+    const result = await service.regenerateAssistantMessage(conversation.id, sourceAssistant.id)
+
+    const runtimeInput = calls[0]?.body
+    expect(runtimeInput.userMessage.content).toContain('Original user request.')
+    expect(runtimeInput.userMessage.content).toContain(`[Regenerating assistant message ${sourceAssistant.id}]`)
+    expect(runtimeInput.userMessage.content).toContain('Please generate an alternative response')
+    expect(runtimeInput.history.map((message: { id?: string }) => message.id)).toContain(sourceAssistant.id)
+
+    const regeneratedTrigger = result.messages.find((message) =>
+      message.role === 'user' &&
+      message.id !== trigger.id &&
+      message.metadataJson?.regenerate
+    )
+    expect(regeneratedTrigger?.parts[0]?.text).toBe('Original user request.')
+    expect(regeneratedTrigger?.metadataJson).toMatchObject({
+      regenerate: {
+        sourceAssistantMessageId: sourceAssistant.id,
+        sourceRunId: sourceRun.id,
+        sourceTriggerMessageId: trigger.id,
+      },
+    })
+  })
+
+  it('rejects regenerate targets that are not completed assistant chat messages', async () => {
+    const { service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Regenerate invalid')
+    const userMessage = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      text: 'Cannot regenerate users.',
+    })
+
+    await expect(
+      service.regenerateAssistantMessage(conversation.id, userMessage.id),
+    ).rejects.toMatchObject({
+      code: 'REGENERATE_TARGET_INVALID',
+    })
+  })
+
+  it('marks projected assistant messages as regenerated from the source assistant', async () => {
+    const sourceAssistantMessageId = `msg_source_assistant_${randomUUID()}`
+    const { service, runId } = await createProjectionFixture({
+      inputJson: {
+        participantAgentIds: ['coder'],
+        regenerate: {
+          sourceAssistantMessageId,
+        },
+      },
+    })
+
+    await (service as any).projectRuntimeEventsBatch(runId, [{
+      sequence: 1,
+      event: {
+        id: `event_regenerated_message_${randomUUID()}`,
+        runId: 'runtime_regenerated_projection',
+        type: 'message.completed',
+        timestamp: '2026-06-05T09:00:00.000Z',
+        agentId: 'coder',
+        messageId: 'msg_runtime_regenerated',
+        messageIndex: 0,
+        data: {
+          content: 'Alternative assistant answer.',
+        },
+      },
+    }])
+
+    const projected = await findMessageByRunAndRuntimeMessageId(runId, 'msg_runtime_regenerated')
+    expect(projected?.regeneratedFromId).toBe(sourceAssistantMessageId)
   })
 })
 

@@ -6,6 +6,7 @@ import {
   Loader2Icon,
   PinIcon,
   ReplyIcon,
+  RefreshCwIcon,
   XCircleIcon,
 } from "lucide-react"
 import { CopyIcon } from "@/components/ui/copy"
@@ -84,7 +85,9 @@ import type { ToolUIPart } from "ai"
 
 import type {
   ConversationAgentProfile,
+  MessageRegenerateSnapshot,
   MessageReplySnapshot,
+  MessageVersion,
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
   WorkbenchTimelinePermissionItem,
@@ -107,6 +110,8 @@ type TimelineItemProps = {
   isPinned?: boolean
   onPinToggle?: (messageId: string) => void
   onReply?: (target: MessageReplySnapshot) => void
+  onRegenerate?: (messageId: string) => void
+  pinnedMessageIds?: Set<string>
 }
 
 type GenerationMetadata = NonNullable<WorkbenchTimelineChatMessageItem["generation"]>
@@ -186,6 +191,8 @@ export const TimelineItem = memo(function TimelineItem({
   isPinned,
   onPinToggle,
   onReply,
+  onRegenerate,
+  pinnedMessageIds,
 }: TimelineItemProps) {
   switch (item.kind) {
     case "chat_message":
@@ -196,6 +203,8 @@ export const TimelineItem = memo(function TimelineItem({
           item={item}
           onPinToggle={onPinToggle}
           onReply={onReply}
+          onRegenerate={onRegenerate}
+          pinnedMessageIds={pinnedMessageIds}
           pinTargetMessageId={pinTargetMessageId}
         />
       )
@@ -223,6 +232,8 @@ function ChatMessageItem({
   isPinned,
   onPinToggle,
   onReply,
+  onRegenerate,
+  pinnedMessageIds,
 }: {
   item: WorkbenchTimelineChatMessageItem
   agentProfiles: ConversationAgentProfile[]
@@ -230,14 +241,15 @@ function ChatMessageItem({
   isPinned?: boolean
   onPinToggle?: (messageId: string) => void
   onReply?: (target: MessageReplySnapshot) => void
+  onRegenerate?: (messageId: string) => void
+  pinnedMessageIds?: Set<string>
 }) {
-  const agent = resolveAgentProfile(agentProfiles, item.agentId)
   const versions = useMemo(
     () =>
       item.versions?.length
         ? item.versions
-        : [{ content: item.text, id: `${item.id}-default` }],
-    [item.id, item.text, item.versions]
+        : [createDefaultMessageVersion(item, pinTargetMessageId)],
+    [item, pinTargetMessageId]
   )
 
   const [copied, setCopied] = useState(false)
@@ -250,97 +262,142 @@ function ChatMessageItem({
     })
   }, [versions])
 
-  const handleReply = useCallback((messageId: string, content: string) => {
-    onReply?.(createReplyTargetFromTimelineItem(item, agent, messageId, content))
-  }, [agent, item, onReply])
+  const handleReply = useCallback((
+    messageId: string,
+    content: string,
+    targetItem: WorkbenchTimelineChatMessageItem,
+    targetAgent: ConversationAgentProfile
+  ) => {
+    onReply?.(
+      createReplyTargetFromTimelineItem(
+        targetItem,
+        targetAgent,
+        messageId,
+        content
+      )
+    )
+  }, [onReply])
 
   return (
     <MessageBranch defaultBranch={0}>
       <MessageBranchContent>
-        {versions.map((version) => (
-          <Message from={item.role} key={version.id}>
-            <div className="flex max-w-full flex-col gap-2">
-              {item.role === "assistant" ? (
-                <AgentHeader agent={agent} time={item.time} />
-              ) : (
-                <div className="text-right text-muted-foreground text-xs">
-                  {item.time}
-                </div>
-              )}
+        {versions.map((version) => {
+          const versionItem = applyVersionToTimelineItem(item, version)
+          const versionAgent = resolveAgentProfile(agentProfiles, versionItem.agentId)
+          const versionTargetMessageId = version.messageId ?? pinTargetMessageId
+          const versionIsPinned = versionTargetMessageId
+            ? pinnedMessageIds?.has(versionTargetMessageId) ??
+              (versionTargetMessageId === pinTargetMessageId ? isPinned ?? false : false)
+            : false
 
-              {item.sources?.length ? (
-                <Sources>
-                  <SourcesTrigger count={item.sources.length} />
-                  <SourcesContent>
-                    {item.sources.map((source) => (
-                      <Source
-                        href={source.href}
-                        key={source.href}
-                        title={source.title}
-                      />
-                    ))}
-                  </SourcesContent>
-                </Sources>
-              ) : null}
-
-              {mergeNestedBlocks(item).map((block) => (
-                <NestedBlockView block={block} key={block.key} />
-              ))}
-
-              <MessageContent className="max-w-[min(680px,100%)]">
-                {item.replyTo ? <ReplyPreview replyTo={item.replyTo} /> : null}
-                <MessageResponse>
-                  {getChatDisplayContent(item, version.content)}
-                </MessageResponse>
-                {item.role !== "user" && item.status === "streaming" ? (
-                  <div className="mt-2 flex items-center gap-2 text-muted-foreground text-xs">
-                    <Loader2Icon className="size-3.5 animate-spin" />
-                    <span>正在生成...</span>
+          return (
+            <Message from={versionItem.role} key={version.id}>
+              <div className="flex max-w-full flex-col gap-2">
+                {versionItem.role === "assistant" ? (
+                  <AgentHeader agent={versionAgent} time={versionItem.time} />
+                ) : (
+                  <div className="text-right text-muted-foreground text-xs">
+                    {versionItem.time}
                   </div>
-                ) : null}
-                {item.artifacts?.length ? (
-                  <div className="mt-3 flex flex-col gap-2">
-                    {item.artifacts.map((artifact) => (
-                      <ArtifactPreview artifact={artifact} key={artifact.id} />
-                    ))}
-                  </div>
-                ) : null}
-              </MessageContent>
+                )}
 
-              <MessageActions
-                className={item.role === "user" ? "justify-end" : undefined}
-              >
-                {item.role === "assistant" ? (
-                  <MessageModelLabel
-                    externalModel={item.externalModel}
-                    generation={item.generation}
-                  />
+                {versionItem.sources?.length ? (
+                  <Sources>
+                    <SourcesTrigger count={versionItem.sources.length} />
+                    <SourcesContent>
+                      {versionItem.sources.map((source) => (
+                        <Source
+                          href={source.href}
+                          key={source.href}
+                          title={source.title}
+                        />
+                      ))}
+                    </SourcesContent>
+                  </Sources>
                 ) : null}
-                <MessageAction label="Copy message" tooltip={copied ? "Copied!" : "Copy"} onClick={handleCopy}>
-                  {copied ? <CheckIcon /> : <CopyIcon className="![&_svg]:size-4" size={16} />}
-                </MessageAction>
-                {onReply && pinTargetMessageId ? (
-                  <MessageAction
-                    label="Reply message"
-                    tooltip="回复"
-                    onClick={() => handleReply(pinTargetMessageId, version.content)}
-                  >
-                    <ReplyIcon />
+
+                {mergeNestedBlocks(versionItem).map((block) => (
+                  <NestedBlockView block={block} key={block.key} />
+                ))}
+
+                <MessageContent className="max-w-[min(680px,100%)]">
+                  {versionItem.regenerate ? (
+                    <RegenerateRequestMarker regenerate={versionItem.regenerate} />
+                  ) : null}
+                  {versionItem.regeneratedFromId ? <RegeneratedMarker /> : null}
+                  {versionItem.replyTo ? <ReplyPreview replyTo={versionItem.replyTo} /> : null}
+                  <MessageResponse>
+                    {getChatDisplayContent(versionItem, version.content)}
+                  </MessageResponse>
+                  {versionItem.role !== "user" && versionItem.status === "streaming" ? (
+                    <div className="mt-2 flex items-center gap-2 text-muted-foreground text-xs">
+                      <Loader2Icon className="size-3.5 animate-spin" />
+                      <span>正在生成...</span>
+                    </div>
+                  ) : null}
+                  {versionItem.artifacts?.length ? (
+                    <div className="mt-3 flex flex-col gap-2">
+                      {versionItem.artifacts.map((artifact) => (
+                        <ArtifactPreview artifact={artifact} key={artifact.id} />
+                      ))}
+                    </div>
+                  ) : null}
+                </MessageContent>
+
+                <MessageActions
+                  className={versionItem.role === "user" ? "justify-end" : undefined}
+                >
+                  {versionItem.role === "assistant" ? (
+                    <MessageModelLabel
+                      externalModel={versionItem.externalModel}
+                      generation={versionItem.generation}
+                    />
+                  ) : null}
+                  <MessageAction label="Copy message" tooltip={copied ? "Copied!" : "Copy"} onClick={handleCopy}>
+                    {copied ? <CheckIcon /> : <CopyIcon className="![&_svg]:size-4" size={16} />}
                   </MessageAction>
-                ) : null}
-                {onPinToggle && pinTargetMessageId ? (
-                  <MessageAction
-                    label={isPinned ? "Unpin message" : "Pin message"}
-                    tooltip={isPinned ? "取消置顶" : "置顶消息"}
-                    onClick={() => onPinToggle(pinTargetMessageId)}
-                  >
-                    <PinIcon className={isPinned ? "fill-current text-primary" : ""} />
-                  </MessageAction>
-                ) : null}
-              </MessageActions>
-            </div>
-          </Message>
-        ))}
+                  {onReply && versionTargetMessageId ? (
+                    <MessageAction
+                      label="Reply message"
+                      tooltip="回复"
+                      onClick={() =>
+                        handleReply(
+                          versionTargetMessageId,
+                          version.content,
+                          versionItem,
+                          versionAgent
+                        )
+                      }
+                    >
+                      <ReplyIcon />
+                    </MessageAction>
+                  ) : null}
+                  {versionItem.role === "assistant" &&
+                  versionItem.status !== "streaming" &&
+                  onRegenerate &&
+                  versionTargetMessageId ? (
+                    <MessageAction
+                      label="Regenerate message"
+                      tooltip="重新生成"
+                      onClick={() => onRegenerate(versionTargetMessageId)}
+                    >
+                      <RefreshCwIcon />
+                    </MessageAction>
+                  ) : null}
+                  {onPinToggle && versionTargetMessageId ? (
+                    <MessageAction
+                      label={versionIsPinned ? "Unpin message" : "Pin message"}
+                      tooltip={versionIsPinned ? "取消置顶" : "置顶消息"}
+                      onClick={() => onPinToggle(versionTargetMessageId)}
+                    >
+                      <PinIcon className={versionIsPinned ? "fill-current text-primary" : ""} />
+                    </MessageAction>
+                  ) : null}
+                </MessageActions>
+              </div>
+            </Message>
+          )
+        })}
       </MessageBranchContent>
       {versions.length > 1 ? (
         <MessageBranchSelector className="ml-auto">
@@ -351,6 +408,82 @@ function ChatMessageItem({
       ) : null}
     </MessageBranch>
   )
+}
+
+function RegeneratedMarker() {
+  return (
+    <div className="mb-2 inline-flex w-fit items-center gap-1.5 rounded-sm bg-muted px-2 py-1 text-muted-foreground text-xs">
+      <RefreshCwIcon className="size-3" />
+      <span>重新生成回复</span>
+    </div>
+  )
+}
+
+function RegenerateRequestMarker({
+  regenerate,
+}: {
+  regenerate: MessageRegenerateSnapshot
+}) {
+  return (
+    <div className="mb-2 max-w-full rounded-sm border border-border/70 bg-muted/40 px-2.5 py-2 text-xs">
+      <div className="flex items-center gap-1.5 font-medium text-muted-foreground">
+        <RefreshCwIcon className="size-3" />
+        <span>重新生成请求</span>
+      </div>
+      <div className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-muted-foreground/90">
+        源回复：{regenerate.sourceAssistantExcerpt}
+      </div>
+    </div>
+  )
+}
+
+function createDefaultMessageVersion(
+  item: WorkbenchTimelineChatMessageItem,
+  messageId?: string | null
+): MessageVersion {
+  return {
+    id: messageId ?? `${item.id}-default`,
+    ...(messageId ? { messageId } : {}),
+    ...(item.regeneratedFromId ? { regeneratedFromId: item.regeneratedFromId } : {}),
+    content: item.text,
+    ...(item.agentId ? { agentId: item.agentId } : {}),
+    time: item.time,
+    ...(item.status ? { status: item.status } : {}),
+    ...(item.generation ? { generation: item.generation } : {}),
+    ...(item.externalModel ? { externalModel: item.externalModel } : {}),
+    ...(item.replyTo ? { replyTo: item.replyTo } : {}),
+    ...(item.regenerate ? { regenerate: item.regenerate } : {}),
+    ...(item.reasoningBlocks?.length ? { reasoningBlocks: item.reasoningBlocks } : {}),
+    ...(item.toolItems?.length ? { toolItems: item.toolItems } : {}),
+    ...(item.permissionItems?.length ? { permissionItems: item.permissionItems } : {}),
+    ...(item.questionItems?.length ? { questionItems: item.questionItems } : {}),
+    ...(item.sources?.length ? { sources: item.sources } : {}),
+    ...(item.artifacts?.length ? { artifacts: item.artifacts } : {}),
+  }
+}
+
+function applyVersionToTimelineItem(
+  item: WorkbenchTimelineChatMessageItem,
+  version: MessageVersion
+): WorkbenchTimelineChatMessageItem {
+  return {
+    ...item,
+    agentId: version.agentId ?? item.agentId,
+    text: version.content,
+    time: version.time ?? item.time,
+    status: version.status ?? item.status,
+    generation: version.generation,
+    externalModel: version.externalModel,
+    replyTo: version.replyTo,
+    regenerate: version.regenerate,
+    regeneratedFromId: version.regeneratedFromId,
+    reasoningBlocks: version.reasoningBlocks,
+    toolItems: version.toolItems,
+    permissionItems: version.permissionItems,
+    questionItems: version.questionItems,
+    sources: version.sources,
+    artifacts: version.artifacts,
+  }
 }
 
 function ReplyPreview({ replyTo }: { replyTo: MessageReplySnapshot }) {

@@ -164,6 +164,37 @@ describe('messages router', () => {
     ]])
   })
 
+  it('forwards regenerate requests to RunPersistenceService', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      regenerateAssistantMessage: async (...args: unknown[]) => {
+        calls.push(args)
+        return {
+          messages: [],
+          activeRun: null,
+          latestPlan: null,
+          runItems: {
+            toolCalls: [],
+            reasoningBlocks: [],
+            taskGroups: [],
+            tasks: [],
+            plans: [],
+            planTasks: [],
+            permissionRequests: [],
+          },
+          timelineRuns: [],
+        }
+      },
+    })
+
+    const response = await app.request('/api/conversations/conv_1/messages/msg_assistant/regenerate', {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(201)
+    expect(calls).toEqual([['conv_1', 'msg_assistant']])
+  })
+
   it('returns pinned message content for the conversation pin list', async () => {
     const app = createApp({})
     const conversation = await createConversation({

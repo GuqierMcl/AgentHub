@@ -59,6 +59,15 @@ export type MessageReplySnapshot = {
   excerpt: string
 }
 
+export type MessageRegenerateSnapshot = {
+  sourceAssistantMessageId: string
+  sourceRunId: string
+  sourceTriggerMessageId: string
+  sourceAssistantAgentId: string | null
+  sourceAssistantCreatedAt: string
+  sourceAssistantExcerpt: string
+}
+
 export type DiffFileSummary = {
   path: string
   oldPath?: string
@@ -174,6 +183,7 @@ export type PersistedMessage = {
   taskId: string | null
   groupId: string | null
   parentMessageId: string | null
+  regeneratedFromId: string | null
   status: "created" | "streaming" | "completed" | "failed" | "cancelled"
   finishReason: string | null
   firstEventSequence: number | null
@@ -349,6 +359,16 @@ export const conversationMessagesApi = {
       method: "POST",
       body: JSON.stringify(body),
     })
+  },
+
+  regenerate(
+    conversationId: string,
+    messageId: string
+  ): Promise<ConversationMessagesResponse> {
+    return request(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/regenerate`,
+      { method: "POST" }
+    )
   },
 
   cancelRun(runId: string): Promise<ActiveRunSnapshot> {

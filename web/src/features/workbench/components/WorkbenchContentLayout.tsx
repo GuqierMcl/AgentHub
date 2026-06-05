@@ -257,6 +257,60 @@ export function WorkbenchContentLayout({
     setDraft,
   ])
 
+  const handleRegenerate = useCallback(async (messageId: string) => {
+    if (!activeConversationId || !conversationDetail) return
+
+    if (
+      runtimeState?.activeRuntimeRunId &&
+      !isTerminalRunStatus(runtimeState.runStatus)
+    ) {
+      toast.info("当前会话已有正在运行的回复")
+      return
+    }
+
+    markRunSubmitted(activeConversationId)
+
+    try {
+      const result = await conversationMessagesApi.regenerate(
+        activeConversationId,
+        messageId
+      )
+      queryClient.setQueryData(
+        workbenchQueryKeys.conversations.messages(activeConversationId),
+        result
+      )
+      hydrateTimelineFromReplay(
+        activeConversationId,
+        result.messages,
+        result.timelineRuns,
+        result.activeRun
+      )
+      if (result.activeRun && !isTerminalRunStatus(result.activeRun.status)) {
+        runStreamManager.connect(
+          activeConversationId,
+          result.activeRun.id,
+          result.activeRun.lastEventSequence
+        )
+      }
+      await queryClient.invalidateQueries({
+        queryKey: workbenchQueryKeys.conversations.all,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "重新生成失败"
+      const code = err instanceof ConversationMessageRequestError ? err.code : undefined
+      failRunStart(activeConversationId, message, code)
+      toast.error(code ? `${code}: ${message}` : message)
+    }
+  }, [
+    activeConversationId,
+    conversationDetail,
+    failRunStart,
+    hydrateTimelineFromReplay,
+    markRunSubmitted,
+    queryClient,
+    runtimeState,
+  ])
+
   const handleCancelActiveRun = useCallback(async (
     runId?: string,
     options?: { fallbackToChat?: boolean }
@@ -405,6 +459,7 @@ export function WorkbenchContentLayout({
                 onCancelRun={handleCancelActiveRun}
                 onDraftChange={handleDraftChange}
                 onOpenWorkspaceTab={handleOpenWorkspaceTab}
+                onRegenerate={handleRegenerate}
                 onSubmit={handleSubmit}
                 onToggleWorkspace={handleToggleWorkspaceCollapsed}
                 runStatus={runtimeState?.runStatus ?? "idle"}

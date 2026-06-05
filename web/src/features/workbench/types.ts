@@ -9,9 +9,15 @@ import type {
   RuntimeGeneration,
   RuntimeRunStatus,
 } from "./api/runtime-runs"
-import type { MessageReplySnapshot } from "./api/messages"
+import type {
+  MessageRegenerateSnapshot,
+  MessageReplySnapshot,
+} from "./api/messages"
 
-export type { MessageReplySnapshot } from "./api/messages"
+export type {
+  MessageRegenerateSnapshot,
+  MessageReplySnapshot,
+} from "./api/messages"
 
 export type AgentStatus = "online" | "busy" | "idle"
 
@@ -45,7 +51,22 @@ export type Artifact = {
 
 export type MessageVersion = {
   id: string
+  messageId?: string
+  regeneratedFromId?: string
   content: string
+  agentId?: string
+  time?: string
+  status?: WorkbenchTimelineStatus
+  generation?: RuntimeGeneration
+  externalModel?: RuntimeExternalModel
+  replyTo?: MessageReplySnapshot
+  regenerate?: MessageRegenerateSnapshot
+  reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
+  toolItems?: WorkbenchTimelineToolItem[]
+  permissionItems?: WorkbenchTimelinePermissionItem[]
+  questionItems?: WorkbenchTimelineQuestionItem[]
+  sources?: MessageSource[]
+  artifacts?: Artifact[]
 }
 
 export type MessageSource = {
@@ -97,6 +118,7 @@ export type WorkbenchTimelineChatMessageItem = {
   role: "user" | "assistant"
   runId?: string
   runtimeMessageId?: string
+  regeneratedFromId?: string
   messageIndex?: number
   agentId?: string
   text: string
@@ -106,6 +128,7 @@ export type WorkbenchTimelineChatMessageItem = {
   generation?: RuntimeGeneration
   externalModel?: RuntimeExternalModel
   replyTo?: MessageReplySnapshot
+  regenerate?: MessageRegenerateSnapshot
   reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
   toolItems?: WorkbenchTimelineToolItem[]
   permissionItems?: WorkbenchTimelinePermissionItem[]

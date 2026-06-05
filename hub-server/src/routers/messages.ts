@@ -70,6 +70,14 @@ messages.post('/api/conversations/:conversationId/messages/send', async (c: Cont
   return c.json(result, 201)
 })
 
+messages.post('/api/conversations/:conversationId/messages/:messageId/regenerate', async (c: Context) => {
+  const service = c.get('runPersistenceService')
+  const conversationId = c.req.param('conversationId')!
+  const messageId = c.req.param('messageId')!
+  const result = await service.regenerateAssistantMessage(conversationId, messageId)
+  return c.json(result, 201)
+})
+
 function parsePositiveInt(value: string | undefined): number | undefined {
   if (!value) return undefined
   const parsed = Number.parseInt(value, 10)

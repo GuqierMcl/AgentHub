@@ -6,6 +6,7 @@ import type {
   ActiveRunSnapshot,
   ConversationTimelineRunSnapshot,
   HubRunEventEnvelope,
+  MessageRegenerateSnapshot,
   MessageReplySnapshot,
   PersistedArtifact,
   PersistedMessage,
@@ -549,9 +550,13 @@ function applyEnvelopesToRuntimeState(
       event,
       chatSpeakerIds
     )
+    const nextTimelineItemsWithLineage = markRegeneratedAssistantLineage(
+      nextTimelineItems,
+      event
+    )
 
-    if (nextTimelineItems !== timelineItems) {
-      const nextPlanSignature = getLatestPlanSignature(nextTimelineItems)
+    if (nextTimelineItemsWithLineage !== timelineItems) {
+      const nextPlanSignature = getLatestPlanSignature(nextTimelineItemsWithLineage)
       if (
         source === "live" &&
         nextPlanSignature &&
@@ -559,7 +564,7 @@ function applyEnvelopesToRuntimeState(
       ) {
         planFocusReasonKey = nextPlanSignature
       }
-      timelineItems = nextTimelineItems
+      timelineItems = nextTimelineItemsWithLineage
     }
   }
 
@@ -646,6 +651,7 @@ function toTimelineItemFromPersistedMessage(
 
   const runtimeMessageId = getPersistedRuntimeMessageId(message)
   const replyTo = getPersistedReplySnapshot(message)
+  const regenerate = getPersistedRegenerateSnapshot(message)
   const item: WorkbenchTimelineChatMessageItem = {
     kind: "chat_message",
     id: getPersistedTimelineMessageId(message, runtimeMessageId),
@@ -653,12 +659,14 @@ function toTimelineItemFromPersistedMessage(
     role: message.role,
     runId: message.runId ?? undefined,
     runtimeMessageId: runtimeMessageId ?? undefined,
+    regeneratedFromId: message.regeneratedFromId ?? undefined,
     messageIndex: message.messageIndex ?? undefined,
     agentId: message.agentId ?? undefined,
     text,
     time: formatPersistedMessageTime(message.createdAt),
     status: toTimelineStatus(message.status, message.role),
     ...(replyTo ? { replyTo } : {}),
+    ...(regenerate ? { regenerate } : {}),
     ...(artifacts.length ? { artifacts } : {}),
     ...(toolItems.length ? { toolItems } : {}),
   }
@@ -730,6 +738,7 @@ function mergePersistedChatMessage(
     persistedMessageId: current.persistedMessageId ?? persisted.persistedMessageId,
     runId: current.runId ?? persisted.runId,
     runtimeMessageId: current.runtimeMessageId ?? persisted.runtimeMessageId,
+    regeneratedFromId: current.regeneratedFromId ?? persisted.regeneratedFromId,
     messageIndex: current.messageIndex ?? persisted.messageIndex,
     agentId: current.agentId ?? persisted.agentId,
     text: shouldUsePersistedText ? persisted.text : current.text,
@@ -737,6 +746,7 @@ function mergePersistedChatMessage(
     generation: current.generation ?? persisted.generation,
     externalModel: current.externalModel ?? persisted.externalModel,
     replyTo: current.replyTo ?? persisted.replyTo,
+    regenerate: current.regenerate ?? persisted.regenerate,
     artifacts: mergeArtifacts(current.artifacts, persisted.artifacts),
     toolItems: mergeToolItems(current.toolItems, persisted.toolItems),
   }
@@ -789,6 +799,37 @@ function getPersistedReplySnapshot(
     agentId: getNullableString(replyTo.agentId),
     createdAt: getString(replyTo.createdAt) ?? "",
     excerpt,
+  }
+}
+
+function getPersistedRegenerateSnapshot(
+  message: PersistedMessage
+): MessageRegenerateSnapshot | undefined {
+  const regenerate = getRecord(message.metadataJson.regenerate)
+  if (!regenerate) return undefined
+
+  const sourceAssistantMessageId = getString(regenerate.sourceAssistantMessageId)
+  const sourceRunId = getString(regenerate.sourceRunId)
+  const sourceTriggerMessageId = getString(regenerate.sourceTriggerMessageId)
+  const sourceAssistantCreatedAt = getString(regenerate.sourceAssistantCreatedAt)
+  const sourceAssistantExcerpt = getString(regenerate.sourceAssistantExcerpt)
+  if (
+    !sourceAssistantMessageId ||
+    !sourceRunId ||
+    !sourceTriggerMessageId ||
+    !sourceAssistantCreatedAt ||
+    !sourceAssistantExcerpt
+  ) {
+    return undefined
+  }
+
+  return {
+    sourceAssistantMessageId,
+    sourceRunId,
+    sourceTriggerMessageId,
+    sourceAssistantAgentId: getNullableString(regenerate.sourceAssistantAgentId),
+    sourceAssistantCreatedAt,
+    sourceAssistantExcerpt,
   }
 }
 
@@ -1141,6 +1182,7 @@ function isSameChatMessage(
   return left.runId === right.runId &&
     left.persistedMessageId === right.persistedMessageId &&
     left.runtimeMessageId === right.runtimeMessageId &&
+    left.regeneratedFromId === right.regeneratedFromId &&
     left.messageIndex === right.messageIndex &&
     left.agentId === right.agentId &&
     left.text === right.text &&
@@ -1148,8 +1190,54 @@ function isSameChatMessage(
     left.generation === right.generation &&
     left.externalModel === right.externalModel &&
     left.replyTo === right.replyTo &&
+    left.regenerate === right.regenerate &&
     left.toolItems === right.toolItems &&
     left.artifacts === right.artifacts
+}
+
+function markRegeneratedAssistantLineage(
+  items: WorkbenchTimelineItem[],
+  event: RuntimeRunEvent
+): WorkbenchTimelineItem[] {
+  const sourceAssistantMessageId = findRegenerateSourceAssistantIdForRun(
+    items,
+    event.runId
+  )
+  if (!sourceAssistantMessageId) return items
+
+  let changed = false
+  const next = items.map((item) => {
+    if (item.kind !== "chat_message") return item
+    if (item.role !== "assistant") return item
+    if (item.runId !== event.runId) return item
+    if (event.messageId && item.runtimeMessageId !== event.messageId) return item
+    if (event.agentId && item.agentId && item.agentId !== event.agentId) return item
+    if (item.regeneratedFromId === sourceAssistantMessageId) return item
+    if (item.regeneratedFromId) return item
+
+    changed = true
+    return {
+      ...item,
+      regeneratedFromId: sourceAssistantMessageId,
+    }
+  })
+
+  return changed ? next : items
+}
+
+function findRegenerateSourceAssistantIdForRun(
+  items: WorkbenchTimelineItem[],
+  runId: string
+): string | null {
+  const trigger = items.find((item) =>
+    item.kind === "chat_message" &&
+    item.role === "user" &&
+    item.runId === runId &&
+    item.regenerate?.sourceAssistantMessageId
+  )
+  return trigger?.kind === "chat_message"
+    ? trigger.regenerate?.sourceAssistantMessageId ?? null
+    : null
 }
 
 function getRecord(value: unknown): Record<string, unknown> | undefined {

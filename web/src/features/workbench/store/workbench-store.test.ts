@@ -19,6 +19,7 @@ function persistedMessage(input: Partial<PersistedMessage>): PersistedMessage {
     taskId: null,
     groupId: null,
     parentMessageId: null,
+    regeneratedFromId: null,
     status: "completed",
     finishReason: "stop",
     firstEventSequence: 1,
@@ -246,6 +247,171 @@ describe("workbench persisted message replay", () => {
         excerpt: "Original assistant answer.",
       },
       text: "Can you expand?",
+    })
+  })
+
+  it("restores regenerated assistant lineage into chat message timeline items", () => {
+    const conversationId = "conv_regenerate"
+    const message = persistedMessage({
+      id: "msg_regenerated",
+      conversationId,
+      runId: "run_regenerated",
+      runtimeMessageId: "runtime_msg_regenerated",
+      regeneratedFromId: "msg_source_assistant",
+      parts: [
+        {
+          id: "part_regenerated_text",
+          messageId: "msg_regenerated",
+          conversationId,
+          runId: "run_regenerated",
+          runtimeEventId: "evt_regenerated",
+          partKey: "text",
+          partIndex: 0,
+          entityType: "runtime_message",
+          entityId: "runtime_msg_regenerated",
+          type: "text",
+          state: "done",
+          text: "Alternative answer.",
+          payloadJson: {},
+          firstEventSequence: 1,
+          lastEventSequence: 1,
+          createdAt: "2026-06-05T10:00:00.000Z",
+          updatedAt: "2026-06-05T10:00:00.000Z",
+        },
+      ],
+    })
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [message],
+      [],
+      null
+    )
+
+    const [item] = useWorkbenchStore.getState().getConversationState(conversationId).timelineItems
+    expect(item).toMatchObject({
+      kind: "chat_message",
+      persistedMessageId: "msg_regenerated",
+      regeneratedFromId: "msg_source_assistant",
+      text: "Alternative answer.",
+    })
+  })
+
+  it("restores regenerate trigger metadata into user timeline items", () => {
+    const conversationId = "conv_regenerate_trigger"
+    const message = persistedMessage({
+      id: "msg_regenerate_trigger",
+      conversationId,
+      runId: "run_regenerate_trigger",
+      runtimeMessageId: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      metadataJson: {
+        regenerate: {
+          sourceAssistantMessageId: "msg_source_assistant",
+          sourceRunId: "run_source",
+          sourceTriggerMessageId: "msg_source_trigger",
+          sourceAssistantAgentId: "coder",
+          sourceAssistantCreatedAt: "2026-06-05T09:55:00.000Z",
+          sourceAssistantExcerpt: "Original assistant answer.",
+        },
+      },
+      parts: [
+        {
+          id: "part_regenerate_trigger_text",
+          messageId: "msg_regenerate_trigger",
+          conversationId,
+          runId: "run_regenerate_trigger",
+          runtimeEventId: null,
+          partKey: "text",
+          partIndex: 0,
+          entityType: null,
+          entityId: null,
+          type: "text",
+          state: "done",
+          text: "Original user request.",
+          payloadJson: {},
+          firstEventSequence: 0,
+          lastEventSequence: 0,
+          createdAt: "2026-06-05T10:00:00.000Z",
+          updatedAt: "2026-06-05T10:00:00.000Z",
+        },
+      ],
+    })
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [message],
+      [],
+      null
+    )
+
+    const [item] = useWorkbenchStore.getState().getConversationState(conversationId).timelineItems
+    expect(item).toMatchObject({
+      kind: "chat_message",
+      persistedMessageId: "msg_regenerate_trigger",
+      regenerate: {
+        sourceAssistantMessageId: "msg_source_assistant",
+        sourceAssistantExcerpt: "Original assistant answer.",
+      },
+      text: "Original user request.",
+    })
+  })
+
+  it("marks live assistant events in a regenerate run with source assistant lineage", () => {
+    const conversationId = "conv_regenerate_live"
+    useWorkbenchStore.getState().setConversationChatSpeakers(conversationId, ["coder"])
+    const trigger = persistedMessage({
+      id: "msg_regenerate_live_trigger",
+      conversationId,
+      runId: "run_regenerate_live",
+      runtimeMessageId: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      metadataJson: {
+        regenerate: {
+          sourceAssistantMessageId: "msg_source_assistant",
+          sourceRunId: "run_source",
+          sourceTriggerMessageId: "msg_source_trigger",
+          sourceAssistantAgentId: "coder",
+          sourceAssistantCreatedAt: "2026-06-05T09:55:00.000Z",
+          sourceAssistantExcerpt: "Original assistant answer.",
+        },
+      },
+      parts: [],
+    })
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [trigger],
+      [],
+      { id: "run_regenerate_live", runtimeId: "runtime_regenerate_live", status: "running", lastEventSequence: 0, plan: null }
+    )
+    useWorkbenchStore.getState().applyRuntimeEvents(conversationId, [{
+      id: "event_regenerate_delta",
+      runId: "run_regenerate_live",
+      runtimeRunId: "runtime_regenerate_live",
+      type: "message.delta",
+      timestamp: "2026-06-05T10:00:01.000Z",
+      agentId: "coder",
+      messageId: "runtime_msg_regenerated_live",
+      messageIndex: 0,
+      data: { delta: "Alternative" },
+    }])
+
+    const assistant = useWorkbenchStore
+      .getState()
+      .getConversationState(conversationId)
+      .timelineItems
+      .find((item) => item.kind === "chat_message" && item.role === "assistant")
+    expect(assistant).toMatchObject({
+      kind: "chat_message",
+      regeneratedFromId: "msg_source_assistant",
+      text: "Alternative",
     })
   })
 })
