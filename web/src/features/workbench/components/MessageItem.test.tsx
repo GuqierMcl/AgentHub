@@ -43,6 +43,40 @@ describe("MessageItem reply preview", () => {
 })
 
 describe("MessageItem regenerate marker", () => {
+  it("renders regenerate request summaries on the source user message", () => {
+    const item: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: "msg_source_trigger",
+      persistedMessageId: "msg_source_trigger",
+      role: "user",
+      text: "Original user request.",
+      time: "10:00",
+      regenerateRequests: [
+        {
+          sourceAssistantMessageId: "msg_source_assistant",
+          sourceRunId: "run_source",
+          sourceTriggerMessageId: "msg_source_trigger",
+          sourceAssistantAgentId: "coder",
+          sourceAssistantCreatedAt: "2026-06-05T09:55:00.000Z",
+          sourceAssistantExcerpt: "Original assistant answer.",
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <TimelineItem
+          agentProfiles={[]}
+          item={item}
+          pinTargetMessageId="msg_source_trigger"
+        />
+      </TooltipProvider>
+    )
+
+    expect(html).toContain("已请求重新生成 1 次")
+    expect(html).toContain("Original user request.")
+  })
+
   it("renders a compact marker for regenerate trigger messages", () => {
     const item: WorkbenchTimelineChatMessageItem = {
       kind: "chat_message",
@@ -103,5 +137,49 @@ describe("MessageItem regenerate marker", () => {
 
     expect(html).toContain("重新生成")
     expect(html).toContain("Alternative answer.")
+  })
+
+  it("renders regenerated status in the assistant action row for every branch", () => {
+    const queryClient = new QueryClient()
+    const item: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: "chat_msg_source",
+      persistedMessageId: "msg_source_assistant",
+      role: "assistant",
+      agentId: "coder",
+      text: "Original answer.",
+      time: "10:00",
+      versions: [
+        {
+          id: "msg_source_assistant",
+          messageId: "msg_source_assistant",
+          content: "Original answer.",
+          time: "10:00",
+        },
+        {
+          id: "msg_regenerated",
+          messageId: "msg_regenerated",
+          regeneratedFromId: "msg_source_assistant",
+          content: "Alternative answer.",
+          time: "10:05",
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <TimelineItem
+            agentProfiles={[]}
+            item={item}
+            pinTargetMessageId="msg_source_assistant"
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(html.match(/已重新生成/g)?.length).toBe(2)
+    expect(html).toMatch(/class="[^"]*hidden[^"]*"[^>]*>[\s\S]*Original answer/)
+    expect(html).toMatch(/class="[^"]*block[^"]*"[^>]*>[\s\S]*Alternative answer/)
   })
 })

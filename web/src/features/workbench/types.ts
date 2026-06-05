@@ -61,6 +61,7 @@ export type MessageVersion = {
   externalModel?: RuntimeExternalModel
   replyTo?: MessageReplySnapshot
   regenerate?: MessageRegenerateSnapshot
+  regenerateRequests?: MessageRegenerateSnapshot[]
   reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
   toolItems?: WorkbenchTimelineToolItem[]
   permissionItems?: WorkbenchTimelinePermissionItem[]
@@ -129,6 +130,7 @@ export type WorkbenchTimelineChatMessageItem = {
   externalModel?: RuntimeExternalModel
   replyTo?: MessageReplySnapshot
   regenerate?: MessageRegenerateSnapshot
+  regenerateRequests?: MessageRegenerateSnapshot[]
   reasoningBlocks?: WorkbenchTimelineReasoningBlock[]
   toolItems?: WorkbenchTimelineToolItem[]
   permissionItems?: WorkbenchTimelinePermissionItem[]

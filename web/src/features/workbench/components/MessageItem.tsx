@@ -251,6 +251,11 @@ function ChatMessageItem({
         : [createDefaultMessageVersion(item, pinTargetMessageId)],
     [item, pinTargetMessageId]
   )
+  const branchKey = useMemo(
+    () => `${item.id}:${versions.map((version) => version.id).join("|")}`,
+    [item.id, versions]
+  )
+  const defaultBranchIndex = Math.max(versions.length - 1, 0)
 
   const [copied, setCopied] = useState(false)
 
@@ -279,12 +284,15 @@ function ChatMessageItem({
   }, [onReply])
 
   return (
-    <MessageBranch defaultBranch={0}>
+    <MessageBranch defaultBranch={defaultBranchIndex} key={branchKey}>
       <MessageBranchContent>
         {versions.map((version) => {
           const versionItem = applyVersionToTimelineItem(item, version)
           const versionAgent = resolveAgentProfile(agentProfiles, versionItem.agentId)
           const versionTargetMessageId = version.messageId ?? pinTargetMessageId
+          const isRegenerateParticipant =
+            versionItem.role === "assistant" &&
+            (versions.length > 1 || Boolean(versionItem.regeneratedFromId))
           const versionIsPinned = versionTargetMessageId
             ? pinnedMessageIds?.has(versionTargetMessageId) ??
               (versionTargetMessageId === pinTargetMessageId ? isPinned ?? false : false)
@@ -329,6 +337,11 @@ function ChatMessageItem({
                   <MessageResponse>
                     {getChatDisplayContent(versionItem, version.content)}
                   </MessageResponse>
+                  {versionItem.role === "user" && versionItem.regenerateRequests?.length ? (
+                    <RegenerateRequestSummary
+                      count={versionItem.regenerateRequests.length}
+                    />
+                  ) : null}
                   {versionItem.role !== "user" && versionItem.status === "streaming" ? (
                     <div className="mt-2 flex items-center gap-2 text-muted-foreground text-xs">
                       <Loader2Icon className="size-3.5 animate-spin" />
@@ -347,6 +360,7 @@ function ChatMessageItem({
                 <MessageActions
                   className={versionItem.role === "user" ? "justify-end" : undefined}
                 >
+                  {isRegenerateParticipant ? <RegeneratedActionLabel /> : null}
                   {versionItem.role === "assistant" ? (
                     <MessageModelLabel
                       externalModel={versionItem.externalModel}
@@ -419,6 +433,24 @@ function RegeneratedMarker() {
   )
 }
 
+function RegeneratedActionLabel() {
+  return (
+    <span className="mr-1 inline-flex max-w-64 items-center gap-1 rounded-sm px-1 text-muted-foreground text-xs leading-7">
+      <RefreshCwIcon className="size-3" />
+      <span>已重新生成</span>
+    </span>
+  )
+}
+
+function RegenerateRequestSummary({ count }: { count: number }) {
+  return (
+    <div className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-sm bg-background/60 px-2 py-1 text-muted-foreground text-xs">
+      <RefreshCwIcon className="size-3" />
+      <span>已请求重新生成 {count} 次</span>
+    </div>
+  )
+}
+
 function RegenerateRequestMarker({
   regenerate,
 }: {
@@ -453,6 +485,7 @@ function createDefaultMessageVersion(
     ...(item.externalModel ? { externalModel: item.externalModel } : {}),
     ...(item.replyTo ? { replyTo: item.replyTo } : {}),
     ...(item.regenerate ? { regenerate: item.regenerate } : {}),
+    ...(item.regenerateRequests?.length ? { regenerateRequests: item.regenerateRequests } : {}),
     ...(item.reasoningBlocks?.length ? { reasoningBlocks: item.reasoningBlocks } : {}),
     ...(item.toolItems?.length ? { toolItems: item.toolItems } : {}),
     ...(item.permissionItems?.length ? { permissionItems: item.permissionItems } : {}),
@@ -476,6 +509,7 @@ function applyVersionToTimelineItem(
     externalModel: version.externalModel,
     replyTo: version.replyTo,
     regenerate: version.regenerate,
+    regenerateRequests: version.regenerateRequests,
     regeneratedFromId: version.regeneratedFromId,
     reasoningBlocks: version.reasoningBlocks,
     toolItems: version.toolItems,

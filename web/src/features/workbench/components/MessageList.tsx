@@ -7,6 +7,7 @@ import { useMemo } from "react"
 
 import type {
   ConversationAgentProfile,
+  MessageRegenerateSnapshot,
   MessageVersion,
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
@@ -72,17 +73,42 @@ export function TimelineList({
 export function buildRegeneratedBranchTimelineItems(
   items: WorkbenchTimelineItem[]
 ): WorkbenchTimelineItem[] {
+  const chatMessagesByTargetId = new Map<string, WorkbenchTimelineChatMessageItem>()
   const assistantMessagesByTargetId = new Map<string, WorkbenchTimelineChatMessageItem>()
   for (const item of items) {
-    if (item.kind !== "chat_message" || item.role !== "assistant") continue
+    if (item.kind !== "chat_message") continue
     const targetId = getTimelineMessagePinTargetId(item)
-    if (targetId) {
+    if (!targetId) continue
+
+    chatMessagesByTargetId.set(targetId, item)
+    if (item.role === "assistant") {
       assistantMessagesByTargetId.set(targetId, item)
     }
   }
 
-  const regeneratedByRootId = new Map<string, WorkbenchTimelineChatMessageItem[]>()
   const foldedItemIds = new Set<string>()
+  const regenerateRequestsBySourceTriggerId = new Map<
+    string,
+    MessageRegenerateSnapshot[]
+  >()
+  for (const item of items) {
+    if (item.kind !== "chat_message" || item.role !== "user" || !item.regenerate) {
+      continue
+    }
+
+    const sourceTriggerId = item.regenerate.sourceTriggerMessageId
+    const sourceUser = chatMessagesByTargetId.get(sourceTriggerId)
+    if (!sourceUser || sourceUser.id === item.id || sourceUser.role !== "user") {
+      continue
+    }
+
+    const current = regenerateRequestsBySourceTriggerId.get(sourceTriggerId) ?? []
+    current.push(item.regenerate)
+    regenerateRequestsBySourceTriggerId.set(sourceTriggerId, current)
+    foldedItemIds.add(item.id)
+  }
+
+  const regeneratedByRootId = new Map<string, WorkbenchTimelineChatMessageItem[]>()
   for (const item of items) {
     if (
       item.kind !== "chat_message" ||
@@ -104,11 +130,28 @@ export function buildRegeneratedBranchTimelineItems(
     foldedItemIds.add(item.id)
   }
 
-  return items.flatMap((item) => {
+  return items.flatMap<WorkbenchTimelineItem>((item) => {
     if (foldedItemIds.has(item.id)) return []
-    if (item.kind !== "chat_message" || item.role !== "assistant") return [item]
+    if (item.kind !== "chat_message") return [item]
 
     const targetId = getTimelineMessagePinTargetId(item)
+    if (item.role === "user") {
+      const regenerateRequests = targetId
+        ? regenerateRequestsBySourceTriggerId.get(targetId)
+        : undefined
+      if (!regenerateRequests?.length) return [item]
+
+      return [{
+        ...item,
+        regenerateRequests: [
+          ...(item.regenerateRequests ?? []),
+          ...regenerateRequests,
+        ],
+      }]
+    }
+
+    if (item.role !== "assistant") return [item]
+
     const regenerated = targetId ? regeneratedByRootId.get(targetId) : undefined
     if (!targetId || !regenerated?.length) return [item]
 
