@@ -103,7 +103,19 @@ const avatarPresets: Record<string, AgentAvatarSpec> = {
   opencode: {
     initials: "OC",
     kind: "image",
-    src: "/agent-icons/opencode.png",
+    src: "/agent-icons/opencode.svg",
+    tone: "slate",
+  },
+  "claude-code": {
+    initials: "CC",
+    kind: "image",
+    src: "/agent-icons/claudecode-color.svg",
+    tone: "slate",
+  },
+  codex: {
+    initials: "CX",
+    kind: "image",
+    src: "/agent-icons/codex-color.svg",
     tone: "slate",
   },
   orchestrator: {

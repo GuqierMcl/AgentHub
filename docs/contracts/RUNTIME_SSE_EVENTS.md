@@ -131,10 +131,10 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 - `messageId` 是 run 内稳定 id，当前形态为 `msg_${runId}_${executionId}_${blockIndex}`。
 - `reasoning-start` 可在 `text-start` 之前预留当前消息的 `messageId`；随后同一输出中的文本块复用该 `messageId`。
 - 工具、权限或问答事件如果发生在当前模型输出上下文中，也复用当前 `messageId`；缺少明确当前消息时 Runtime 会为该工具/权限/问答上下文创建新的 `messageId`。
-- 外部智能体的原生工具调用可以复用 `tool.started` / `tool.completed` / `tool.failed`，并与同一条外部 assistant 消息共享 `messageId/messageIndex`。这类事件不表示外部工具属于 AgentHub Runtime Tool Catalog；消费者应通过 `data.externalProvider` 和 provider 命名空间的 `toolCallId` 区分，例如 `toolCallId = "opencode:<providerToolCallId>"`。
+- 外部智能体的原生工具调用可以复用 `tool.started` / `tool.completed` / `tool.failed`，并与同一条外部 assistant 消息共享 `messageId/messageIndex`。这类事件不表示外部工具属于 AgentHub Runtime Tool Catalog；消费者应通过 `data.externalProvider` 和 provider 命名空间的 `toolCallId` 区分，例如 `toolCallId = "opencode:<providerToolCallId>"` 或 `"claude-code:<providerToolCallId>"`。
 - `messageIndex` 由 RunManager 在首次看到新 `messageId` 时按实际 emit 顺序分配，是 run-local 递增序号；同一 `messageId` 下的 reasoning、tool、permission 和 message 事件共享同一个 `messageIndex`。
 - `message.delta` / `message.completed` 可以在 `data.generation` 中携带本次 execution 的轻量模型元信息；`message.completed.data.content` 仍是最终文本事实。
-- 外部智能体的 `message.completed` 可以在 `data.externalModel` 中携带本条回复实际使用的外部平台模型，例如 `{ provider: "opencode", providerId: "anthropic", modelId: "claude-sonnet-4", providerName: "Anthropic", modelName: "Claude Sonnet 4" }`。`providerName/modelName` 是只读展示增强，拿不到时可以省略；该字段不表示 AgentHub 接管外部平台的模型配置。
+- 外部智能体的 `message.completed` 可以在 `data.externalModel` 中携带本条回复实际使用的外部平台模型，例如 `{ provider: "opencode", providerId: "anthropic", modelId: "claude-sonnet-4", providerName: "Anthropic", modelName: "Claude Sonnet 4" }` 或 `{ provider: "claude-code", providerId: "anthropic", modelId: "claude-sonnet-4" }`。`providerName/modelName` 是只读展示增强，拿不到时可以省略；该字段不表示 AgentHub 接管外部平台的模型配置。
 - `agent.completed` 仍表示一次 agent execution 完成；兼容字段 `usage`、`finishReason`、`resolvedModel` 继续保留在 `agent.completed.data`，同时 `agent.completed.data.generation` 提供面向 UI 和后续统计的轻量结构化入口。
 
 示例：
@@ -209,7 +209,7 @@ type RuntimeGeneration = {
 
 ```ts
 type RuntimeExternalModel = {
-  provider: "opencode" | string
+  provider: "opencode" | "claude-code" | string
   providerId: string
   modelId: string
   providerName?: string
@@ -372,7 +372,7 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
 ## 11. Question Payload
 
-`question` 是 interaction tool，不是 permission。模型调用后 Runtime 发送 `tool.started`，随后发送 `question.requested`：
+`question` 是 interaction tool，不是 permission。内部 AI SDK 模型调用后 Runtime 发送 `tool.started`，随后发送 `question.requested`。外部 adapter 也可以通过 waitable external question bridge 复用同一事件组；例如 Claude Code `onUserDialog` / `AskUserQuestion` 会生成 `question.*`，而不是伪装成 `permission.*`。
 
 ```json
 {

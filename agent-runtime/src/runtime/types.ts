@@ -4,7 +4,11 @@ import { AgentDefinitionSchema, type AgentDefinition } from "../agents"
 import type { WorkspaceService } from "./workspace"
 import type { RuntimePermissionService } from "./permissions"
 import type { RuntimeEnvironmentSnapshot } from "./environment-snapshot"
-import type { QuestionContinuationRequest } from "./question"
+import type {
+  ExternalQuestionRequest,
+  NormalizedQuestionAnswer,
+  QuestionContinuationRequest,
+} from "./question"
 
 export const RuntimeConversationModeSchema = z.enum(["single", "group"])
 export type RuntimeConversationMode = z.infer<typeof RuntimeConversationModeSchema>
@@ -368,6 +372,7 @@ export type AgentExecutionContext = {
   resumeMessages?: ModelMessage[]
   onApprovalPending?: (messages: ModelMessage[]) => void
   onQuestionPending?: (request: QuestionContinuationRequest) => boolean
+  requestExternalQuestion?: (request: ExternalQuestionRequest) => Promise<NormalizedQuestionAnswer[]>
   executeTask?: (task: OrchestratorTask, options?: {
     groupId?: string
     parentTaskId?: string
@@ -412,4 +417,3 @@ export const RunRecordResponseSchema = z.object({
 })
 
 export { AgentDefinitionSchema }
-

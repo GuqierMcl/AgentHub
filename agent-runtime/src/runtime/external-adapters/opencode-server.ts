@@ -12,7 +12,7 @@ import {
   type Project,
 } from "@opencode-ai/sdk/v2"
 import { createChildLogger } from "../../logger"
-import { ExternalAdapterError } from "./types"
+import { ExternalAdapterError, type ExternalAdapterErrorCode } from "./types"
 
 export type OpenCodeConnectionMode = "managed-by-runtime" | "existing-local-server"
 
@@ -565,11 +565,7 @@ export function detectOpenCodeSdkWorkspaceOption(): OpenCodeSdkWorkspaceOption |
 
 export function unwrapOpenCodeResponse<T>(
   response: unknown,
-  code:
-    | "ADAPTER_SERVER_UNHEALTHY"
-    | "ADAPTER_SESSION_FAILED"
-    | "ADAPTER_PROMPT_FAILED"
-    | "ADAPTER_ABORT_FAILED",
+  code: ExternalAdapterErrorCode,
   message: string
 ): T {
   const record = isRecord(response) ? response : {}

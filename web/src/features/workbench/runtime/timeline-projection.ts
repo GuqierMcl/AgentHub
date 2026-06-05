@@ -438,7 +438,8 @@ function createToolItem(
 ): WorkbenchTimelineToolItem {
   const id = `tool:${event.runId}:${event.toolCallId ?? event.id}`
   const data = getEventDataObject(event)
-  const errorText = status === "output-error" ? getErrorMessage(data) : undefined
+  const nextStatus = resolveToolStatus(status, current?.status)
+  const errorText = nextStatus === "output-error" ? getErrorMessage(data) : undefined
 
   return {
     kind: "tool",
@@ -450,12 +451,22 @@ function createToolItem(
     toolName: event.toolName ?? current?.toolName ?? "tool",
     title: getString(data.summary) ?? current?.title ?? event.toolName ?? "Tool",
     time: current?.time ?? formatTimelineTime(new Date(event.timestamp)),
-    status,
-    input: current?.input ?? data.input ?? data.parameters,
+    status: nextStatus,
+    input: data.input ?? data.parameters ?? current?.input,
     output: getToolDisplayOutput(event, data, status, current),
     errorText: errorText ?? current?.errorText,
     order: current?.order ?? order,
   }
+}
+
+function resolveToolStatus(
+  nextStatus: WorkbenchTimelineToolItem["status"],
+  currentStatus?: WorkbenchTimelineToolItem["status"]
+): WorkbenchTimelineToolItem["status"] {
+  if (currentStatus?.startsWith("output-") && !nextStatus.startsWith("output-")) {
+    return currentStatus
+  }
+  return nextStatus
 }
 
 function getToolDisplayOutput(

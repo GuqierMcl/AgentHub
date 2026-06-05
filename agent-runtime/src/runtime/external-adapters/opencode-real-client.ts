@@ -179,8 +179,8 @@ export class RealOpenCodeClient implements OpenCodeClient {
 
     let abortPromise: Promise<void> | null = null
     let abortError: unknown
-    const startAbort = (): void => {
-      if (abortPromise) return
+    const startAbort = (): Promise<void> => {
+      if (abortPromise) return abortPromise
       this.log.info(
         {
           externalProvider: "opencode",
@@ -196,16 +196,19 @@ export class RealOpenCodeClient implements OpenCodeClient {
       abortPromise = this.abortSession(state).catch((error) => {
         abortError = error
       })
+      return abortPromise
+    }
+    const abortListener = (): void => {
+      void startAbort()
     }
 
     if (request.signal.aborted) {
-      startAbort()
-      await abortPromise
+      await startAbort()
       if (abortError) throw abortError
       return
     }
 
-    request.signal.addEventListener("abort", startAbort, { once: true })
+    request.signal.addEventListener("abort", abortListener, { once: true })
     const executionAgent = request.executionAgent ?? DEFAULT_OPENCODE_EXECUTION_AGENT
 
     try {
@@ -419,10 +422,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
       request.signal.removeEventListener("abort", stopEventStream)
 
       if (eventStreamError) {
-        startAbort()
-        if (abortPromise) {
-          await abortPromise.catch(() => {})
-        }
+        await startAbort().catch(() => {})
         void promptPromise.catch(() => {})
         throw eventStreamError
       }
@@ -541,7 +541,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
         { provider: "opencode", cause: describeError(error) }
       )
     } finally {
-      request.signal.removeEventListener("abort", startAbort)
+      request.signal.removeEventListener("abort", abortListener)
       if (request.signal.aborted && abortPromise) {
         await abortPromise
         if (abortError) throw abortError

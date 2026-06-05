@@ -1,5 +1,12 @@
 export { ExternalAdapterExecutor } from "./external-adapter-executor"
 export { DefaultExternalAdapterRegistry } from "./registry"
+export { ClaudeCodeAdapter } from "./claude-code-adapter"
+export { FakeClaudeCodeClient } from "./claude-code-client"
+export {
+  createDefaultClaudeCodeClient,
+  getClaudeCodeReadiness,
+  RealClaudeCodeClient,
+} from "./claude-code-real-client"
 export { OpenCodeAdapter } from "./opencode-adapter"
 export { FakeOpenCodeClient } from "./opencode-client"
 export {
@@ -45,4 +52,14 @@ export type {
   ExternalSessionLink,
   ExternalSessionScope,
 } from "./types"
+export type {
+  ClaudeCodeClient,
+  ClaudeCodeExternalModel,
+  ClaudeCodePermissionDecision,
+  ClaudeCodePermissionRequest,
+  ClaudeCodePromptEvent,
+  ClaudeCodePromptRequest,
+  ClaudeCodeQuestionRequest,
+  ClaudeCodeSessionRequest,
+} from "./claude-code-client"
 export { ExternalAdapterError } from "./types"

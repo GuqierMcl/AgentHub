@@ -147,6 +147,8 @@ export class WorkspaceRevertService {
       return { status: "failed", preview, error }
     }
 
+    await this.refreshChangedFileIndex(request.workspace.rootPath, request.source.changedFiles)
+
     return {
       status: "applied",
       operationId: `revert_${crypto.randomUUID()}`,
@@ -227,6 +229,31 @@ export class WorkspaceRevertService {
       ], { allowFailure: true })
     } finally {
       await rm(patchDir, { recursive: true, force: true })
+    }
+  }
+
+  private async refreshChangedFileIndex(
+    workspaceRoot: string,
+    changedFiles: WorkspaceRevertSource["changedFiles"],
+  ): Promise<void> {
+    const paths = [
+      ...new Set(changedFiles
+        .flatMap((file) => [file.path, file.oldPath])
+        .filter((path): path is string => Boolean(path))),
+    ]
+    if (paths.length === 0) return
+
+    const result = await runGit(workspaceRoot, [
+      "update-index",
+      "--refresh",
+      "--",
+      ...paths,
+    ], { allowFailure: true })
+    if (result.exitCode !== 0) {
+      log.debug({
+        pathCount: paths.length,
+        stderrLength: result.stderr.length,
+      }, "Workspace revert index refresh did not fully complete")
     }
   }
 

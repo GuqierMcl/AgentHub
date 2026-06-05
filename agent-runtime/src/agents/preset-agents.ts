@@ -163,5 +163,33 @@ export const presetAgents: AgentDefinition[] = [
     enabled: true,
     readonly: true,
   },
+  {
+    id: "claude-code",
+    name: "Claude Code",
+    description: "外部编码智能体入口，通过 Claude Agent SDK 在当前 workspace 中协作执行代码任务。",
+    tier: "primary",
+    origin: "external",
+    visibility: "visible",
+    entryPolicy: "callable",
+    delegationPolicy: "terminal",
+    executorType: "external-adapter",
+    capabilities: ["external-agent", "coding", "workspace"],
+    allowedSubagents: [],
+    allowedTools: [],
+    permissionPolicy: {
+      filesystem: "write",
+      shell: "limited",
+      network: "full",
+      deploy: "none",
+    },
+    external: {
+      provider: "claude-code",
+      workingDirectoryPolicy: "runtime-workspace",
+      configDirectoryPolicy: "user-global",
+      outputFormat: "event-stream",
+    },
+    enabled: true,
+    readonly: true,
+  },
 ]
 

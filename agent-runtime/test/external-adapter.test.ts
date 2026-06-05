@@ -5,11 +5,15 @@ import { tmpdir } from "node:os"
 import { AgentRegistry } from "../src/agents"
 import {
   RunManager,
+  ClaudeCodeAdapter,
   ExternalAdapterExecutor,
+  FakeClaudeCodeClient,
   FakeOpenCodeClient,
   OpenCodeAdapter,
   createDefaultRuntimeToolRegistry,
   createRunEvent,
+  type ClaudeCodeClient,
+  type ClaudeCodePromptRequest,
   type ExternalSessionLink,
   type OpenCodeClient,
   type OpenCodePromptRequest,
@@ -39,6 +43,16 @@ function attachOpenCodeClient(runManager: RunManager, client: OpenCodeClient): v
     registry: {
       getAdapter(provider: string) {
         return provider === "opencode" ? new OpenCodeAdapter(client) : null
+      },
+    },
+  })
+}
+
+function attachClaudeCodeClient(runManager: RunManager, client: ClaudeCodeClient): void {
+  ;(runManager as any).externalAdapterExecutor = new ExternalAdapterExecutor({
+    registry: {
+      getAdapter(provider: string) {
+        return provider === "claude-code" ? new ClaudeCodeAdapter(client) : null
       },
     },
   })
@@ -186,6 +200,93 @@ class PermissionStreamingOpenCodeClient extends FakeOpenCodeClient {
     yield {
       type: "message.completed" as const,
       content,
+    }
+  }
+}
+
+class ToolStreamingClaudeCodeClient extends FakeClaudeCodeClient {
+  async *streamPrompt(_request: ClaudeCodePromptRequest) {
+    yield {
+      type: "tool.started",
+      providerToolCallId: "toolu_edit",
+      providerToolName: "Edit",
+      input: {
+        file_path: "src/index.ts",
+      },
+    } as any
+    yield {
+      type: "tool.completed",
+      providerToolCallId: "toolu_edit",
+      providerToolName: "Edit",
+      output: {
+        content: "Updated src/index.ts",
+      },
+    } as any
+    yield {
+      type: "message.delta" as const,
+      delta: "Edited src/index.ts.",
+    }
+    yield {
+      type: "message.completed" as const,
+      content: "Edited src/index.ts.",
+      externalModel: {
+        provider: "claude-code",
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+      },
+    }
+  }
+}
+
+class PermissionStreamingClaudeCodeClient extends FakeClaudeCodeClient {
+  async *streamPrompt(request: ClaudeCodePromptRequest) {
+    const decision = await (request as any).permissionHandler?.({
+      providerPermissionId: "perm_edit",
+      permissionKind: "Edit",
+      providerToolCallId: "toolu_edit",
+      providerMetadata: { source: "claude-code" },
+      reason: "Claude Code wants to edit src/index.ts",
+      input: {
+        file_path: "src/index.ts",
+      },
+    })
+    const content = decision?.approved
+      ? "Permission approved; edit completed."
+      : "Permission denied; edit skipped."
+    yield {
+      type: "message.delta" as const,
+      delta: content,
+    }
+    yield {
+      type: "message.completed" as const,
+      content,
+    }
+  }
+}
+
+class QuestionAskingClaudeCodeClient extends FakeClaudeCodeClient {
+  async *streamPrompt(request: ClaudeCodePromptRequest) {
+    const answers = await (request as any).questionHandler?.({
+      providerQuestionId: "ask_approach",
+      providerToolCallId: "ask_user_question",
+      providerMetadata: { source: "claude-code" },
+      questions: [{
+        id: "approach",
+        title: "Choose an approach",
+        body: "Which implementation approach should Claude Code use?",
+        options: [{ id: "minimal", label: "Minimal" }],
+        allowCustom: true,
+        required: true,
+      }],
+    })
+    const answer = answers?.[0]?.answer ?? "unknown"
+    yield {
+      type: "message.delta" as const,
+      delta: `User chose ${answer}.`,
+    }
+    yield {
+      type: "message.completed" as const,
+      content: `User chose ${answer}.`,
     }
   }
 }
@@ -680,5 +781,222 @@ describe("external adapter executor", () => {
       event.type === "message.completed" &&
       (event.data as { content?: string }).content === "This should not be emitted after cancellation."
     )).toBe(false)
+  })
+
+  test("direct Claude Code run uses the external adapter and records a conversation-visible session", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachClaudeCodeClient(runManager, new FakeClaudeCodeClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_claude_code_direct",
+      mode: "single",
+      participantAgentIds: ["claude-code"],
+      addressedAgentIds: ["claude-code"],
+      userMessage: {
+        role: "user",
+        content: "Inspect the workspace.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_claude_code_direct",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const completedRun = runManager.getRun(run.id)
+    const events = runManager.getEvents(run.id) ?? []
+    const started = events.find((event) => event.type === "agent.started" && event.agentId === "claude-code")
+    const message = events.find((event) => event.type === "message.completed" && event.agentId === "claude-code")
+
+    expect(completedRun?.status).toBe("completed")
+    expect((started?.data as { externalSession?: { scope?: string; providerSessionId?: string } }).externalSession?.scope)
+      .toBe("conversation-visible")
+    expect((started?.data as { externalSession?: { providerSessionId?: string } }).externalSession?.providerSessionId)
+      .toStartWith("fake_claude_code_")
+    expect((message?.data as { content?: string }).content).toContain("Claude Code fake adapter received")
+    expect((message?.data as {
+      externalModel?: { provider?: string; providerId?: string; modelId?: string }
+    }).externalModel).toEqual({
+      provider: "claude-code",
+      providerId: "anthropic",
+      modelId: "fake-claude-model",
+    })
+    expect(message?.messageIndex).toBe(0)
+  })
+
+  test("direct Claude Code run reuses a conversation-visible session hint", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachClaudeCodeClient(runManager, new FakeClaudeCodeClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_claude_code_reuse",
+      mode: "single",
+      participantAgentIds: ["claude-code"],
+      addressedAgentIds: ["claude-code"],
+      userMessage: {
+        role: "user",
+        content: "Continue the prior session.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_claude_code_reuse",
+        backendType: "local",
+        rootPath,
+      },
+      externalSessionHints: [{
+        provider: "claude-code",
+        agentId: "claude-code",
+        scope: "conversation-visible",
+        providerSessionId: "provider_session_existing",
+        conversationId: "conv_claude_code_reuse",
+        workspaceId: "workspace_claude_code_reuse",
+      }],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const started = events.find((event) => event.type === "agent.started" && event.agentId === "claude-code")
+
+    expect((started?.data as { externalSession?: { providerSessionId?: string } }).externalSession?.providerSessionId)
+      .toBe("provider_session_existing")
+  })
+
+  test("direct Claude Code tool events reuse the assistant message identity", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachClaudeCodeClient(runManager, new ToolStreamingClaudeCodeClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_claude_code_tool_events",
+      mode: "single",
+      participantAgentIds: ["claude-code"],
+      addressedAgentIds: ["claude-code"],
+      userMessage: {
+        role: "user",
+        content: "Edit the file.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_claude_code_tool_events",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const message = events.find((event) => event.type === "message.completed" && event.agentId === "claude-code")
+    const toolStarted = events.find((event) => event.type === "tool.started" && event.agentId === "claude-code")
+    const toolCompleted = events.find((event) => event.type === "tool.completed" && event.agentId === "claude-code")
+
+    expect(toolStarted?.messageId).toBe(message?.messageId)
+    expect(toolCompleted?.messageId).toBe(message?.messageId)
+    expect(toolStarted?.toolCallId).toBe("claude-code:toolu_edit")
+    expect(toolStarted?.toolName).toBe("Edit")
+    expect((toolStarted?.data as { externalProvider?: string; providerToolCallId?: string }).externalProvider)
+      .toBe("claude-code")
+    expect((toolCompleted?.data as { output?: { content?: string } }).output?.content)
+      .toBe("Updated src/index.ts")
+  })
+
+  test("direct Claude Code permission requests resolve through Runtime decisions", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachClaudeCodeClient(runManager, new PermissionStreamingClaudeCodeClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_claude_code_permission",
+      mode: "single",
+      participantAgentIds: ["claude-code"],
+      addressedAgentIds: ["claude-code"],
+      userMessage: {
+        role: "user",
+        content: "Edit src/index.ts.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_claude_code_permission",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    const requested = await waitForEvent(runManager, run.id, (event) => event.type === "permission.requested")
+    expect(requested.messageId).toBeDefined()
+    expect(requested.toolCallId).toBe("claude-code:toolu_edit")
+    expect((requested.data as { data?: { providerPermissionId?: string; externalProvider?: string } }).data?.providerPermissionId)
+      .toBe("perm_edit")
+    expect((requested.data as { data?: { externalProvider?: string } }).data?.externalProvider)
+      .toBe("claude-code")
+
+    const decision = runManager.decidePermission(
+      run.id,
+      (requested.data as { requestId: string }).requestId,
+      true,
+      "Approved once"
+    )
+    expect(decision.status).toBe("approved")
+
+    await waitForTerminalRun(runManager, run.id)
+    const events = runManager.getEvents(run.id) ?? []
+    const message = events.find((event) => event.type === "message.completed" && event.agentId === "claude-code")
+    const approved = events.find((event) => event.type === "permission.approved")
+    expect(message?.messageId).toBe(requested.messageId)
+    expect(approved?.messageId).toBe(requested.messageId)
+    expect((message?.data as { content?: string }).content).toContain("Permission approved")
+  })
+
+  test("direct Claude Code AskUserQuestion waits for a product question answer", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachClaudeCodeClient(runManager, new QuestionAskingClaudeCodeClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_claude_code_question",
+      mode: "single",
+      participantAgentIds: ["claude-code"],
+      addressedAgentIds: ["claude-code"],
+      userMessage: {
+        role: "user",
+        content: "Ask me before choosing an approach.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_claude_code_question",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    const requested = await waitForEvent(runManager, run.id, (event) => event.type === "question.requested")
+    expect(runManager.getRun(run.id)?.status).toBe("waiting_input")
+    expect(requested.toolCallId).toBe("claude-code:ask_user_question")
+    expect((requested.data as { externalProvider?: string }).externalProvider).toBe("claude-code")
+    const requestId = (requested.data as { requestId?: string }).requestId
+    expect(requestId).toBeTruthy()
+
+    const answered = runManager.answerQuestion(run.id, requestId!, [{
+      questionId: "approach",
+      optionId: "minimal",
+    }])
+    expect(answered.status).toBe("answered")
+
+    await waitForTerminalRun(runManager, run.id)
+    const events = runManager.getEvents(run.id) ?? []
+    const message = events.find((event) => event.type === "message.completed" && event.agentId === "claude-code")
+    expect((message?.data as { content?: string }).content).toContain("User chose Minimal")
+    expect(events.some((event) => event.type === "question.answered")).toBe(true)
   })
 })

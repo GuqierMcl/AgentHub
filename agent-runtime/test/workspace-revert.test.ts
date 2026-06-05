@@ -102,6 +102,9 @@ describe("WorkspaceRevertService", () => {
     })
 
     expect(applied.status).toBe("applied")
+    if (applied.status !== "applied") {
+      throw new Error(`Expected revert apply to succeed, got ${applied.status}`)
+    }
     expect(applied.preview.canApply).toBe(true)
     expect(applied.operationId).toMatch(/^revert_/)
     const note = await readFile(join(root, "src", "note.txt"), "utf8")
@@ -161,6 +164,9 @@ describe("WorkspaceRevertService", () => {
     })
 
     expect(applied.status).toBe("blocked")
+    if (applied.status !== "blocked") {
+      throw new Error(`Expected revert apply to be blocked, got ${applied.status}`)
+    }
     expect(applied.blockedReason?.code).toBe("ARTIFACT_REVERT_BLOCKED")
     expect(await readFile(join(root, "src", "note.txt"), "utf8")).toBe("conflicting\n")
   })
