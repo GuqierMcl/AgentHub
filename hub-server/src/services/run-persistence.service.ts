@@ -160,8 +160,11 @@ type RuntimeMessage = {
   content: string;
 };
 
+type RuntimeExternalProvider = "opencode" | "claude-code" | "codex";
+type SupportedDirectExternalProvider = "opencode" | "claude-code";
+
 type RuntimeExternalSessionHint = {
-  provider: "opencode" | "claude-code" | "codex";
+  provider: RuntimeExternalProvider;
   agentId: string;
   scope: ExternalSessionScope;
   providerSessionId: string;
@@ -191,7 +194,7 @@ type RuntimeExternalContextHandoffSummary = {
 };
 
 type RuntimeExternalContextPacket = {
-  provider: "opencode" | "claude-code" | "codex";
+  provider: RuntimeExternalProvider;
   agentId: string;
   scope: ExternalSessionScope;
   mode: "delta" | "bootstrap";
@@ -624,10 +627,12 @@ const PROJECTION_MAX_BUFFERED_ITEMS = 500;
 const RUNTIME_EVENT_STREAM_MAX_RETRIES = 2;
 const RUNTIME_EVENT_STREAM_RETRY_DELAY_MS = 250;
 const BASH_OUTPUT_UI_PREVIEW_CHARS = 12_000;
-const OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGES = 50;
-const OPENCODE_EXTERNAL_CONTEXT_MAX_CHARS = 12_000;
-const OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS = 4_000;
-const OPENCODE_EXTERNAL_CONTEXT_MAX_HANDOFFS = 5;
+const EXTERNAL_CONTEXT_MAX_MESSAGES = 50;
+const EXTERNAL_CONTEXT_MAX_CHARS = 12_000;
+const EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS = 4_000;
+const EXTERNAL_CONTEXT_MAX_HANDOFFS = 5;
+const SUPPORTED_DIRECT_EXTERNAL_PROVIDERS: readonly SupportedDirectExternalProvider[] =
+  ["opencode", "claude-code"];
 const runPersistenceLogger = logger.child({ module: "run-persistence" });
 
 export class RunPersistenceService {
@@ -665,13 +670,14 @@ export class RunPersistenceService {
       conversation,
       options.addressedAgentIds,
     );
-    const isOpenCodeRun =
-      resolveDirectExternalAgentId(conversation, addressedAgentIds) ===
-      "opencode";
-    if (isOpenCodeRun) {
+    const directExternalProvider = resolveDirectSupportedExternalProvider(
+      conversation,
+      addressedAgentIds,
+    );
+    if (directExternalProvider) {
       runPersistenceLogger.info(
         {
-          externalProvider: "opencode",
+          externalProvider: directExternalProvider,
           conversationId,
           mode: conversation.mode,
           participantAgentIds: conversation.agents.map(
@@ -680,7 +686,7 @@ export class RunPersistenceService {
           addressedAgentIds,
           contentLength: trimmed.length,
         },
-        "OpenCode Hub send request accepted",
+        "External agent Hub send request accepted",
       );
     }
     await this.ensureConversationProjectionCaughtUp(conversationId);
@@ -822,9 +828,10 @@ export class RunPersistenceService {
       regenerate,
     } = input;
     const conversationId = conversation.id;
-    const isOpenCodeRun =
-      resolveDirectExternalAgentId(conversation, addressedAgentIds) ===
-      "opencode";
+    const directExternalProvider = resolveDirectSupportedExternalProvider(
+      conversation,
+      addressedAgentIds,
+    );
 
     const historyMessages = (
       await listMessagesWithParts(conversationId, { limit: 100, order: "desc" })
@@ -872,16 +879,16 @@ export class RunPersistenceService {
       firstEventSequence: 0,
       lastEventSequence: 0,
     });
-    if (isOpenCodeRun) {
+    if (directExternalProvider) {
       runPersistenceLogger.info(
         {
-          externalProvider: "opencode",
+          externalProvider: directExternalProvider,
           conversationId,
           userMessageId: userMessage.id,
           userMessagePartId: userMessagePart.id,
           contentLength: persistedUserContent.length,
         },
-        "OpenCode user message persisted",
+        "External agent user message persisted",
       );
     }
     await updateConversation(conversationId, {
@@ -906,35 +913,35 @@ export class RunPersistenceService {
     this.publishRunStatusChanged(run, "queued");
     await updateMessage(userMessage.id, { runId: run.id });
     await updateMessagePart(userMessagePart.id, { runId: run.id });
-    if (isOpenCodeRun) {
+    if (directExternalProvider) {
       runPersistenceLogger.info(
         {
-          externalProvider: "opencode",
+          externalProvider: directExternalProvider,
           conversationId,
           runId: run.id,
           triggerMessageId: userMessage.id,
         },
-        "OpenCode local run created",
+        "External agent local run created",
       );
     }
 
-    const directOpenCodeSession = await resolveDirectOpenCodeSession(
+    const directExternalSession = await resolveDirectExternalSession(
       conversation,
       addressedAgentIds,
     );
-    const externalSessionHints = directOpenCodeSession
-      ? [toRuntimeExternalSessionHint(directOpenCodeSession)]
+    const externalSessionHints = directExternalSession
+      ? [toRuntimeExternalSessionHint(directExternalSession)]
       : [];
     const externalContext = await resolveExternalContextPackets(
       conversation,
       addressedAgentIds,
       historyMessages,
-      directOpenCodeSession,
+      directExternalSession,
     );
-    if (isOpenCodeRun) {
+    if (directExternalProvider) {
       runPersistenceLogger.info(
         {
-          externalProvider: "opencode",
+          externalProvider: directExternalProvider,
           conversationId,
           runId: run.id,
           externalSessionHintCount: externalSessionHints.length,
@@ -952,7 +959,7 @@ export class RunPersistenceService {
           ),
           externalContextModes: externalContext.map((packet) => packet.mode),
         },
-        "OpenCode external session hints resolved",
+        "External agent session hints resolved",
       );
     }
     const runtimeInput = buildRuntimeRunInput(
@@ -983,16 +990,16 @@ export class RunPersistenceService {
       });
       this.publishRunStatusChanged(run, "failed");
       this.publishTerminalRunStatus(run, "failed");
-      if (isOpenCodeRun) {
+      if (directExternalProvider) {
         runPersistenceLogger.error(
           {
-            externalProvider: "opencode",
+            externalProvider: directExternalProvider,
             conversationId,
             runId: run.id,
             status: response.status,
             error: normalizeRuntimeError(response.data),
           },
-          "OpenCode Runtime run creation failed",
+          "External agent Runtime run creation failed",
         );
       }
       throw new AppError(
@@ -1011,17 +1018,17 @@ export class RunPersistenceService {
       { ...run, runtimeId: runtimeRun.runId },
       runtimeRun.status,
     );
-    if (isOpenCodeRun) {
+    if (directExternalProvider) {
       runPersistenceLogger.info(
         {
-          externalProvider: "opencode",
+          externalProvider: directExternalProvider,
           conversationId,
           runId: run.id,
           runtimeRunId: runtimeRun.runId,
           status: runtimeRun.status,
           eventsUrl: runtimeRun.eventsUrl,
         },
-        "OpenCode Runtime run created",
+        "External agent Runtime run created",
       );
     }
     this.startRuntimeConsumer(run.id, runtimeRun.runId);
@@ -2540,7 +2547,9 @@ async function projectExternalContextSyncEvent(
   const provider =
     getString(externalSession?.provider) ?? getString(externalContext.provider);
   const providerSessionId = getString(externalSession?.providerSessionId);
-  if (provider !== "opencode" || !providerSessionId) return;
+  if (!isSupportedDirectExternalProvider(provider) || !providerSessionId) {
+    return;
+  }
 
   const latestVisibleMessage = await findLatestVisibleContextMessage(
     run.conversationId,
@@ -2582,7 +2591,7 @@ async function projectExternalContextSyncEvent(
 
   runPersistenceLogger.info(
     {
-      externalProvider: "opencode",
+      externalProvider: provider,
       conversationId: run.conversationId,
       runId: run.id,
       runtimeRunId: event.runId,
@@ -2592,7 +2601,7 @@ async function projectExternalContextSyncEvent(
       includedMessageCount: includedMessageIds.length,
       includedHandoffCount: includedHandoffSessionIds.length,
     },
-    "OpenCode external context sync projected",
+    "External agent context sync projected",
   );
 }
 
@@ -5398,22 +5407,22 @@ function buildRuntimeRunInput(
   };
 }
 
-async function resolveDirectOpenCodeSession(
+async function resolveDirectExternalSession(
   conversation: ConversationDetailOutput,
   addressedAgentIds: string[],
 ): Promise<ExternalAgentSessionOutput | null> {
   const workspace = getRuntimeWorkspace(conversation.metadataJson);
   if (!workspace) return null;
 
-  const directAgentId = resolveDirectExternalAgentId(
+  const provider = resolveDirectSupportedExternalProvider(
     conversation,
     addressedAgentIds,
   );
-  if (directAgentId !== "opencode") return null;
+  if (!provider) return null;
 
   return findExternalAgentSessionHint({
-    provider: "opencode",
-    agentId: directAgentId,
+    provider,
+    agentId: provider,
     conversationId: conversation.id,
     workspaceIdentity: workspace.workspaceId,
     scope: "conversation-visible",
@@ -5425,7 +5434,7 @@ function toRuntimeExternalSessionHint(
   session: ExternalAgentSessionOutput,
 ): RuntimeExternalSessionHint {
   return {
-    provider: "opencode",
+    provider: session.provider as RuntimeExternalProvider,
     agentId: session.agentId,
     scope: session.scope,
     providerSessionId: session.providerSessionId,
@@ -5441,36 +5450,38 @@ async function resolveExternalContextPackets(
   conversation: ConversationDetailOutput,
   addressedAgentIds: string[],
   historyMessages: unknown[],
-  directOpenCodeSession: ExternalAgentSessionOutput | null,
+  directExternalSession: ExternalAgentSessionOutput | null,
 ): Promise<RuntimeExternalContextPacket[]> {
   const workspace = getRuntimeWorkspace(conversation.metadataJson);
   if (!workspace) return [];
 
-  const directAgentId = resolveDirectExternalAgentId(
+  const provider = resolveDirectSupportedExternalProvider(
     conversation,
     addressedAgentIds,
   );
-  if (directAgentId !== "opencode") return [];
+  if (!provider) return [];
 
   const delegatedSessions = await listExternalAgentSessions({
     conversationId: conversation.id,
-    provider: "opencode",
-    agentId: directAgentId,
+    provider,
+    agentId: provider,
     scope: "delegated-task",
     status: "active",
     limit: 20,
     order: "desc",
   });
-  const packet = buildOpenCodeExternalContextPacket({
-    agentId: directAgentId,
-    sessionMetadata: directOpenCodeSession?.metadataJson ?? {},
+  const packet = buildExternalContextPacket({
+    provider,
+    agentId: provider,
+    sessionMetadata: directExternalSession?.metadataJson ?? {},
     historyMessages,
     delegatedSessions,
   });
   return packet ? [packet] : [];
 }
 
-export function buildOpenCodeExternalContextPacket(options: {
+export function buildExternalContextPacket(options: {
+  provider: RuntimeExternalProvider;
   agentId: string;
   sessionMetadata?: MetadataJson;
   historyMessages: unknown[];
@@ -5509,7 +5520,7 @@ export function buildOpenCodeExternalContextPacket(options: {
   });
 
   return {
-    provider: "opencode",
+    provider: options.provider,
     agentId: options.agentId,
     scope: "conversation-visible",
     mode,
@@ -5529,6 +5540,18 @@ export function buildOpenCodeExternalContextPacket(options: {
     },
     ...(omitted ? { omitted } : {}),
   };
+}
+
+export function buildOpenCodeExternalContextPacket(options: {
+  agentId: string;
+  sessionMetadata?: MetadataJson;
+  historyMessages: unknown[];
+  delegatedSessions?: ExternalAgentSessionOutput[];
+}): RuntimeExternalContextPacket | null {
+  return buildExternalContextPacket({
+    provider: "opencode",
+    ...options,
+  });
 }
 
 function getContextBridgeMetadata(metadata: MetadataJson | undefined): {
@@ -5565,7 +5588,7 @@ function projectMessagesToExternalContextMessages(
         createdAt: message.createdAt,
         content: truncateText(
           content,
-          OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS,
+          EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS,
         ),
       },
     ];
@@ -5596,9 +5619,9 @@ function takeBoundedExternalContextMessages(
   for (const message of [...messages].reverse()) {
     const characterCount = message.content.length;
     const wouldExceedCount =
-      selected.length >= OPENCODE_EXTERNAL_CONTEXT_MAX_MESSAGES;
+      selected.length >= EXTERNAL_CONTEXT_MAX_MESSAGES;
     const wouldExceedChars =
-      usedCharacters + characterCount > OPENCODE_EXTERNAL_CONTEXT_MAX_CHARS;
+      usedCharacters + characterCount > EXTERNAL_CONTEXT_MAX_CHARS;
     if (wouldExceedCount || wouldExceedChars) {
       omittedMessageCount += 1;
       omittedCharacterCount += characterCount;
@@ -5629,7 +5652,7 @@ function selectExternalContextHandoffs(
     return session.updatedAt > lastSyncedAt;
   });
 
-  const selected = candidates.slice(0, OPENCODE_EXTERNAL_CONTEXT_MAX_HANDOFFS);
+  const selected = candidates.slice(0, EXTERNAL_CONTEXT_MAX_HANDOFFS);
   return {
     summaries: selected.reverse().map((session) => ({
       sessionId: session.id,
@@ -5678,6 +5701,27 @@ function resolveDirectExternalAgentId(
   }
 
   return addressedAgentIds.length === 1 ? (addressedAgentIds[0] ?? null) : null;
+}
+
+function resolveDirectSupportedExternalProvider(
+  conversation: ConversationDetailOutput,
+  addressedAgentIds: string[],
+): SupportedDirectExternalProvider | null {
+  const directAgentId = resolveDirectExternalAgentId(
+    conversation,
+    addressedAgentIds,
+  );
+  return isSupportedDirectExternalProvider(directAgentId)
+    ? directAgentId
+    : null;
+}
+
+function isSupportedDirectExternalProvider(
+  provider: string | null | undefined,
+): provider is SupportedDirectExternalProvider {
+  return SUPPORTED_DIRECT_EXTERNAL_PROVIDERS.includes(
+    provider as SupportedDirectExternalProvider,
+  );
 }
 
 export function resolveAddressedAgentIds(

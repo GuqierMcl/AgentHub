@@ -140,6 +140,116 @@ describe("timeline interleave ordering", () => {
 })
 
 describe("tool output projection", () => {
+  it("updates empty external tool input when the completed event carries parsed arguments", () => {
+    const chat = chatMessage(
+      project([
+        event(
+          "tool.started",
+          {
+            summary: "Claude Code · Edit",
+            externalProvider: "claude-code",
+            input: {},
+          },
+          {
+            toolCallId: "claude-code:toolu_edit",
+            toolName: "Edit",
+          }
+        ),
+        event(
+          "tool.completed",
+          {
+            summary: "Claude Code · Edit",
+            externalProvider: "claude-code",
+            input: {
+              file_path: "src/index.ts",
+              new_string: "updated",
+            },
+            output: {
+              content: "Updated src/index.ts",
+            },
+          },
+          {
+            toolCallId: "claude-code:toolu_edit",
+            toolName: "Edit",
+          }
+        ),
+      ])
+    )
+
+    const tool = chat.toolItems?.find((item) => item.toolCallId === "claude-code:toolu_edit")
+    expect(tool).toMatchObject({
+      status: "output-available",
+      externalProvider: "claude-code",
+      input: {
+        file_path: "src/index.ts",
+        new_string: "updated",
+      },
+      output: {
+        content: "Updated src/index.ts",
+      },
+    })
+  })
+
+  it("does not downgrade a completed external tool when parsed input arrives late", () => {
+    const chat = chatMessage(
+      project([
+        event(
+          "tool.started",
+          {
+            summary: "Claude Code · Edit",
+            externalProvider: "claude-code",
+            input: {},
+          },
+          {
+            toolCallId: "claude-code:toolu_edit",
+            toolName: "Edit",
+          }
+        ),
+        event(
+          "tool.completed",
+          {
+            summary: "Claude Code · Edit",
+            externalProvider: "claude-code",
+            output: {
+              content: "Updated src/index.ts",
+            },
+          },
+          {
+            toolCallId: "claude-code:toolu_edit",
+            toolName: "Edit",
+          }
+        ),
+        event(
+          "tool.started",
+          {
+            summary: "Claude Code · Edit",
+            externalProvider: "claude-code",
+            input: {
+              file_path: "src/index.ts",
+              new_string: "updated",
+            },
+          },
+          {
+            toolCallId: "claude-code:toolu_edit",
+            toolName: "Edit",
+          }
+        ),
+      ])
+    )
+
+    const tool = chat.toolItems?.find((item) => item.toolCallId === "claude-code:toolu_edit")
+    expect(tool).toMatchObject({
+      status: "output-available",
+      input: {
+        file_path: "src/index.ts",
+        new_string: "updated",
+      },
+      output: {
+        content: "Updated src/index.ts",
+      },
+    })
+  })
+
   it("uses OpenCode output payload for completed external tools", () => {
     const chat = chatMessage(
       project([

@@ -88,7 +88,7 @@ Agent Runtime 必须暴露 `/health` 端点，用于 HubServer 判断其是否�
 
 Runtime 可以在 HTTP server 已监听但内部服务仍初始化时返回非 200 或 `"status": "starting"`；HubServer 不得把该状态视为可接收执行请求。
 
-Runtime 另外暴露 `GET /runtime/services/status` 供 HubServer 读取服务状态快照。该端点只读，不会启动 OpenCode server、创建外部 Session 或修改 workspace。当前返回 OpenCode、Codex、Claude Code 三类服务状态，其中 Codex 与 Claude Code 在未接入前返回 `not_integrated`。OpenCode 状态来自默认 `ManagedOpenCodeServer`：`idle` 表示待命，`starting` 表示 workspace server 启动中，`running` 表示至少一个 workspace connection 已就绪，`error` 表示最近一次启动或 workspace 校验失败。
+Runtime 另外暴露 `GET /runtime/services/status` 供 HubServer 读取服务状态快照。该端点只读，不会启动 OpenCode server、创建外部 Session、调用 Claude Code prompt 或修改 workspace。当前返回 OpenCode、Codex、Claude Code 三类服务状态，其中 OpenCode 与 Claude Code 已接入，Codex 仍返回 `not_integrated` 占位。OpenCode 状态来自默认 `ManagedOpenCodeServer`：`idle` 表示待命，`starting` 表示 workspace server 启动中，`running` 表示至少一个 workspace connection 已就绪，`error` 表示最近一次启动或 workspace 校验失败。Claude Code 状态只检查 SDK/可执行文件配置来源，`details.executableSource` 为 `sdk-bundled` 或 `env`，`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 可覆盖真实 Claude Code executable 路径。
 
 健康检查响应格式：
 
@@ -228,10 +228,10 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取、沙箱外敏感读取、敏感写入和沙箱外写入请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
 - Runtime 已支持 `waiting_input`：AI SDK 智能体调用 `question` 后，Runtime 保存 continuation frame；用户通过 question answer API 回答后，同一 Run 恢复原执行分支。
 - `write_file` / `edit_file` 已开放给 `coder`、`writer` 和 `file` 子智能体；用户自定义智能体也可在显式配置 `filesystem: "write"` 后选择这些工具。
-- `web_fetch` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.network = "full"`，可直接执行 HTTP(S) 请求；`opencode` 的网络策略也为 `full`，但外部适配器不注入 Runtime Tool。用户自定义智能体暂不开放网络工具。
-- `bash` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.shell = "limited"`，通过 `toolPermissionRules.bash` 做命令级 `allow | ask | deny` 控制；`opencode` 仍不注入 Runtime Tool。用户自定义智能体暂不开放 shell 工具和 bash 规则。
-- `question` 隐式开放给所有内部 AI SDK 智能体，包括预设主智能体、隐藏子智能体和用户自定义智能体；它不进入用户自定义智能体 authoring options，外部 adapter 不注入。
-- 通用 Workspace Diff Summary V0 已闭环到 Runtime 终态事件：Run 创建时捕获 git baseline，`run.completed` / `run.failed` / `run.cancelled` best-effort 携带 `data.workspaceDiff`。该能力覆盖内部预设智能体、隐藏 `file` 子智能体、用户自定义写入智能体和 OpenCode 等外部智能体。
+- `web_fetch` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.network = "full"`，可直接执行 HTTP(S) 请求；`opencode` 与 `claude-code` 的网络策略也为 `full`，但外部适配器不注入 Runtime Tool。用户自定义智能体暂不开放网络工具。
+- `bash` 已开放给 `orchestrator`、`coder`、`reviewer`、`writer`、`planner` 这些系统预设主智能体，默认 `permissionPolicy.shell = "limited"`，通过 `toolPermissionRules.bash` 做命令级 `allow | ask | deny` 控制；`opencode` 与 `claude-code` 仍不注入 Runtime `bash`，原生命令/工具由对应 external adapter 映射。用户自定义智能体暂不开放 shell 工具和 bash 规则。
+- `question` 隐式开放给所有内部 AI SDK 智能体，包括预设主智能体、隐藏子智能体和用户自定义智能体；它不进入用户自定义智能体 authoring options。外部 adapter 不注入 Runtime Tool Catalog 形式的 `question`，但可以通过 RunManager 的 external question waiter 把 Claude Code `AskUserQuestion` 等外部用户问答桥接为同一组 `question.*` 事件。
+- 通用 Workspace Diff Summary V0 已闭环到 Runtime 终态事件：Run 创建时捕获 git baseline，`run.completed` / `run.failed` / `run.cancelled` best-effort 携带 `data.workspaceDiff`。该能力覆盖内部预设智能体、隐藏 `file` 子智能体、用户自定义写入智能体以及 OpenCode、Claude Code 等外部智能体。
 
 尚未完全闭环的部分：
 
@@ -240,7 +240,7 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - HubServer 还未提供面向浏览器的自定义 Agent 管理 API 和配置 UI；当前 CRUD 仍是 Runtime 内部 API。
 - 权限审批和用户问答已具备产品级 API 代理、事件持久化和前端交互；更完整的产品级 MessagePart/Artifact 投影仍在后续阶段。
 - 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。
-- 外部智能体 `opencode` 已进入 `ExternalAdapterExecutor`，默认使用真实 OpenCode client。Runtime 已接入 `@opencode-ai/sdk/v2`，在 SDK 暴露安全 workspace 启动参数时可走 managed server；当前 SDK 未暴露 cwd/workdir/projectPath 时，使用 `opencode serve` 子进程以 workspace root 为 `cwd` 启动，并通过 `project.current` / `path.get` 校验 workspace。HubServer 已具备外部 Session 映射、direct context bridge、通用 Workspace Diff 投影和 OpenCode event stream/tool timeline 映射；OpenCode permission bridge 仍在 `docs/roadmap/opencode-adapter-implementation.md` 后续阶段。
+- 外部智能体 `opencode` 与 `claude-code` 已进入 `ExternalAdapterExecutor`，并以可见主智能体身份参与单聊、群聊显式调用和 Orchestrator delegated task。OpenCode 默认使用真实 OpenCode client，Runtime 已接入 `@opencode-ai/sdk/v2`，在 SDK 暴露安全 workspace 启动参数时可走 managed server；当前 SDK 未暴露 cwd/workdir/projectPath 时，使用 `opencode serve` 子进程以 workspace root 为 `cwd` 启动，并通过 `project.current` / `path.get` 校验 workspace。Claude Code 默认使用 `@anthropic-ai/claude-agent-sdk` 的 `query()` async generator，`cwd` 固定为绑定 workspace root，可通过 `resume` 复用 HubServer 注入的 provider session hint，并通过 `canUseTool` 与 `onUserDialog` 桥接权限和用户问答。HubServer 已具备 provider-aware 外部 Session 映射、direct context bridge、通用 Workspace Diff 投影，以及 OpenCode/Claude Code 的 event stream/tool timeline 映射。
 - 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Workspace Diff、只读 Diff Viewer、ChangeSet 归因和可靠 Diff 的完整 Run 级撤销 V0 已开放。单文件/单 hunk revert、pre-apply proposed patch、隔离 workspace 合入和 deploy 仍未开放。
 
 ### 3.4 外部智能体 Adapter
@@ -249,7 +249,7 @@ Claude Code、Codex、OpenCode 等外部 Agent 平台差异，应该被封装在
 
 课题要求通过统一适配器层屏蔽 Claude Code、Codex、OpenCode 等主流 Agent 平台差异，并支持用户自建 Agent，因此 Adapter 仍然是 Agent Runtime 的关键架构点，但它只面向外部智能体。
 
-外部智能体的最新接入原则是把它们视为 AgentHub 中的可见聊天对象，而不是 AgentHub 托管的模型供应商、Skill 或 MCP 配置面板。公共外部智能体边界、Session scope、上下文 handoff、权限桥接和 Diff 投影见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`；OpenCode 专属 Project/Session 映射和事件设计见 `docs/external_agents/OPENCODE_ADAPTER.md`。
+外部智能体的最新接入原则是把它们视为 AgentHub 中的可见聊天对象，而不是 AgentHub 托管的模型供应商、Skill 或 MCP 配置面板。公共外部智能体边界、Session scope、上下文 handoff、权限桥接和 Diff 投影见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`；OpenCode 专属 Project/Session 映射和事件设计见 `docs/external_agents/OPENCODE_ADAPTER.md`；Claude Code 的 SDK、Session resume、权限、`AskUserQuestion` 和 Bun compiled binary 风险见 `docs/external_agents/CLAUDE_CODE_ADAPTER.md`。
 
 ### 3.5 上下文组装
 
@@ -405,7 +405,7 @@ Runtime 通过每个 Run 独立的 `RuntimePermissionService` 存储内存态审
 
 Shell 权限先由 `permissionPolicy.shell` 做粗粒度门禁：`none` 直接拒绝，`limited` / `full` 允许进入命令级规则。`bash` 使用 `AgentDefinition.toolPermissionRules.bash` 控制单条命令，规则值为 `allow | ask | deny`；`ask` 创建 `permissionType = "command_execute"`、`approvalReason = "bash_command"` 的审批请求，`deny` 在工具启动前失败。`bash` 不提供 OS/container sandbox，真实进程仍以 Runtime 所在用户权限运行；当前边界是命令规则、审批、workspace-relative `cwd`、环境变量白名单、超时和输出截断。完整设计见 `docs/architecture/BASH_TOOL.md`。
 
-用户问答不走权限审批链路。`question` 会创建 `question.requested`，并在没有其他 active task 时将 Run 标记为 `waiting_input`；用户回答后发送 `question.answered` 和 `tool.completed(toolName="question")`，再以合成 `tool-result` message 恢复同一 execution branch。同一 frame 的多个 question request 全部回答后只恢复一次；取消 Run 时发送 `question.cancelled` 与对应 `tool.failed`，并关闭 continuation frame，不再续跑原 execution branch。
+用户问答不走权限审批链路。内部 AI SDK 智能体调用 `question` 时会创建 `question.requested`，并在没有其他 active task 时将 Run 标记为 `waiting_input`；用户回答后发送 `question.answered` 和 `tool.completed(toolName="question")`，再以合成 `tool-result` message 恢复同一 execution branch。同一 frame 的多个 question request 全部回答后只恢复一次。外部 adapter 可通过 waitable external question bridge 复用同一事件协议；Claude Code 的 `onUserDialog` / `AskUserQuestion` 走该桥接，由 Adapter 把答案回传给 SDK，而不是合成 AI SDK `tool-result`。取消 Run 时发送 `question.cancelled` 与对应 `tool.failed`，并关闭 continuation frame 或 external waiter，不再续跑原 execution branch。
 
 ### 3.7 事件流输出
 

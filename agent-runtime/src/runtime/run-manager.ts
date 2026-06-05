@@ -14,6 +14,7 @@ import {
   normalizeQuestionToolInput,
   QuestionToolInputSchema,
   RuntimeQuestionError,
+  type ExternalQuestionRequest,
   type NormalizedQuestionAnswer,
   type NormalizedQuestionItem,
   type PendingQuestionToolCall,
@@ -80,12 +81,18 @@ type QuestionRequestRecord = {
   parentAgentId?: string
   groupId?: string
   parentTaskId?: string
+  data?: Record<string, unknown>
   questions: NormalizedQuestionItem[]
   status: "pending" | "answered" | "cancelled"
   answers?: NormalizedQuestionAnswer[]
   createdAt: string
   answeredAt?: string
   cancelledAt?: string
+}
+
+type ExternalQuestionWaiter = {
+  promise: Promise<NormalizedQuestionAnswer[] | null>
+  resolve: (answers: NormalizedQuestionAnswer[] | null) => void
 }
 
 type RunExecutionState = {
@@ -99,6 +106,7 @@ type RunExecutionState = {
   permissionService: RuntimePermissionService
   continuations: Map<string, RunContinuationFrame>
   questionRequests: Map<string, QuestionRequestRecord>
+  externalQuestionWaiters: Map<string, ExternalQuestionWaiter>
   activeTaskExecutions: Set<string>
   messageBlockCounters: Map<string, number>
   messageIndexById: Map<string, number>
@@ -231,6 +239,7 @@ export class RunManager {
       permissionService,
       continuations: new Map(),
       questionRequests: new Map(),
+      externalQuestionWaiters: new Map(),
       activeTaskExecutions: new Set(),
       messageBlockCounters: new Map(),
       messageIndexById: new Map(),
@@ -389,7 +398,8 @@ export class RunManager {
     }
 
     const frame = state.continuations.get(request.frameId)
-    if (!frame || frame.kind !== "question" || frame.status !== "waiting") {
+    const externalWaiter = state.externalQuestionWaiters.get(requestId)
+    if (!externalWaiter && (!frame || frame.kind !== "question" || frame.status !== "waiting")) {
       throw new RuntimeQuestionError(
         "QUESTION_RUN_NOT_ACTIVE",
         `Run ${runId} has no resumable question continuation`,
@@ -414,6 +424,21 @@ export class RunManager {
         answers: normalizedAnswers,
       },
     }))
+
+    if (externalWaiter) {
+      state.externalQuestionWaiters.delete(requestId)
+      this.updateRunStatus(run, "running")
+      externalWaiter.resolve(normalizedAnswers)
+      return request
+    }
+
+    if (!frame || frame.kind !== "question" || frame.status !== "waiting") {
+      throw new RuntimeQuestionError(
+        "QUESTION_RUN_NOT_ACTIVE",
+        `Run ${runId} has no resumable question continuation`,
+        409
+      )
+    }
 
     const requests = frame.requestIds.map((id) => state.questionRequests.get(id))
     if (requests.every((candidate) => candidate && candidate.status === "answered")) {
@@ -842,6 +867,31 @@ export class RunManager {
         state.activeTaskExecutions.delete(executionId)
         this.updateContinuationWaitStatus(run, state)
         return true
+      },
+      requestExternalQuestion: async (request) => {
+        const answers = await this.createExternalQuestionWaiter({
+          run,
+          state,
+          executionId,
+          agent,
+          task,
+          parentAgentId,
+          groupId,
+          parentTaskId,
+          request,
+        })
+        if (!answers || abortController.signal.aborted || run.status === "cancelled") {
+          throw new RuntimeQuestionError(
+            "QUESTION_RUN_NOT_ACTIVE",
+            "External question request was cancelled",
+            409
+          )
+        }
+        if (task) {
+          state.activeTaskExecutions.add(executionId)
+        }
+        this.updateRunStatus(run, "running")
+        return answers
       },
       createMessageId: () => this.createExecutionMessageId(run.id, state, executionId),
     }
@@ -1517,13 +1567,115 @@ export class RunManager {
     })
   }
 
+  private createExternalQuestionWaiter(options: {
+    run: RunRecord
+    state: RunExecutionState
+    executionId: string
+    agent: AgentDefinition
+    task?: OrchestratorTask
+    parentAgentId?: string
+    groupId?: string
+    parentTaskId?: string
+    request: ExternalQuestionRequest
+  }): Promise<NormalizedQuestionAnswer[] | null> {
+    const {
+      run,
+      state,
+      executionId,
+      agent,
+      task,
+      parentAgentId,
+      groupId,
+      parentTaskId,
+      request,
+    } = options
+
+    const parsed = QuestionToolInputSchema.safeParse(request.input)
+    this.emit(this.createQuestionToolStartedEvent({
+      runId: run.id,
+      agentId: agent.id,
+      toolCallId: request.toolCallId,
+      messageId: request.messageId,
+      taskId: task?.taskId,
+      parentAgentId,
+      groupId,
+      parentTaskId,
+    }))
+
+    if (!parsed.success) {
+      this.emit(this.createQuestionToolFailedEvent({
+        runId: run.id,
+        agentId: agent.id,
+        toolCallId: request.toolCallId,
+        messageId: request.messageId,
+        taskId: task?.taskId,
+        parentAgentId,
+        groupId,
+        parentTaskId,
+        summary: "Invalid input for question",
+        error: {
+          code: "TOOL_INVALID_INPUT",
+          message: "Invalid input for question",
+          details: parsed.error.issues,
+        },
+      }))
+      return Promise.reject(new RuntimeQuestionError(
+        "QUESTION_INVALID_INPUT",
+        "Invalid input for question",
+        400,
+        { issues: parsed.error.issues }
+      ))
+    }
+
+    const record: QuestionRequestRecord = {
+      requestId: `question_${crypto.randomUUID()}`,
+      runId: run.id,
+      frameId: `external_question_${crypto.randomUUID()}`,
+      executionId,
+      agentId: agent.id,
+      toolCallId: request.toolCallId,
+      toolName: "question",
+      messageId: request.messageId,
+      taskId: task?.taskId,
+      parentAgentId,
+      groupId,
+      parentTaskId,
+      data: request.data,
+      questions: normalizeQuestionToolInput(parsed.data),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    }
+
+    let resolve!: (answers: NormalizedQuestionAnswer[] | null) => void
+    const promise = new Promise<NormalizedQuestionAnswer[] | null>((innerResolve) => {
+      resolve = innerResolve
+    })
+
+    state.questionRequests.set(record.requestId, record)
+    state.externalQuestionWaiters.set(record.requestId, {
+      promise,
+      resolve,
+    })
+    this.emit(this.createQuestionEvent(record, "question.requested", {
+      status: "pending",
+      questions: record.questions,
+    }))
+    if (task) {
+      state.activeTaskExecutions.delete(executionId)
+    }
+    this.updateContinuationWaitStatus(run, state)
+    return promise
+  }
+
   private updateContinuationWaitStatus(run: RunRecord, state: RunExecutionState): void {
     if (isTerminalStatus(run.status)) {
       return
     }
     const waitingFrames = Array.from(state.continuations.values())
       .filter((frame) => frame.status === "waiting")
-    if (waitingFrames.length === 0) {
+    const hasWaitingExternalQuestion = Array.from(state.externalQuestionWaiters.keys())
+      .some((requestId) => state.questionRequests.get(requestId)?.status === "pending")
+    if (waitingFrames.length === 0 && !hasWaitingExternalQuestion) {
       return
     }
     if (state.activeTaskExecutions.size > 0) {
@@ -1554,6 +1706,11 @@ export class RunManager {
           message: "Question request was cancelled",
         },
       }))
+      const waiter = state.externalQuestionWaiters.get(request.requestId)
+      if (waiter) {
+        state.externalQuestionWaiters.delete(request.requestId)
+        waiter.resolve(null)
+      }
     }
   }
 
@@ -1571,6 +1728,7 @@ export class RunManager {
       parentAgentId: request.parentAgentId,
       parentTaskId: request.parentTaskId,
       groupId: request.groupId,
+      ...request.data,
       ...data,
     })
     event.toolCallId = request.toolCallId

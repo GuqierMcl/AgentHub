@@ -1,4 +1,5 @@
 import type { ManagedOpenCodeServer } from "./external-adapters"
+import { getClaudeCodeReadiness } from "./external-adapters"
 
 export type RuntimeServiceStatus =
   | "running"
@@ -33,7 +34,7 @@ export function createRuntimeServicesStatus(
     services: [
       createOpenCodeServiceStatus(openCodeServer, checkedAt),
       createPlaceholderServiceStatus("codex", "Codex", checkedAt),
-      createPlaceholderServiceStatus("claude-code", "Claude Code", checkedAt),
+      createClaudeCodeServiceStatus(checkedAt),
     ],
   }
 }
@@ -55,6 +56,22 @@ function createOpenCodeServiceStatus(
     details: {
       mode: status.mode,
       ...(status.lastError ? { lastError: status.lastError } : {}),
+    },
+  }
+}
+
+function createClaudeCodeServiceStatus(checkedAt: string): RuntimeServiceStatusItem {
+  const readiness = getClaudeCodeReadiness()
+  return {
+    id: "claude-code",
+    label: "Claude Code",
+    kind: "external-agent",
+    status: readiness.available ? "idle" : "error",
+    implemented: true,
+    checkedAt,
+    details: {
+      executableSource: readiness.executableSource,
+      ...(readiness.executablePath ? { executablePath: readiness.executablePath } : {}),
     },
   }
 }

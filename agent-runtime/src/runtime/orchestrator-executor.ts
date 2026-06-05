@@ -108,7 +108,7 @@ export class OrchestratorExecutor implements AgentExecutor {
       return null
     }
 
-    const failedModelRef = failedAttempt?.resolution.modelRef ?? context.agent.modelRef ?? null
+    const failedModelRef = failedAttempt?.resolution.modelRef ?? context.agent.modelRef ?? undefined
     if (!failedModelRef && isMissingBindingError(error)) {
       return null
     }

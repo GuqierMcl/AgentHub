@@ -64,6 +64,13 @@ export type QuestionContinuationRequest = {
   resumeMessages: ModelMessage[]
 }
 
+export type ExternalQuestionRequest = {
+  toolCallId: string
+  input: unknown
+  messageId?: string
+  data?: Record<string, unknown>
+}
+
 export class RuntimeQuestionError extends Error {
   constructor(
     public code:

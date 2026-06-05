@@ -15,6 +15,12 @@ import { createArtifact, listArtifacts, updateArtifact } from '../repositories/a
 import { createArtifactVersion, listArtifactVersionsByArtifact } from '../repositories/artifact-version.repo'
 import { listPermissionRequests } from '../repositories/permission-request.repo'
 import {
+  type ExternalAgentSessionOutput,
+  findExternalAgentSessionHint,
+  upsertExternalAgentSession,
+} from '../repositories/external-agent-session.repo'
+import {
+  buildExternalContextPacket,
   buildOpenCodeExternalContextPacket,
   RuntimeEventBatcher,
   RunPersistenceService,
@@ -164,7 +170,7 @@ describe('buildOpenCodeExternalContextPacket', () => {
     summary: string
     updatedAt: string
     taskId?: string
-  }) {
+  }): ExternalAgentSessionOutput {
     return {
       id: input.id,
       provider: 'opencode',
@@ -182,7 +188,7 @@ describe('buildOpenCodeExternalContextPacket', () => {
       metadataJson: {},
       createdAt: input.updatedAt,
       updatedAt: input.updatedAt,
-    } as never
+    }
   }
 
   it('creates bootstrap context from visible completed chat messages only', () => {
@@ -204,6 +210,38 @@ describe('buildOpenCodeExternalContextPacket', () => {
       'Visible coder reply.',
     ])
     expect(packet?.cursorCandidate?.includedMessageIds).toEqual(['msg_user', 'msg_coder'])
+  })
+
+  it('builds a Claude Code context packet with the provider preserved', () => {
+    const packet = buildExternalContextPacket({
+      provider: 'claude-code',
+      agentId: 'claude-code',
+      historyMessages: [
+        messageRecord({ id: 'msg_claude_user', role: 'user', content: 'Pick up the prior plan.' }),
+      ],
+      delegatedSessions: [
+        {
+          ...delegatedSession({
+            id: 'eas_claude_task',
+            providerSessionId: 'claude_task_session',
+            summary: 'Claude Code inspected the runtime adapter tests.',
+            updatedAt: '2026-06-05T00:01:00.000Z',
+            taskId: 'task_claude',
+          }),
+          provider: 'claude-code',
+          agentId: 'claude-code',
+        },
+      ],
+    })
+
+    expect(packet).toMatchObject({
+      provider: 'claude-code',
+      agentId: 'claude-code',
+      scope: 'conversation-visible',
+      mode: 'bootstrap',
+    })
+    expect(packet?.messages.map((message) => message.id)).toEqual(['msg_claude_user'])
+    expect(packet?.handoffSummaries.map((summary) => summary.providerSessionId)).toEqual(['claude_task_session'])
   })
 
   it('uses delta cursor and includes only newer delegated handoffs', () => {
@@ -333,6 +371,216 @@ describe('buildOpenCodeExternalContextPacket', () => {
     expect(packet?.messages[0]?.content).toContain('[Regenerating assistant message msg_source_assistant]')
     expect(packet?.messages[0]?.content).toContain('Please generate an alternative response')
     expect(packet?.messages[0]?.content).toContain('Original user request.')
+  })
+})
+
+describe('external direct session bridge', () => {
+  function createRuntimeCapture() {
+    const calls: Array<{ method: string; path: string; body: any }> = []
+    const runtimeClient = {
+      forward: async (method: string, path: string, body: unknown) => {
+        calls.push({ method, path, body })
+        return {
+          status: 201,
+          data: {
+            runId: `runtime_claude_direct_${randomUUID()}`,
+            status: 'queued',
+            eventsUrl: '/runtime/runs/runtime_claude_direct/events',
+          },
+        }
+      },
+    }
+    const service = new RunPersistenceService(
+      runtimeClient as never,
+      { publish: () => {} } as never,
+    )
+    ;(service as any).startRuntimeConsumer = () => {}
+    return { calls, service }
+  }
+
+  async function createClaudeCodeConversation() {
+    const conversation = await createConversation({
+      title: 'Claude Code direct chat',
+      mode: 'single',
+      metadataJson: {
+        workspace: {
+          workspaceId: 'workspace_claude_direct',
+          backendType: 'local',
+          rootPath: 'D:\\dev\\claude-direct',
+        },
+      },
+    })
+    await createConversationAgent({
+      conversationId: conversation.id,
+      agentId: 'claude-code',
+      sortOrder: 0,
+    })
+    return conversation
+  }
+
+  async function createTextMessage(input: {
+    conversationId: string
+    role: 'user' | 'assistant'
+    text: string
+    agentId?: string | null
+  }) {
+    const message = await createMessage({
+      conversationId: input.conversationId,
+      surface: 'chat',
+      role: input.role,
+      senderType: input.role === 'user' ? 'user' : 'agent',
+      senderId: input.role === 'user' ? 'user' : input.agentId ?? null,
+      agentId: input.agentId ?? null,
+      status: 'completed',
+      completedAt: '2026-06-05T08:00:00.000Z',
+    })
+    await createMessagePart({
+      messageId: message.id,
+      conversationId: input.conversationId,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: input.text,
+    })
+    return message
+  }
+
+  it('passes Claude Code direct session hints and context to runtime', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createClaudeCodeConversation()
+    const previousMessage = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'assistant',
+      agentId: 'claude-code',
+      text: 'Previous Claude Code result.',
+    })
+    await upsertExternalAgentSession({
+      provider: 'claude-code',
+      agentId: 'claude-code',
+      conversationId: conversation.id,
+      workspaceIdentity: 'workspace_claude_direct',
+      scope: 'conversation-visible',
+      providerSessionId: 'claude_direct_session',
+      runId: 'run_claude_previous',
+      handoffSummary: 'Claude Code previously modified tests.',
+      metadataJson: {
+        contextBridge: {
+          lastSyncedMessageId: previousMessage.id,
+          lastSyncedAt: '2026-06-05T07:00:00.000Z',
+        },
+      },
+    })
+    const unsyncedMessage = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      text: 'This already-visible message was not synced yet.',
+    })
+
+    await service.sendMessage(conversation.id, 'Continue with Claude Code.')
+
+    const runtimeInput = calls[0]?.body
+    expect(runtimeInput.externalSessionHints).toEqual([
+      expect.objectContaining({
+        provider: 'claude-code',
+        agentId: 'claude-code',
+        scope: 'conversation-visible',
+        providerSessionId: 'claude_direct_session',
+        workspaceId: 'workspace_claude_direct',
+      }),
+    ])
+    expect(runtimeInput.externalContext).toEqual([
+      expect.objectContaining({
+        provider: 'claude-code',
+        agentId: 'claude-code',
+        mode: 'delta',
+      }),
+    ])
+    expect(runtimeInput.externalContext[0].messages.map((message: any) => message.id)).toEqual([
+      unsyncedMessage.id,
+    ])
+  })
+
+  it('updates Claude Code context bridge metadata from agent completion events', async () => {
+    const { service } = createRuntimeCapture()
+    const conversation = await createClaudeCodeConversation()
+    const trigger = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      text: 'Update context bridge.',
+    })
+    const run = await createRun({
+      conversationId: conversation.id,
+      triggerMessageId: trigger.id,
+      mode: 'single',
+      status: 'running',
+      runtimeId: 'runtime_claude_context',
+      inputJson: {
+        participantAgentIds: ['claude-code'],
+        workspace: {
+          workspaceId: 'workspace_claude_direct',
+          backendType: 'local',
+          rootPath: 'D:\\dev\\claude-direct',
+        },
+      },
+    })
+    await upsertExternalAgentSession({
+      provider: 'claude-code',
+      agentId: 'claude-code',
+      conversationId: conversation.id,
+      workspaceIdentity: 'workspace_claude_direct',
+      scope: 'conversation-visible',
+      providerSessionId: 'claude_context_session',
+      runId: run.id,
+    })
+
+    await (service as any).projectRuntimeEventsBatch(run.id, [{
+      sequence: 1,
+      event: {
+        id: `event_claude_agent_completed_${randomUUID()}`,
+        runId: 'runtime_claude_context',
+        type: 'agent.completed',
+        timestamp: '2026-06-05T08:01:00.000Z',
+        agentId: 'claude-code',
+        data: {
+          status: 'completed',
+          externalSession: {
+            provider: 'claude-code',
+            agentId: 'claude-code',
+            conversationId: conversation.id,
+            workspaceId: 'workspace_claude_direct',
+            scope: 'conversation-visible',
+            providerSessionId: 'claude_context_session',
+          },
+          externalContext: {
+            provider: 'claude-code',
+            mode: 'delta',
+            cursorCandidate: {
+              includedMessageIds: [trigger.id],
+              includedHandoffSessionIds: [],
+            },
+          },
+        },
+      },
+    }])
+
+    const session = await findExternalAgentSessionHint({
+      provider: 'claude-code',
+      agentId: 'claude-code',
+      conversationId: conversation.id,
+      workspaceIdentity: 'workspace_claude_direct',
+      scope: 'conversation-visible',
+      status: 'active',
+    })
+    expect(session?.metadataJson).toMatchObject({
+      contextBridge: {
+        mode: 'delta',
+        lastSyncedMessageId: trigger.id,
+        lastSyncedAt: expect.any(String),
+        includedMessageIds: [trigger.id],
+        includedHandoffSessionIds: [],
+      },
+    })
   })
 })
 

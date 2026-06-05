@@ -7,7 +7,7 @@ import {
 } from "../src/runtime"
 
 describe("runtime service status", () => {
-  test("returns lazy OpenCode status and external agent placeholders", async () => {
+  test("returns lazy external agent statuses", async () => {
     const app = new Hono()
     app.route("/", servicesRouter)
 
@@ -41,8 +41,8 @@ describe("runtime service status", () => {
     expect(body.services).toContainEqual(expect.objectContaining({
       id: "claude-code",
       label: "Claude Code",
-      status: "not_integrated",
-      implemented: false,
+      status: "idle",
+      implemented: true,
     }))
   })
 
@@ -50,9 +50,7 @@ describe("runtime service status", () => {
     const server = new ManagedOpenCodeServer({
       resolveSdkWorkspaceOption: () => "cwd",
       allocatePort: async () => 4567,
-      createSdkManaged: async () => {
-        await new Promise(() => {})
-      },
+      createSdkManaged: () => new Promise<never>(() => {}),
     })
 
     const ensurePromise = server.ensure("D:\\AgentHub\\Workspace")

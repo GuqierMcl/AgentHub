@@ -21,11 +21,13 @@ AI 智能体在每一轮开发前，必须先查阅与任务相关的文档。�
 | `architecture/AGENT_TOOLS.md` | 工具体系、`run_task`、工具可见性、审批与事件流设计 |
 | `external_agents/EXTERNAL_AGENT_ADAPTERS.md` | 外部智能体作为聊天对象接入的公共边界、Session scope、上下文、权限和事件设计 |
 | `external_agents/OPENCODE_ADAPTER.md` | OpenCode Adapter 专属设计，包括 Project/Session 映射、普通发言、权限桥接和 Diff 投影 |
+| `external_agents/CLAUDE_CODE_ADAPTER.md` | Claude Code Adapter 专属设计，包括 Claude Agent SDK、Session resume、权限和 AskUserQuestion 桥接 |
 | `contracts/AGENT_RUNTIME_API_CONTRACTS.md` | Agent Runtime API 契约、Sidecar 调用与事件载荷 |
 | `contracts/RUNTIME_SSE_EVENTS.md` | Agent Runtime Run SSE 事件契约、模型流透传与 reasoning 事件 |
 | `guides/ADDING_RUNTIME_TOOLS.md` | Runtime 工具添加步骤、授权、审批、事件与测试清单 |
 | `reference/HONO.md` | Hub Server 与 Agent Runtime 共享的 Hono 使用约定 |
 | `roadmap/` | 长复杂模块的实现路线图与分阶段推进记录 |
+| `roadmap/claude-code-adapter-implementation.md` | Claude Code Adapter V1 分阶段实现路线图与后续 smoke/打包硬化记录 |
 | `adr/` | 架构决策记录 |
 
 ## 更新规则

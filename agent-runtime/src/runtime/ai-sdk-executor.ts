@@ -163,7 +163,7 @@ export class AiSdkExecutor implements AgentExecutor {
       return null
     }
 
-    const failedModelRef = failedAttempt?.resolution.modelRef ?? resolveConfiguredModelRef(context)
+    const failedModelRef = failedAttempt?.resolution.modelRef ?? resolveConfiguredModelRef(context) ?? undefined
     if (!failedModelRef && isMissingBindingError(error)) {
       return null
     }
