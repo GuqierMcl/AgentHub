@@ -1,45 +1,49 @@
-import type { ChatStatus } from "ai"
-import { BotIcon, Loader2Icon, PlusIcon, RefreshCwIcon } from "lucide-react"
-import { useMemo } from "react"
+import type { ChatStatus } from "ai";
+import { BotIcon, Loader2Icon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { useMemo } from "react";
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { InfiniteLinearProgress } from "@/components/ui/infinite-linear-progress"
-import type { ConversationAgentProfile, WorkbenchTimelineItem, WorkbenchTimelineQuestionItem } from "@/features/workbench/types"
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { InfiniteLinearProgress } from "@/components/ui/infinite-linear-progress";
+import type {
+  ConversationAgentProfile,
+  WorkbenchTimelineItem,
+  WorkbenchTimelineQuestionItem,
+} from "@/features/workbench/types";
 
-import { InstructAgentSavedCard } from "./InstructAgentSavedCard"
-import { InstructAgentTemplatePrompt } from "./InstructAgentTemplatePrompt"
-import { InstructChatComposer } from "./InstructChatComposer"
-import { InstructQuestionAnswerComposer } from "./InstructQuestionAnswerComposer"
-import { InstructTimelineList } from "./InstructTimelineList"
+import { InstructAgentSavedCard } from "./InstructAgentSavedCard";
+import { InstructAgentTemplatePrompt } from "./InstructAgentTemplatePrompt";
+import { InstructChatComposer } from "./InstructChatComposer";
+import { InstructQuestionAnswerComposer } from "./InstructQuestionAnswerComposer";
+import { InstructTimelineList } from "./InstructTimelineList";
 import type {
   InstructConnectionStatus,
   InstructQuestionAnswerBody,
   InstructRunStatus,
   InstructSavedAgent,
-} from "../types"
+} from "../types";
 
 type InstructChatPanelProps = {
-  agentProfiles: ConversationAgentProfile[]
-  activeRunId: string | null
-  connectionStatus: InstructConnectionStatus
-  draft: string
-  runStatus: InstructRunStatus | "idle" | "submitted"
-  savedAgent: InstructSavedAgent | null
-  templatePrompt: string
-  timelineItems: WorkbenchTimelineItem[]
+  agentProfiles: ConversationAgentProfile[];
+  activeRunId: string | null;
+  connectionStatus: InstructConnectionStatus;
+  draft: string;
+  runStatus: InstructRunStatus | "idle" | "submitted";
+  savedAgent: InstructSavedAgent | null;
+  templatePrompt: string;
+  timelineItems: WorkbenchTimelineItem[];
   onAnswerQuestion: (
     runId: string,
     requestId: string,
-    body: InstructQuestionAnswerBody
-  ) => Promise<void>
-  onOpenManualCreate: () => Promise<void> | void
-  onCancelRun: (options?: { fallbackToChat?: boolean }) => Promise<void> | void
-  onContinueCreate: () => Promise<void> | void
-  onDraftChange: (draft: string) => void
-  onOpenAgent: (agentId: string) => Promise<void> | void
-  onSubmit: (content: string) => Promise<void> | void
-}
+    body: InstructQuestionAnswerBody,
+  ) => Promise<void>;
+  onOpenManualCreate: () => Promise<void> | void;
+  onCancelRun: (options?: { fallbackToChat?: boolean }) => Promise<void> | void;
+  onContinueCreate: () => Promise<void> | void;
+  onDraftChange: (draft: string) => void;
+  onOpenAgent: (agentId: string) => Promise<void> | void;
+  onSubmit: (content: string) => Promise<void> | void;
+};
 
 export function InstructChatPanel({
   agentProfiles,
@@ -60,16 +64,16 @@ export function InstructChatPanel({
 }: InstructChatPanelProps) {
   const pendingQuestions = useMemo(
     () => getPendingQuestionItems(timelineItems),
-    [timelineItems]
-  )
-  const hasPendingQuestions = pendingQuestions.length > 0
-  const showRunProgress = shouldShowRunProgress(runStatus)
-  const submitStatus = getSubmitStatus(runStatus, connectionStatus)
+    [timelineItems],
+  );
+  const hasPendingQuestions = pendingQuestions.length > 0;
+  const showRunProgress = shouldShowRunProgress(runStatus);
+  const submitStatus = getSubmitStatus(runStatus, connectionStatus);
   const composerDisabled =
     runStatus === "submitted" ||
     runStatus === "queued" ||
     runStatus === "running" ||
-    runStatus === "waiting_input"
+    runStatus === "waiting_input";
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -80,7 +84,9 @@ export function InstructChatPanel({
           </div>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="truncate text-base font-semibold">对话式创建智能体</h2>
+              <h2 className="truncate text-base font-semibold">
+                智能体创建助手
+              </h2>
               <Badge variant="secondary">{getStatusLabel(runStatus)}</Badge>
             </div>
             <p className="mt-1 text-muted-foreground text-xs">
@@ -90,12 +96,22 @@ export function InstructChatPanel({
         </div>
         <div className="flex shrink-0 items-center gap-2 mr-10">
           {savedAgent ? (
-            <Button onClick={() => void onContinueCreate()} size="sm" type="button" variant="outline">
+            <Button
+              onClick={() => void onContinueCreate()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
               <RefreshCwIcon data-icon="inline-start" />
               继续创建
             </Button>
           ) : null}
-          <Button onClick={() => void onOpenManualCreate()} size="sm" type="button" variant="ghost">
+          <Button
+            onClick={() => void onOpenManualCreate()}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
             <PlusIcon data-icon="inline-start" />
             手动新增
           </Button>
@@ -139,9 +155,9 @@ export function InstructChatPanel({
           onAnswerQuestion={onAnswerQuestion}
           onSkipRun={(runId) => {
             if (activeRunId && runId === activeRunId) {
-              return onCancelRun({ fallbackToChat: true })
+              return onCancelRun({ fallbackToChat: true });
             }
-            return Promise.resolve()
+            return Promise.resolve();
           }}
           requests={pendingQuestions}
         />
@@ -164,65 +180,76 @@ export function InstructChatPanel({
         </div>
       ) : null}
     </section>
-  )
+  );
 }
 
 function shouldShowRunProgress(
-  runStatus: InstructRunStatus | "idle" | "submitted"
+  runStatus: InstructRunStatus | "idle" | "submitted",
 ): boolean {
   return (
     runStatus === "submitted" ||
     runStatus === "queued" ||
     runStatus === "running" ||
     runStatus === "waiting_input"
-  )
+  );
 }
 
 function getSubmitStatus(
   runStatus: InstructRunStatus | "idle" | "submitted",
-  connectionStatus: InstructConnectionStatus
+  connectionStatus: InstructConnectionStatus,
 ): ChatStatus {
-  if (runStatus === "submitted" || runStatus === "queued") return "submitted"
-  if (runStatus === "running" || runStatus === "waiting_input") return "streaming"
-  if (runStatus === "failed" || connectionStatus === "error") return "error"
-  return "ready"
+  if (runStatus === "submitted" || runStatus === "queued") return "submitted";
+  if (runStatus === "running" || runStatus === "waiting_input")
+    return "streaming";
+  if (runStatus === "failed" || connectionStatus === "error") return "error";
+  return "ready";
 }
 
 function getPendingQuestionItems(
-  items: WorkbenchTimelineItem[]
+  items: WorkbenchTimelineItem[],
 ): WorkbenchTimelineQuestionItem[] {
-  const pending: WorkbenchTimelineQuestionItem[] = []
+  const pending: WorkbenchTimelineQuestionItem[] = [];
   for (const item of items) {
     if (item.kind === "question" && item.status === "pending") {
-      pending.push(item)
+      pending.push(item);
     }
     if (item.kind === "chat_message") {
-      pending.push(...(item.questionItems ?? []).filter((question) => question.status === "pending"))
+      pending.push(
+        ...(item.questionItems ?? []).filter(
+          (question) => question.status === "pending",
+        ),
+      );
     }
     if (item.kind === "task") {
-      pending.push(...(item.questionItems ?? []).filter((question) => question.status === "pending"))
+      pending.push(
+        ...(item.questionItems ?? []).filter(
+          (question) => question.status === "pending",
+        ),
+      );
     }
   }
-  return pending
+  return pending;
 }
 
-function getStatusLabel(status: InstructRunStatus | "idle" | "submitted"): string {
+function getStatusLabel(
+  status: InstructRunStatus | "idle" | "submitted",
+): string {
   switch (status) {
     case "submitted":
-      return "已提交"
+      return "已提交";
     case "queued":
-      return "排队中"
+      return "排队中";
     case "running":
-      return "进行中"
+      return "进行中";
     case "waiting_input":
-      return "待补充"
+      return "待补充";
     case "completed":
-      return "已完成"
+      return "已完成";
     case "failed":
-      return "失败"
+      return "失败";
     case "cancelled":
-      return "已取消"
+      return "已取消";
     default:
-      return "未开始"
+      return "未开始";
   }
 }
