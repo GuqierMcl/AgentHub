@@ -2,7 +2,14 @@
 
 本文档记录 `hub-server` 调用 `agent-runtime` Sidecar 的 Runtime API、Sidecar 生命周期与相关 Run 事件载荷契约。
 
-本文档不是 HubServer 面向浏览器的产品 API 文档。后续如果需要记录 `web -> hub-server` 的 `/api/*` 契约，应另建 HubServer API 文档，避免与 Runtime 内部执行 API 混淆。
+当前文档还临时包含若干已经接入 Runtime 的 HubServer 产品 API 与过渡代理 API（`/api/*`），用于说明 `web -> hub-server -> agent-runtime` 的端到端契约。新增或大幅扩展浏览器产品 API 时，优先拆到单独的 HubServer API 文档，避免和 Runtime 内部执行 API 继续混杂。
+
+实现核对状态（2026-06-05）：
+
+- Runtime 当前默认监听 `127.0.0.1:4096`，HubServer 通过 `AGENTHUB_RUNTIME_URL` / `--runtime-url` 指向一个已经运行的 Runtime；HubServer 自动拉起 sidecar、重启管理和内部 token 鉴权仍是架构目标，尚未在当前 `hub-server` 入口闭环。
+- Runtime `GET /health` 当前返回 `{ status, timestamp, uptime }`，不返回 `version`，也不等待 ProviderService / AgentRegistry 初始化完成才置为 ready。
+- Provider 配置 API 当前由 Runtime 以 `/providers`、`/custom-providers`、`/catalog/refresh` 暴露，尚未迁移到 `/runtime/*` 前缀；HubServer 通过 `/api/providers` 等路径代理。
+- `GET /runtime/services/status`、`/runtime/settings/model`、Runtime Agents CRUD、Runtime Runs、权限、问题续跑和 workspace revert API 已与当前实现核对并在本文档中记录。
 
 ## 进程流向
 
@@ -10,7 +17,7 @@
 web -> hub-server -> agent-runtime (Sidecar)
 ```
 
-生产环境中，`agent-runtime` 是 `hub-server` 的 Sidecar 子进程，由 `hub-server` 在启动时自动拉起。详见 `docs/adr/ADR-001-sidecar-architecture.md`。
+架构目标中，生产环境的 `agent-runtime` 是 `hub-server` 的 Sidecar 子进程，由 `hub-server` 在启动时自动拉起。当前实现仍通过 HubServer 配置的 `runtimeUrl` 连接外部已运行 Runtime；sidecar 自动拉起与生命周期管理仍按 `docs/adr/ADR-001-sidecar-architecture.md` 推进。
 
 ## 契约规则
 
@@ -18,6 +25,7 @@ web -> hub-server -> agent-runtime (Sidecar)
 - Runtime 执行 API 由 `agent-runtime` 提供。
 - `hub-server` 的前端 API 建议使用 `/api/*` 前缀。
 - `agent-runtime` 的内部执行 API 建议使用 `/runtime/*` 前缀。
+- 当前 Provider 配置 API 是历史例外，仍使用 `/providers`、`/custom-providers`、`/catalog/refresh`，迁移到 `/runtime/providers/*` 前需要同步更新 HubServer 代理和 Web 调用。
 - 两个 Hono 服务都应保留 `/health` 健康检查端点。
 - 契约载荷应使用明确的 TypeScript 类型。
 - 流式事件名称、事件载荷与终止状态必须在实现前或实现时同步记录。
@@ -32,16 +40,17 @@ Runtime 会在每个 Run 开始时捕获一份 `RuntimeEnvironmentSnapshot`，�
 
 ### 启动参数
 
-HubServer 启动 Agent Runtime 时，传入以下命令行参数：
+当前 Runtime CLI 已实现以下命令行参数（配置优先级：命令行参数 > 环境变量 > 默认值）：
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `--port` | number | 否 | Agent Runtime 监听端口，默认 `3001` |
-| `--hostname` | string | 否 | 监听地址，默认 `127.0.0.1`；`--host` 只能作为兼容别名 |
-| `--hub-callback` | string | 否 | HubServer 回调地址 |
-| `--data-dir` | string | 否 | Runtime 配置数据目录 |
-| `--workdir` | string | 否 | Runtime 进程级工作目录 |
-| `--log-level` | string | 否 | 日志级别，默认 `info` |
+| `--port` / `-p` | number | 否 | Agent Runtime 监听端口，默认 `4096`；环境变量 `PORT` |
+| `--hostname` / `-h` | string | 否 | 监听地址，默认 `127.0.0.1`；环境变量 `HOSTNAME` |
+| `--cors` | string[] | 否 | 允许的 CORS origin，可多次传入；环境变量 `CORS` 使用逗号分隔 |
+| `--data-dir` / `-d` | string | 否 | Runtime 配置数据目录，默认 `./data-tmp`；环境变量 `AGENT_RUNTIME_DATA_DIR` |
+| `--workdir` | string | 否 | Runtime 进程级工作目录，默认系统临时目录下的 `agent-runtime-workspace`；环境变量 `AGENT_RUNTIME_WORKDIR` |
+
+当前 Runtime CLI 尚未实现 `--host` 兼容别名、`--hub-callback` 和 `--log-level`。HubServer 当前不会自动构造这些参数启动 Runtime，而是通过 `--runtime-url` / `AGENTHUB_RUNTIME_URL` 指向 Runtime，默认 `http://127.0.0.1:4096`。
 
 ### 健康检查
 
@@ -52,12 +61,14 @@ HubServer 启动 Agent Runtime 时，传入以下命令行参数：
 ```json
 {
   "status": "ok",
-  "version": "0.1.0",
+  "timestamp": "2026-06-05T00:00:00.000Z",
   "uptime": 12345
 }
 ```
 
-HubServer 通过轮询此端点判断 Agent Runtime 是否就绪。Runtime 只有在 ProviderService、AgentRegistry 等启动依赖初始化完成后，才能返回 `200` 且 `status = "ok"`。HTTP server 已监听但内部服务仍初始化时，可以返回非 200 或 `status = "starting"`；HubServer 不得把该状态视为可接收执行请求。超时（默认 10 秒）未返回 ready 则视为启动失败。
+HubServer 当前通过该端点判断 Runtime 进程是否可访问：`/api/system/services/status` 会把 `GET /health` 的 2xx 响应投影为 `agent-runtime` 服务 `running`。当前 Runtime 实现不返回 `version`，且 HTTP server 一旦开始监听就返回 `status = "ok"`；ProviderService、AgentRegistry、SystemModelSettingsService 的异步初始化尚未纳入 ready gate。
+
+目标契约仍是：Runtime 只有在关键启动依赖初始化完成后，才应返回 `200` 且 `status = "ok"`；HTTP server 已监听但内部服务仍初始化时，应返回非 200 或 `status = "starting"`，HubServer 不得把该状态视为可接收执行请求。
 
 ### Runtime 服务状态快照
 
@@ -100,6 +111,24 @@ type RuntimeServicesStatusResponse = {
 - `codex` 与 `claude-code` 当前只返回 `not_integrated` 占位，避免误导为故障。
 - 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt 或 provider 凭据。
 
+HubServer 面向 Web 的服务状态端点为 `GET /api/system/services/status`。它会先调用 Runtime `GET /health` 生成 `agent-runtime` 服务项，再调用 `GET /runtime/services/status` 合并 `opencode`、`codex`、`claude-code`：
+
+```ts
+type SystemServiceStatusItem = {
+  id: "agent-runtime" | "opencode" | "codex" | "claude-code"
+  label: string
+  kind: "runtime" | "external-agent"
+  status: RuntimeServiceStatus
+  implemented: boolean
+  checkedAt: string
+  activeWorkspaceCount?: number
+  pendingWorkspaceCount?: number
+  details?: Record<string, unknown>
+}
+```
+
+若 Runtime 不可用，HubServer 返回 `agent-runtime.status = "error"`、`opencode.status = "error"` 且 `details.reason = "runtime-unavailable"`，Codex 和 Claude Code 仍返回 `not_integrated` 占位。
+
 ### Runtime 系统默认模型设置
 
 系统默认模型设置只由 Agent Runtime 保存，存储文件为 Runtime `--data-dir` 下的 `system-model-settings.json`。HubServer 通过本节端点代理给 Web 设置页，不写入 HubServer 自身 `setting.json`。
@@ -141,6 +170,8 @@ type SystemModelSettingsResponse = {
 
 返回当前配置。未配置时返回 `{ "status": "unset" }`；已配置且可解析时返回 `status = "configured"`、`systemDefaultModel` 与 `resolvedModel`；配置文件存在但 provider/model 后续失效时返回 `status = "invalid"`、原始 `systemDefaultModel` 与 `invalidReason`。
 
+`invalidReason.code` 来自模型解析校验，当前可能包括 `MODEL_PROVIDER_NOT_FOUND`、`MODEL_DISABLED`、`MODEL_PROVIDER_NOT_CALLABLE`、`MODEL_NOT_FOUND`、`MODEL_TOOLS_UNSUPPORTED`。
+
 **端点**：`PUT /runtime/settings/model`
 
 请求体：
@@ -177,6 +208,14 @@ type SystemModelSettingsResponse = {
 }
 ```
 
+若 Runtime context 中未初始化 `SystemModelSettingsService`，三个端点返回 `SYSTEM_MODEL_SETTINGS_UNAVAILABLE`（503）。当前正常启动路径会注入该 service。
+
+HubServer 面向 Web 的代理端点：
+
+- `GET /api/settings/model` -> `GET /runtime/settings/model`
+- `PUT /api/settings/model` -> `PUT /runtime/settings/model`
+- `DELETE /api/settings/model` -> `DELETE /runtime/settings/model`
+
 模型选择与降级规则：
 
 - 系统预设主智能体没有模型绑定时使用系统默认模型；用户自定义主智能体没有绑定时仍返回 `MODEL_BINDING_MISSING`。
@@ -185,9 +224,97 @@ type SystemModelSettingsResponse = {
 - 首个用户可见事件定义为任意 `message.*`、`tool.*`、`reasoning.*`、`permission.*` 或 `question.*`。一旦发出这些事件，本次执行不再降级。
 - 系统默认模型为空、无效或与失败模型相同时不降级；降级模型再次失败时不引入新错误码，沿用 `AgentModelResolutionError` 或普通 `RUN_FAILED` 映射。
 
+### Runtime Provider API
+
+Provider API 当前由 Agent Runtime 托管，但路径仍是历史前缀例外，未放在 `/runtime/*` 下。HubServer 面向浏览器的 `/api/providers*`、`/api/custom-providers*`、`/api/catalog/refresh` 会代理这些 Runtime 端点。
+
+Provider 响应类型：
+
+```ts
+type ProviderProtocol = "openai" | "anthropic" | "openai_compatible"
+
+type ModelResponse = {
+  id: string
+  upstream_id: string
+  name: string
+  context_length: number
+  output_length: number
+  capabilities: {
+    supports_tools: boolean
+    supports_vision: boolean
+    supports_reasoning: boolean
+    temperature: boolean
+  }
+  cost: { input: number; output: number }
+  source: "preset" | "custom" | string
+  enabled: boolean
+}
+
+type ProviderSummary = {
+  id: string
+  name: string
+  api_base: string
+  enabled: boolean
+  source: "preset" | "custom" | string
+  has_api_key: boolean
+  model_count: number
+  api_protocol: ProviderProtocol
+}
+
+type ProviderDetail = ProviderSummary & {
+  api_key: string | null
+  models: Record<string, ModelResponse>
+}
+```
+
+端点：
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /providers?enabled_only=true` | 返回 `{ providers: ProviderSummary[] }` |
+| `GET /providers/:id` | 返回 `ProviderDetail` |
+| `PUT /providers/:id/config` | 更新 `api_key`、`enabled`、`api_base`，返回 provider 配置摘要 |
+| `PUT /providers/:id/models/:model_id/config` | 更新单个 model 的 `enabled`，返回 `ModelResponse` |
+| `POST /custom-providers` | 创建自定义 provider，返回 `ProviderDetail`，成功状态 `201` |
+| `PUT /custom-providers/:id` | 更新自定义 provider，返回 `ProviderDetail` |
+| `DELETE /custom-providers/:id` | 删除自定义 provider，返回 `{ "deleted": true }` |
+| `POST /catalog/refresh` | 刷新 models.dev 目录，返回 `{ "status": "refreshed", "provider_count": number }` |
+
+请求体：
+
+```ts
+type ProviderConfigUpdateRequest = {
+  api_key?: string
+  enabled?: boolean
+  api_base?: string
+}
+
+type ModelConfigUpdateRequest = {
+  enabled: boolean
+}
+
+type CustomProviderCreateRequest = {
+  id: string
+  name: string
+  api_base: string
+  api_key?: string
+  models?: Record<string, {
+    name?: string
+    upstream_id?: string
+    context_length?: number
+    supports_tools?: boolean
+    supports_vision?: boolean
+  }>
+}
+
+type CustomProviderUpdateRequest = Omit<Partial<CustomProviderCreateRequest>, "id">
+```
+
+当前 Provider API 错误响应仍是早期形态，例如 `{ "error": "Provider openai not found" }` 或 `{ "error": "Invalid request body", "details": [...] }`，尚未统一为 `{ error: { code, message, details } }`。迁移 Provider API 前，应先同步 Runtime router、HubServer `RuntimeClient` 错误映射和 Web provider API 调用。
+
 ### 内部调用鉴权
 
-HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服务凭证。MVP 阶段使用每次 HubServer 启动生成的随机共享密钥：
+目标契约：HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服务凭证。MVP 阶段使用每次 HubServer 启动生成的随机共享密钥：
 
 - HubServer 通过环境变量向 Runtime 传递 token，例如 `AGENTHUB_RUNTIME_TOKEN`。
 - HubServer 调用 Runtime 时携带请求头 `x-agenthub-runtime-token`。
@@ -195,11 +322,13 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 - 开发环境未设置 token 时可跳过校验。
 - `/health` 是否要求 token 可由实现决定，但不得泄露敏感信息。
 
+当前实现尚未落地该鉴权链路：HubServer `RuntimeClient.forward()` 不注入 `x-agenthub-runtime-token`，Runtime 入口也没有读取 `AGENTHUB_RUNTIME_TOKEN` 或校验 `/runtime/*` 请求的中间件。部署时必须依赖本机监听地址、进程边界和外层网络隔离，不能假设 token 已生效。
+
 后续可升级为更安全的鉴权机制，例如命名管道、Unix socket、mTLS 或本机进程认证。
 
 ### 错误码约定
 
-| 错误码 | HTTP Status | 说明 |
+| 错误码 | HTTP Status / 场景 | 说明 |
 | --- | --- | --- |
 | `RUNTIME_NOT_READY` | 503 | Agent Runtime 尚未就绪 |
 | `RUN_INVALID_INPUT` | 400 | 请求参数校验失败 |
@@ -229,9 +358,18 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `AGENT_STORE_WRITE_FAILED` | 500 | Agent 本地配置写入失败 |
 | `RUN_INVALID_PARTICIPANTS` | 400 | RunInput 中的会话智能体成员不合法 |
 | `RUN_INVALID_ENTRY_AGENT` | 400 | RunInput 无法解析合法入口智能体 |
+| `TASK_SOURCE_CANNOT_DELEGATE` | RunEvent | 发起任务委派的智能体不具备委派能力 |
+| `TASK_TARGET_NOT_FOUND` | RunEvent | `run_task` 目标智能体不存在 |
+| `TASK_TARGET_DISABLED` | RunEvent | `run_task` 目标智能体已禁用 |
+| `TASK_TARGET_NOT_ALLOWED` | RunEvent | `run_task` 目标不在当前 participants 或 allowedSubagents 范围内 |
+| `TASK_DEPENDENCY_FAILED` | RunEvent | 任务依赖失败，当前任务不能继续 |
+| `TASK_DEPENDENCY_CYCLE` | RunEvent | 任务依赖形成环 |
+| `TASK_EXECUTION_ABORTED` | RunEvent | 任务执行被取消 |
+| `TASK_EXECUTION_FAILED` | RunEvent | 任务执行发生未分类失败 |
 | `AGENT_MODEL_BINDING_INVALID` | 400 | 智能体模型绑定参数或 provider/model 不可用 |
 | `AGENT_MODEL_BINDING_NOT_ALLOWED` | 403 | 当前智能体不允许绑定模型 |
 | `SYSTEM_DEFAULT_MODEL_INVALID` | 400 | 系统默认模型参数无效，或 provider/model 不可调用、未启用、不支持 tools |
+| `SYSTEM_MODEL_SETTINGS_UNAVAILABLE` | 503 | Runtime 未初始化系统默认模型设置服务 |
 | `PERMISSION_INVALID_INPUT` | 400 | 权限决定请求体无效 |
 | `PERMISSION_NOT_FOUND` | 404 | 指定的权限请求不存在 |
 | `PERMISSION_ALREADY_RESOLVED` | 409 | 权限请求已经决定或取消 |
@@ -239,6 +377,7 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `PERMISSION_GRANT_FAILED` | 409 | 无法为已批准请求创建受控访问授权 |
 | `MODEL_BINDING_MISSING` | 400 | 智能体未配置模型绑定 |
 | `MODEL_PROVIDER_NOT_FOUND` | 404 | 绑定的 provider 不存在 |
+| `MODEL_PROVIDER_NOT_CALLABLE` | 400 | provider 缺少 API key，不能作为系统默认模型调用 |
 | `MODEL_NOT_FOUND` | 404 | 绑定的 model 不存在 |
 | `MODEL_DISABLED` | 400 | 绑定的 provider 或 model 已禁用 |
 | `MODEL_TOOLS_UNSUPPORTED` | 400 | 绑定的模型不支持工具调用 |
@@ -251,6 +390,11 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `TOOL_EXECUTION_DENIED` | 403 | 用户拒绝了该工具审批请求 |
 | `TOOL_EXECUTION_FAILED` | 502 | 工具执行失败 |
 | `TOOL_EXECUTION_ABORTED` | 499 | 工具执行被取消或中止 |
+| `WORKSPACE_EXTERNAL_ACCESS_PENDING_APPROVAL` | 工具结果 | 沙箱外或敏感 workspace 访问已进入审批等待 |
+| `WORKSPACE_PATH_NOT_FOUND` | 工具结果 / 404 | workspace 路径不存在，或绑定 workspace root 已不可用 |
+| `WORKSPACE_PATH_OUTSIDE_ROOT` | 工具结果 | 请求路径越过绑定 workspace 根目录 |
+| `WORKSPACE_NOT_A_DIRECTORY` | 工具结果 | 请求的 workspace 路径不是目录 |
+| `WORKSPACE_UNSUPPORTED_OPERATION` | 工具结果 | 当前 workspace backend 不支持请求的写入/编辑操作 |
 | `BASH_COMMAND_DENIED` | 403 | `bash` 命令被命令级权限规则拒绝 |
 | `BASH_INVALID_CWD` | 400 | `bash` 的 `cwd` 不是 workspace-relative 路径 |
 | `BASH_TIMEOUT` | 504 | `bash` 命令超时 |
@@ -266,7 +410,13 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 | `QUESTION_NOT_FOUND` | 404 | 指定的 question request 或 Run 不存在 |
 | `QUESTION_RUN_NOT_ACTIVE` | 409 | Run 当前没有可续跑的 question continuation |
 | `QUESTION_ALREADY_ANSWERED` | 409 | 指定 question request 已经回答或取消 |
+| `QUESTION_CANCELLED` | RunEvent | 等待用户回答的 question 因 Run cancel 被取消 |
+| `QUESTION_DEFERRED_TOOL` | 工具结果 | `question` 是 deferred 工具，不能通过普通 execute 直接执行 |
 | `WORKSPACE_NOT_BOUND` | 400 | 当前 Run 未绑定 workspace，不能执行文件工具 |
+| `VALIDATION_ERROR` | 400 | HubServer 产品 API 请求体验证失败 |
+| `WORKSPACE_INVALID_INPUT` | 400 | HubServer workspace 文件保存请求缺少必要字段或类型不正确 |
+| `WORKSPACE_INVALID_PATH` | 400 | HubServer workspace 请求路径类型不符合端点要求 |
+| `WORKSPACE_ACCESS_DENIED` | 403 | HubServer workspace 请求试图访问工作区外部路径 |
 | `PIN_LIMIT_EXCEEDED` | 400 | 单会话置顶消息数量超过上限（10 条） |
 | `PIN_ALREADY_EXISTS` | 409 | 该消息已置顶 |
 | `PIN_NOT_FOUND` | 404 | 指定的置顶记录不存在 |
@@ -282,9 +432,16 @@ HubServer 调用 Agent Runtime 的 `/runtime/*` 端点时，应携带内部服�
 
 ### `POST /runtime/runs` 请求体
 
-HubServer 创建 Run 时，向 Agent Runtime 发送 `RunInput`。新增可选字段 `pinnedMessages`：
+HubServer 创建 Run 时，向 Agent Runtime 发送 `RunInput`。当前实现的请求体字段如下；Zod schema 中带 default 的字段可由调用方省略，由 Runtime 归一化后进入执行态。
 
 ```ts
+type RuntimeMessage = {
+  id?: string
+  role: "user" | "assistant" | "system"
+  agentId?: string
+  content: string
+}
+
 type PinnedMessage = {
   id: string              // pin ID
   messageId: string       // 原始消息 ID
@@ -294,8 +451,32 @@ type PinnedMessage = {
   sortOrder: number       // 排序权重
 }
 
-// RunInput 新增字段（可选，向后兼容）:
-pinnedMessages?: PinnedMessage[]
+type RunInput = {
+  conversationId: string
+  mode: "single" | "group"
+  participantAgentIds: string[]
+  addressedAgentIds?: string[]
+  userMessage: RuntimeMessage & { role: "user" }
+  history?: RuntimeMessage[]
+  workspace?: {
+    workspaceId: string
+    backendType: "local"
+    rootPath: string
+  }
+  diagnostics?: {
+    includeModelStream?: boolean
+    includeReasoning?: boolean
+    includeRawModelChunks?: boolean
+  }
+  conversationState?: {
+    messageCountBeforeRun?: number
+    titleSource?: "default" | "auto" | "manual"
+    titleSeedUserMessage?: string
+  }
+  externalSessionHints?: ExternalSessionHint[]
+  externalContext?: ExternalContextPacket[]
+  pinnedMessages?: PinnedMessage[]
+}
 ```
 
 **行为规则**：
@@ -303,6 +484,8 @@ pinnedMessages?: PinnedMessage[]
 - Agent Runtime 在内部 AI SDK 主智能体与 Orchestrator 的 system prompt 中注入 pinned 消息
 - 注入格式使用 XML 标记 `<📌 置顶消息 (Pinned Messages)>` 包裹
 - 单条内容超过 2000 字符时由 HubServer 截断
+- `history` 省略时默认为空数组；Runtime 不从 HubServer 数据库自行读取历史。
+- `workspace.rootPath` 只在请求体内由 HubServer 传给 Runtime 建立 workspace session；Run 查询响应只回显 `workspaceId`、`backendType` 与 `rootLabel`。
 
 ## Runtime Agents API
 
@@ -453,6 +636,33 @@ OpenCode V1 将外部智能体视为聊天对象，使用用户本机 OpenCode �
 
 用户自定义智能体详情会额外返回 `systemPrompt`，用于编辑表单回显；系统预设智能体和外部智能体不会通过详情接口返回内部提示词。
 
+### 当前默认工具与权限矩阵
+
+`permissionPolicy` 与当前预设智能体实现是分层生效的，不是单独决定工具能否执行：
+
+1. `allowedTools` 决定模型是否能看到并调用某个 Runtime Tool。
+2. `permissionPolicy` 必须覆盖该工具的 `requiredPermissions`，否则 Runtime Tool Registry 返回 `TOOL_PERMISSION_DENIED`。
+3. 工具自身的 `approvalPolicy` / `prepareExecution` / `prepareApproval` 再决定是否直接执行、请求审批或拒绝。
+
+当前 `bash` 工具已经接入这三层权限链路：工具定义为 `requiredPermissions = { shell: "limited" }`、`approvalPolicy = "contextual"`、`configurableByUserAgent = false`；系统预设主智能体若在 `allowedTools` 中包含 `bash` 且 `permissionPolicy.shell = "limited"`，会继续按 `toolPermissionRules.bash` 的命令级规则执行 `allow | ask | deny`。`ask` 会产生 `permission.requested`，批准后用同一个 `runId + toolCallId` 继续执行；`deny` 在 `tool.started` 前返回 `BASH_COMMAND_DENIED`。
+
+当前预设默认值：
+
+| Agent | `allowedTools` 摘要 | `permissionPolicy` 摘要 | `bash` 状态 |
+| --- | --- | --- | --- |
+| `orchestrator` | `write_plan`、`run_task`、`web_fetch`、`bash`，并隐式注入 `question` | `filesystem=none`、`shell=limited`、`network=full`、`deploy=none` | 已开放，受 `toolPermissionRules.bash` 控制 |
+| `coder` | workspace 读写工具、`web_fetch`、`bash`，并隐式注入 `question` | `filesystem=write`、`shell=limited`、`network=full`、`deploy=none` | 已开放，受 `toolPermissionRules.bash` 控制 |
+| `reviewer` | workspace 只读工具、`web_fetch`、`bash`，并隐式注入 `question` | `filesystem=read`、`shell=limited`、`network=full`、`deploy=none` | 已开放，受 `toolPermissionRules.bash` 控制 |
+| `writer` | workspace 读写工具、`web_fetch`、`bash`，并隐式注入 `question` | `filesystem=write`、`shell=limited`、`network=full`、`deploy=none` | 已开放，受 `toolPermissionRules.bash` 控制 |
+| `planner` | workspace 只读工具、`web_fetch`、`bash`，并隐式注入 `question` | `filesystem=read`、`shell=limited`、`network=full`、`deploy=none` | 已开放，受 `toolPermissionRules.bash` 控制 |
+| `opencode` | 无 Runtime Tool 注入 | `filesystem=write`、`shell=limited`、`network=full`、`deploy=none` | 不注入 Runtime `bash`；外部工具由 OpenCode adapter 映射 |
+| `explore` 子智能体 | workspace 只读工具，并隐式注入 `question` | `filesystem=read`、`shell=none`、`network=none`、`deploy=none` | 未开放 |
+| `general` 子智能体 | 仅隐式 `question` | `filesystem=none`、`shell=none`、`network=none`、`deploy=none` | 未开放 |
+| `file` 子智能体 | workspace 读写工具，并隐式注入 `question` | `filesystem=write`、`shell=none`、`network=none`、`deploy=none` | 未开放 |
+| `deploy` 子智能体 | 仅隐式 `question` | `filesystem=read`、`shell=limited`、`network=limited`、`deploy=publish` | 当前未把 `bash` 加入 `allowedTools`，所以仍不可调用 |
+
+用户自定义智能体是另一条限制：当前 CRUD 只允许选择 Tool Catalog 中 `configurableByUserAgent = true` 的非 internal workspace 工具，并强制 `permissionPolicy.shell/network/deploy = "none"`；因此用户自定义智能体不能通过本版 CRUD 获得 `bash`、`web_fetch`、`write_plan` 或 `run_task`。这不表示 `bash` 权限未实现，而是当前产品 authoring 范围刻意不开放 shell。
+
 ### 查询用户智能体创建选项
 
 **端点**：`GET /runtime/agents/authoring-options`
@@ -487,6 +697,28 @@ OpenCode V1 将外部智能体视为聊天对象，使用用户本机 OpenCode �
       }
     },
     {
+      "id": "glob",
+      "name": "Glob",
+      "description": "通过 glob 模式查找工作区中的文件和目录。",
+      "category": "workspace",
+      "riskLevel": "low",
+      "approvalPolicy": "contextual",
+      "requiredPermissions": {
+        "filesystem": "read"
+      }
+    },
+    {
+      "id": "grep",
+      "name": "Grep",
+      "description": "在工作区路径的文件和目录中搜索文本。",
+      "category": "workspace",
+      "riskLevel": "low",
+      "approvalPolicy": "contextual",
+      "requiredPermissions": {
+        "filesystem": "read"
+      }
+    },
+    {
       "id": "write_file",
       "name": "Write file",
       "description": "Create or overwrite a UTF-8 text file in the workspace.",
@@ -509,7 +741,17 @@ OpenCode V1 将外部智能体视为聊天对象，使用用户本机 OpenCode �
       }
     }
   ],
-  "capabilityTags": ["Implementation", "Review", "Documentation", "Thinking"],
+  "capabilityTags": [
+    "Implementation",
+    "Review",
+    "Documentation",
+    "Planning",
+    "Research",
+    "Summarization",
+    "Rewrite",
+    "Codebase Scan",
+    "Thinking"
+  ],
   "subagents": [
     {
       "id": "general",
@@ -534,7 +776,8 @@ OpenCode V1 将外部智能体视为聊天对象，使用用户本机 OpenCode �
 规则：
 
 - `tools` 从注册工具的 Tool Catalog 投影，只返回 `configurableByUserAgent = true` 且非 internal 的工具；不在路由或 CRUD 中维护重复白名单。
-- `write_plan`、`run_task`、`web_fetch`、`bash`、`question` 不会出现在 `tools` 中；其中 `question` 会对内部 AI SDK 智能体隐式可见。
+- 当前用户可配置工具为 `ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。
+- `write_plan`、`run_task`、`web_fetch`、`bash`、`question` 不会出现在 `tools` 中；其中 `question` 会对内部 AI SDK 智能体隐式可见，AgentRegistry 返回内部 AI SDK agent 时会自动注入到 `allowedTools`。
 - `approvalPolicy = "contextual"` 表示是否审批取决于运行上下文；读工具在敏感/沙箱外读取时触发审批，写工具在敏感/沙箱外写入时触发审批。
 - `capabilityTags` 是推荐标签字符串数组，不是强枚举；创建和更新自定义智能体时 `capabilities` 仍允许自定义字符串数组，例如 `["Thinking"]`。
 - `subagents` 只返回可配置到 `allowedSubagents` 的启用隐藏子智能体摘要，不改变隐藏子智能体不可直接调用的规则。
@@ -576,8 +819,8 @@ OpenCode V1 将外部智能体视为聊天对象，使用用户本机 OpenCode �
 
 字段规则：
 
-- `id` 可省略；省略时 Runtime 生成 `agent_<uuid>`。
-- `id` 只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
+- `id` 可省略；省略时 Runtime 生成 `agent_<uuid>`。显式传入时长度为 3-64，必须以小写字母开头，且只能使用小写字母、数字、下划线和连字符，并且不能与系统预设或现有智能体冲突。
+- `name` 长度 1-120，`description` 长度 1-1000，`systemPrompt` 长度 1-20000，单个 `capabilities` 字符串最长 80。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
 - `allowedTools` 只允许 Tool Catalog 暴露为用户可配置的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。如果客户端 round-trip 了 detail response 中的隐式 `question`，Runtime 会忽略该输入项并在响应中重新注入。
 - `write_plan`、`run_task`、`web_fetch`、`bash` 和其他高风险工具不能授予用户自定义智能体；`question` 是隐式 interaction tool，不通过 CRUD 授权。
@@ -628,6 +871,7 @@ OpenCode V1 将外部智能体视为聊天对象，使用用户本机 OpenCode �
 - 只能删除用户自定义主智能体。
 - 删除时同步清理该智能体的模型绑定覆盖。
 - 不清理历史 Run 或消息；这些业务数据后续由 HubServer 负责。
+- HubServer 代理端点 `DELETE /api/runtime/agents/:agentId` 在转发 Runtime 删除前，会归档包含该 agent 的会话，避免会话继续引用已删除的用户智能体；Runtime 内部端点本身不处理 HubServer 业务数据。
 
 成功响应：
 
@@ -760,13 +1004,15 @@ Product Messages and Runs API 是 Web 聊天主路径。Web 不再直接用 `/ap
 ```json
 {
   "content": "请帮我改一下这个组件。",
-  "addressedAgentIds": ["coder"]
+  "addressedAgentIds": ["coder"],
+  "replyToMessageId": "msg_xxx"
 }
 ```
 
 行为：
 
 - `addressedAgentIds` 可省略；省略或为空数组时保持当前会话默认入口规则。当前阶段最多只能包含一个智能体 ID，且必须来自当前 conversation 成员。纯文本中的 `@Agent` 不会被 HubServer 自动解析为路由目标。
+- `replyToMessageId` 可省略；当前用于记录回复关系，Runtime RunInput 仍以 HubServer 组装的 history 和 user message 为准。
 - HubServer 创建 user `Message` 和 text `MessagePart`，并使用 run-local `firstEventSequence = 0` 固定它排在该 run 的 Runtime 输出之前。
 - HubServer 创建本地 `Run(status="queued")`，并将 `triggerMessageId` 指向 user message。
 - HubServer 从持久化 messages 投影 Runtime `history`，组装包含 `addressedAgentIds` 的 Runtime `RunInput` 后调用 `POST /runtime/runs`。
@@ -919,6 +1165,19 @@ type HubRunEventEnvelope = {
 `activeRun.id` 是 HubServer 本地 Run id。`activeRun.runtimeId` 只用于调试和跨进程关联，Web 产品路径不得用它订阅 Runtime。
 `timelineRuns` 是聊天 UI 恢复的主数据源：Web 先渲染每个 run 的 `triggerMessage`，再按 `events.sequence` 重放产品 event envelope，并与 live SSE 共用同一套 projection reducer。随后 Web 合并 `messages` 中 `surface="chat"` 的 user/assistant 消息作为持久化兜底，并按 `runId + runtimeMessageId` 去重，避免 raw event replay 窗口缺失时丢失已经投影落库的 OpenCode 等外部智能体回复。产品 event envelope 中 `event.runId` 是 HubServer 本地 Run id，`event.runtimeRunId` 保留 Agent Runtime run id；`message.*.data.generation`、`agent.*.data.generation` 与外部智能体的 `message.completed.data.externalModel` 会原样保留，供 Web 从事件 replay 恢复模型名、生成统计和外部平台实际回复模型；若 replay 不包含该消息，Web 可从 persisted assistant message 的 `metadataJson.runtime.externalModel` 恢复外部模型展示。`externalModel.providerName/modelName` 是可选展示增强，`providerId/modelId` 仍是必需标识；大工具结果可能已被投影为 UI 摘要；完整 raw Runtime event 保存在 `RunEvent.payloadJson`。`runItems` 保留为查询、history、统计和后续产品能力的数据源。
 
+### 消息置顶 API
+
+消息置顶是 HubServer 产品 API，用于把长期上下文在后续 `RunInput.pinnedMessages` 中传给 Runtime。
+
+| 端点 | 请求体 / 响应 | 说明 |
+| --- | --- | --- |
+| `POST /api/conversations/:conversationId/pins` | `{ messageId, note?, sortOrder? }` -> pin record，`201` | 创建 pin；会校验 message 属于该 conversation |
+| `GET /api/conversations/:conversationId/pins` | `{ pins: [...] }` | 返回带 `messageContent` 的 pin 列表 |
+| `PATCH /api/pins/:pinId` | `{ note?: string \| null, sortOrder?: number }` -> updated pin | 更新备注或排序 |
+| `DELETE /api/pins/:pinId` | `{ "deleted": true }` | 删除 pin |
+
+错误码：`VALIDATION_ERROR`、`MESSAGE_NOT_FOUND`、`PIN_LIMIT_EXCEEDED`、`PIN_ALREADY_EXISTS`、`PIN_NOT_FOUND`。当前单会话 pin 上限为 10。
+
 ### 订阅产品 Run 事件
 
 **端点**：`GET /api/runs/:runId/events?afterSequence=`
@@ -1013,6 +1272,18 @@ Web 恢复规则：
 
 `/api/runtime/runs*` 仍保留为调试和过渡代理接口，但不再是 Web 聊天主路径。产品级消息、恢复、持久化和 sequence 语义只由本节 API 承担。
 
+当前调试代理：
+
+- `POST /api/runtime/runs` -> `POST /runtime/runs`
+- `GET /api/runtime/runs/:runId` -> `GET /runtime/runs/:runId`
+- `GET /api/runtime/runs/:runId/events` -> `GET /runtime/runs/:runId/events`
+- `GET /api/runtime/runs/:runId/permissions` -> `GET /runtime/runs/:runId/permissions`
+- `POST /api/runtime/runs/:runId/permissions/:requestId/decision` -> Runtime permission decision API
+- `POST /api/runtime/runs/:runId/questions/:requestId/answer` -> Runtime question answer API
+- `POST /api/runtime/runs/:runId/cancel` -> Runtime cancel API
+
+同类过渡代理还包括 `/api/runtime/agents*`、`/api/settings/model`、`/api/runtime/health`、`/api/runtime/info` 和 Provider 代理。Web 产品主路径应优先使用产品级 API，调试代理不提供 HubServer 本地 Run sequence、消息持久化或 Artifact 投影语义。
+
 ## Runtime RunInput 会话入口规则
 
 Runtime Run API 已实现；本节记录 `POST /runtime/runs` 及相关事件、审批续跑接口遵守的 IM 会话入口契约。
@@ -1022,6 +1293,22 @@ RunInput 必须携带会话模式和当前会话智能体成员：
 ```ts
 type RuntimeConversationMode = "single" | "group"
 type ExternalSessionScope = "conversation-visible" | "delegated-task"
+
+type RuntimeMessage = {
+  id?: string
+  role: "user" | "assistant" | "system"
+  agentId?: string
+  content: string
+}
+
+type PinnedMessage = {
+  id: string
+  messageId: string
+  content: string
+  note?: string | null
+  pinnedAt: string
+  sortOrder: number
+}
 
 type ExternalSessionHint = {
   provider: "opencode" | "claude-code" | "codex"
@@ -1074,8 +1361,8 @@ type RunInput = {
   mode: RuntimeConversationMode
   participantAgentIds: string[]
   addressedAgentIds?: string[]
-  userMessage: unknown
-  history: unknown[]
+  userMessage: RuntimeMessage & { role: "user" }
+  history?: RuntimeMessage[]
   conversationState?: {
     messageCountBeforeRun?: number
     titleSource?: "default" | "auto" | "manual"
@@ -1093,6 +1380,7 @@ type RunInput = {
   }
   externalSessionHints?: ExternalSessionHint[]
   externalContext?: ExternalContextPacket[]
+  pinnedMessages?: PinnedMessage[]
 }
 ```
 
@@ -1108,6 +1396,7 @@ type RunInput = {
 | `diagnostics` | 可选模型流追踪开关；默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk |
 | `externalSessionHints` | HubServer 提供的外部智能体 session 复用 hint；当前用于 OpenCode direct `conversation-visible` session 续接，缺失时 Runtime Adapter 可创建 provider session 并在 `agent.started.data.externalSession` 回传 link |
 | `externalContext` | HubServer 为外部智能体组装的用户可见上下文包；当前用于 OpenCode direct `conversation-visible` prompt 前缀，包含公共 chat 消息、delegated handoff summary、同步 cursor candidate 和预算省略信息 |
+| `pinnedMessages` | HubServer 注入的置顶消息快照；Runtime 只把它作为 prompt 上下文，不修改 pin 数据 |
 
 入口解析规则：
 
@@ -1458,7 +1747,13 @@ type WorkspaceRevertRequest = {
       oldPath?: string
       statusBefore?: string
       statusAfter?: string
-      origin?: string
+      status?: string
+      origin:
+        | "new-since-baseline"
+        | "removed-since-baseline"
+        | "status-changed"
+        | "unchanged-baseline"
+        | "unknown-dirty-baseline"
       additions?: number
       deletions?: number
       binary?: boolean
@@ -1477,9 +1772,11 @@ type WorkspaceRevertPreviewResponse = {
   files: Array<{
     path: string
     oldPath?: string
+    status?: string
     action: "modify" | "delete-created" | "restore-deleted" | "revert-change"
     additions?: number
     deletions?: number
+    binary?: boolean
   }>
   warnings: string[]
   blockedReason?: {
@@ -1705,18 +2002,18 @@ type WorkspaceRevertApplyResponse =
 ```ts
 type QuestionInput = {
   questions: Array<{
-    id?: string
-    title: string
-    body: string
+    id?: string        // 1-120
+    title: string      // 1-200
+    body: string       // 1-4000
     options: Array<{
-      id?: string
-      label: string
-      value?: string
-      description?: string
-    }>
+      id?: string          // 1-120
+      label: string        // 1-500
+      value?: string       // 1-1000
+      description?: string // 1-1000
+    }> // 1-12 options
     allowCustom?: boolean
     required?: boolean
-  }>
+  }> // 1-10 questions
 }
 ```
 
@@ -1734,6 +2031,8 @@ type QuestionToolResult = {
 }
 ```
 
+答案请求体最多包含 10 个 answer；`answer` 最长 4000 字符。若 question 不允许 custom，则自定义答案返回 `QUESTION_INVALID_INPUT`。Run 被取消时，pending question 产生 `question.cancelled` 和 `tool.failed`，错误码为 `QUESTION_CANCELLED`。
+
 ### `web_fetch` Runtime Tool
 
 `web_fetch` 是 Runtime Tool Catalog 中的网络请求工具：
@@ -1749,7 +2048,7 @@ type WebFetchInput = {
 }
 ```
 
-默认值：`method = "GET"`、`timeoutMs = 15000`、`maxResponseBytes = 1048576`。只允许 `http:` / `https:` 协议；第一版不做域名 allowlist、私网拦截、Cookie jar、multipart builder 或二进制响应解析。
+默认值：`method = "GET"`、`timeoutMs = 15000`、`maxResponseBytes = 1048576`。`timeoutMs` 最大 60000，`maxResponseBytes` 最大 5242880。只允许 `http:` / `https:` 协议；`GET` / `HEAD` 请求不能携带 `body`；第一版不做域名 allowlist、私网拦截、Cookie jar、multipart builder 或二进制响应解析。
 
 成功输出：
 
@@ -1784,7 +2083,7 @@ type BashInput = {
 }
 ```
 
-默认值：`cwd = "."`、`timeoutMs = 30000`、`maxOutputBytes = 131072`。`maxOutputBytes` 是 stdout + stderr 合计传输上限；`cwd` 必须是绑定 workspace 内的相对路径。
+默认值：`cwd = "."`、`timeoutMs = 30000`、`maxOutputBytes = 131072`。`command` 最长 20000 字符，`cwd` 最长 1000 字符，`description` 最长 1000 字符；`timeoutMs` 最大 300000，`maxOutputBytes` 最大 1048576。`maxOutputBytes` 是 stdout + stderr 合计传输上限；`cwd` 必须是绑定 workspace 内的相对路径。
 
 ```ts
 type BashResult = {
@@ -1904,9 +2203,12 @@ type WorkspaceEditableFileResponse = {
 
 | 错误码 | HTTP Status | 说明 |
 | --- | --- | --- |
+| `WORKSPACE_NOT_BOUND` | 400 | 当前会话未绑定 workspace |
+| `WORKSPACE_PATH_NOT_FOUND` | 404 / 400 | 路径不存在，或绑定 workspace 目录不存在 |
+| `WORKSPACE_ACCESS_DENIED` | 403 | 请求路径越过 workspace 根目录 |
+| `WORKSPACE_INVALID_PATH` | 400 | 指定路径不是文件 |
 | `WORKSPACE_FILE_NOT_EDITABLE` | 403 | 文件类型不在可编辑白名单中 |
 | `WORKSPACE_FILE_TOO_LARGE` | 413 | 文件超过编辑上限（1MB） |
-| `WORKSPACE_FILE_ENCODING_UNSUPPORTED` | 415 | 文件编码不是 UTF-8 |
 
 ### 保存文件内容
 
@@ -1937,10 +2239,15 @@ type UpdateWorkspaceFileResponse = {
 
 | 错误码 | HTTP Status | 说明 |
 | --- | --- | --- |
+| `WORKSPACE_INVALID_INPUT` | 400 | `path`、`content` 或 `revision` 缺失或类型不正确 |
+| `WORKSPACE_NOT_BOUND` | 400 | 当前会话未绑定 workspace |
+| `WORKSPACE_PATH_NOT_FOUND` | 404 / 400 | 路径不存在，或绑定 workspace 目录不存在 |
+| `WORKSPACE_ACCESS_DENIED` | 403 | 请求路径越过 workspace 根目录 |
+| `WORKSPACE_INVALID_PATH` | 400 | 指定路径不是文件 |
 | `WORKSPACE_FILE_NOT_EDITABLE` | 403 | 文件类型不在可编辑白名单中 |
 | `WORKSPACE_FILE_TOO_LARGE` | 413 | 文件超过编辑上限（1MB） |
 | `WORKSPACE_FILE_CONFLICT` | 409 | revision 不一致，文件已被外部修改 |
-| `WORKSPACE_FILE_ENCODING_UNSUPPORTED` | 415 | 内容编码不是 UTF-8 |
+| `WORKSPACE_FILE_WRITE_FAILED` | 500 | HubServer 写入 workspace 文件失败 |
 
 规则：
 
@@ -1948,7 +2255,7 @@ type UpdateWorkspaceFileResponse = {
 - 文件大小上限 1MB。
 - `revision` 基于 `mtimeMs + size` 或内容 hash，用于并发冲突检测。
 - 保存时不自动格式化，保持原始换行风格（LF/CRLF）。
-- 只接受 UTF-8 文本内容。
+- 当前实现按 UTF-8 读写文本，但没有单独返回 `WORKSPACE_FILE_ENCODING_UNSUPPORTED` 的 415 分支；后续若加入严格编码探测，应同步补回该错误码。
 
 ## Preview API
 
@@ -1979,7 +2286,7 @@ Preview API 用于 Web 浏览器面板的网页预览功能。它通过 hub-serv
 | --- | --- | --- |
 | `NETWORK_INVALID_URL` | 400 | URL 格式无效 |
 | `NETWORK_UNSUPPORTED_PROTOCOL` | 400 | 只支持 http 和 https 协议 |
-| `NETWORK_TIMEOUT` | 504 | 请求超时（10 秒） |
+| `NETWORK_TIMEOUT` | 502 | 请求超时（10 秒）；当前 HubServer 通过 `badGateway` 返回 |
 | `NETWORK_REQUEST_FAILED` | 502 | 网络请求失败 |
 
 行为：
@@ -1998,14 +2305,14 @@ Preview API 用于 Web 浏览器面板的网页预览功能。它通过 hub-serv
 | --- | --- | --- |
 | `NETWORK_INVALID_URL` | 400 | URL 查询参数缺失或无效 |
 | `NETWORK_UNSUPPORTED_PROTOCOL` | 400 | 只支持 http 和 https 协议 |
-| `NETWORK_TIMEOUT` | 504 | 请求超时（30 秒） |
+| `NETWORK_TIMEOUT` | 502 | 请求超时（30 秒）；当前 HubServer 通过 `badGateway` 返回 |
 | `NETWORK_REQUEST_FAILED` | 502 | 网络请求失败 |
 
 行为：
 - 用 GET 请求目标 URL，跟随重定向。
 - 响应头中剥离 `X-Frame-Options`、`Content-Security-Policy`、`Cross-Origin-Resource-Policy`，使页面可在 iframe 中正常嵌入。
-- 删除 `transfer-encoding`、`connection`、`keep-alive`、`content-length` 等 hop-by-hop 头。
-- 对 `text/html` 响应，在 `<head>` 后注入 `<base href="...">` 标签，使页面中的相对路径资源（CSS、JS、图片）能正确解析到目标源站。
+- 删除 `transfer-encoding`、`connection`、`keep-alive`、`content-length`、`content-encoding` 等头。
+- 对 `text/html` 响应，在 `<head>` 后注入 `<base href="...">` 标签，使页面中的相对路径资源（CSS、JS、图片）能正确解析到目标源站；同时注入轻量导航脚本，把 iframe 内链接点击和 `window.open` 转换为 `PREVIEW_NAVIGATE` postMessage，供 Web 更新预览地址栏。
 - 非 HTML 内容（如图片、CSS、字体）以流式方式直接透传。
 
 ## 初始契约范围
