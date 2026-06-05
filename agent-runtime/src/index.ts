@@ -53,7 +53,11 @@ const runManager = new RunManager(
 const workspaceRevertService = new WorkspaceRevertService()
 
 const instructAgentRegistry = new InstructAgentRegistry()
-const instructToolRegistry = createInstructRuntimeToolRegistry(config.dataDir)
+const instructToolRegistry = createInstructRuntimeToolRegistry(config.dataDir, {
+  onSavedAgent: async (agent) => {
+    await agentRegistry.syncPersistedUserAgent(agent)
+  },
+})
 const instructExecutor = new InstructAgentExecutor(
   providerService,
   instructToolRegistry,

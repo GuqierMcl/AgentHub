@@ -34,8 +34,9 @@ import { Spinner } from "@/components/ui/spinner"
 import { agentsApi } from "./api/agents"
 import { AgentCard } from "./components/AgentCard"
 import { AgentConfigurationForm } from "./components/AgentConfigurationForm"
-import { AgentDetailsPanel } from "./components/AgentDetailsPanel"
 import { AgentFormDialog } from "./components/AgentFormDialog"
+import { AgentDetailsPanel } from "./components/AgentDetailsPanel"
+import { InstructAgentCreateDialog } from "./components/InstructAgentCreateDialog"
 import { ModelBindingDialog } from "./components/ModelBindingDialog"
 import { useAgentOverride } from "./hooks/use-avatar-overrides"
 import type { AgentDetail, AgentOrigin, AgentSummary } from "./types"
@@ -52,7 +53,8 @@ export function AgentsWorkspace() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<AgentDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [createOpen, setCreateOpen] = useState(false)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [manualCreateOpen, setManualCreateOpen] = useState(false)
   const [modelBindingAgent, setModelBindingAgent] = useState<AgentSummary | null>(
     null
   )
@@ -135,16 +137,6 @@ export function AgentsWorkspace() {
     [fetchAgents]
   )
 
-  const handleCreated = useCallback(
-    async (agent: AgentDetail) => {
-      setCreateOpen(false)
-      toast.success("智能体已创建")
-      await fetchAgents()
-      await selectAgent(agent.id)
-    },
-    [fetchAgents, selectAgent]
-  )
-
   const handleEdited = useCallback(
     async (agent: AgentDetail) => {
       setSelectedAgent(agent)
@@ -152,6 +144,16 @@ export function AgentsWorkspace() {
       await fetchAgents()
     },
     [fetchAgents]
+  )
+
+  const handleCreated = useCallback(
+    async (agent: AgentDetail) => {
+      setManualCreateOpen(false)
+      toast.success("智能体已创建")
+      await fetchAgents()
+      await selectAgent(agent.id)
+    },
+    [fetchAgents, selectAgent]
   )
 
   const handleModelBound = useCallback(async () => {
@@ -206,7 +208,7 @@ export function AgentsWorkspace() {
                               </p>
                           </div>
                           <Button
-                              onClick={() => setCreateOpen(true)}
+                              onClick={() => setCreateDialogOpen(true)}
                               size="sm"
                               type="button"
                           >
@@ -366,7 +368,9 @@ export function AgentsWorkspace() {
                               />
                           </div>
                       </ScrollArea>
-                  ) : (
+                  ) : null}
+
+                  {!selectedAgent || !canEdit ? (
                       <AgentDetailsPanel
                           agent={selectedAgent}
                           canConfigureModel={Boolean(canConfigureModel)}
@@ -377,14 +381,27 @@ export function AgentsWorkspace() {
                               }
                           }}
                       />
-                  )}
+                  ) : null}
               </section>
           </section>
 
+          <InstructAgentCreateDialog
+              onOpenManualCreate={async () => {
+                  setCreateDialogOpen(false)
+                  setManualCreateOpen(true)
+              }}
+              onOpenAgent={async (agentId) => {
+                  await selectAgent(agentId);
+              }}
+              onOpenChange={setCreateDialogOpen}
+              onRefreshAgents={fetchAgents}
+              open={createDialogOpen}
+          />
+
           <AgentFormDialog
-              onOpenChange={setCreateOpen}
+              onOpenChange={setManualCreateOpen}
               onSaved={handleCreated}
-              open={createOpen}
+              open={manualCreateOpen}
           />
 
           <ModelBindingDialog

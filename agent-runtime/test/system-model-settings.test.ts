@@ -94,6 +94,9 @@ function createSettingsApp(service: SystemModelSettingsService): Hono {
 
 describe("system model settings", () => {
   test("store returns unset when file is missing and ignores invalid JSON", async () => {
+    const originalWarn = console.warn
+    console.warn = () => {}
+
     const dataDir = await mkdtemp(join(tmpdir(), "agent-runtime-system-model-store-"))
     const store = new SystemModelSettingsStore(dataDir)
 
@@ -102,6 +105,8 @@ describe("system model settings", () => {
     await writeFile(join(dataDir, "system-model-settings.json"), "{", "utf-8")
 
     expect(await store.load()).toEqual({ version: 1 })
+
+    console.warn = originalWarn
   })
 
   test("service persists and resolves a configured system default model", async () => {

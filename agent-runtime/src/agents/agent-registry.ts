@@ -98,6 +98,23 @@ export class AgentRegistry {
     return this.agents.get(agentId) ?? null
   }
 
+  async syncPersistedUserAgent(agent: AgentDefinition): Promise<AgentDefinition | null> {
+    return this.serializeMutation(async () => {
+      if (this.systemAgentIds.has(agent.id)) {
+        return null
+      }
+
+      const normalizedAgent = this.normalizeLoadedUserAgent(agent)
+      if (!normalizedAgent) {
+        return null
+      }
+
+      this.baseAgents.set(normalizedAgent.id, this.cloneAgent(normalizedAgent))
+      this.agents.set(normalizedAgent.id, this.applyModelBinding(normalizedAgent))
+      return this.cloneAgent(this.agents.get(normalizedAgent.id) ?? normalizedAgent)
+    })
+  }
+
   async createUserAgent(input: UserAgentCreateRequest): Promise<AgentDefinition> {
     return this.serializeMutation(async () => {
       const now = new Date().toISOString()

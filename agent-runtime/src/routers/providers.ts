@@ -96,7 +96,7 @@ providers.get('/providers', (c: Context) => {
  */
 providers.get('/providers/:id', (c: Context) => {
   const service = c.get('providerService')
-  const providerId = c.req.param('id')
+  const providerId = c.req.param('id')!
   
   const provider = service.getProvider(providerId)
   if (!provider) {
@@ -111,7 +111,7 @@ providers.get('/providers/:id', (c: Context) => {
  */
 providers.put('/providers/:id/config', async (c: Context) => {
   const service = c.get('providerService')
-  const providerId = c.req.param('id')
+  const providerId = c.req.param('id')!
   
   const body = await c.req.json()
   const result = ProviderConfigUpdateRequestSchema.safeParse(body)
@@ -139,8 +139,8 @@ providers.put('/providers/:id/config', async (c: Context) => {
  */
 providers.put('/providers/:id/models/:model_id/config', async (c: Context) => {
   const service = c.get('providerService')
-  const providerId = c.req.param('id')
-  const modelId = c.req.param('model_id')
+  const providerId = c.req.param('id')!
+  const modelId = c.req.param('model_id')!
   
   const body = await c.req.json()
   const result = ModelConfigUpdateRequestSchema.safeParse(body)
@@ -191,7 +191,7 @@ providers.post('/custom-providers', async (c: Context) => {
  */
 providers.put('/custom-providers/:id', async (c: Context) => {
   const service = c.get('providerService')
-  const providerId = c.req.param('id')
+  const providerId = c.req.param('id')!
   
   const body = await c.req.json()
   const result = CustomProviderUpdateRequestSchema.safeParse(body)
@@ -212,7 +212,7 @@ providers.put('/custom-providers/:id', async (c: Context) => {
  */
 providers.delete('/custom-providers/:id', async (c: Context) => {
   const service = c.get('providerService')
-  const providerId = c.req.param('id')
+  const providerId = c.req.param('id')!
   
   const removed = await service.removeCustomProvider(providerId)
   if (!removed) {
