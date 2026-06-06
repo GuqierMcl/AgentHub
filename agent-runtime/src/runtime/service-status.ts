@@ -1,5 +1,5 @@
 import type { ManagedOpenCodeServer } from "./external-adapters"
-import { getClaudeCodeReadiness } from "./external-adapters"
+import { getClaudeCodeReadiness, getCodexReadiness } from "./external-adapters"
 
 export type RuntimeServiceStatus =
   | "running"
@@ -47,7 +47,7 @@ export function createRuntimeServicesStatus(
     checkedAt,
     services: [
       createOpenCodeServiceStatus(openCodeServer, checkedAt),
-      createPlaceholderServiceStatus("codex", "Codex", checkedAt),
+      createCodexServiceStatus(checkedAt, context.externalAgents?.codex),
       createClaudeCodeServiceStatus(checkedAt, context.externalAgents?.["claude-code"]),
     ],
   }
@@ -73,6 +73,30 @@ function createOpenCodeServiceStatus(
     },
   }
 }
+function createCodexServiceStatus(
+  checkedAt: string,
+  runSummary?: ExternalAgentRunSummary
+): RuntimeServiceStatusItem {
+  const readiness = getCodexReadiness()
+  const activeRunCount = runSummary?.activeRunCount ?? 0
+  return {
+    id: "codex",
+    label: "Codex",
+    kind: "external-agent",
+    status: readiness.available
+      ? activeRunCount > 0 ? "running" : "idle"
+      : "error",
+    implemented: true,
+    checkedAt,
+    details: {
+      clientMode: readiness.clientMode,
+      ...(readiness.version ? { version: readiness.version } : {}),
+      ...(runSummary ? { activeRunCount } : {}),
+      ...(runSummary?.latestError ? { latestError: runSummary.latestError } : {}),
+      ...(readiness.error ? { lastError: readiness.error } : {}),
+    },
+  }
+}
 
 function createClaudeCodeServiceStatus(
   checkedAt: string,
@@ -95,20 +119,5 @@ function createClaudeCodeServiceStatus(
       ...(runSummary?.latestError ? { latestError: runSummary.latestError } : {}),
       ...(readiness.executablePath ? { executablePath: readiness.executablePath } : {}),
     },
-  }
-}
-
-function createPlaceholderServiceStatus(
-  id: "codex" | "claude-code",
-  label: string,
-  checkedAt: string
-): RuntimeServiceStatusItem {
-  return {
-    id,
-    label,
-    kind: "external-agent",
-    status: "not_integrated",
-    implemented: false,
-    checkedAt,
   }
 }

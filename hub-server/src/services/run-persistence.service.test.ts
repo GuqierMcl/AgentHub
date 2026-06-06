@@ -244,6 +244,38 @@ describe('buildOpenCodeExternalContextPacket', () => {
     expect(packet?.handoffSummaries.map((summary) => summary.providerSessionId)).toEqual(['claude_task_session'])
   })
 
+  it('builds a Codex context packet with the provider preserved', () => {
+    const packet = buildExternalContextPacket({
+      provider: 'codex',
+      agentId: 'codex',
+      historyMessages: [
+        messageRecord({ id: 'msg_codex_user', role: 'user', content: 'Continue the SDK adapter.' }),
+      ],
+      delegatedSessions: [
+        {
+          ...delegatedSession({
+            id: 'eas_codex_task',
+            providerSessionId: 'codex_task_thread',
+            summary: 'Codex inspected the SDK client interface.',
+            updatedAt: '2026-06-06T00:01:00.000Z',
+            taskId: 'task_codex',
+          }),
+          provider: 'codex',
+          agentId: 'codex',
+        },
+      ],
+    })
+
+    expect(packet).toMatchObject({
+      provider: 'codex',
+      agentId: 'codex',
+      scope: 'conversation-visible',
+      mode: 'bootstrap',
+    })
+    expect(packet?.messages.map((message) => message.id)).toEqual(['msg_codex_user'])
+    expect(packet?.handoffSummaries.map((summary) => summary.providerSessionId)).toEqual(['codex_task_thread'])
+  })
+
   it('uses delta cursor and includes only newer delegated handoffs', () => {
     const packet = buildOpenCodeExternalContextPacket({
       agentId: 'opencode',
@@ -418,6 +450,26 @@ describe('external direct session bridge', () => {
     return conversation
   }
 
+  async function createCodexConversation() {
+    const conversation = await createConversation({
+      title: 'Codex direct chat',
+      mode: 'single',
+      metadataJson: {
+        workspace: {
+          workspaceId: 'workspace_codex_direct',
+          backendType: 'local',
+          rootPath: 'D:\\dev\\codex-direct',
+        },
+      },
+    })
+    await createConversationAgent({
+      conversationId: conversation.id,
+      agentId: 'codex',
+      sortOrder: 0,
+    })
+    return conversation
+  }
+
   async function createTextMessage(input: {
     conversationId: string
     role: 'user' | 'assistant'
@@ -501,6 +553,61 @@ describe('external direct session bridge', () => {
     ])
   })
 
+  it('passes Codex direct session hints and context to runtime', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createCodexConversation()
+    const previousMessage = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'assistant',
+      agentId: 'codex',
+      text: 'Previous Codex result.',
+    })
+    await upsertExternalAgentSession({
+      provider: 'codex',
+      agentId: 'codex',
+      conversationId: conversation.id,
+      workspaceIdentity: 'workspace_codex_direct',
+      scope: 'conversation-visible',
+      providerSessionId: 'codex_direct_thread',
+      runId: 'run_codex_previous',
+      handoffSummary: 'Codex previously modified adapter tests.',
+      metadataJson: {
+        contextBridge: {
+          lastSyncedMessageId: previousMessage.id,
+          lastSyncedAt: '2026-06-06T07:00:00.000Z',
+        },
+      },
+    })
+    const unsyncedMessage = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      text: 'This Codex-visible message was not synced yet.',
+    })
+
+    await service.sendMessage(conversation.id, 'Continue with Codex.')
+
+    const runtimeInput = calls[0]?.body
+    expect(runtimeInput.externalSessionHints).toEqual([
+      expect.objectContaining({
+        provider: 'codex',
+        agentId: 'codex',
+        scope: 'conversation-visible',
+        providerSessionId: 'codex_direct_thread',
+        workspaceId: 'workspace_codex_direct',
+      }),
+    ])
+    expect(runtimeInput.externalContext).toEqual([
+      expect.objectContaining({
+        provider: 'codex',
+        agentId: 'codex',
+        mode: 'delta',
+      }),
+    ])
+    expect(runtimeInput.externalContext[0].messages.map((message: any) => message.id)).toEqual([
+      unsyncedMessage.id,
+    ])
+  })
+
   it('updates Claude Code context bridge metadata from agent completion events', async () => {
     const { service } = createRuntimeCapture()
     const conversation = await createClaudeCodeConversation()
@@ -569,6 +676,88 @@ describe('external direct session bridge', () => {
       agentId: 'claude-code',
       conversationId: conversation.id,
       workspaceIdentity: 'workspace_claude_direct',
+      scope: 'conversation-visible',
+      status: 'active',
+    })
+    expect(session?.metadataJson).toMatchObject({
+      contextBridge: {
+        mode: 'delta',
+        lastSyncedMessageId: trigger.id,
+        lastSyncedAt: expect.any(String),
+        includedMessageIds: [trigger.id],
+        includedHandoffSessionIds: [],
+      },
+    })
+  })
+
+  it('updates Codex context bridge metadata from agent completion events', async () => {
+    const { service } = createRuntimeCapture()
+    const conversation = await createCodexConversation()
+    const trigger = await createTextMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      text: 'Update Codex context bridge.',
+    })
+    const run = await createRun({
+      conversationId: conversation.id,
+      triggerMessageId: trigger.id,
+      mode: 'single',
+      status: 'running',
+      runtimeId: 'runtime_codex_context',
+      inputJson: {
+        participantAgentIds: ['codex'],
+        workspace: {
+          workspaceId: 'workspace_codex_direct',
+          backendType: 'local',
+          rootPath: 'D:\\dev\\codex-direct',
+        },
+      },
+    })
+    await upsertExternalAgentSession({
+      provider: 'codex',
+      agentId: 'codex',
+      conversationId: conversation.id,
+      workspaceIdentity: 'workspace_codex_direct',
+      scope: 'conversation-visible',
+      providerSessionId: 'codex_context_thread',
+      runId: run.id,
+    })
+
+    await (service as any).projectRuntimeEventsBatch(run.id, [{
+      sequence: 1,
+      event: {
+        id: `event_codex_agent_completed_${randomUUID()}`,
+        runId: 'runtime_codex_context',
+        type: 'agent.completed',
+        timestamp: '2026-06-06T08:01:00.000Z',
+        agentId: 'codex',
+        data: {
+          status: 'completed',
+          externalSession: {
+            provider: 'codex',
+            agentId: 'codex',
+            conversationId: conversation.id,
+            workspaceId: 'workspace_codex_direct',
+            scope: 'conversation-visible',
+            providerSessionId: 'codex_context_thread',
+          },
+          externalContext: {
+            provider: 'codex',
+            mode: 'delta',
+            cursorCandidate: {
+              includedMessageIds: [trigger.id],
+              includedHandoffSessionIds: [],
+            },
+          },
+        },
+      },
+    }])
+
+    const session = await findExternalAgentSessionHint({
+      provider: 'codex',
+      agentId: 'codex',
+      conversationId: conversation.id,
+      workspaceIdentity: 'workspace_codex_direct',
       scope: 'conversation-visible',
       status: 'active',
     })

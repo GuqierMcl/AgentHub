@@ -7,6 +7,13 @@ export {
   getClaudeCodeReadiness,
   RealClaudeCodeClient,
 } from "./claude-code-real-client"
+export { CodexAdapter } from "./codex-adapter"
+export { FakeCodexClient } from "./codex-client"
+export {
+  createDefaultCodexClient,
+  getCodexReadiness,
+  RealCodexClient,
+} from "./codex-real-client"
 export { OpenCodeAdapter } from "./opencode-adapter"
 export { FakeOpenCodeClient } from "./opencode-client"
 export {
@@ -52,6 +59,17 @@ export type {
   ExternalSessionLink,
   ExternalSessionScope,
 } from "./types"
+export type {
+  CodexClient,
+  CodexExternalModel,
+  CodexPromptEvent,
+  CodexPromptRequest,
+  CodexSessionRequest,
+} from "./codex-client"
+export type {
+  CodexServiceReadiness,
+  RealCodexClientDependencies,
+} from "./codex-real-client"
 export type {
   ClaudeCodeClient,
   ClaudeCodeExternalModel,

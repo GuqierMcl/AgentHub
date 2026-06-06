@@ -28,6 +28,7 @@ AI 智能体在每一轮开发前，必须先查阅与任务相关的文档。�
 | `guides/ADDING_RUNTIME_TOOLS.md` | Runtime 工具添加步骤、授权、审批、事件与测试清单 |
 | `reference/HONO.md` | Hub Server 与 Agent Runtime 共享的 Hono 使用约定 |
 | `roadmap/` | 长复杂模块的实现路线图与分阶段推进记录 |
+| `roadmap/codex-adapter-implementation.md` | Codex Adapter SDK-first 接入的分阶段实现路线图、验收标准和后续 app-server 增强路径 |
 | `roadmap/claude-code-adapter-implementation.md` | Claude Code Adapter V1 分阶段实现路线图与后续 smoke/打包硬化记录 |
 | `adr/` | 架构决策记录 |
 

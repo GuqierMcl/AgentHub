@@ -108,8 +108,9 @@ type RuntimeServicesStatusResponse = {
 
 - `opencode` 已接入，状态来自 Runtime 默认 `ManagedOpenCodeServer` 的只读快照。
 - `claude-code` 已接入，状态来自 Claude Agent SDK / executable 配置的只读 readiness 和 Runtime 内存中的非终态 Claude Code Run 摘要；不启动 prompt、不创建 session、不触发 Claude 登录流程。
-- `codex` 当前只返回 `not_integrated` 占位，避免误导为故障；目标接入设计见 `docs/external_agents/CODEX_ADAPTER.md`。
+- `codex` 已接入，状态来自 `@openai/codex-sdk` 只读 readiness 和 Runtime 内存中的非终态 Codex Run 摘要；不创建 thread、不调用 prompt、不触发登录流程。
 - OpenCode 的 `idle` 表示待命；`starting` 表示至少一个 workspace server 正在启动；`running` 表示至少一个 workspace server 已连接；`error` 表示最近一次启动或 workspace 校验失败。
+- Codex 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `codex`；`idle` 表示 `@openai/codex-sdk` 可用且当前没有 active Codex Run；`error` 表示 SDK package 或只读 readiness 探测失败。`details.activeRunCount` 返回当前非终态 Codex Run 数，`details.clientMode = "sdk"`，`details.version` 在可读取 SDK package 版本时返回。
 - Claude Code 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `claude-code`；`idle` 表示 SDK/executable 配置可用且当前没有 active Claude Code Run；`error` 表示后续只读 executable 探测发现阻塞。`details.activeRunCount` 返回当前非终态 Claude Code Run 数；`details.executableSource` 为 `"sdk-bundled"` 或 `"env"`；`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 设置时可在 `details.executablePath` 返回该覆盖路径。
 - 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt、Claude 凭据或 provider 凭据。
 
@@ -129,7 +130,7 @@ type SystemServiceStatusItem = {
 }
 ```
 
-若 Runtime 不可用，HubServer 返回 `agent-runtime.status = "error"`、已实现外部服务（当前 `opencode` 与 `claude-code`）`status = "error"` 且 `details.reason = "runtime-unavailable"`；Codex 仍返回 `not_integrated` 占位。
+若 Runtime 不可用，HubServer 返回 `agent-runtime.status = "error"`、已实现外部服务（当前 `opencode`、`codex` 与 `claude-code`）`status = "error"` 且 `details.reason = "runtime-unavailable"`；未接入服务保持 `not_integrated` 占位。
 
 ### Runtime 系统默认模型设置
 
@@ -490,8 +491,8 @@ type RunInput = {
 - 单条内容超过 2000 字符时由 HubServer 截断
 - `history` 省略时默认为空数组；Runtime 不从 HubServer 数据库自行读取历史。
 - `workspace.rootPath` 只在请求体内由 HubServer 传给 Runtime 建立 workspace session；Run 查询响应只回显 `workspaceId`、`backendType` 与 `rootLabel`。
-- `externalSessionHints` 由 HubServer 为已支持的外部 direct session 注入；当前支持 `provider = "opencode"` 与 `"claude-code"`。Runtime adapter 可用该 hint 恢复 provider session，例如 Claude Code 通过 SDK `resume` 传入可恢复的 provider session id。
-- `externalContext` 由 HubServer 为外部 direct run 注入 provider-aware visible context packet；当前支持 OpenCode 与 Claude Code。packet 只包含用户可见消息和 delegated handoff summary，不包含 raw RunEvent、reasoning、内部工具续跑消息或 Orchestrator 私有计划。
+- `externalSessionHints` 由 HubServer 为已支持的外部 direct session 注入；当前支持 `provider = "opencode"`、`"claude-code"` 与 `"codex"`。Runtime adapter 可用该 hint 恢复 provider session，例如 Claude Code 通过 SDK `resume`、Codex 通过 SDK `resumeThread(threadId)` 传入可恢复的 provider session id。
+- `externalContext` 由 HubServer 为外部 direct run 注入 provider-aware visible context packet；当前支持 OpenCode、Claude Code 与 Codex。packet 只包含用户可见消息和 delegated handoff summary，不包含 raw RunEvent、reasoning、内部工具续跑消息或 Orchestrator 私有计划。
 
 ## Runtime Agents API
 
@@ -1403,8 +1404,8 @@ type RunInput = {
 | `conversationState` | HubServer 提供的会话状态快照；首版用于 Runtime 判断是否触发 `title` 系统智能体。`titleSeedUserMessage` 固定为会话第一条用户输入，供自动标题重试时使用 |
 | `workspace` | 可选的本次 Run 主工作区 snapshot；首版只支持已存在本地目录 |
 | `diagnostics` | 可选模型流追踪开关；默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk |
-| `externalSessionHints` | HubServer 提供的外部智能体 session 复用 hint；当前用于 OpenCode 与 Claude Code direct `conversation-visible` session 续接，缺失时 Runtime Adapter 可创建 provider session 并在 `agent.started.data.externalSession` 回传 link |
-| `externalContext` | HubServer 为外部智能体组装的用户可见上下文包；当前用于 OpenCode 与 Claude Code direct `conversation-visible` prompt 前缀，包含公共 chat 消息、delegated handoff summary、同步 cursor candidate 和预算省略信息 |
+| `externalSessionHints` | HubServer 提供的外部智能体 session 复用 hint；当前用于 OpenCode、Claude Code 与 Codex direct `conversation-visible` session 续接，缺失时 Runtime Adapter 可创建 provider session 并在 `agent.started.data.externalSession` 回传 link |
+| `externalContext` | HubServer 为外部智能体组装的用户可见上下文包；当前用于 OpenCode、Claude Code 与 Codex direct `conversation-visible` prompt 前缀，包含公共 chat 消息、delegated handoff summary、同步 cursor candidate 和预算省略信息 |
 | `pinnedMessages` | HubServer 注入的置顶消息快照；Runtime 只把它作为 prompt 上下文，不修改 pin 数据 |
 
 入口解析规则：
@@ -1872,8 +1873,8 @@ type WorkspaceRevertApplyResponse =
 - `message.delta` / `message.completed` 可在 `data.generation` 携带 `executionId` 与 compact model 信息；`agent.started` / `agent.completed` 也可携带同结构的 `data.generation`，其中 `agent.completed.data.generation` 可额外包含 usage、finishReason 与 durationMs。
 - 外部智能体可在 `message.completed.data.externalModel` 携带本条回复实际使用的外部平台模型，例如 `{ provider: "opencode", providerId: "anthropic", modelId: "claude-sonnet-4", providerName: "Anthropic", modelName: "Claude Sonnet 4" }` 或 `{ provider: "claude-code", providerId: "anthropic", modelId: "claude-sonnet-4" }`。`providerName/modelName` 可选，仅用于 UI 展示；`providerId/modelId` 仍是稳定标识。该字段属于消息级只读 metadata，不表示 AgentHub 管理或覆盖外部平台的 provider/model 配置。
 - 外部智能体的 `agent.started.data.externalSession` 与 `agent.completed.data.externalSession` 可携带 `{ provider, agentId, scope, providerSessionId, conversationId, workspaceId, parentProviderSessionId?, taskId?, runId?, handoffSummary? }`，供 HubServer 持久化外部 Session 映射。该字段不表示 AgentHub 接管外部平台配置。
-- OpenCode 与 Claude Code direct run 可在 `agent.completed.data.externalContext` 回传 `{ provider, agentId, scope, mode, messageCount, handoffSummaryCount, cursorCandidate?, omitted? }`，表示本轮已应用的 AgentHub 可见上下文摘要；HubServer 仅在成功终态后推进 `ExternalAgentSession.metadataJson.contextBridge`。该字段不携带完整消息正文。
-- OpenCode 与 Claude Code delegated task 完成时可在 `agent.completed.data.handoffSummary` 与 `agent.completed.data.externalSession.handoffSummary` 携带 handoff summary。该 summary 用于后续 direct context bridge，不应包含原始 delegated prompt 或 Orchestrator 私有计划。
+- OpenCode、Claude Code 与 Codex direct run 可在 `agent.completed.data.externalContext` 回传 `{ provider, agentId, scope, mode, messageCount, handoffSummaryCount, cursorCandidate?, omitted? }`，表示本轮已应用的 AgentHub 可见上下文摘要；HubServer 仅在成功终态后推进 `ExternalAgentSession.metadataJson.contextBridge`。该字段不携带完整消息正文。
+- OpenCode、Claude Code 与 Codex delegated task 完成时可在 `agent.completed.data.handoffSummary` 与 `agent.completed.data.externalSession.handoffSummary` 携带 handoff summary。该 summary 用于后续 direct context bridge，不应包含原始 delegated prompt 或 Orchestrator 私有计划。
 - `agent.completed` 仍表示 execution 完成；兼容字段 usage、finishReason、resolvedModel 继续保留在 `agent.completed.data`。Web 展示模型名、compact tokens 和 tooltip 详情时优先从 Runtime event replay/live SSE 的 `generation` 或 `externalModel` 字段恢复，而不是读取当前 agent 绑定状态。
 - Workspace Diff V0 统一挂在 `run.completed` / `run.failed` / `run.cancelled` 的 `data.workspaceDiff`，不挂在外部智能体私有 `agent.completed` 字段上；Diff Viewer、ChangeSet 归因和完整 Run 级撤销属于 HubServer/Web 基于 Diff Artifact 的产品能力，不改变 terminal RunEvent wire shape。
 - HubServer 后续持久化时应将 `RunEvent.messageId = event.messageId`；同一 `messageId` 投影到同一 assistant `Message`，文本进入 text `MessagePart`，reasoning/tool/permission 进入对应 part 或 metadata。`messageIndex` 可先写入 message metadata，后续再迁移为排序字段。工具事件可能早于 `message.delta` / `message.completed` 到达，HubServer 必须先持久化 `RunToolCall`，并在同一 `messageId` 的 assistant message 创建或更新后回填 tool `MessagePart`，避免外部工具 UI 只在 live 流里短暂闪现而无法恢复。

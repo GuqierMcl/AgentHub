@@ -6,14 +6,19 @@ import { AgentRegistry } from "../src/agents"
 import {
   RunManager,
   ClaudeCodeAdapter,
+  CodexAdapter,
   ExternalAdapterExecutor,
   FakeClaudeCodeClient,
+  FakeCodexClient,
   FakeOpenCodeClient,
   OpenCodeAdapter,
   createDefaultRuntimeToolRegistry,
   createRunEvent,
   type ClaudeCodeClient,
   type ClaudeCodePromptRequest,
+  type CodexClient,
+  type CodexPromptRequest,
+  type CodexSessionRequest,
   type ExternalSessionLink,
   type OpenCodeClient,
   type OpenCodePromptRequest,
@@ -53,6 +58,16 @@ function attachClaudeCodeClient(runManager: RunManager, client: ClaudeCodeClient
     registry: {
       getAdapter(provider: string) {
         return provider === "claude-code" ? new ClaudeCodeAdapter(client) : null
+      },
+    },
+  })
+}
+
+function attachCodexClient(runManager: RunManager, client: CodexClient): void {
+  ;(runManager as any).externalAdapterExecutor = new ExternalAdapterExecutor({
+    registry: {
+      getAdapter(provider: string) {
+        return provider === "codex" ? new CodexAdapter(client) : null
       },
     },
   })
@@ -288,6 +303,15 @@ class QuestionAskingClaudeCodeClient extends FakeClaudeCodeClient {
       type: "message.completed" as const,
       content: `User chose ${answer}.`,
     }
+  }
+}
+
+class PromptCapturingCodexClient extends FakeCodexClient {
+  prompts: CodexPromptRequest[] = []
+
+  async *streamPrompt(request: CodexPromptRequest) {
+    this.prompts.push(request)
+    yield* super.streamPrompt(request)
   }
 }
 
@@ -1004,5 +1028,249 @@ describe("external adapter executor", () => {
       event.toolName === "question" &&
       event.toolCallId === "claude-code:ask_user_question"
     )).toBe(true)
+  })
+
+  test("direct Codex run uses the external adapter and records a conversation-visible thread", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachCodexClient(runManager, new FakeCodexClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_codex_direct",
+      mode: "single",
+      participantAgentIds: ["codex"],
+      addressedAgentIds: ["codex"],
+      userMessage: {
+        role: "user",
+        content: "Inspect the workspace.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_codex_direct",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const completedRun = runManager.getRun(run.id)
+    const events = runManager.getEvents(run.id) ?? []
+    const started = events.find((event) => event.type === "agent.started" && event.agentId === "codex")
+    const message = events.find((event) => event.type === "message.completed" && event.agentId === "codex")
+
+    expect(completedRun?.status).toBe("completed")
+    expect((started?.data as { externalSession?: { scope?: string; providerSessionId?: string } }).externalSession?.scope)
+      .toBe("conversation-visible")
+    expect((started?.data as { externalSession?: { providerSessionId?: string } }).externalSession?.providerSessionId)
+      .toStartWith("fake_codex_")
+    expect((message?.data as { content?: string }).content).toContain("Codex fake adapter received")
+    expect((message?.data as {
+      externalModel?: { provider?: string; providerId?: string; modelId?: string }
+    }).externalModel).toEqual({
+      provider: "codex",
+      providerId: "openai",
+      modelId: "fake-codex-model",
+    })
+    expect(message?.messageIndex).toBe(0)
+  })
+
+  test("direct Codex group run prepends AgentHub external context", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    const client = new PromptCapturingCodexClient()
+    attachCodexClient(runManager, client)
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_codex_context",
+      mode: "group",
+      participantAgentIds: ["orchestrator", "codex"],
+      addressedAgentIds: ["codex"],
+      userMessage: {
+        role: "user",
+        content: "Continue from the prior implementation.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_codex_context",
+        backendType: "local",
+        rootPath,
+      },
+      externalContext: [{
+        provider: "codex",
+        agentId: "codex",
+        scope: "conversation-visible",
+        mode: "delta",
+        messages: [{
+          id: "msg_visible_user",
+          role: "user",
+          senderLabel: "user",
+          createdAt: "2026-06-06T00:00:00.000Z",
+          content: "Earlier visible request.",
+        }],
+        handoffSummaries: [{
+          sessionId: "eas_task_codex",
+          providerSessionId: "codex_task_session",
+          taskId: "task_codex",
+          runId: "run_codex",
+          summary: "Codex previously inspected the SDK adapter.",
+        }],
+        cursorCandidate: {
+          throughMessageId: "msg_visible_user",
+          throughMessageCreatedAt: "2026-06-06T00:00:00.000Z",
+          includedMessageIds: ["msg_visible_user"],
+          includedHandoffSessionIds: ["eas_task_codex"],
+        },
+      }],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const prompt = client.prompts[0]?.prompt.content ?? ""
+    const events = runManager.getEvents(run.id) ?? []
+    const completed = events.find((event) => event.type === "agent.completed" && event.agentId === "codex")
+    const completedData = completed?.data as {
+      externalContext?: Record<string, unknown>
+    }
+
+    expect(prompt).toContain("AgentHub visible context (delta).")
+    expect(prompt).toContain("Earlier visible request.")
+    expect(prompt).toContain("Codex previously inspected the SDK adapter.")
+    expect(prompt).toContain("Current user request:")
+    expect(prompt).toContain("Continue from the prior implementation.")
+    expect(completedData.externalContext).toEqual({
+      provider: "codex",
+      agentId: "codex",
+      scope: "conversation-visible",
+      mode: "delta",
+      messageCount: 1,
+      handoffSummaryCount: 1,
+      cursorCandidate: {
+        throughMessageId: "msg_visible_user",
+        throughMessageCreatedAt: "2026-06-06T00:00:00.000Z",
+        includedMessageIds: ["msg_visible_user"],
+        includedHandoffSessionIds: ["eas_task_codex"],
+      },
+      omitted: undefined,
+    })
+  })
+
+  test("direct Codex run reuses a conversation-visible session hint", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachCodexClient(runManager, new FakeCodexClient())
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_codex_reuse",
+      mode: "single",
+      participantAgentIds: ["codex"],
+      addressedAgentIds: ["codex"],
+      userMessage: {
+        role: "user",
+        content: "Continue the prior Codex thread.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_codex_reuse",
+        backendType: "local",
+        rootPath,
+      },
+      externalSessionHints: [{
+        provider: "codex",
+        agentId: "codex",
+        scope: "conversation-visible",
+        providerSessionId: "codex_thread_existing",
+        conversationId: "conv_codex_reuse",
+        workspaceId: "workspace_codex_reuse",
+      }],
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const started = events.find((event) => event.type === "agent.started" && event.agentId === "codex")
+
+    expect((started?.data as { externalSession?: { providerSessionId?: string } }).externalSession?.providerSessionId)
+      .toBe("codex_thread_existing")
+  })
+
+  test("delegated Codex task keeps task identity and produces a handoff summary", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachCodexClient(runManager, new FakeCodexClient())
+    const rootPath = await createWorkspace()
+
+    ;(runManager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: {
+        runId: string
+        agent: { id: string }
+        runTask?: (task: OrchestratorTask, options?: { groupId?: string }) => Promise<{
+          status: "completed" | "failed" | "cancelled"
+          summary: string
+        }>
+      }): AsyncIterable<RunEvent> {
+        await context.runTask?.({
+          taskId: "task_codex_delegated",
+          targetAgentId: "codex",
+          title: "Ask Codex",
+          instruction: "Use Codex for this delegated task.",
+          expectedOutput: "A Codex response",
+          requiredCapabilities: ["external-agent"],
+          riskLevel: "low",
+          dependsOn: [],
+        }, {
+          groupId: "group_codex_delegated",
+        })
+
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, {
+          status: "completed",
+        })
+      },
+    }
+
+    const run = runManager.createRun({
+      conversationId: "conv_codex_delegated",
+      mode: "group",
+      participantAgentIds: ["orchestrator", "codex"],
+      addressedAgentIds: [],
+      userMessage: {
+        role: "user",
+        content: "Delegate to Codex.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_codex_delegated",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const events = runManager.getEvents(run.id) ?? []
+    const started = events.find((event) => event.type === "agent.started" && event.agentId === "codex")
+    const message = events.find((event) => event.type === "message.completed" && event.agentId === "codex")
+    const agentCompleted = events.find((event) => event.type === "agent.completed" && event.agentId === "codex")
+    const completedData = agentCompleted?.data as {
+      handoffSummary?: string
+      externalSession?: { handoffSummary?: string }
+    }
+
+    expect((started?.data as { externalSession?: { scope?: string; taskId?: string } }).externalSession?.scope)
+      .toBe("delegated-task")
+    expect((started?.data as { externalSession?: { taskId?: string } }).externalSession?.taskId)
+      .toBe("task_codex_delegated")
+    expect(message?.taskId).toBe("task_codex_delegated")
+    expect(message?.parentAgentId).toBe("orchestrator")
+    expect(message?.groupId).toBe("group_codex_delegated")
+    expect((message?.data as { content?: string }).content)
+      .toContain("Codex fake adapter completed delegated task")
+    expect(completedData.handoffSummary).toContain("Codex completed delegated task \"Ask Codex\".")
+    expect(completedData.handoffSummary).not.toContain("Use Codex for this delegated task.")
+    expect(completedData.externalSession?.handoffSummary).toBe(completedData.handoffSummary)
   })
 })

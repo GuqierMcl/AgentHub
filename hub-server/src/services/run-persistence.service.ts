@@ -161,7 +161,7 @@ type RuntimeMessage = {
 };
 
 type RuntimeExternalProvider = "opencode" | "claude-code" | "codex";
-type SupportedDirectExternalProvider = "opencode" | "claude-code";
+type SupportedDirectExternalProvider = RuntimeExternalProvider;
 
 type RuntimeExternalSessionHint = {
   provider: RuntimeExternalProvider;
@@ -632,7 +632,7 @@ const EXTERNAL_CONTEXT_MAX_CHARS = 12_000;
 const EXTERNAL_CONTEXT_MAX_MESSAGE_CHARS = 4_000;
 const EXTERNAL_CONTEXT_MAX_HANDOFFS = 5;
 const SUPPORTED_DIRECT_EXTERNAL_PROVIDERS: readonly SupportedDirectExternalProvider[] =
-  ["opencode", "claude-code"];
+  ["opencode", "claude-code", "codex"];
 const runPersistenceLogger = logger.child({ module: "run-persistence" });
 
 export class RunPersistenceService {

@@ -11,6 +11,7 @@ servicesRouter.get("/runtime/services/status", (c: Context) => {
   const runManager = c.get("runManager") as ExternalAgentRunSummarySource | undefined
   return c.json(createRuntimeServicesStatus(getDefaultOpenCodeServer(), {
     externalAgents: {
+      codex: runManager?.getExternalAgentRunSummary("codex"),
       "claude-code": runManager?.getExternalAgentRunSummary("claude-code"),
     },
   }))

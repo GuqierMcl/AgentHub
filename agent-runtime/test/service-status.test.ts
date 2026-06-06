@@ -7,13 +7,16 @@ import { AgentRegistry } from "../src/agents"
 import { servicesRouter } from "../src/routers/services"
 import {
   ClaudeCodeAdapter,
+  CodexAdapter,
   ExternalAdapterExecutor,
   FakeClaudeCodeClient,
+  FakeCodexClient,
   ManagedOpenCodeServer,
   RunManager,
   createRuntimeServicesStatus,
   createDefaultRuntimeToolRegistry,
   type ClaudeCodePromptRequest,
+  type CodexPromptRequest,
   type RunEvent,
 } from "../src/runtime"
 import type { ProviderService } from "../src/provider"
@@ -69,11 +72,39 @@ function attachClaudeCodeClient(runManager: RunManager, client: FakeClaudeCodeCl
   })
 }
 
+function attachCodexClient(runManager: RunManager, client: FakeCodexClient): void {
+  ;(runManager as any).externalAdapterExecutor = new ExternalAdapterExecutor({
+    registry: {
+      getAdapter(provider: string) {
+        return provider === "codex" ? new CodexAdapter(client) : null
+      },
+    },
+  })
+}
+
 class WaitingClaudeCodeClient extends FakeClaudeCodeClient {
   async *streamPrompt(request: ClaudeCodePromptRequest) {
     yield {
       type: "message.delta" as const,
       delta: "Claude Code is still working.",
+    }
+
+    await new Promise<void>((resolve) => {
+      if (request.signal.aborted) {
+        resolve()
+        return
+      }
+
+      request.signal.addEventListener("abort", () => resolve(), { once: true })
+    })
+  }
+}
+
+class WaitingCodexClient extends FakeCodexClient {
+  async *streamPrompt(request: CodexPromptRequest) {
+    yield {
+      type: "message.delta" as const,
+      delta: "Codex is still working.",
     }
 
     await new Promise<void>((resolve) => {
@@ -116,8 +147,8 @@ describe("runtime service status", () => {
     expect(body.services).toContainEqual(expect.objectContaining({
       id: "codex",
       label: "Codex",
-      status: "not_integrated",
-      implemented: false,
+      status: "idle",
+      implemented: true,
     }))
     expect(body.services).toContainEqual(expect.objectContaining({
       id: "claude-code",
@@ -178,13 +209,41 @@ describe("runtime service status", () => {
     })
   })
 
+  test("reports Codex as running when the runtime has an active Codex run", async () => {
+    const server = {
+      getStatus: () => ({
+        status: "idle" as const,
+        mode: "managed-by-runtime" as const,
+        activeWorkspaceCount: 0,
+        pendingWorkspaceCount: 0,
+      }),
+    }
+
+    const status = createRuntimeServicesStatus(server, {
+      externalAgents: {
+        codex: {
+          activeRunCount: 1,
+        },
+      },
+    })
+
+    expect(status.services.find((service) => service.id === "codex")).toMatchObject({
+      status: "running",
+      implemented: true,
+      details: expect.objectContaining({
+        activeRunCount: 1,
+        clientMode: "sdk",
+      }),
+    })
+  })
+
   test("services router forwards active Claude Code run summaries from RunManager", async () => {
     const app = new Hono()
     app.use("*", async (c: Context, next: Next) => {
       c.set("runManager", {
         getExternalAgentRunSummary(agentId: string) {
           return {
-            activeRunCount: agentId === "claude-code" ? 1 : 0,
+            activeRunCount: agentId === "claude-code" || agentId === "codex" ? 1 : 0,
           }
         },
       })
@@ -202,6 +261,12 @@ describe("runtime service status", () => {
     }
 
     expect(body.services.find((service) => service.id === "claude-code")).toMatchObject({
+      status: "running",
+      details: expect.objectContaining({
+        activeRunCount: 1,
+      }),
+    })
+    expect(body.services.find((service) => service.id === "codex")).toMatchObject({
       status: "running",
       details: expect.objectContaining({
         activeRunCount: 1,
@@ -244,6 +309,45 @@ describe("runtime service status", () => {
     await waitForTerminalRun(runManager, run.id)
 
     expect(runManager.getExternalAgentRunSummary("claude-code")).toEqual({
+      activeRunCount: 0,
+    })
+  })
+
+  test("RunManager summarizes non-terminal direct Codex runs", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    attachCodexClient(runManager, new WaitingCodexClient())
+    const rootPath = await mkdtemp(join(tmpdir(), "agent-runtime-service-status-codex-workspace-"))
+
+    const run = runManager.createRun({
+      conversationId: "conv_service_status_codex",
+      mode: "single",
+      participantAgentIds: ["codex"],
+      addressedAgentIds: ["codex"],
+      userMessage: {
+        role: "user",
+        content: "Keep working until cancelled.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_service_status_codex",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForEvent(runManager, run.id, (event) =>
+      event.type === "message.delta" && event.agentId === "codex"
+    )
+
+    expect(runManager.getExternalAgentRunSummary("codex")).toEqual({
+      activeRunCount: 1,
+    })
+
+    await runManager.cancelRun(run.id)
+    await waitForTerminalRun(runManager, run.id)
+
+    expect(runManager.getExternalAgentRunSummary("codex")).toEqual({
       activeRunCount: 0,
     })
   })

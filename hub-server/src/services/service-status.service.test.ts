@@ -31,9 +31,13 @@ describe("service status snapshot", () => {
       status: "error",
       implemented: true,
     })
+    expect(snapshot.services.find((service) => service.id === "codex")).toMatchObject({
+      status: "error",
+      implemented: true,
+    })
     expect(snapshot.services.find((service) => service.id === "claude-code")).toMatchObject({
-      status: "not_integrated",
-      implemented: false,
+      status: "error",
+      implemented: true,
     })
   })
 })
@@ -116,8 +120,14 @@ describe("ServiceStatusMonitor", () => {
       {
         type: "service.status.changed",
         previousStatus: "idle",
+        serviceId: "codex",
+        status: "error",
+      },
+      {
+        type: "service.status.changed",
+        previousStatus: "idle",
         serviceId: "claude-code",
-        status: "not_integrated",
+        status: "error",
       },
     ])
   })
@@ -158,8 +168,8 @@ function createRuntimeResponse(
             id: "codex",
             label: "Codex",
             kind: "external-agent",
-            status: "not_integrated",
-            implemented: false,
+            status: "idle",
+            implemented: true,
             checkedAt: "2026-06-03T00:00:00.000Z",
           },
           {

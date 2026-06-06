@@ -181,9 +181,9 @@ function mergeExternalServices(
   const byId = new Map(services.map((service) => [service.id, service]))
   return [
     byId.get("opencode") ?? createOpenCodeRuntimeUnavailableStatus(checkedAt),
-    byId.get("codex") ?? createPlaceholderStatus("codex", "Codex", checkedAt),
+    byId.get("codex") ?? createCodexRuntimeUnavailableStatus(checkedAt),
     byId.get("claude-code") ??
-      createPlaceholderStatus("claude-code", "Claude Code", checkedAt),
+      createClaudeCodeRuntimeUnavailableStatus(checkedAt),
   ]
 }
 
@@ -193,8 +193,8 @@ function createRuntimeUnavailableStatus(checkedAt: string): SystemServicesStatus
     services: [
       createAgentRuntimeStatus("error", checkedAt),
       createOpenCodeRuntimeUnavailableStatus(checkedAt),
-      createPlaceholderStatus("codex", "Codex", checkedAt),
-      createPlaceholderStatus("claude-code", "Claude Code", checkedAt),
+      createCodexRuntimeUnavailableStatus(checkedAt),
+      createClaudeCodeRuntimeUnavailableStatus(checkedAt),
     ],
   }
 }
@@ -227,18 +227,31 @@ function createOpenCodeRuntimeUnavailableStatus(checkedAt: string): SystemServic
   }
 }
 
-function createPlaceholderStatus(
-  id: "codex" | "claude-code",
-  label: string,
-  checkedAt: string
-): SystemServiceStatusItem {
+function createCodexRuntimeUnavailableStatus(checkedAt: string): SystemServiceStatusItem {
   return {
-    id,
-    label,
+    id: "codex",
+    label: "Codex",
     kind: "external-agent",
-    status: "not_integrated",
-    implemented: false,
+    status: "error",
+    implemented: true,
     checkedAt,
+    details: {
+      reason: "runtime-unavailable",
+    },
+  }
+}
+
+function createClaudeCodeRuntimeUnavailableStatus(checkedAt: string): SystemServiceStatusItem {
+  return {
+    id: "claude-code",
+    label: "Claude Code",
+    kind: "external-agent",
+    status: "error",
+    implemented: true,
+    checkedAt,
+    details: {
+      reason: "runtime-unavailable",
+    },
   }
 }
 

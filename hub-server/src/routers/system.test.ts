@@ -42,8 +42,8 @@ describe("system router", () => {
                 id: "codex",
                 label: "Codex",
                 kind: "external-agent",
-                status: "not_integrated",
-                implemented: false,
+                status: "idle",
+                implemented: true,
                 checkedAt: "2026-06-03T00:00:00.000Z",
               }],
             },
@@ -75,9 +75,13 @@ describe("system router", () => {
       status: "idle",
       implemented: true,
     })
+    expect(body.services.find((service) => service.id === "codex")).toMatchObject({
+      status: "idle",
+      implemented: true,
+    })
     expect(body.services.find((service) => service.id === "claude-code")).toMatchObject({
-      status: "not_integrated",
-      implemented: false,
+      status: "error",
+      implemented: true,
     })
     expect(calls).toEqual([
       ["GET", "/health"],
@@ -107,8 +111,12 @@ describe("system router", () => {
       implemented: true,
     })
     expect(body.services.find((service) => service.id === "codex")).toMatchObject({
-      status: "not_integrated",
-      implemented: false,
+      status: "error",
+      implemented: true,
+    })
+    expect(body.services.find((service) => service.id === "claude-code")).toMatchObject({
+      status: "error",
+      implemented: true,
     })
   })
 })
