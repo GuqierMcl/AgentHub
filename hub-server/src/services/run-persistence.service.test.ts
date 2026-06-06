@@ -774,7 +774,13 @@ describe('external direct session bridge', () => {
 })
 
 describe('reply message context', () => {
-  function createRuntimeCapture() {
+  function createRuntimeCapture(settingsProvider?: () => {
+    diagnostics: {
+      includeModelStream: boolean
+      includeReasoning: boolean
+      includeRawModelChunks: boolean
+    }
+  }) {
     const calls: Array<{ method: string; path: string; body: any }> = []
     const runtimeClient = {
       forward: async (method: string, path: string, body: unknown) => {
@@ -792,6 +798,7 @@ describe('reply message context', () => {
     const service = new RunPersistenceService(
       runtimeClient as never,
       { publish: () => {} } as never,
+      settingsProvider as never,
     )
     ;(service as any).startRuntimeConsumer = () => {}
     return { calls, service }
@@ -841,6 +848,20 @@ describe('reply message context', () => {
     })
     return message
   }
+
+  it('uses output settings diagnostics when creating the runtime input', async () => {
+    const diagnostics = {
+      includeModelStream: false,
+      includeReasoning: false,
+      includeRawModelChunks: true,
+    }
+    const { calls, service } = createRuntimeCapture(() => ({ diagnostics }))
+    const conversation = await createSingleAgentConversation('Diagnostics settings')
+
+    await service.sendMessage(conversation.id, 'Use the current output settings.')
+
+    expect(calls[0]?.body.diagnostics).toEqual(diagnostics)
+  })
 
   it('persists a reply snapshot while sending reply context to the runtime input', async () => {
     const { calls, service } = createRuntimeCapture()

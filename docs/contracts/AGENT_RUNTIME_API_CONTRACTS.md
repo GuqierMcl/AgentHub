@@ -491,6 +491,7 @@ type RunInput = {
 - 单条内容超过 2000 字符时由 HubServer 截断
 - `history` 省略时默认为空数组；Runtime 不从 HubServer 数据库自行读取历史。
 - `workspace.rootPath` 只在请求体内由 HubServer 传给 Runtime 建立 workspace session；Run 查询响应只回显 `workspaceId`、`backendType` 与 `rootLabel`。
+- 真实聊天主路径中，HubServer 从 `/api/settings/diagnostics` 保存的“输出设置”读取当前值，并在每次创建 Runtime Run 时写入 `diagnostics`。浏览器的 `/api/conversations/:conversationId/messages/send` 与 regenerate 请求不直接携带 `diagnostics`。
 - `externalSessionHints` 由 HubServer 为已支持的外部 direct session 注入；当前支持 `provider = "opencode"`、`"claude-code"` 与 `"codex"`。Runtime adapter 可用该 hint 恢复 provider session，例如 Claude Code 通过 SDK `resume`、Codex 通过 SDK `resumeThread(threadId)` 传入可恢复的 provider session id。
 - `externalContext` 由 HubServer 为外部 direct run 注入 provider-aware visible context packet；当前支持 OpenCode、Claude Code 与 Codex。packet 只包含用户可见消息和 delegated handoff summary，不包含 raw RunEvent、reasoning、内部工具续跑消息或 Orchestrator 私有计划。
 
@@ -1403,7 +1404,7 @@ type RunInput = {
 | `addressedAgentIds` | 当前用户消息显式 @ 的主智能体；为空表示未显式指定 |
 | `conversationState` | HubServer 提供的会话状态快照；首版用于 Runtime 判断是否触发 `title` 系统智能体。`titleSeedUserMessage` 固定为会话第一条用户输入，供自动标题重试时使用 |
 | `workspace` | 可选的本次 Run 主工作区 snapshot；首版只支持已存在本地目录 |
-| `diagnostics` | 可选模型流追踪开关；默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk |
+| `diagnostics` | 可选模型流追踪开关；Runtime 默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk；HubServer 真实聊天 Run 会使用“输出设置”写入当前值 |
 | `externalSessionHints` | HubServer 提供的外部智能体 session 复用 hint；当前用于 OpenCode、Claude Code 与 Codex direct `conversation-visible` session 续接，缺失时 Runtime Adapter 可创建 provider session 并在 `agent.started.data.externalSession` 回传 link |
 | `externalContext` | HubServer 为外部智能体组装的用户可见上下文包；当前用于 OpenCode、Claude Code 与 Codex direct `conversation-visible` prompt 前缀，包含公共 chat 消息、delegated handoff summary、同步 cursor candidate 和预算省略信息 |
 | `pinnedMessages` | HubServer 注入的置顶消息快照；Runtime 只把它作为 prompt 上下文，不修改 pin 数据 |

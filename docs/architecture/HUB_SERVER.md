@@ -125,7 +125,7 @@ HubServer 的职责：
 - `POST /api/conversations/:conversationId/messages/send` 支持可选 `replyToMessageId`。HubServer 校验回复目标属于同一会话、是可见 chat user/assistant 消息，然后在新 user `Message` 上写入 `parentMessageId` 和 `metadataJson.replyTo` 快照；原始 text `MessagePart` 仍只保存用户正文。
 - `POST /api/conversations/:conversationId/messages/:messageId/regenerate` 支持对已完成 assistant chat 消息重新生成。HubServer 校验目标消息后，从源 Run 的 trigger user message 复制原始文本创建新 user trigger，写入 `metadataJson.regenerate`，并创建新 Run；Runtime 协议不扩展，重新生成语义由 HubServer 格式化进当前 user content 和后续 replay context。
 - 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
-- 从持久化 messages 组装 Runtime `history` 和 `RunInput`。
+- 从持久化 messages 组装 Runtime `history` 和 `RunInput`，并在创建真实聊天 Run 时读取 HubServer “输出设置”快照，将 `includeModelStream`、`includeReasoning` 和 `includeRawModelChunks` 注入 Runtime `diagnostics`。
 - 回复引用进入模型上下文时不扩展 Agent Runtime 协议。HubServer 使用统一 formatter 从持久化消息派生模型可见文本：当前触发消息、Runtime history、OpenCode external context bootstrap/delta、以及 pinned message context 都按同一规则把 `metadataJson.replyTo` 拼成引用块。这样内部智能体和外部智能体 replay 都能看到相同的回复语义，即使父消息不在当前 history/delta 窗口内。
 - 重新生成语义同样进入该 formatter：`metadataJson.regenerate` 会被格式化成“基于同一用户请求生成替代回复”的模型可见块。新 assistant message 投影时，HubServer 从 stored `Run.inputJson.regenerate` 读取源 assistant id 并写入 `Message.regeneratedFromId`，旧消息和旧事件保持不可变。
 - 创建 direct 外部智能体 Run 前，按 provider、agentId、conversation、workspace 与 `conversation-visible` scope 查询可复用外部 Session，并通过 Runtime `externalSessionHints` 注入。

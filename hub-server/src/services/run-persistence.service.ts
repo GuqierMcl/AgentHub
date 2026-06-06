@@ -247,6 +247,12 @@ type RuntimeRunInput = {
   }>;
 };
 
+type RuntimeDiagnosticsSettings = RuntimeRunInput["diagnostics"];
+
+type RunPersistenceSettingsProvider = () => {
+  diagnostics: RuntimeDiagnosticsSettings;
+};
+
 type RuntimeRunCreateResponse = {
   runId: string;
   status: RunStatus;
@@ -646,6 +652,7 @@ export class RunPersistenceService {
   constructor(
     private runtimeClient: RuntimeClient,
     private hubEventBus: HubEventBus,
+    private readonly settingsProvider: RunPersistenceSettingsProvider = loadSettings,
   ) {}
 
   async sendMessage(
@@ -967,6 +974,7 @@ export class RunPersistenceService {
       runtimeUserContent,
       history,
       addressedAgentIds,
+      this.settingsProvider().diagnostics,
       externalSessionHints,
       externalContext,
       userMessage.id,
@@ -5362,6 +5370,7 @@ function buildRuntimeRunInput(
   userContent: string,
   history: RuntimeMessage[],
   addressedAgentIds: string[],
+  diagnostics: RuntimeDiagnosticsSettings,
   externalSessionHints: RuntimeExternalSessionHint[] = [],
   externalContext: RuntimeExternalContextPacket[] = [],
   userMessageId?: string,
@@ -5399,7 +5408,7 @@ function buildRuntimeRunInput(
         ? { titleSeedUserMessage }
         : {}),
     },
-    diagnostics: loadSettings().diagnostics,
+    diagnostics,
     ...(workspace ? { workspace } : {}),
     ...(externalSessionHints.length > 0 ? { externalSessionHints } : {}),
     ...(externalContext.length > 0 ? { externalContext } : {}),
