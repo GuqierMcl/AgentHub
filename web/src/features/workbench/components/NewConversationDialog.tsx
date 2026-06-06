@@ -58,7 +58,7 @@ export function NewConversationDialog({
   const [search, setSearch] = useState("")
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
-  const [existingOpen, setExistingOpen] = useState(true)
+  const [existingOpen, setExistingOpen] = useState(false)
   const [agentsOpen, setAgentsOpen] = useState(true)
   const [workspacePath, setWorkspacePath] = useState("")
   const [pickerOpen, setPickerOpen] = useState(false)
