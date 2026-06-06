@@ -71,6 +71,7 @@ function StatusOverlay({
 export function TerminalPanel({ uid, payload }: TerminalPanelProps) {
   const xtermRef = useRef<XTermViewHandle>(null)
   const updateTabPayload = useTabStore((s) => s.updateTabPayload)
+  const closeTab = useTabStore((s) => s.closeTab)
   const terminalSettings = useTerminalSettings()
 
   useEffect(() => {
@@ -108,6 +109,12 @@ export function TerminalPanel({ uid, payload }: TerminalPanelProps) {
   }, [payload, openSession])
 
   useEffect(() => {
+    if (status === "expired") {
+      closeTab(uid)
+    }
+  }, [status, uid, closeTab])
+
+  useEffect(() => {
     return () => {
       disconnect()
       hasOpened.current = false
@@ -115,7 +122,8 @@ export function TerminalPanel({ uid, payload }: TerminalPanelProps) {
   }, [disconnect])
 
   useEffect(() => {
-    if (!payload || !sessionId || payload.sessionId === sessionId) return
+    if (!payload) return
+    if (payload.sessionId === sessionId) return
 
     updateTabPayload(uid, {
       ...payload,

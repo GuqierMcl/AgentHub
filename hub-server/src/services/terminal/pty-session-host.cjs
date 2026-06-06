@@ -47,7 +47,7 @@ const term = pty.spawn(shell, readArgs(), {
   rows: parseNumber(process.env.PTY_ROWS, 24),
   cwd,
   env: childEnv,
-  useConpty: process.platform === "win32" ? false : undefined,
+  useConpty: process.platform === "win32" ? true : undefined,
 });
 
 let closed = false;
