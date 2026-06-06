@@ -94,7 +94,7 @@ HubServer 暴露 `GET /api/system/services/status` 作为 Web 的系统服务状
 
 该接口聚合 Agent Runtime 自身健康状态、Runtime 管理的外部智能体状态，以及 HubServer 侧的未接入占位项。响应服务顺序固定为 `agent-runtime`、`opencode`、`codex`、`claude-code`。当 Agent Runtime 不可达时，接口仍返回 200，`agent-runtime` 与已实现但依赖 Runtime 的外部服务标记为 `error`，未接入服务保持 `not_integrated`，这样 Web 可以稳定渲染系统状态栏。
 
-HubServer 进程内还运行 `ServiceStatusMonitor`，默认每 7 秒复用同一套聚合逻辑观察服务状态。首次快照只建立基线；后续当某个服务的 `status` 变化时，通过全局事件总线发布 `service.status.changed`，由 Web 更新状态面板并按需追加外部智能体服务提示。
+HubServer 进程内还运行 `ServiceStatusMonitor`，默认每 7 秒复用同一套聚合逻辑观察服务状态。首次快照只建立基线；后续当某个服务的 `status` 变化时，通过全局事件总线发布 `service.status.changed`，由 Web 更新共享 service status store，并驱动左侧状态面板与聊天输入框下方的外部智能体状态栏刷新。HubServer 不决定聊天流提示，也不把服务状态事件写入会话消息或 Runtime replay。
 
 ## 规则
 

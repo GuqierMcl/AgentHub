@@ -1,13 +1,9 @@
 import { queryClient } from "@/lib/query-client"
-import type {
-  ServiceStatusValue,
-  SystemServiceStatusItem,
-} from "@/features/app-shell/api/service-status"
+import type { ServiceStatusValue, SystemServiceStatusItem } from "@/features/app-shell/api/service-status"
 import { useServiceStatusStore } from "@/features/app-shell/store/service-status-store"
 import { workbenchQueryKeys } from "@/features/workbench/api/query-keys"
 import type { RuntimeRunStatus } from "@/features/workbench/api/runtime-runs"
 import { isTerminalRunStatus, useWorkbenchStore } from "@/features/workbench/store/workbench-store"
-import type { WorkbenchTimelineServiceStatusNoticeItem } from "@/features/workbench/types"
 
 export type HubGlobalEventType =
   | "conversation.updated"
@@ -115,56 +111,6 @@ function handleServiceStatusChanged(event: HubGlobalEventEnvelope): void {
   if (!change) return
 
   useServiceStatusStore.getState().applyServiceStatusChange(change.service)
-
-  const notice = createServiceStatusNotice(event, change)
-  const conversationId = useWorkbenchStore.getState().activeConversationId
-  if (!notice || !conversationId) return
-
-  useWorkbenchStore.getState().appendServiceStatusNotice(conversationId, notice)
-}
-
-export function createServiceStatusNotice(
-  event: Pick<HubGlobalEventEnvelope, "id" | "timestamp">,
-  change: {
-    previousStatus: ServiceStatusValue
-    service: SystemServiceStatusItem
-  }
-): WorkbenchTimelineServiceStatusNoticeItem | null {
-  const { previousStatus, service } = change
-  if (!isExternalService(service)) return null
-
-  const previousAvailable = isAvailableServiceStatus(previousStatus)
-  const currentAvailable = isAvailableServiceStatus(service.status)
-  if (previousAvailable === currentAvailable) return null
-
-  if (!previousAvailable && currentAvailable) {
-    return createNotice(event, service, "started", `${service.label} · 已启动`)
-  }
-  if (service.status === "error") {
-    return createNotice(event, service, "error", `${service.label} · 服务异常`)
-  }
-  if (service.status === "not_integrated") {
-    return createNotice(event, service, "closed", `${service.label} · 已关闭`)
-  }
-
-  return null
-}
-
-function createNotice(
-  event: Pick<HubGlobalEventEnvelope, "id" | "timestamp">,
-  service: SystemServiceStatusItem & { id: "opencode" | "codex" | "claude-code" },
-  status: WorkbenchTimelineServiceStatusNoticeItem["status"],
-  text: string
-): WorkbenchTimelineServiceStatusNoticeItem {
-  return {
-    kind: "service_status_notice",
-    id: `service-status:${event.id}`,
-    serviceId: service.id,
-    serviceLabel: service.label,
-    status,
-    text,
-    time: event.timestamp,
-  }
 }
 
 function parseServiceStatusChangedData(data: Record<string, unknown>): {
@@ -235,30 +181,11 @@ function getRunStatus(value: unknown): RuntimeRunStatus | undefined {
     : undefined
 }
 
-function isAvailableServiceStatus(status: ServiceStatusValue): boolean {
-  return status === "running" || status === "starting" || status === "idle"
-}
-
 function isSystemServiceId(value: unknown): value is SystemServiceStatusItem["id"] {
   return value === "agent-runtime" ||
     value === "opencode" ||
     value === "codex" ||
     value === "claude-code"
-}
-
-function isExternalServiceId(
-  value: SystemServiceStatusItem["id"]
-): value is "opencode" | "codex" | "claude-code" {
-  return value === "opencode" || value === "codex" || value === "claude-code"
-}
-
-function isExternalService(
-  service: SystemServiceStatusItem
-): service is SystemServiceStatusItem & {
-  id: "opencode" | "codex" | "claude-code"
-  kind: "external-agent"
-} {
-  return service.kind === "external-agent" && isExternalServiceId(service.id)
 }
 
 function isServiceKind(value: unknown): value is SystemServiceStatusItem["kind"] {

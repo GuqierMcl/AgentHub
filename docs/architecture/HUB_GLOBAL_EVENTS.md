@@ -104,4 +104,4 @@ Service status 事件 payload 至少包含：
 - conversation 相关事件只触发 TanStack Query invalidate。
 - run 状态事件只更新 Zustand 中已经存在的 conversation runtime state；未打开过的 conversation 不创建本地运行态。
 - terminal Run 事件可让已打开 conversation 的列表卡片停止 spinner/progress，并 invalidate 对应 messages cache。
-- service status 事件更新 Web 的服务状态 store；外部智能体可用性边界变化可追加一条当前会话的本地 UI 提示，但不写数据库、不参与 Runtime event projection、不参与 replay。
+- service status 事件只更新 Web 的服务状态 store。左侧系统服务状态面板和聊天输入框下方的当前会话外部智能体状态栏消费该 store；该事件不得写入聊天 timeline、不得落库、不得参与 Runtime event projection 或 replay。

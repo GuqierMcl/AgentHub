@@ -23,7 +23,6 @@ import type {
   WorkbenchTimelineItem,
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelinePlanItem,
-  WorkbenchTimelineServiceStatusNoticeItem,
   WorkbenchTimelineStatus,
   WorkbenchTimelineToolItem,
 } from "../types"
@@ -77,10 +76,6 @@ type WorkbenchStore = {
     conversationId: string,
     envelopes: HubRunEventEnvelope[],
     options?: { source?: "live" | "replay" }
-  ) => void
-  appendServiceStatusNotice: (
-    conversationId: string,
-    notice: WorkbenchTimelineServiceStatusNoticeItem
   ) => void
   failRunStart: (conversationId: string, message: string, code?: string) => void
   setConnectionStatus: (conversationId: string, status: RunConnectionStatus) => void
@@ -360,25 +355,6 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         reasonKey: planFocusReasonKey,
       })
     }
-  },
-
-  appendServiceStatusNotice: (conversationId, notice) => {
-    set((state) => {
-      const current = getOrCreateState(state.conversations, conversationId)
-      if (current.timelineItems.some((item) => item.id === notice.id)) {
-        return state
-      }
-
-      return {
-        conversations: {
-          ...state.conversations,
-          [conversationId]: {
-            ...current,
-            timelineItems: [...current.timelineItems, notice],
-          },
-        },
-      }
-    })
   },
 
   failRunStart: (conversationId, message, code) => {
