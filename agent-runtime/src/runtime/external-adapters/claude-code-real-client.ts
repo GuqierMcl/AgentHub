@@ -1,6 +1,7 @@
 import {
   query,
   type CanUseTool,
+  type PermissionResult,
   type SDKMessage,
   type UserDialogRequest,
 } from "@anthropic-ai/claude-agent-sdk"
@@ -27,6 +28,8 @@ type ToolStateStore = {
   byId: Map<string, ToolState>
   byIndex: Map<number, ToolState>
 }
+
+type CanUseToolOptions = Parameters<CanUseTool>[2]
 
 export type ClaudeCodeServiceReadiness = {
   available: boolean
@@ -175,6 +178,10 @@ export class RealClaudeCodeClient implements ClaudeCodeClient {
 
   private createPermissionCallback(request: ClaudeCodePromptRequest): CanUseTool {
     return async (toolName, input, options) => {
+      if (isAskUserQuestionDialog(toolName)) {
+        return this.handleAskUserQuestionToolUse(toolName, input, options, request)
+      }
+
       if (!request.permissionHandler) {
         return {
           behavior: "deny",
@@ -215,6 +222,53 @@ export class RealClaudeCodeClient implements ClaudeCodeClient {
     }
   }
 
+  private async handleAskUserQuestionToolUse(
+    toolName: string,
+    input: Record<string, unknown>,
+    options: CanUseToolOptions,
+    request: ClaudeCodePromptRequest
+  ): Promise<PermissionResult> {
+    if (!request.questionHandler || options.signal.aborted) {
+      return {
+        behavior: "deny",
+        message: "Claude Code question bridge is not available",
+        toolUseID: options.toolUseID,
+      }
+    }
+
+    const questions = toQuestionItemsFromAskUserQuestionInput(input, options.toolUseID)
+    const answers = await request.questionHandler({
+      providerQuestionId: options.toolUseID,
+      providerToolCallId: options.toolUseID,
+      providerMetadata: {
+        toolName,
+        input: sanitizeUnknown(input),
+        ...compactRecord({
+          title: options.title,
+          displayName: options.displayName,
+          description: options.description,
+          agentID: options.agentID,
+        }),
+      },
+      questions,
+    } satisfies ClaudeCodeQuestionRequest)
+
+    if (options.signal.aborted || !answers || answers.length === 0) {
+      return {
+        behavior: "deny",
+        message: "Claude Code question request was cancelled",
+        interrupt: true,
+        toolUseID: options.toolUseID,
+      }
+    }
+
+    return {
+      behavior: "allow",
+      updatedInput: toAskUserQuestionUpdatedInput(input, questions, answers),
+      toolUseID: options.toolUseID,
+    }
+  }
+
   private async handleUserDialog(
     dialog: UserDialogRequest,
     signal: AbortSignal,
@@ -224,7 +278,10 @@ export class RealClaudeCodeClient implements ClaudeCodeClient {
       return { behavior: "cancelled" as const }
     }
 
-    const question = toQuestionItem(dialog)
+    const questions = toQuestionItemsFromAskUserQuestionInput(
+      dialog.payload,
+      dialog.toolUseID ?? "claude_code_question"
+    )
     const answers = await request.questionHandler({
       providerQuestionId: dialog.toolUseID ?? `dialog_${crypto.randomUUID()}`,
       providerToolCallId: dialog.toolUseID,
@@ -232,7 +289,7 @@ export class RealClaudeCodeClient implements ClaudeCodeClient {
         dialogKind: dialog.dialogKind,
         payload: sanitizeUnknown(dialog.payload),
       },
-      questions: [question],
+      questions,
     } satisfies ClaudeCodeQuestionRequest)
 
     return {
@@ -463,11 +520,64 @@ function isAskUserQuestionDialog(kind: string): boolean {
   return normalized === "askuserquestion"
 }
 
-function toQuestionItem(dialog: UserDialogRequest): QuestionItem {
-  const payload = dialog.payload
-  const title = getString(payload.title) ?? getString(payload.question) ?? "Claude Code question"
-  const body = getString(payload.body) ?? getString(payload.prompt) ?? getString(payload.message) ?? title
-  const rawOptions = Array.isArray(payload.options) ? payload.options : []
+function toQuestionItemsFromAskUserQuestionInput(
+  input: Record<string, unknown>,
+  fallbackId: string
+): QuestionItem[] {
+  const rawQuestions = Array.isArray(input.questions) ? input.questions : []
+  const questions = rawQuestions
+    .map((question, index) => toQuestionItemFromRecord(question, index))
+    .filter((question): question is QuestionItem => Boolean(question))
+
+  if (questions.length > 0) {
+    return questions
+  }
+
+  return [{
+    id: fallbackId,
+    title: truncateText(
+      getString(input.header) ?? getString(input.title) ?? getString(input.question) ?? "Claude Code question",
+      200
+    ),
+    body: truncateText(
+      getString(input.question) ??
+        getString(input.body) ??
+        getString(input.prompt) ??
+        getString(input.message) ??
+        "Claude Code needs input from the user.",
+      4000
+    ),
+    options: normalizeQuestionOptions(input.options),
+    allowCustom: true,
+    required: true,
+  }]
+}
+
+function toQuestionItemFromRecord(value: unknown, index: number): QuestionItem | null {
+  const record = asRecord(value)
+  if (!record) {
+    return null
+  }
+
+  const body = getString(record.question) ??
+    getString(record.body) ??
+    getString(record.prompt) ??
+    getString(record.message) ??
+    "Claude Code needs input from the user."
+  const title = getString(record.header) ?? getString(record.title) ?? body
+
+  return {
+    id: getString(record.id) ?? `question_${index + 1}`,
+    title: truncateText(title, 200),
+    body: truncateText(body, 4000),
+    options: normalizeQuestionOptions(record.options),
+    allowCustom: true,
+    required: true,
+  }
+}
+
+function normalizeQuestionOptions(value: unknown): QuestionItem["options"] {
+  const rawOptions = Array.isArray(value) ? value : []
   const options = rawOptions
     .map((option, index) => {
       if (typeof option === "string") {
@@ -488,21 +598,47 @@ function toQuestionItem(dialog: UserDialogRequest): QuestionItem {
         id: getString(record.id) ?? `option_${index + 1}`,
         label,
         value: getString(record.value),
-        description: getString(record.description) ?? getString(record.preview),
+        description: truncateOptionalText(getString(record.description) ?? getString(record.preview), 1000),
       }
     })
     .filter((option): option is NonNullable<typeof option> => Boolean(option))
 
+  return options.length > 0 ? options : [{
+    id: "answer",
+    label: "Answer",
+  }]
+}
+
+function toAskUserQuestionUpdatedInput(
+  input: Record<string, unknown>,
+  questions: QuestionItem[],
+  answers: NormalizedQuestionAnswer[]
+): Record<string, unknown> {
+  const answerByQuestionId = new Map(answers.map((answer) => [answer.questionId, answer]))
+  const normalizedAnswers: Record<string, string> = {}
+
+  for (const question of questions) {
+    const questionId = question.id
+    if (!questionId) {
+      continue
+    }
+    const answer = answerByQuestionId.get(questionId)
+    if (!answer) {
+      continue
+    }
+    const option = answer.optionId
+      ? question.options.find((candidate) => candidate.id === answer.optionId)
+      : undefined
+    const value = answer.answer ?? option?.value ?? option?.label
+    if (!value) {
+      continue
+    }
+    normalizedAnswers[question.body] = value
+  }
+
   return {
-    id: dialog.toolUseID ?? "claude_code_question",
-    title,
-    body,
-    options: options.length > 0 ? options : [{
-      id: "answer",
-      label: "Answer",
-    }],
-    allowCustom: true,
-    required: true,
+    ...input,
+    answers: normalizedAnswers,
   }
 }
 
@@ -537,6 +673,14 @@ function parseCompleteJson(value: string): unknown {
   } catch {
     return undefined
   }
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`
+}
+
+function truncateOptionalText(value: string | undefined, maxLength: number): string | undefined {
+  return value ? truncateText(value, maxLength) : undefined
 }
 
 function extractToolUseResults(record: Record<string, unknown>): Array<{

@@ -102,8 +102,11 @@ export type {
   ClaudeCodeSessionRequest,
 } from "./external-adapters"
 export type {
+  ExternalAgentRunSummary,
+  ExternalAgentRunSummarySource,
   RuntimeServiceStatus,
   RuntimeServiceStatusItem,
+  RuntimeServicesStatusContext,
   RuntimeServicesStatusResponse,
 } from "./service-status"
 export type {

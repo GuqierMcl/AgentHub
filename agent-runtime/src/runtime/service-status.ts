@@ -25,8 +25,22 @@ export type RuntimeServicesStatusResponse = {
   services: RuntimeServiceStatusItem[]
 }
 
+export type ExternalAgentRunSummary = {
+  activeRunCount: number
+  latestError?: string
+}
+
+export type ExternalAgentRunSummarySource = {
+  getExternalAgentRunSummary(agentId: RuntimeServiceStatusItem["id"]): ExternalAgentRunSummary
+}
+
+export type RuntimeServicesStatusContext = {
+  externalAgents?: Partial<Record<RuntimeServiceStatusItem["id"], ExternalAgentRunSummary>>
+}
+
 export function createRuntimeServicesStatus(
-  openCodeServer: Pick<ManagedOpenCodeServer, "getStatus">
+  openCodeServer: Pick<ManagedOpenCodeServer, "getStatus">,
+  context: RuntimeServicesStatusContext = {}
 ): RuntimeServicesStatusResponse {
   const checkedAt = new Date().toISOString()
   return {
@@ -34,7 +48,7 @@ export function createRuntimeServicesStatus(
     services: [
       createOpenCodeServiceStatus(openCodeServer, checkedAt),
       createPlaceholderServiceStatus("codex", "Codex", checkedAt),
-      createClaudeCodeServiceStatus(checkedAt),
+      createClaudeCodeServiceStatus(checkedAt, context.externalAgents?.["claude-code"]),
     ],
   }
 }
@@ -60,17 +74,25 @@ function createOpenCodeServiceStatus(
   }
 }
 
-function createClaudeCodeServiceStatus(checkedAt: string): RuntimeServiceStatusItem {
+function createClaudeCodeServiceStatus(
+  checkedAt: string,
+  runSummary?: ExternalAgentRunSummary
+): RuntimeServiceStatusItem {
   const readiness = getClaudeCodeReadiness()
+  const activeRunCount = runSummary?.activeRunCount ?? 0
   return {
     id: "claude-code",
     label: "Claude Code",
     kind: "external-agent",
-    status: readiness.available ? "idle" : "error",
+    status: readiness.available
+      ? activeRunCount > 0 ? "running" : "idle"
+      : "error",
     implemented: true,
     checkedAt,
     details: {
       executableSource: readiness.executableSource,
+      ...(runSummary ? { activeRunCount } : {}),
+      ...(runSummary?.latestError ? { latestError: runSummary.latestError } : {}),
       ...(readiness.executablePath ? { executablePath: readiness.executablePath } : {}),
     },
   }

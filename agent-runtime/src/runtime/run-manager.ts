@@ -124,6 +124,15 @@ type PendingSystemAgentResult<T> = {
 
 const TITLE_SYSTEM_AGENT_FLUSH_GRACE_MS = 1500
 
+function getEventTargetAgentId(event: RunEvent): string | undefined {
+  if (!event.data || typeof event.data !== "object") {
+    return undefined
+  }
+
+  const targetAgentId = (event.data as { targetAgentId?: unknown }).targetAgentId
+  return typeof targetAgentId === "string" ? targetAgentId : undefined
+}
+
 export class RunWorkspaceValidationError extends Error {
   code = "RUN_INVALID_WORKSPACE" as const
 
@@ -288,6 +297,21 @@ export class RunManager {
   getEvents(runId: string): RunEvent[] | null {
     const events = this.events.get(runId)
     return events ? [...events] : null
+  }
+
+  getExternalAgentRunSummary(agentId: string): { activeRunCount: number } {
+    let activeRunCount = 0
+    for (const run of this.runs.values()) {
+      if (isTerminalStatus(run.status)) {
+        continue
+      }
+
+      if (this.runHasActiveExternalAgent(run, agentId)) {
+        activeRunCount += 1
+      }
+    }
+
+    return { activeRunCount }
   }
 
   listPermissions(runId: string) {
@@ -540,6 +564,33 @@ export class RunManager {
       default:
         return this.mockExecutor
     }
+  }
+
+  private runHasActiveExternalAgent(run: RunRecord, agentId: string): boolean {
+    if (run.entryAgentIds.includes(agentId)) {
+      return true
+    }
+
+    const activeTaskIds = new Set<string>()
+    for (const event of this.events.get(run.id) ?? []) {
+      if (!event.taskId) {
+        continue
+      }
+
+      if (event.type === "task.started" && getEventTargetAgentId(event) === agentId) {
+        activeTaskIds.add(event.taskId)
+        continue
+      }
+
+      if (
+        (event.type === "task.completed" || event.type === "task.failed") &&
+        activeTaskIds.has(event.taskId)
+      ) {
+        activeTaskIds.delete(event.taskId)
+      }
+    }
+
+    return activeTaskIds.size > 0
   }
 
   private async executeRun(

@@ -372,7 +372,7 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
 ## 11. Question Payload
 
-`question` 是 interaction tool，不是 permission。内部 AI SDK 模型调用后 Runtime 发送 `tool.started`，随后发送 `question.requested`。外部 adapter 也可以通过 waitable external question bridge 复用同一事件组；例如 Claude Code `onUserDialog` / `AskUserQuestion` 会生成 `question.*`，而不是伪装成 `permission.*`。
+`question` 是 interaction tool，不是 permission。内部 AI SDK 模型调用后 Runtime 发送 `tool.started`，随后发送 `question.requested`。外部 adapter 也可以通过 waitable external question bridge 复用同一事件组；例如 Claude Code `onUserDialog` 或 `canUseTool("AskUserQuestion")` 会生成 `question.*`，而不是伪装成 `permission.*`。
 
 ```json
 {

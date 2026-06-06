@@ -107,10 +107,10 @@ type RuntimeServicesStatusResponse = {
 当前语义：
 
 - `opencode` 已接入，状态来自 Runtime 默认 `ManagedOpenCodeServer` 的只读快照。
-- `claude-code` 已接入，状态来自 Claude Agent SDK / executable 配置的只读 readiness；不启动 prompt、不创建 session、不触发 Claude 登录流程。
+- `claude-code` 已接入，状态来自 Claude Agent SDK / executable 配置的只读 readiness 和 Runtime 内存中的非终态 Claude Code Run 摘要；不启动 prompt、不创建 session、不触发 Claude 登录流程。
 - `codex` 当前只返回 `not_integrated` 占位，避免误导为故障。
 - OpenCode 的 `idle` 表示待命；`starting` 表示至少一个 workspace server 正在启动；`running` 表示至少一个 workspace server 已连接；`error` 表示最近一次启动或 workspace 校验失败。
-- Claude Code 的 `idle` 表示 SDK/executable 配置可用；`error` 表示后续只读 executable 探测发现阻塞。`details.executableSource` 为 `"sdk-bundled"` 或 `"env"`；`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 设置时可在 `details.executablePath` 返回该覆盖路径。
+- Claude Code 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `claude-code`；`idle` 表示 SDK/executable 配置可用且当前没有 active Claude Code Run；`error` 表示后续只读 executable 探测发现阻塞。`details.activeRunCount` 返回当前非终态 Claude Code Run 数；`details.executableSource` 为 `"sdk-bundled"` 或 `"env"`；`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 设置时可在 `details.executablePath` 返回该覆盖路径。
 - 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt、Claude 凭据或 provider 凭据。
 
 HubServer 面向 Web 的服务状态端点为 `GET /api/system/services/status`。它会先调用 Runtime `GET /health` 生成 `agent-runtime` 服务项，再调用 `GET /runtime/services/status` 合并 `opencode`、`codex`、`claude-code`：
@@ -662,7 +662,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 | `writer` | workspace 读写工具、`web_fetch`、`bash`，并隐式注入 `question` | `filesystem=write`、`shell=limited`、`network=full`、`deploy=none` | 已开放，受 `toolPermissionRules.bash` 控制 |
 | `planner` | workspace 只读工具、`web_fetch`、`bash`，并隐式注入 `question` | `filesystem=read`、`shell=limited`、`network=full`、`deploy=none` | 已开放，受 `toolPermissionRules.bash` 控制 |
 | `opencode` | 无 Runtime Tool 注入 | `filesystem=write`、`shell=limited`、`network=full`、`deploy=none` | 不注入 Runtime `bash`；外部工具由 OpenCode adapter 映射 |
-| `claude-code` | 无 Runtime Tool 注入 | `filesystem=write`、`shell=limited`、`network=full`、`deploy=none` | 不注入 Runtime `bash`；外部工具由 Claude Code adapter 映射，`canUseTool` 权限请求桥接到 AgentHub `permission.*` |
+| `claude-code` | 无 Runtime Tool 注入 | `filesystem=write`、`shell=limited`、`network=full`、`deploy=none` | 不注入 Runtime `bash`；外部工具由 Claude Code adapter 映射，普通 `canUseTool` 权限请求桥接到 AgentHub `permission.*`，`AskUserQuestion` 走 `question.*` |
 | `explore` 子智能体 | workspace 只读工具，并隐式注入 `question` | `filesystem=read`、`shell=none`、`network=none`、`deploy=none` | 未开放 |
 | `general` 子智能体 | 仅隐式 `question` | `filesystem=none`、`shell=none`、`network=none`、`deploy=none` | 未开放 |
 | `file` 子智能体 | workspace 读写工具，并隐式注入 `question` | `filesystem=write`、`shell=none`、`network=none`、`deploy=none` | 未开放 |
@@ -1889,8 +1889,8 @@ type WorkspaceRevertApplyResponse =
 - 内部 Runtime Tool 进入审批时先产生 `permission.requested` 而不产生 `tool.started`；批准后恢复工具并发送正常工具事件，拒绝后发送 `tool.failed`，错误码为 `TOOL_EXECUTION_DENIED`。
 - 外部智能体原生权限请求也复用 `permission.*`，但不表示该操作是 AgentHub Runtime Tool Catalog 工具。其 `data.data` 必须带 `externalProvider`，并可携带 `providerSessionId`、`providerPermissionId`、`permissionKind`、`permissionType`、`patterns`、`providerToolCallId`、`providerMessageId`、`providerMetadata`。`RunManager.decidePermission()` 对这类请求只 resolve external waiter，不触发 AI SDK approval continuation，也不在拒绝时合成内部 `tool.failed(TOOL_EXECUTION_DENIED)`。
 - OpenCode Phase 4D 中，当前官方 `permission.updated` 映射为 AgentHub `permission.requested`，旧 `permission.asked` 作为 provider 兼容输入继续支持；AgentHub approve 回写 OpenCode `reply: "once"`，deny 和 Run cancel 回写 `reply: "reject"`。OpenCode permission reply 失败使用 `ADAPTER_PERMISSION_REPLY_FAILED`，且不应被普通 event stream fallback 吞掉。
-- Claude Code `canUseTool` callback 映射为外部 `permission.requested`；AgentHub approve 回 SDK `{ behavior: "allow" }`，deny 回 `{ behavior: "deny" }`，Run cancel 取消 pending external waiter 并停止 active prompt。Claude Code permission reply 失败使用 `ADAPTER_PERMISSION_REPLY_FAILED` 或 `ADAPTER_PERMISSION_FAILED`。
-- `question.requested`、`question.answered`、`question.cancelled` 携带 `requestId`、`toolCallId`、`toolName = "question"`、`questions` 或 `answers/status`，并在来自模型输出上下文时携带同一 `messageId/messageIndex`。外部 adapter 可复用该协议表达外部 waitable question；Claude Code `onUserDialog` / `AskUserQuestion` 走 external question waiter，不伪装成权限请求。
+- Claude Code 普通 `canUseTool` callback 映射为外部 `permission.requested`；AgentHub approve 回 SDK `{ behavior: "allow" }`，deny 回 `{ behavior: "deny" }`，Run cancel 取消 pending external waiter 并停止 active prompt。`toolName = "AskUserQuestion"` / `ask_user_question` 是例外，必须走 `question.*` 而不是 `permission.*`。Claude Code permission reply 失败使用 `ADAPTER_PERMISSION_REPLY_FAILED` 或 `ADAPTER_PERMISSION_FAILED`。
+- `question.requested`、`question.answered`、`question.cancelled` 携带 `requestId`、`toolCallId`、`toolName = "question"`、`questions` 或 `answers/status`，并在来自模型输出上下文时携带同一 `messageId/messageIndex`。外部 adapter 可复用该协议表达外部 waitable question；Claude Code `onUserDialog` / `AskUserQuestion` 走 external question waiter，不伪装成权限请求。若 Claude Code 通过 `canUseTool("AskUserQuestion")` 请求用户输入，Runtime 回 SDK `{ behavior: "allow", updatedInput: { ...input, answers } }`。
 - `model.stream.part` 通过 `data.partType` 和 `data.part` 薄封装 AI SDK `fullStream` part；默认过滤 `raw`，除非 RunInput 设置 `diagnostics.includeRawModelChunks = true`。
 - `reasoning.started`、`reasoning.delta`、`reasoning.completed` 仅表示 provider/AI SDK 显式暴露的 reasoning/thinking 内容；默认开启，可通过 `diagnostics.includeReasoning = false` 关闭；当 reasoning 属于当前智能体输出时，应携带同一条消息的 `messageId/messageIndex`。
 - `write_plan` 的成功结果通过 `tool.completed.data.data.plan` 承载；HubServer/UI 应选择最后一个成功的 `tool.completed(toolName="write_plan")` 作为当前计划。

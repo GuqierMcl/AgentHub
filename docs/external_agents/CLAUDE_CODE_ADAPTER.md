@@ -32,8 +32,8 @@ web
 - `resume`：仅当 HubServer 提供可恢复 provider session id，且 id 不是 `pending_*` / `fake_*` 时传入。
 - `includePartialMessages: true`：允许接收底层 stream event。
 - `permissionMode: "default"`：保留 Claude Code 默认危险操作判断。
-- `canUseTool`：桥接 Claude Code 工具权限到 AgentHub permission lifecycle。
-- `onUserDialog`：桥接 Claude Code `AskUserQuestion` 类 dialog 到 AgentHub question lifecycle。
+- `canUseTool`：桥接 Claude Code 工具权限到 AgentHub permission lifecycle；当 `toolName` 是 `AskUserQuestion` / `ask_user_question` 时不进入权限审批，而是先走 AgentHub question lifecycle，用户回答后通过 SDK `{ behavior: "allow", updatedInput }` 回填答案。
+- `onUserDialog`：桥接 Claude Code `AskUserQuestion` 类 dialog 到 AgentHub question lifecycle，用作 SDK dialog control request 路径。
 - `pathToClaudeCodeExecutable`：可由 `AGENTHUB_CLAUDE_CODE_EXECUTABLE` 覆盖。
 
 SDK 还支持 `allowedTools` / `disallowedTools`。AgentHub MVP 暂不主动覆盖这些列表，默认让 Claude Code 使用用户本机配置和 SDK 默认工具集；如后续产品需要 per-run 只读/可写模式，应在本文档新增明确策略后再启用。
@@ -99,7 +99,8 @@ HubServer 只在 `agent.completed.data.status = "completed"` 且 provider 支持
 | `content_block_start(tool_use)` | `tool.started` |
 | `SDKUserMessage.message.content[]` 中的 `tool_result.tool_use_id` | `tool.completed` |
 | `system permission_denied` | `tool.failed` |
-| `canUseTool` permission callback | `permission.requested`，随后 `permission.approved` / `permission.denied` / `permission.cancelled` |
+| `canUseTool` permission callback（普通工具） | `permission.requested`，随后 `permission.approved` / `permission.denied` / `permission.cancelled` |
+| `canUseTool` 中的 `AskUserQuestion` / `ask_user_question` | `question.requested`，随后 `question.answered` / `question.cancelled`，再以 SDK `updatedInput.answers` 回传 |
 | `onUserDialog` 的 `AskUserQuestion` 类 dialog | `question.requested`，随后 `question.answered` / `question.cancelled` |
 | SDK `result` error | `ADAPTER_PROMPT_FAILED` |
 
@@ -114,7 +115,7 @@ HubServer 只在 `agent.completed.data.status = "completed"` 且 provider 支持
 
 ## 7. 权限桥接
 
-Claude Code 的 `canUseTool` 回调由 Adapter 接到 `RuntimePermissionService.stageExternalApproval()`。这不是 AgentHub Runtime Tool 审批，也不会进入 AI SDK approval continuation。
+Claude Code 的普通 `canUseTool` 回调由 Adapter 接到 `RuntimePermissionService.stageExternalApproval()`。这不是 AgentHub Runtime Tool 审批，也不会进入 AI SDK approval continuation。`AskUserQuestion` 是明确例外：SDK 可能先通过 `canUseTool("AskUserQuestion", input, { toolUseID })` 触发它，Runtime 必须把它路由到 question bridge，不得产生 `permission.*`。
 
 映射规则：
 
@@ -129,7 +130,24 @@ AgentHub approve 返回 SDK `{ behavior: "allow" }`；deny 返回 `{ behavior: "
 
 ## 8. AskUserQuestion Bridge
 
-Claude Code 执行中可能通过 SDK `onUserDialog` 请求用户输入。`ClaudeCodeAdapter` 将 `AskUserQuestion` / `ask_user_question` 类 dialog 转成 AgentHub `question.*` 事件，而不是伪装成权限请求。
+Claude Code 执行中可能通过 SDK `onUserDialog` 请求用户输入，也可能在 `canUseTool` 中以 `toolName = "AskUserQuestion"` / `ask_user_question` 出现。`ClaudeCodeAdapter` 将这两类信号都转成 AgentHub `question.*` 事件，而不是伪装成权限请求。
+
+`canUseTool` 路径下，Adapter 会把 SDK `input.questions[]` 转成 AgentHub `QuestionItem[]`。用户回答后，Runtime 返回 SDK `PermissionResult`：
+
+```ts
+{
+  behavior: "allow",
+  updatedInput: {
+    ...input,
+    answers: {
+      [questionText]: answerText
+    }
+  },
+  toolUseID
+}
+```
+
+这让 Claude Code 的 `AskUserQuestion` 原生工具继续执行，但前端看到的是 AgentHub question 卡片和 `tool.completed(toolName="question")`，不会出现权限审批卡片。
 
 事件 metadata 包含：
 
@@ -146,9 +164,11 @@ Claude Code 执行中可能通过 SDK `onUserDialog` 请求用户输入。`Claud
 `GET /runtime/services/status` 中 `claude-code` 已实现：
 
 - `implemented = true`。
-- `status = "idle"`：SDK 可用，且没有只读检查发现阻塞。
+- `status = "running"`：SDK 可用，且 Runtime 内存中至少有一个非终态 Run 正在直接执行或委派执行 `claude-code`。
+- `status = "idle"`：SDK 可用，且当前没有非终态 Claude Code Run。
 - `status = "error"`：后续如果加入 executable 探测且失败时使用。
 - `details.executableSource = "sdk-bundled" | "env"`。
+- `details.activeRunCount`：当前非终态 Claude Code Run 数。
 - `details.executablePath` 仅在 `AGENTHUB_CLAUDE_CODE_EXECUTABLE` 设置时返回。
 
 该状态检查不得启动 prompt、创建 session、写 workspace 或触发 Claude 登录流程。
@@ -169,7 +189,7 @@ AgentHub 生产发行必须显式处理：
 
 默认测试不依赖用户本机 Claude 登录状态或真实 API 凭据：
 
-- Runtime fake client 覆盖 direct/delegated stream、session hint、tool events、permission approve/deny/cancel、AskUserQuestion。
+- Runtime fake client 覆盖 direct/delegated stream、session hint、tool events、permission approve/deny/cancel、AskUserQuestion；真实 client 单测覆盖 `canUseTool("AskUserQuestion")` 不调用 permission bridge。
 - HubServer 测试覆盖 `claude-code` external session hint、direct context packet、contextBridge cursor 推进。
 - Service status 测试覆盖 `claude-code.implemented = true`。
 
@@ -183,7 +203,7 @@ AgentHub 生产发行必须显式处理：
 ## 12. 风险与待确认点
 
 - SDK message 类型较丰富，当前 event mapping 覆盖 MVP 需要的文本、tool、permission denied、result 和 user dialog；更多状态事件应按实测增量补充。
-- `onUserDialog` 的 `AskUserQuestion` payload shape 可能随 Claude Code 版本演进；当前实现做了宽松字段读取，仍需要真实 smoke 验证复杂问题表单。
+- `AskUserQuestion` 的 payload shape 可能随 Claude Code 版本演进，并可能出现在 `onUserDialog` 或 `canUseTool` 两条路径；当前实现做了宽松字段读取，仍需要真实 smoke 验证复杂问题表单。
 - Claude Code 原生配置可能直接允许某些工具执行，AgentHub 只能观察工具事件和最终 Diff，不能强制拦截所有操作。
 - 多个外部智能体或内部智能体并发编辑同一 workspace 时，仍依赖通用 Workspace Diff 的 aggregate 归因和后续冲突处理。
 - Bun compiled distribution 的 binary extraction 仍是发布前必须完成的硬化项。

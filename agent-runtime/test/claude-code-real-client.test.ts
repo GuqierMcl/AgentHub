@@ -9,6 +9,7 @@ import {
   WorkspaceDiffService,
   WorkspaceService,
   type ClaudeCodePromptEvent,
+  type ClaudeCodePromptRequest,
   type NormalizedQuestionAnswer,
 } from "../src/runtime"
 import { convertClaudeCodeSdkMessagesForTest } from "../src/runtime/external-adapters/claude-code-real-client"
@@ -71,6 +72,115 @@ function answerFirstOption(questions: { id?: string; options: Array<{ id?: strin
 }
 
 describe("Claude Code SDK event mapping", () => {
+  test("routes AskUserQuestion canUseTool callback to the question bridge", async () => {
+    const client = new RealClaudeCodeClient()
+    const abortController = new AbortController()
+    const input = {
+      questions: [{
+        question: "Which implementation approach should Claude Code use?",
+        header: "Approach",
+        options: [{
+          label: "Minimal",
+          description: "Make the smallest focused change.",
+        }, {
+          label: "Broader",
+          description: "Include nearby cleanup.",
+          preview: "Touches adjacent code.",
+        }],
+        multiSelect: false,
+      }],
+    }
+    let permissionCalls = 0
+    let bridgedRequest: unknown
+
+    const callback = (client as unknown as {
+      createPermissionCallback(request: ClaudeCodePromptRequest): (
+        toolName: string,
+        input: Record<string, unknown>,
+        options: {
+          signal: AbortSignal
+          toolUseID: string
+          title?: string
+          description?: string
+        }
+      ) => Promise<unknown>
+    }).createPermissionCallback({
+      session: {
+        provider: "claude-code",
+        agentId: "claude-code",
+        scope: "conversation-visible",
+        providerSessionId: "provider_session_question",
+        conversationId: "conv_question_callback",
+        workspaceId: "workspace_question_callback",
+        runId: "run_question_callback",
+      },
+      prompt: {
+        scope: "conversation-visible",
+        content: "Ask the user first.",
+      },
+      cwd: tmpdir(),
+      signal: abortController.signal,
+      permissionHandler: async () => {
+        permissionCalls += 1
+        return { approved: true }
+      },
+      questionHandler: async (request) => {
+        bridgedRequest = request
+        return [{
+          questionId: "question_1",
+          optionId: "option_1",
+          answer: "Minimal",
+          custom: false,
+        }]
+      },
+    })
+
+    const result = await callback("AskUserQuestion", input, {
+      signal: abortController.signal,
+      toolUseID: "toolu_question",
+      title: "Claude Code wants to ask the user a question",
+      description: "Choose an implementation approach.",
+    })
+
+    expect(permissionCalls).toBe(0)
+    expect(bridgedRequest).toEqual({
+      providerQuestionId: "toolu_question",
+      providerToolCallId: "toolu_question",
+      providerMetadata: {
+        toolName: "AskUserQuestion",
+        input,
+        title: "Claude Code wants to ask the user a question",
+        description: "Choose an implementation approach.",
+      },
+      questions: [{
+        id: "question_1",
+        title: "Approach",
+        body: "Which implementation approach should Claude Code use?",
+        options: [{
+          id: "option_1",
+          label: "Minimal",
+          description: "Make the smallest focused change.",
+        }, {
+          id: "option_2",
+          label: "Broader",
+          description: "Include nearby cleanup.",
+        }],
+        allowCustom: true,
+        required: true,
+      }],
+    })
+    expect(result).toEqual({
+      behavior: "allow",
+      updatedInput: {
+        ...input,
+        answers: {
+          "Which implementation approach should Claude Code use?": "Minimal",
+        },
+      },
+      toolUseID: "toolu_question",
+    })
+  })
+
   test("assembles streamed tool input deltas and preserves tool result content", () => {
     const events = convertClaudeCodeSdkMessagesForTest([
       {

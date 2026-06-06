@@ -998,5 +998,11 @@ describe("external adapter executor", () => {
     const message = events.find((event) => event.type === "message.completed" && event.agentId === "claude-code")
     expect((message?.data as { content?: string }).content).toContain("User chose Minimal")
     expect(events.some((event) => event.type === "question.answered")).toBe(true)
+    expect(events.some((event) => event.type.startsWith("permission."))).toBe(false)
+    expect(events.some((event) =>
+      event.type === "tool.completed" &&
+      event.toolName === "question" &&
+      event.toolCallId === "claude-code:ask_user_question"
+    )).toBe(true)
   })
 })
