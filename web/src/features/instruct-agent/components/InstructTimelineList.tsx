@@ -14,6 +14,7 @@ import type {
 } from "@/features/workbench/types"
 import type { MessageReplySnapshot } from "@/features/workbench/api/messages"
 import { getTimelineMessagePinTargetId } from "@/features/workbench/utils/message-pin-target"
+import { buildRegeneratedBranchTimelineItems } from "@/features/workbench/utils/regenerated-branch"
 import { TimelineItem } from "@/features/workbench/components/MessageItem"
 
 type InstructTimelineListProps = {

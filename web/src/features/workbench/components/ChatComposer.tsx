@@ -350,7 +350,7 @@ function ChatComposerInner({
     () => serviceStatusSnapshot
       ? getExternalAgentStatusBarItems(agentProfiles, serviceStatusSnapshot.services)
       : [],
-    [agentProfiles, serviceStatusSnapshot?.services]
+    [agentProfiles, serviceStatusSnapshot]
   )
 
   useEffect(() => {

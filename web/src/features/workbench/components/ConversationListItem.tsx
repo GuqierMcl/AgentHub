@@ -2,11 +2,11 @@ import { useState } from "react"
 import { PenIcon, PinIcon, ArchiveIcon, FolderIcon } from "lucide-react"
 
 import {
-  AgentAvatar,
   avatarPresets,
   avatarToneClassNames,
   iconNameToComponent,
-} from "@/components/agent-avatar"
+} from "@/components/agent-avatar-constants"
+import { AgentAvatar } from "@/components/agent-avatar"
 import type { AgentAvatarAgent } from "@/components/agent-avatar"
 import type { AgentAvatarTone } from "@/lib/avatar-resolve"
 import { Badge } from "@/components/ui/badge"

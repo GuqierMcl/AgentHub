@@ -51,6 +51,8 @@ const OFFICE_WORD_LEGACY_EXTENSIONS = new Set(['.doc'])
 const OFFICE_SHEET_EXTENSIONS = new Set(['.xlsx'])
 const OFFICE_SHEET_LEGACY_EXTENSIONS = new Set(['.xls'])
 
+const OFFICE_PPT_EXTENSIONS = new Set(['.pptx'])
+
 // Extension → language label mapping for text files
 const LANGUAGE_MAP: Record<string, string> = {
   '.ts': 'TypeScript',
@@ -109,7 +111,7 @@ const LANGUAGE_MAP: Record<string, string> = {
   '.editorconfig': 'EditorConfig',
 }
 
-function getDetectedKind(ext: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' | 'office-word' | 'office-sheet' | 'binary' {
+function getDetectedKind(ext: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' | 'office-word' | 'office-sheet' | 'office-ppt' | 'binary' {
   if (TEXT_EXTENSIONS.has(ext)) return 'text'
   if (IMAGE_EXTENSIONS.has(ext)) return 'image'
   if (PDF_EXTENSIONS.has(ext)) return 'pdf'
@@ -117,6 +119,7 @@ function getDetectedKind(ext: string): 'text' | 'image' | 'pdf' | 'audio' | 'vid
   if (VIDEO_EXTENSIONS.has(ext)) return 'video'
   if (OFFICE_WORD_EXTENSIONS.has(ext)) return 'office-word'
   if (OFFICE_SHEET_EXTENSIONS.has(ext)) return 'office-sheet'
+  if (OFFICE_PPT_EXTENSIONS.has(ext)) return 'office-ppt'
   return 'binary'
 }
 
@@ -149,6 +152,7 @@ function getMimeType(filePath: string): string {
   if (ext === '.doc') return 'application/msword'
   if (ext === '.xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   if (ext === '.xls') return 'application/vnd.ms-excel'
+  if (ext === '.pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
   return 'application/octet-stream'
 }
 
@@ -657,6 +661,18 @@ workspace.get('/api/conversations/:id/workspace/file', async (c: Context) => {
     if (kind === 'office-word') {
       return c.json({
         kind: 'office-word',
+        path: relativePath,
+        name,
+        mimeType,
+        size,
+        url: fileContentUrl,
+      })
+    }
+
+    // Office PPT files
+    if (kind === 'office-ppt') {
+      return c.json({
+        kind: 'office-ppt',
         path: relativePath,
         name,
         mimeType,

@@ -106,6 +106,14 @@ export type WorkspaceFilePreviewResponse =
       url: string
     }
   | {
+      kind: "office-ppt"
+      path: string
+      name: string
+      mimeType: string
+      size: number
+      url: string
+    }
+  | {
       kind: "binary"
       path: string
       name: string

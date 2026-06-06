@@ -14,6 +14,7 @@ import { MarkdownPreview } from "./preview-renderers/MarkdownPreview"
 import { ImagePreview } from "./preview-renderers/ImagePreview"
 import { PdfPreview } from "./preview-renderers/PdfPreview"
 import { WordPreview } from "./preview-renderers/WordPreview"
+import { PptxPreview } from "./preview-renderers/PptxPreview"
 import { AudioPreview } from "./preview-renderers/AudioPreview"
 import { VideoPreview } from "./preview-renderers/VideoPreview"
 import { BinaryPreview } from "./preview-renderers/BinaryPreview"
@@ -141,6 +142,8 @@ export function PreviewRenderer({ preview, onFullscreen }: PreviewRendererProps)
       return <PdfPreview url={preview.url} name={preview.name} onFullscreen={onFullscreen} />
     case "office-word":
       return <WordPreview url={preview.url} name={preview.name} onFullscreen={onFullscreen} />
+    case "office-ppt":
+      return <PptxPreview url={preview.url} name={preview.name} onFullscreen={onFullscreen} />
     case "audio":
       return <AudioPreview url={preview.url} name={preview.name} mimeType={preview.mimeType} onFullscreen={onFullscreen} />
     case "video":
