@@ -17,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { agentsApi } from "@/features/agents/api/agents"
 import { useAvatarOverrides } from "@/features/agents/hooks/use-avatar-overrides"
@@ -174,7 +175,22 @@ export function NewConversationDialog({
 
   return (
     <><Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent from="top" className="w-[700px] p-0 flex flex-col max-h-[80vh]">
+      <DialogContent
+        from="top"
+        className="w-[700px] p-0 flex flex-col max-h-[80vh]"
+        onPointerDownOutside={(e) => {
+          const target = e.target as HTMLElement
+          if (target?.closest('[data-group]') || target?.closest('[data-slot="resizable-handle"]')) {
+            e.preventDefault()
+          }
+        }}
+        onInteractOutside={(e) => {
+          const target = e.target as HTMLElement
+          if (target?.closest('[data-group]') || target?.closest('[data-slot="resizable-handle"]')) {
+            e.preventDefault()
+          }
+        }}
+      >
         <DialogHeader className="px-6 pt-6 pb-2">
           <DialogTitle>新建会话</DialogTitle>
           <DialogDescription>选择已有会话或创建新会话</DialogDescription>
@@ -230,97 +246,104 @@ export function NewConversationDialog({
           )}
         </div>
 
-        <div className="flex flex-1 min-h-0 px-6 gap-4 pb-2 overflow-hidden">
-          <ScrollArea className="flex-1 min-h-0">
-            <div className="space-y-2 pr-3">
-              <Collapsible open={existingOpen} onOpenChange={setExistingOpen}>
-                <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium cursor-pointer hover:text-foreground/80">
-                  <ChevronRightIcon className={`size-4 transition-transform ${existingOpen ? "rotate-90" : ""}`} />
-                  选择已有会话
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-1">
-                  <div className="space-y-0.5">
-                    {filteredConversations.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-2">无匹配会话</p>
-                    ) : (
-                      filteredConversations.map((conv) => (
-                        <button
-                          key={conv.id}
-                          type="button"
-                          onClick={() => handleSwitch(conv.id)}
-                          className="w-full text-left text-xs py-1.5 px-2 rounded-md hover:bg-accent transition-colors truncate"
-                        >
-                          {conv.title}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-
-              <Collapsible open={agentsOpen} onOpenChange={setAgentsOpen}>
-                <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium cursor-pointer hover:text-foreground/80">
-                  <ChevronRightIcon className={`size-4 transition-transform ${agentsOpen ? "rotate-90" : ""}`} />
-                  智能体
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-1">
-                  <div className="space-y-0.5">
-                    {filteredAgents.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-2">无智能体</p>
-                    ) : (
-                      filteredAgents.map((agent) => (
-                        <label
-                          key={agent.id}
-                          className="flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover:bg-accent"
-                        >
-                          <Checkbox
-                            checked={selectedAgentIds.includes(agent.id)}
-                            onCheckedChange={() => toggleAgent(agent.id)}
-                            size="sm"
-                          />
-                           <AgentAvatar agent={agent} override={avatarOverrides[agent.id]} size="sm" />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{agent.name}</div>
-                            <div className="text-[10px] text-muted-foreground truncate">{agent.description}</div>
-                          </div>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          </ScrollArea>
-
-          <ScrollArea className="w-[160px] shrink-0 min-w-0">
-            {selectedAgents.length > 0 ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  已选择 {selectedAgents.length} 个智能体
-                </p>
-                <div className="space-y-1">
-                  {selectedAgents.map((agent) => (
-                    <div key={agent.id} className="flex items-center justify-between gap-1 rounded-md bg-muted px-2 py-1">
-                      <span className="text-xs truncate">{agent.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => toggleAgent(agent.id)}
-                        className="shrink-0 text-muted-foreground hover:text-foreground"
-                      >
-                        <XIcon className="size-3" />
-                      </button>
+        <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0 px-6 pb-2">
+          <ResizablePanel defaultSize={65} minSize={25}>
+            <ScrollArea className="h-full min-h-0">
+              <div className="space-y-2 pr-3">
+                <Collapsible open={existingOpen} onOpenChange={setExistingOpen}>
+                  <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium cursor-pointer hover:text-foreground/80">
+                    <ChevronRightIcon className={`size-4 transition-transform ${existingOpen ? "rotate-90" : ""}`} />
+                    选择已有会话
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1">
+                    <div className="space-y-0.5">
+                      {filteredConversations.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">无匹配会话</p>
+                      ) : (
+                        filteredConversations.map((conv) => (
+                          <button
+                            key={conv.id}
+                            type="button"
+                            onClick={() => handleSwitch(conv.id)}
+                            className="w-full text-left text-xs py-1.5 px-2 rounded-md hover:bg-accent transition-colors truncate"
+                          >
+                            {conv.title}
+                          </button>
+                        ))
+                      )}
                     </div>
-                  ))}
-                </div>
-                <Badge variant="secondary" className="text-[10px]">
-                  {selectedAgentIds.length === 1 ? "单聊" : "群聊"}
-                </Badge>
+                  </CollapsibleContent>
+                </Collapsible>
+
+                <Collapsible open={agentsOpen} onOpenChange={setAgentsOpen}>
+                  <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium cursor-pointer hover:text-foreground/80">
+                    <ChevronRightIcon className={`size-4 transition-transform ${agentsOpen ? "rotate-90" : ""}`} />
+                    智能体
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1">
+                    <div className="space-y-0.5">
+                      {filteredAgents.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">无智能体</p>
+                      ) : (
+                        filteredAgents.map((agent) => (
+                          <label
+                            key={agent.id}
+                            className="flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover:bg-accent"
+                          >
+                            <Checkbox
+                              checked={selectedAgentIds.includes(agent.id)}
+                              onCheckedChange={() => toggleAgent(agent.id)}
+                              size="sm"
+                            />
+                             <AgentAvatar agent={agent} override={avatarOverrides[agent.id]} size="sm" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-medium truncate">{agent.name}</div>
+                              <div className="text-[10px] text-muted-foreground truncate">{agent.description}</div>
+                            </div>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">选择智能体开始会话</p>
-            )}
-          </ScrollArea>
-        </div>
+            </ScrollArea>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          <ResizablePanel defaultSize={35} minSize={20}>
+            <ScrollArea className="h-full min-h-0">
+              {selectedAgents.length > 0 ? (
+                <div className="space-y-2 pl-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    已选择 {selectedAgents.length} 个智能体
+                  </p>
+                  <div className="space-y-1">
+                    {selectedAgents.map((agent) => (
+                      <div key={agent.id} className="flex items-center justify-between gap-1 rounded-md bg-muted px-2 py-1">
+                        <span className="text-xs truncate">{agent.name}</span>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => toggleAgent(agent.id)}
+                          className="shrink-0 text-muted-foreground hover:text-foreground"
+                        >
+                          <XIcon className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <Badge variant="secondary" className="text-[10px]">
+                    {selectedAgentIds.length === 1 ? "单聊" : "群聊"}
+                  </Badge>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground pl-3">选择智能体开始会话</p>
+              )}
+            </ScrollArea>
+          </ResizablePanel>
+        </ResizablePanelGroup>
 
         <DialogFooter className="px-6 pb-6 pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
