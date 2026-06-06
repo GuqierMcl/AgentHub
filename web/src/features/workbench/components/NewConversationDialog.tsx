@@ -10,6 +10,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/animate-ui/components/radix/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox"
@@ -52,6 +62,7 @@ export function NewConversationDialog({
   const [agentsOpen, setAgentsOpen] = useState(true)
   const [workspacePath, setWorkspacePath] = useState("")
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [showNoWorkspaceWarning, setShowNoWorkspaceWarning] = useState(false)
 
   const agentsQuery = useQuery({
     queryKey: workbenchQueryKeys.agents.primaryEnabled,
@@ -122,7 +133,7 @@ export function NewConversationDialog({
     setPickerOpen(true)
   }, [])
 
-  const handleCreate = useCallback(async () => {
+  const doCreate = useCallback(async () => {
     if (selectedAgentIds.length === 0) {
       toast.warning("请至少选择一个智能体")
       return
@@ -167,6 +178,14 @@ export function NewConversationDialog({
       setSaving(false)
     }
   }, [selectedAgentIds, agents, workspacePath, onCreateConversation, onCreated, onOpenChange])
+
+  const handleCreate = useCallback(() => {
+    if (!workspacePath.trim()) {
+      setShowNoWorkspaceWarning(true)
+      return
+    }
+    doCreate()
+  }, [workspacePath, doCreate])
 
   const handleSwitch = useCallback((id: string) => {
     onSwitchConversation(id)
@@ -361,6 +380,21 @@ export function NewConversationDialog({
         onOpenChange={setPickerOpen}
         onSelect={(path) => setWorkspacePath(path)}
       />
+
+      <AlertDialog open={showNoWorkspaceWarning} onOpenChange={setShowNoWorkspaceWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>未选择工作空间</AlertDialogTitle>
+            <AlertDialogDescription>
+              未关联工作区时，智能体将无法访问本地文件、执行 Shell 命令及操作项目资源。是否仍要继续创建？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>返回选择</AlertDialogCancel>
+            <AlertDialogAction onClick={doCreate}>继续创建</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
