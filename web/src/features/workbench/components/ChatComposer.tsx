@@ -33,9 +33,11 @@ import {
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input"
 import { SpeechInput } from "@/components/ai-elements/speech-input"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { ArrowUpIcon } from "@/components/ui/arrow-up"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { useAvatarOverrides } from "@/features/agents/hooks/use-avatar-overrides"
 import { useServiceStatusStore } from "@/features/app-shell/store/service-status-store"
 import {
   Command,
@@ -131,18 +133,12 @@ function findMentionTrigger(value: string, caretIndex: number): MentionTrigger |
 
 function toMentionTarget(agent: ConversationAgentProfile): MentionTarget {
   return {
+    agent,
     kind: "agent",
     id: agent.id,
     label: agent.name,
     shortLabel: agent.shortName,
   }
-}
-
-function getMentionShortLabel(target: MentionTarget): string {
-  return target.shortLabel ?? Array.from(target.label || target.id)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
 }
 
 function matchesMentionTarget(target: MentionTarget, query: string): boolean {
@@ -349,6 +345,7 @@ function ChatComposerInner({
 
   const serviceStatusSnapshot = useServiceStatusStore((state) => state.snapshot)
   const initializeServiceStatus = useServiceStatusStore((state) => state.initialize)
+  const avatarOverrides = useAvatarOverrides().data?.agents ?? {}
   const externalStatusItems = useMemo(
     () => serviceStatusSnapshot
       ? getExternalAgentStatusBarItems(agentProfiles, serviceStatusSnapshot.services)
@@ -458,16 +455,15 @@ function ChatComposerInner({
                             onSelect={() => selectMentionTarget(target)}
                             value={target.id}
                           >
-                            <span
+                            <AgentAvatar
+                              agent={target.agent}
                               className={cn(
-                                "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-medium",
-                                isActive
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-muted text-foreground"
+                                "shrink-0",
+                                isActive && "ring-2 ring-primary/20"
                               )}
-                            >
-                              {getMentionShortLabel(target)}
-                            </span>
+                              override={avatarOverrides[target.id]}
+                              size="sm"
+                            />
                             <span className="min-w-0 flex-1">
                               <span className="block truncate">{target.label}</span>
                               <span
