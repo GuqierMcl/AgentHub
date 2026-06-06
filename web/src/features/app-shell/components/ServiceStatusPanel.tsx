@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo } from "react"
 import { ActivityIcon, CircleIcon, ServerCogIcon } from "lucide-react"
 
 import {
@@ -8,12 +8,8 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
-import {
-  fetchSystemServicesStatus,
-  type ServiceStatusValue,
-  type SystemServiceStatusItem,
-  type SystemServicesStatusResponse,
-} from "../api/service-status"
+import type { ServiceStatusValue, SystemServiceStatusItem } from "../api/service-status"
+import { FALLBACK_SERVICES, useServiceStatusStore } from "../store/service-status-store"
 import {
   getAggregateServiceStatus,
   getServiceStatusLabel,
@@ -25,48 +21,13 @@ type ServiceStatusPanelProps = {
   collapsed: boolean
 }
 
-const POLL_INTERVAL_MS = 7000
-
-const FALLBACK_SERVICES: SystemServiceStatusItem[] = [
-  createFallbackService("agent-runtime", "AgentRuntime", "runtime", "error", true),
-  createFallbackService("opencode", "OpenCode", "external-agent", "error", true),
-  createFallbackService("codex", "Codex", "external-agent", "not_integrated", false),
-  createFallbackService("claude-code", "Claude Code", "external-agent", "not_integrated", false),
-]
-
 export function ServiceStatusPanel({ collapsed }: ServiceStatusPanelProps) {
-  const [status, setStatus] = useState<SystemServicesStatusResponse | null>(null)
-
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const next = await fetchSystemServicesStatus(signal)
-      setStatus(next)
-    } catch {
-      setStatus({
-        checkedAt: new Date().toISOString(),
-        services: FALLBACK_SERVICES.map((service) => ({
-          ...service,
-          checkedAt: new Date().toISOString(),
-        })),
-      })
-    }
-  }, [])
+  const status = useServiceStatusStore((state) => state.snapshot)
+  const initialize = useServiceStatusStore((state) => state.initialize)
 
   useEffect(() => {
-    const controller = new AbortController()
-    const idle = window.setTimeout(() => {
-      void refresh(controller.signal)
-    }, 0)
-    const timer = window.setInterval(() => {
-      void refresh()
-    }, POLL_INTERVAL_MS)
-
-    return () => {
-      controller.abort()
-      window.clearInterval(timer)
-      window.clearTimeout(idle)
-    }
-  }, [refresh])
+    void initialize()
+  }, [initialize])
 
   const services = status?.services ?? FALLBACK_SERVICES
   const aggregateStatus = useMemo(
@@ -190,19 +151,3 @@ function getToneTextClass(tone: ServiceStatusTone): string {
   }
 }
 
-function createFallbackService(
-  id: SystemServiceStatusItem["id"],
-  label: string,
-  kind: SystemServiceStatusItem["kind"],
-  status: ServiceStatusValue,
-  implemented: boolean
-): SystemServiceStatusItem {
-  return {
-    id,
-    label,
-    kind,
-    status,
-    implemented,
-    checkedAt: new Date(0).toISOString(),
-  }
-}

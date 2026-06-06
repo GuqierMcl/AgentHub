@@ -9,6 +9,7 @@ export type HubGlobalEventType =
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled'
+  | 'service.status.changed'
 
 export type HubGlobalEventEnvelope = {
   id: string

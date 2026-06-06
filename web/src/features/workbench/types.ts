@@ -304,6 +304,7 @@ export type MentionTarget = {
   id: string
   label: string
   shortLabel?: string
+  agent: ConversationAgentProfile
 }
 
 export type ChatSubmitInput = {

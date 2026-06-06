@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -7,7 +8,7 @@ import {
   type KeyboardEvent,
 } from "react"
 import type { ChatStatus } from "ai"
-import { SquareIcon, XIcon } from "lucide-react"
+import { CircleIcon, SquareIcon, XIcon } from "lucide-react"
 
 import {
   Attachment,
@@ -32,9 +33,12 @@ import {
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input"
 import { SpeechInput } from "@/components/ai-elements/speech-input"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { ArrowUpIcon } from "@/components/ui/arrow-up"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { useAvatarOverrides } from "@/features/agents/hooks/use-avatar-overrides"
+import { useServiceStatusStore } from "@/features/app-shell/store/service-status-store"
 import {
   Command,
   CommandEmpty,
@@ -55,6 +59,10 @@ import type {
   MentionTarget,
   MessageReplySnapshot,
 } from "../types"
+import {
+  getExternalAgentStatusBarItems,
+  type ExternalAgentStatusBarItem,
+} from "../utils/external-agent-status"
 
 function AttachmentItem({
   attachment,
@@ -125,18 +133,12 @@ function findMentionTrigger(value: string, caretIndex: number): MentionTrigger |
 
 function toMentionTarget(agent: ConversationAgentProfile): MentionTarget {
   return {
+    agent,
     kind: "agent",
     id: agent.id,
     label: agent.name,
     shortLabel: agent.shortName,
   }
-}
-
-function getMentionShortLabel(target: MentionTarget): string {
-  return target.shortLabel ?? Array.from(target.label || target.id)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
 }
 
 function matchesMentionTarget(target: MentionTarget, query: string): boolean {
@@ -341,9 +343,31 @@ function ChatComposerInner({
     setMentionTarget(null)
   }, [])
 
+  const serviceStatusSnapshot = useServiceStatusStore((state) => state.snapshot)
+  const initializeServiceStatus = useServiceStatusStore((state) => state.initialize)
+  const avatarOverrides = useAvatarOverrides().data?.agents ?? {}
+  const externalStatusItems = useMemo(
+    () => serviceStatusSnapshot
+      ? getExternalAgentStatusBarItems(agentProfiles, serviceStatusSnapshot.services)
+      : [],
+    [agentProfiles, serviceStatusSnapshot?.services]
+  )
+
+  useEffect(() => {
+    void initializeServiceStatus()
+  }, [initializeServiceStatus])
+
   return (
-    <div className="grid shrink-0 gap-3 border-border bg-transparent p-3">
-      <PromptInput globalDrop multiple onSubmit={handleSubmit}>
+    <div className="grid shrink-0 gap-0 border-border bg-transparent p-3">
+      <PromptInput
+        className={cn(
+          externalStatusItems.length > 0 &&
+            "[&_[data-slot=input-group]]:rounded-b-none"
+        )}
+        globalDrop
+        multiple
+        onSubmit={handleSubmit}
+      >
         <PromptInputHeader>
           <PromptInputAttachmentsDisplay />
           {replyTo ? (
@@ -431,16 +455,15 @@ function ChatComposerInner({
                             onSelect={() => selectMentionTarget(target)}
                             value={target.id}
                           >
-                            <span
+                            <AgentAvatar
+                              agent={target.agent}
                               className={cn(
-                                "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-medium",
-                                isActive
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-muted text-foreground"
+                                "shrink-0",
+                                isActive && "ring-2 ring-primary/20"
                               )}
-                            >
-                              {getMentionShortLabel(target)}
-                            </span>
+                              override={avatarOverrides[target.id]}
+                              size="sm"
+                            />
                             <span className="min-w-0 flex-1">
                               <span className="block truncate">{target.label}</span>
                               <span
@@ -498,8 +521,70 @@ function ChatComposerInner({
           </PromptInputSubmit>
         </PromptInputFooter>
       </PromptInput>
+      <ExternalAgentStatusBar items={externalStatusItems} />
     </div>
   )
+}
+
+function ExternalAgentStatusBar({ items }: { items: ExternalAgentStatusBarItem[] }) {
+  if (items.length === 0) return null
+
+  return (
+    <div className="-mt-px flex min-h-8 min-w-0 items-center rounded-b-2xl border border-border/70 bg-input/35 px-3 text-muted-foreground text-xs">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+        {items.map((item) => (
+          <ExternalAgentStatusPill item={item} key={item.id} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ExternalAgentStatusPill({ item }: { item: ExternalAgentStatusBarItem }) {
+  return (
+    <Badge
+      aria-label={`${item.label}：${item.statusLabel}`}
+      className="max-w-full gap-1.5 border-border/60 bg-background/70 px-2 font-normal"
+      variant="outline"
+    >
+      <CircleIcon
+        className={cn(
+          "size-2 fill-current stroke-none",
+          getExternalAgentStatusDotClass(item.tone)
+        )}
+      />
+      <span className="max-w-32 truncate text-foreground/80">{item.label}</span>
+      <span className={cn("shrink-0", getExternalAgentStatusTextClass(item.tone))}>
+        {item.statusLabel}
+      </span>
+    </Badge>
+  )
+}
+
+function getExternalAgentStatusDotClass(tone: ExternalAgentStatusBarItem["tone"]): string {
+  switch (tone) {
+    case "success":
+      return "text-emerald-500"
+    case "warning":
+      return "text-amber-500"
+    case "danger":
+      return "text-destructive"
+    case "muted":
+      return "text-muted-foreground/60"
+  }
+}
+
+function getExternalAgentStatusTextClass(tone: ExternalAgentStatusBarItem["tone"]): string {
+  switch (tone) {
+    case "success":
+      return "text-emerald-600 dark:text-emerald-400"
+    case "warning":
+      return "text-amber-600 dark:text-amber-400"
+    case "danger":
+      return "text-destructive"
+    case "muted":
+      return "text-muted-foreground"
+  }
 }
 
 export function ChatComposer({ conversationId, ...rest }: ChatComposerProps) {

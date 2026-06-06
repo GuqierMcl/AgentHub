@@ -7,6 +7,7 @@ import { ConversationService } from './services/conversation.service'
 import { RuntimeClient } from './lib/runtime'
 import { RunPersistenceService } from './services/run-persistence.service'
 import { HubEventBus } from './services/hub-event-bus.service'
+import { ServiceStatusMonitor } from './services/service-status.service'
 import { TerminalService } from './services/terminal/terminal.service'
 import { extractTerminalConfig } from './services/terminal/types'
 import { loadSettings } from './routers/settings'
@@ -50,6 +51,7 @@ const runtimeClient = new RuntimeClient(config.runtimeUrl)
 const hubEventBus = new HubEventBus()
 const conversationService = new ConversationService(hubEventBus)
 const runPersistenceService = new RunPersistenceService(runtimeClient, hubEventBus)
+const serviceStatusMonitor = new ServiceStatusMonitor(runtimeClient, hubEventBus)
 const terminalService = new TerminalService(() => extractTerminalConfig(loadSettings()))
 terminalService.startCleanup()
 
@@ -68,6 +70,7 @@ async function start() {
   logger.level = config.logLevel
   fs.mkdirSync(config.dataDir, { recursive: true })
   await initDatabase(config.dbUrl)
+  serviceStatusMonitor.start()
 
   logger.info({ port: config.port, hostname: config.hostname, dataDir: config.dataDir, runtimeUrl: config.runtimeUrl }, 'Hub Server listening')
 }
@@ -79,6 +82,7 @@ start().catch((err) => {
 
 const shutdown = async () => {
   logger.info('Shutting down')
+  serviceStatusMonitor.stop()
   terminalService.shutdown()
   await closeDatabase()
   process.exit(0)
