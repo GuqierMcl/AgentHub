@@ -22,6 +22,7 @@ AI 智能体在每一轮开发前，必须先查阅与任务相关的文档。�
 | `external_agents/EXTERNAL_AGENT_ADAPTERS.md` | 外部智能体作为聊天对象接入的公共边界、Session scope、上下文、权限和事件设计 |
 | `external_agents/OPENCODE_ADAPTER.md` | OpenCode Adapter 专属设计，包括 Project/Session 映射、普通发言、权限桥接和 Diff 投影 |
 | `external_agents/CLAUDE_CODE_ADAPTER.md` | Claude Code Adapter 专属设计，包括 Claude Agent SDK、Session resume、权限和 AskUserQuestion 桥接 |
+| `external_agents/CODEX_ADAPTER.md` | Codex Adapter 专属设计，包括 SDK-first 接入、app-server 深集成、Session/权限/事件映射和 exec fallback 边界 |
 | `contracts/AGENT_RUNTIME_API_CONTRACTS.md` | Agent Runtime API 契约、Sidecar 调用与事件载荷 |
 | `contracts/RUNTIME_SSE_EVENTS.md` | Agent Runtime Run SSE 事件契约、模型流透传与 reasoning 事件 |
 | `guides/ADDING_RUNTIME_TOOLS.md` | Runtime 工具添加步骤、授权、审批、事件与测试清单 |

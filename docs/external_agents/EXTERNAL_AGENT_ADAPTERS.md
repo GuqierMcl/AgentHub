@@ -247,6 +247,8 @@ OpenCode V1 的后续阶段拆分为：
 - Phase 4C：OpenCode event stream 已接入，将文本增量、reasoning 和外部工具调用映射到 AgentHub timeline；Web 复用既有 RunEvent/message projection，不新增 OpenCode 专属渲染链路。
 - Phase 4D：OpenCode permission bridge 已接入，在 event stream 基础上桥接 OpenCode permission request，并通过现有 AgentHub permission UI 与 decision API 回写用户决定。
 
+Codex V1 设计采用 SDK-first 路线：优先通过 `@openai/codex-sdk` 接入本地 Codex agent，保持与 Claude Code SDK 和 OpenCode SDK/server client 的外部 adapter 模式一致；当 SDK 暴露的 streaming event、approval 或 question 能力不足时，下探到 Codex app-server JSON-RPC；`codex exec --json` 仅作为诊断、真实 smoke 和受限 fallback，不作为长期产品主路径。专属设计见 `docs/external_agents/CODEX_ADAPTER.md`。
+
 其他外部智能体接入时也应优先复用这些公共层：workspace diff 属于平台能力，event stream 和 permission bridge 属于 adapter 能力。
 
 ## 10. Artifact 与 Diff
@@ -315,3 +317,4 @@ Runtime 不应泄漏底层异常堆栈给 Web。外部平台错误应转换为�
 - 外部平台权限请求应桥接到 AgentHub UI。
 - 同一 workspace 目录对应同一外部 Project。
 - 外部 Session 需要按 conversation-visible 与 delegated-task 分 scope。
+- Codex 接入应走 SDK-first，app-server 作为深集成 fallback，`codex exec --json` 只保留为诊断、smoke 和受限 fallback。

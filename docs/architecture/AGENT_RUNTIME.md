@@ -302,7 +302,7 @@ Claude Code、Codex、OpenCode 等外部 Agent 平台差异，应该被封装在
 
 课题要求通过统一适配器层屏蔽 Claude Code、Codex、OpenCode 等主流 Agent 平台差异，并支持用户自建 Agent，因此 Adapter 仍然是 Agent Runtime 的关键架构点，但它只面向外部智能体。
 
-外部智能体的最新接入原则是把它们视为 AgentHub 中的可见聊天对象，而不是 AgentHub 托管的模型供应商、Skill 或 MCP 配置面板。公共外部智能体边界、Session scope、上下文 handoff、权限桥接和 Diff 投影见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`；OpenCode 专属 Project/Session 映射和事件设计见 `docs/external_agents/OPENCODE_ADAPTER.md`；Claude Code 的 SDK、Session resume、权限、`AskUserQuestion` 和 Bun compiled binary 风险见 `docs/external_agents/CLAUDE_CODE_ADAPTER.md`。
+外部智能体的最新接入原则是把它们视为 AgentHub 中的可见聊天对象，而不是 AgentHub 托管的模型供应商、Skill 或 MCP 配置面板。公共外部智能体边界、Session scope、上下文 handoff、权限桥接和 Diff 投影见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`；OpenCode 专属 Project/Session 映射和事件设计见 `docs/external_agents/OPENCODE_ADAPTER.md`；Claude Code 的 SDK、Session resume、权限、`AskUserQuestion` 和 Bun compiled binary 风险见 `docs/external_agents/CLAUDE_CODE_ADAPTER.md`；Codex 的 SDK-first、app-server fallback、`codex exec --json` fallback、Session/权限/事件映射见 `docs/external_agents/CODEX_ADAPTER.md`。
 
 ### 3.5 上下文组装
 

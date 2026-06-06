@@ -108,7 +108,7 @@ type RuntimeServicesStatusResponse = {
 
 - `opencode` 已接入，状态来自 Runtime 默认 `ManagedOpenCodeServer` 的只读快照。
 - `claude-code` 已接入，状态来自 Claude Agent SDK / executable 配置的只读 readiness 和 Runtime 内存中的非终态 Claude Code Run 摘要；不启动 prompt、不创建 session、不触发 Claude 登录流程。
-- `codex` 当前只返回 `not_integrated` 占位，避免误导为故障。
+- `codex` 当前只返回 `not_integrated` 占位，避免误导为故障；目标接入设计见 `docs/external_agents/CODEX_ADAPTER.md`。
 - OpenCode 的 `idle` 表示待命；`starting` 表示至少一个 workspace server 正在启动；`running` 表示至少一个 workspace server 已连接；`error` 表示最近一次启动或 workspace 校验失败。
 - Claude Code 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `claude-code`；`idle` 表示 SDK/executable 配置可用且当前没有 active Claude Code Run；`error` 表示后续只读 executable 探测发现阻塞。`details.activeRunCount` 返回当前非终态 Claude Code Run 数；`details.executableSource` 为 `"sdk-bundled"` 或 `"env"`；`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 设置时可在 `details.executablePath` 返回该覆盖路径。
 - 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt、Claude 凭据或 provider 凭据。
