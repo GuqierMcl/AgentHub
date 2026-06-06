@@ -287,6 +287,16 @@ export type WorkbenchTimelineRunStatusItem = {
   error?: string
 }
 
+export type WorkbenchTimelineServiceStatusNoticeItem = {
+  kind: "service_status_notice"
+  id: string
+  serviceId: "opencode" | "codex" | "claude-code"
+  serviceLabel: string
+  text: string
+  time: string
+  status: "started" | "error" | "closed"
+}
+
 export type WorkbenchTimelineItem =
   | WorkbenchTimelineChatMessageItem
   | WorkbenchTimelineTaskItem
@@ -296,6 +306,7 @@ export type WorkbenchTimelineItem =
   | WorkbenchTimelineReasoningItem
   | WorkbenchTimelinePlanItem
   | WorkbenchTimelineRunStatusItem
+  | WorkbenchTimelineServiceStatusNoticeItem
 
 export type WorkbenchMessage = WorkbenchTimelineChatMessageItem
 

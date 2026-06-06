@@ -90,9 +90,11 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 
 ## 系统服务状态
 
-HubServer 暴露 `GET /api/system/services/status` 作为 Web 的唯一系统服务状态入口。浏览器不直接访问 Agent Runtime 或 OpenCode server。
+HubServer 暴露 `GET /api/system/services/status` 作为 Web 的系统服务状态初始快照入口。浏览器不直接访问 Agent Runtime 或 OpenCode server。
 
 该接口聚合 Agent Runtime 自身健康状态、Runtime 管理的外部智能体状态，以及 HubServer 侧的未接入占位项。响应服务顺序固定为 `agent-runtime`、`opencode`、`codex`、`claude-code`。当 Agent Runtime 不可达时，接口仍返回 200，`agent-runtime` 与已实现但依赖 Runtime 的外部服务标记为 `error`，未接入服务保持 `not_integrated`，这样 Web 可以稳定渲染系统状态栏。
+
+HubServer 进程内还运行 `ServiceStatusMonitor`，默认每 7 秒复用同一套聚合逻辑观察服务状态。首次快照只建立基线；后续当某个服务的 `status` 变化时，通过全局事件总线发布 `service.status.changed`，由 Web 更新状态面板并按需追加外部智能体服务提示。
 
 ## 规则
 
@@ -139,7 +141,7 @@ HubServer 的职责：
 - 通过 `GET /api/conversations/:conversationId/artifacts/:artifactId` 提供 conversation-scoped Artifact Detail；Diff artifact 返回 current version、`ArtifactVersion.diffJson` 派生的文件摘要、bounded patch 文本、dirty baseline、runOnlyReliable、truncated 和 limitations，供 Web 右侧只读 Diff Viewer 恢复。若存在 ChangeSet，`diff.changeSet` 返回顶部归因摘要，`diff.changedFiles[]` 返回文件级 attribution。跨会话或不存在的 artifact 返回稳定 `ARTIFACT_NOT_FOUND`。
 - 通过 `POST /api/conversations/:conversationId/artifacts/:artifactId/revert/preview` 和 `/revert` 提供 conversation-scoped 完整 Run Diff 撤销。HubServer 校验 artifact 属于当前 conversation、类型为 `diff`、存在 current version、不是 `workspace.revert` 撤销记录且关联原 Run/workspace；workspace root 只从原 Run `inputJson.workspace` 读取，浏览器请求体不传本机路径。HubServer 将 source patch、changed files、baselineDirty/runOnlyReliable 等事实转发给 Agent Runtime `/runtime/workspace/revert/*`。成功撤销后，HubServer 创建系统 assistant 消息“已撤销本次工作区变更”，挂载新的 `source = "workspace.revert"` Diff Artifact、`source = "diff_apply"` ArtifactVersion，并创建新的 WorkspaceChangeSet/files，归因为 `run + aggregate`。同一 source artifact 已成功撤销时，再次 apply 返回 `already_applied` 与既有 artifact，不重复执行。
 - 将持久化后的 RunEvent 发布到进程内 event bus，供 Web 产品 SSE 订阅。
-- 通过 `GET /api/events` 发布非持久化、无 replay 的全局产品状态事件，用于会话标题、最近消息和 Run 状态等低频 UI 通知。
+- 通过 `GET /api/events` 发布非持久化、无 replay 的全局产品状态事件，用于会话标题、最近消息、Run 状态和 service status 等低频 UI 通知。
 
 `GET /api/runs/:runId/events` 使用 HubServer 本地 Run id，并返回 `event: run.event`。data 形如 `{ sequence, event }`，其中 `event.runId` 是 HubServer 本地 Run id，`event.runtimeRunId` 保留 Agent Runtime run id；完整 Runtime 原始事件仍保存在 `RunEvent.payloadJson`。Web 切回会话时先加载 `timelineRuns` 并用 live SSE 相同 projection reducer 重放产品 event envelopes，再用 `activeRun.lastEventSequence` 作为 `afterSequence` 续订。
 

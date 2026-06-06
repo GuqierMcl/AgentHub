@@ -981,6 +981,7 @@ type HubGlobalEventType =
   | "run.completed"
   | "run.failed"
   | "run.cancelled"
+  | "service.status.changed"
 
 type HubGlobalEventEnvelope = {
   id: string
@@ -997,6 +998,7 @@ type HubGlobalEventEnvelope = {
 - 服务端使用 SSE comment heartbeat 保持连接活跃。
 - Run payload 至少包含 `conversationId`、`runId`、`status`，可包含 `runtimeRunId`。
 - Conversation payload 至少包含 `conversationId`，可包含 `title`、`lastMessageId`、`lastMessageAt`、`lastMessageContent`。
+- Service status payload 至少包含 `previousStatus` 和 `service`。`service` 复用 `GET /api/system/services/status` 的单项结构；Web 使用该事件更新服务状态 store，并可把外部智能体可用性边界变化投影为当前聊天中的本地 UI 提示。
 
 ## Product Messages and Runs API
 

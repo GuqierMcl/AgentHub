@@ -415,3 +415,35 @@ describe("workbench persisted message replay", () => {
     })
   })
 })
+
+describe("workbench service status notices", () => {
+  beforeEach(() => {
+    useWorkbenchStore.setState({
+      activeConversationId: null,
+      conversations: {},
+    })
+  })
+
+  it("appends service status notices without duplicating them", () => {
+    const conversationId = "conv_service"
+    const notice = {
+      kind: "service_status_notice" as const,
+      id: "service-status:evt_1",
+      serviceId: "claude-code" as const,
+      serviceLabel: "Claude Code",
+      text: "Claude Code · 已启动",
+      time: "2026-06-06T00:00:00.000Z",
+      status: "started" as const,
+    }
+
+    useWorkbenchStore.getState().appendServiceStatusNotice(conversationId, notice)
+    useWorkbenchStore.getState().appendServiceStatusNotice(conversationId, notice)
+
+    const items = useWorkbenchStore
+      .getState()
+      .getConversationState(conversationId)
+      .timelineItems
+
+    expect(items).toEqual([notice])
+  })
+})

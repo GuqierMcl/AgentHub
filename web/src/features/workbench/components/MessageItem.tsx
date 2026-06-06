@@ -81,6 +81,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 import type { ToolUIPart } from "ai"
 
 import type {
@@ -95,6 +96,7 @@ import type {
   WorkbenchTimelineReasoningBlock,
   WorkbenchTimelineReasoningItem,
   WorkbenchTimelineRunStatusItem,
+  WorkbenchTimelineServiceStatusNoticeItem,
   WorkbenchTimelineTaskItem,
   WorkbenchTimelineToolItem,
 } from "../types"
@@ -222,8 +224,45 @@ export const TimelineItem = memo(function TimelineItem({
       return null
     case "run_status":
       return <RunStatusTimelineItem item={item} />
+    case "service_status_notice":
+      return <ServiceStatusNoticeTimelineItem item={item} />
   }
 })
+
+function ServiceStatusNoticeTimelineItem({
+  item,
+}: {
+  item: WorkbenchTimelineServiceStatusNoticeItem
+}) {
+  return (
+    <div className="flex items-center gap-3 py-1 text-muted-foreground text-xs">
+      <Separator className="min-w-8 flex-1" />
+      <Badge
+        className={cn(
+          "shrink-0 rounded-full border-border/70 bg-background px-2.5 py-0.5 font-normal",
+          getServiceNoticeToneClass(item.status)
+        )}
+        variant="outline"
+      >
+        {item.text}
+      </Badge>
+      <Separator className="min-w-8 flex-1" />
+    </div>
+  )
+}
+
+function getServiceNoticeToneClass(
+  status: WorkbenchTimelineServiceStatusNoticeItem["status"]
+): string {
+  switch (status) {
+    case "started":
+      return "text-emerald-600 dark:text-emerald-400"
+    case "error":
+      return "text-destructive"
+    case "closed":
+      return "text-muted-foreground"
+  }
+}
 
 function ChatMessageItem({
   agentProfiles,

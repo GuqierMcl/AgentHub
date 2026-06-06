@@ -12,6 +12,7 @@ import {
 import { useTabStore, type SingletonTabId } from "@/store/tab-store"
 import type { AgentSummary } from "@/features/agents/types"
 import { agentsApi } from "@/features/agents/api/agents"
+import { useServiceStatusStore } from "@/features/app-shell/store/service-status-store"
 
 import { conversationsApi } from "../api/conversations"
 import {
@@ -22,6 +23,7 @@ import { workbenchQueryKeys } from "../api/query-keys"
 import type { RuntimeRunEvent, RuntimeRunStatus } from "../api/runtime-runs"
 import { RightWorkbench } from "../right-workbench/RightWorkbench"
 import { runStreamManager } from "../runtime/run-stream-manager"
+import { createAvailableExternalServiceBaselineNotices } from "../utils/external-service-notices"
 import {
   isTerminalRunStatus,
   useWorkbenchStore,
@@ -67,8 +69,10 @@ export function WorkbenchContentLayout({
   const hydrateTimelineFromReplay = useWorkbenchStore((s) => s.hydrateTimelineFromReplay)
   const markRunSubmitted = useWorkbenchStore((s) => s.markRunSubmitted)
   const applyRuntimeEvents = useWorkbenchStore((s) => s.applyRuntimeEvents)
+  const appendServiceStatusNotice = useWorkbenchStore((s) => s.appendServiceStatusNotice)
   const failRunStart = useWorkbenchStore((s) => s.failRunStart)
   const setConversationChatSpeakers = useWorkbenchStore((s) => s.setConversationChatSpeakers)
+  const serviceStatusSnapshot = useServiceStatusStore((s) => s.snapshot)
   const hasTabsRef = useRef(false)
 
   const conversationQuery = useQuery({
@@ -162,6 +166,30 @@ export function WorkbenchContentLayout({
     hydrateTimelineFromReplay,
     messagesQuery.data,
     setConversationChatSpeakers,
+  ])
+
+  useEffect(() => {
+    if (!activeConversationId || !messagesQuery.data || !serviceStatusSnapshot) {
+      return
+    }
+
+    const notices = createAvailableExternalServiceBaselineNotices({
+      conversationId: activeConversationId,
+      agents: resolvedAgents,
+      existingItems: runtimeState?.timelineItems ?? [],
+      services: serviceStatusSnapshot.services,
+      timestamp: serviceStatusSnapshot.checkedAt,
+    })
+    for (const notice of notices) {
+      appendServiceStatusNotice(activeConversationId, notice)
+    }
+  }, [
+    activeConversationId,
+    appendServiceStatusNotice,
+    messagesQuery.data,
+    resolvedAgents,
+    runtimeState?.timelineItems,
+    serviceStatusSnapshot,
   ])
 
   const activeConversation = useMemo((): Conversation | null => {
