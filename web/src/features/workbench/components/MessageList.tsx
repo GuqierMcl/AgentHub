@@ -9,8 +9,8 @@ import type {
   ConversationAgentProfile,
   WorkbenchTimelineItem,
 } from "../types"
-import type { MessageReplySnapshot } from "../api/messages"
 import { buildRegeneratedBranchTimelineItems } from "../utils/regenerated-branch"
+import { getTimelineMessagePinTargetId } from "../utils/message-pin-target"
 import { TimelineItem } from "./MessageItem"
 import type { MessageReplySnapshot } from "../api/messages"
 

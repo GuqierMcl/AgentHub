@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 
 import type { WorkbenchTimelineChatMessageItem } from "../types"
-import { buildRegeneratedBranchTimelineItems } from "./MessageList"
+import { buildRegeneratedBranchTimelineItems } from "../utils/regenerated-branch"
 
 describe("MessageList regenerated branches", () => {
   it("folds regenerate trigger user messages into the source user message", () => {
