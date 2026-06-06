@@ -93,7 +93,7 @@ export type AgentAvatarProps = Omit<
   override?: AgentOverride | null
 }
 
-const avatarPresets: Record<string, AgentAvatarSpec> = {
+export const avatarPresets: Record<string, AgentAvatarSpec> = {
   coder: {
     icon: Code2Icon,
     initials: "CO",
@@ -153,7 +153,7 @@ const fallbackTones: AgentAvatarTone[] = [
   "teal",
 ]
 
-const avatarToneClassNames: Record<AgentAvatarTone, string> = {
+export const avatarToneClassNames: Record<AgentAvatarTone, string> = {
   amber: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
   blue: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
   emerald: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
@@ -163,7 +163,7 @@ const avatarToneClassNames: Record<AgentAvatarTone, string> = {
   violet: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
 }
 
-const iconNameToComponent: Record<string, LucideIcon> = {
+export const iconNameToComponent: Record<string, LucideIcon> = {
   bot: BotIcon,
   code2: Code2Icon,
   search: SearchIcon,

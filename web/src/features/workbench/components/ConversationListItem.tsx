@@ -1,10 +1,21 @@
 import { useState } from "react"
-import { PenIcon, PinIcon, ArchiveIcon, MessageSquareTextIcon, UsersIcon, FolderIcon } from "lucide-react"
+import { PenIcon, PinIcon, ArchiveIcon, FolderIcon } from "lucide-react"
 
+import {
+  AgentAvatar,
+  avatarPresets,
+  avatarToneClassNames,
+  iconNameToComponent,
+} from "@/components/agent-avatar"
+import type { AgentAvatarAgent } from "@/components/agent-avatar"
+import type { AgentAvatarTone } from "@/lib/avatar-resolve"
 import { Badge } from "@/components/ui/badge"
 import { InfiniteLinearProgress } from "@/components/ui/infinite-linear-progress"
 import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
+import { buildAgentAvatarImageUrl } from "@/lib/avatar-image-url"
+import { resolveInitials, hashAgentSeed } from "@/lib/avatar-resolve"
+import type { AgentOverride } from "@/features/agents/types"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -29,6 +40,7 @@ type ConversationListItemProps = {
   conversation: ConversationListItemType
   selected: boolean
   collapsed?: boolean
+  overrides?: Record<string, AgentOverride>
   onSelect: (conversationId: string) => void
   onPin: (conversationId: string, pinned: boolean) => void
   onArchive: (conversationId: string, archived: boolean) => void
@@ -55,10 +67,138 @@ function formatTime(dateStr: string): string {
   return d.toLocaleDateString("zh-CN", { month: "short", day: "numeric" })
 }
 
+function buildAgent(id: string): AgentAvatarAgent {
+  return { id, name: id, shortName: id.slice(0, 2).toUpperCase() }
+}
+
+const fallbackTones: AgentAvatarTone[] = [
+  "violet", "blue", "emerald", "rose", "amber", "teal",
+]
+
+function MiniGridAvatar({
+  agent,
+  override,
+}: {
+  agent: AgentAvatarAgent
+  override?: AgentOverride | null
+}) {
+  if (override?.source === "image") {
+    return (
+      <div className="flex size-full items-center justify-center overflow-hidden rounded-full bg-muted">
+        <img
+          src={buildAgentAvatarImageUrl(agent.id, override.file.relativePath)}
+          alt={agent.name}
+          className="size-full object-cover"
+        />
+      </div>
+    )
+  }
+
+  if (override?.source === "icon") {
+    const IconComp = iconNameToComponent[override.icon]
+    if (IconComp) {
+      return (
+        <div className={cn("flex size-full items-center justify-center rounded-full", avatarToneClassNames[override.tone])}>
+          <IconComp className="size-3/5" />
+        </div>
+      )
+    }
+  }
+
+  if (override?.source === "initials") {
+    return (
+      <div className={cn("flex size-full items-center justify-center rounded-full", avatarToneClassNames[override.tone])}>
+        <span className="text-[9px] font-semibold leading-none">{override.text.slice(0, 2).toUpperCase()}</span>
+      </div>
+    )
+  }
+
+  const preset = avatarPresets[agent.id.toLowerCase()]
+
+  if (preset?.kind === "image") {
+    return (
+      <div className={cn("flex size-full items-center justify-center overflow-hidden rounded-full", avatarToneClassNames[preset.tone])}>
+        <img src={preset.src} alt={agent.name} className="size-full object-cover" />
+      </div>
+    )
+  }
+
+  if (preset?.kind === "icon") {
+    return (
+      <div className={cn("flex size-full items-center justify-center rounded-full", avatarToneClassNames[preset.tone])}>
+        <preset.icon className="size-3/5" />
+      </div>
+    )
+  }
+
+  const initials = resolveInitials(agent)
+  const tone = fallbackTones[hashAgentSeed(agent) % fallbackTones.length]
+
+  return (
+    <div className={cn("flex size-full items-center justify-center rounded-full", avatarToneClassNames[tone])}>
+      <span className="text-[9px] font-semibold leading-none">{initials}</span>
+    </div>
+  )
+}
+
+function ConversationListItemAvatar({
+  conversation,
+  overrides,
+}: {
+  conversation: ConversationListItemType
+  overrides?: Record<string, AgentOverride>
+}) {
+  const agentIds = conversation.agents.map((a) => a.agentId)
+  const count = agentIds.length
+
+  if (count === 1) {
+    return (
+      <div className="flex size-9 items-center justify-center shrink-0">
+        <AgentAvatar
+          agent={buildAgent(agentIds[0])}
+          size="default"
+          override={overrides?.[agentIds[0]]}
+        />
+      </div>
+    )
+  }
+
+  const cols = count <= 4 ? 2 : 3
+  const rows = count <= 2 ? 1 : count <= 4 ? 2 : count <= 6 ? 2 : 3
+  const overflow = count > 9 ? count - 8 : 0
+  const displayCount = overflow ? 8 : Math.min(count, cols * rows)
+
+  return (
+    <div className="size-9 shrink-0 overflow-hidden rounded-lg">
+      <div
+        className="grid size-full"
+        style={{
+          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          gridTemplateRows: `repeat(${rows}, 1fr)`,
+        }}
+      >
+        {agentIds.slice(0, displayCount).map((id) => (
+          <div key={id} className="flex items-center justify-center overflow-hidden p-px">
+            <MiniGridAvatar agent={buildAgent(id)} override={overrides?.[id]} />
+          </div>
+        ))}
+        {overflow > 0 && (
+          <div className="flex items-center justify-center overflow-hidden p-px">
+            <div className="flex size-full items-center justify-center rounded-full bg-muted text-[8px] font-semibold text-muted-foreground">
+              +{overflow}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function ConversationListItemView({
   collapsed = false,
   conversation,
   selected,
+  overrides,
   onSelect,
   onPin,
   onArchive,
@@ -97,13 +237,7 @@ export function ConversationListItemView({
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(conversation.id) } }}
           >
             <div className="flex min-w-0 gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-muted shrink-0">
-                {isGroup ? (
-                  <UsersIcon className="size-4 text-muted-foreground" />
-                ) : (
-                  <MessageSquareTextIcon className="size-4 text-muted-foreground" />
-                )}
-              </div>
+              <ConversationListItemAvatar conversation={conversation} overrides={overrides} />
               <span className="flex min-w-0 flex-col gap-1 flex-1 pr-14">
                 <span className="flex min-w-0 items-center gap-2 pr-5">
                   {isPinned && (

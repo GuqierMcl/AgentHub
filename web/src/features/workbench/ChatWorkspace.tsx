@@ -15,6 +15,7 @@ import { ConversationSidebar } from "./components/ConversationSidebar"
 import { NewConversationDialog } from "./components/NewConversationDialog"
 import { WorkbenchContentLayout } from "./components/WorkbenchContentLayout"
 import { conversationsApi } from "./api/conversations"
+import { useAvatarOverrides } from "@/features/agents/hooks/use-avatar-overrides"
 import { workbenchQueryKeys } from "./api/query-keys"
 import { runStreamManager } from "./runtime/run-stream-manager"
 import { isTerminalRunStatus, useWorkbenchStore } from "./store/workbench-store"
@@ -58,6 +59,8 @@ export function ChatWorkspace() {
     [runtimeListOverlaySnapshot]
   )
   const previousActiveConversationIdRef = useRef<string | null>(null)
+  const { data: avatarManifest } = useAvatarOverrides()
+  const overrides = avatarManifest?.agents ?? {}
   const [newDialogOpen, setNewDialogOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<ConversationListItem | null>(null)
   const [renameTitle, setRenameTitle] = useState("")
@@ -217,6 +220,7 @@ export function ChatWorkspace() {
         conversations={sidebarConversations}
         loading={conversationsQuery.isLoading}
         activeConversationId={activeConversationId}
+        overrides={overrides}
         onSelectConversation={handleSelectConversation}
         onAdd={() => setNewDialogOpen(true)}
         onPin={handlePin}

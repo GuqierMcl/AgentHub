@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
+import type { AgentOverride } from "@/features/agents/types"
 import type { ConversationListDisplayItem as ConversationItem } from "../types"
 import { ConversationListItemView } from "./ConversationListItem"
 
@@ -14,6 +15,7 @@ type ConversationSidebarProps = {
   conversations: ConversationItem[]
   loading?: boolean
   activeConversationId: string | null
+  overrides?: Record<string, AgentOverride>
   onSelectConversation: (conversationId: string) => void
   onAdd: () => void
   onPin: (conversationId: string, pinned: boolean) => void
@@ -25,6 +27,7 @@ export function ConversationSidebar({
   conversations,
   loading,
   activeConversationId,
+  overrides,
   onSelectConversation,
   onAdd,
   onPin,
@@ -93,8 +96,9 @@ export function ConversationSidebar({
               <ConversationListItemView
                 conversation={conversation}
                 key={conversation.id}
-                onSelect={onSelectConversation}
                 selected={conversation.id === activeConversationId}
+                overrides={overrides}
+                onSelect={onSelectConversation}
                 onPin={onPin}
                 onArchive={onArchive}
                 onRename={onRename}
