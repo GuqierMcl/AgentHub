@@ -30,7 +30,7 @@ const TEMPLATE_PROMPT = `我想创建一个新的智能体，请根据下面信�
 7. 其他偏好：`
 
 export function useInstructAgentSession() {
-  const conversationIdRef = useRef(`instruct-${crypto.randomUUID()}`)
+  const conversationId = useMemo(() => `instruct-${crypto.randomUUID()}`, [])
   const streamManagerRef = useRef(new InstructStreamManager())
   const receivedEventIdsRef = useRef<Set<string>>(new Set())
   const hasUserEditedDraftRef = useRef(false)
@@ -78,11 +78,20 @@ export function useInstructAgentSession() {
   }, [])
 
   useEffect(() => {
-    void loadInitialDraft()
+    const cancelled = { current: false }
+    const streamManager = streamManagerRef.current
+    instructRunsApi.lastPrompt().then((result) => {
+      if (cancelled.current || hasUserEditedDraftRef.current) return
+      setDraftState(result.prompt?.trim() || TEMPLATE_PROMPT)
+    }).catch(() => {
+      if (cancelled.current || hasUserEditedDraftRef.current) return
+      setDraftState(TEMPLATE_PROMPT)
+    })
     return () => {
-      streamManagerRef.current.disconnect()
+      cancelled.current = true
+      streamManager.disconnect()
     }
-  }, [loadInitialDraft])
+  }, [])
 
   const setDraft = useCallback((value: string) => {
     hasUserEditedDraftRef.current = true
@@ -139,7 +148,7 @@ export function useInstructAgentSession() {
 
     try {
       const response = await instructRunsApi.create({
-        conversationId: conversationIdRef.current,
+        conversationId,
         userMessage: {
           role: "user",
           content: normalizedContent,
@@ -178,7 +187,7 @@ export function useInstructAgentSession() {
         requestError?.code
       )
     }
-  }, [appendLocalRunStatusItem, handleRuntimeEvents, timelineItems, updateActiveRunId, updateRunStatus])
+  }, [appendLocalRunStatusItem, conversationId, handleRuntimeEvents, timelineItems, updateActiveRunId, updateRunStatus])
 
   const answerQuestion = useCallback(async (
     runId: string,
@@ -228,7 +237,7 @@ export function useInstructAgentSession() {
   }, [loadInitialDraft, updateActiveRunId, updateRunStatus])
 
   return useMemo(() => ({
-    conversationId: conversationIdRef.current,
+    conversationId,
     templatePrompt: TEMPLATE_PROMPT,
     draft,
     timelineItems,
@@ -246,6 +255,7 @@ export function useInstructAgentSession() {
     answerQuestion,
     cancel,
     connectionStatus,
+    conversationId,
     draft,
     reset,
     runStatus,
