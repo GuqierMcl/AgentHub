@@ -208,7 +208,7 @@ Runtime 还维护一份系统默认模型设置，持久化在 `config.dataDir/s
 
 Runtime 还支持独立的系统智能体层，用于自动执行不属于用户可见主智能体和隐藏子智能体的维护任务。首版系统智能体为 `title`：在会话仍需要自动命名时触发，优先使用系统默认模型生成短标题；未配置系统默认模型时，保留继承当前 Run 入口智能体模型快照的兼容行为。标题只使用会话第一条用户输入；若首次自动标题错过且 `titleSource` 仍为 `default`，后续 Run 可通过 `conversationState.titleSeedUserMessage` 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即在同一条 Run SSE 中输出 `system_agent.completed`；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。若模型标题没有赶上或生成失败，Runtime 会在 `run.completed` 前输出一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务。Runtime 不直接更新会话标题；HubServer 消费该事件并在标题未被用户手动修改时落库。
 
-系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`。`AiSdkExecutor` 和 `OrchestratorExecutor` 都从 `AgentDefinition.systemPrompt` 读取提示词，再追加运行态上下文、任务信息、可用工具和会话参与者等执行说明。普通主智能体不会看到 `internal` 工具；`orchestrator` 通过专用执行路径显式开启 `includeInternal=true`，因此只它能看到 `write_plan` 和 `run_task`。
+系统预设主智能体的系统提示词集中维护在 `agent-runtime/src/agents/preset-agent-prompts.ts`。这些提示词应明确职责边界、性格特点和 IM 群成员式回复风格，使主智能体像真实协作成员一样发言，而不是把自己表述为后台工具或泛化机器人。`AiSdkExecutor` 和 `OrchestratorExecutor` 都从 `AgentDefinition.systemPrompt` 读取提示词，再追加运行态上下文、任务信息、可用工具和会话参与者等执行说明。普通主智能体不会看到 `internal` 工具；`orchestrator` 通过专用执行路径显式开启 `includeInternal=true`，因此只它能看到 `write_plan` 和 `run_task`。
 
 每个 Runtime Run 创建后会生成一次 `RuntimeEnvironmentSnapshot`，并追加进 AI SDK 执行器的 system prompt。该快照只用于模型上下文，不进入 Runtime HTTP API、HubServer API 或前端 SSE/消息投影。
 

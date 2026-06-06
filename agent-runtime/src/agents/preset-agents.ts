@@ -138,7 +138,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "opencode",
     name: "OpenCode",
-    description: "外部编码智能体入口，通过 OpenCode SDK / workspace server 在当前 workspace 中协作执行代码任务。",
+    description: "开源终端编码助手，擅长按本机 OpenCode 配置阅读项目、编辑文件、运行命令并协助完成工程任务。",
     tier: "primary",
     origin: "external",
     visibility: "visible",
@@ -166,7 +166,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "claude-code",
     name: "Claude Code",
-    description: "外部编码智能体入口，通过 Claude Agent SDK 在当前 workspace 中协作执行代码任务。",
+    description: "Anthropic 的命令行编码助手，擅长理解大型代码库、重构实现、调试问题和处理需要细致推理的工程任务。",
     tier: "primary",
     origin: "external",
     visibility: "visible",
@@ -194,7 +194,7 @@ export const presetAgents: AgentDefinition[] = [
   {
     id: "codex",
     name: "Codex",
-    description: "外部编码智能体入口，通过 Codex SDK 在当前 workspace 中协作执行代码任务。",
+    description: "OpenAI 的本地编码代理，擅长在当前 workspace 中规划修改、编辑代码、运行验证并解释变更结果。",
     tier: "primary",
     origin: "external",
     visibility: "visible",
