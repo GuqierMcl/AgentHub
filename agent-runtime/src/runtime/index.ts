@@ -34,6 +34,12 @@ export {
   CapabilityScopeSchema,
   CapabilityWorkspaceSchema,
 } from "./capabilities"
+export {
+  DEFAULT_MAX_SKILL_BODY_CHARS,
+  DEFAULT_MAX_SKILL_COUNT,
+  DEFAULT_MAX_TOTAL_SKILL_BODY_CHARS,
+  SkillContentService,
+} from "./skill-content"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
@@ -133,8 +139,14 @@ export type {
   CapabilityCacheMetadata,
   McpServerCapabilitySummary,
   McpTransport,
+  SkillCapabilityLookup,
   SkillCapabilitySummary,
 } from "./capabilities"
+export type {
+  ResolvedSkillContent,
+  SkillContentResolution,
+  SkillContentResolveRequest,
+} from "./skill-content"
 export type {
   ExternalAgentRunSummary,
   ExternalAgentRunSummarySource,

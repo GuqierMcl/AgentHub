@@ -45,6 +45,10 @@ export type SkillCapabilitySummary = {
   warnings: string[]
 }
 
+export type SkillCapabilityLookup = SkillCapabilitySummary & {
+  filePath: string
+}
+
 export type McpServerCapabilitySummary = {
   id: string
   name: string
@@ -157,6 +161,30 @@ export class CapabilityDiscoveryService {
   async refresh(input: CapabilityDiscoveryRequest = {}): Promise<CapabilityDiscoveryResponse> {
     const request = CapabilityDiscoveryRequestSchema.parse(input)
     return this.discoverWithCache(request, { forceRefresh: true })
+  }
+
+  async listSkillLookups(input: CapabilityDiscoveryRequest = {}): Promise<SkillCapabilityLookup[]> {
+    const request = CapabilityDiscoveryRequestSchema.parse(input)
+    if ((request.scope === "workspace" || request.scope === "all") && !request.workspace) {
+      throw new CapabilityDiscoveryError(
+        "CAPABILITY_WORKSPACE_REQUIRED",
+        "Workspace discovery requires an explicit workspace snapshot.",
+      )
+    }
+
+    const roots: SkillRoot[] = []
+    if (request.scope === "global" || request.scope === "all") {
+      roots.push(...this.filterSkillRoots(this.globalSkillRoots(), request.sources))
+    }
+    if ((request.scope === "workspace" || request.scope === "all") && request.workspace) {
+      roots.push(...this.filterSkillRoots(this.workspaceSkillRoots(request.workspace.rootPath), request.sources))
+    }
+
+    const lookups: SkillCapabilityLookup[] = []
+    for (const root of roots) {
+      lookups.push(...await this.discoverSkillLookups(root))
+    }
+    return sortById(lookups)
   }
 
   getStatus(checkedAt = new Date().toISOString()): CapabilityDiscoveryStatusItem {
@@ -371,6 +399,29 @@ export class CapabilityDiscoveryService {
         if (!existsSync(skillFile)) continue
         items.push(await this.readSkill(root, skillName, skillFile))
       }
+    }
+    return items
+  }
+
+  private async discoverSkillLookups(root: SkillRoot): Promise<SkillCapabilityLookup[]> {
+    if (!existsSync(root.directory)) return []
+
+    let entries: StringDirent[]
+    try {
+      entries = await readdir(root.directory, { withFileTypes: true })
+    } catch {
+      return []
+    }
+
+    const items: SkillCapabilityLookup[] = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const skillFile = join(root.directory, entry.name, "SKILL.md")
+      if (!existsSync(skillFile)) continue
+      items.push({
+        ...await this.readSkill(root, entry.name, skillFile),
+        filePath: skillFile,
+      })
     }
     return items
   }
