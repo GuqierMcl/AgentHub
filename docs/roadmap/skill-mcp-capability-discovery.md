@@ -209,6 +209,9 @@ type RuntimeCapabilityDiscoveryResponse = {
 - Skill 正文只在 Run prompt assembly 阶段按需读取，且必须限制长度、解析相对引用、禁止执行内联 shell。
 - Skill 注入事件可作为诊断或 raw RunEvent 输出，但不应暴露完整 Skill 正文给普通聊天消息。
 - 用户自定义 agent 选择 workspace Skill 时需要明确 trust 提示。
+- Phase 4A 先实现 Runtime-only 的 global Skill 注入闭环。
+- 用户自定义 agent 的 workspace Skill 注入等待 workspace trust contract。
+- Runtime 诊断事件只返回 Skill 元数据，不返回正文。
 
 ### 阶段 5：MCP tool 受控执行
 
@@ -238,6 +241,7 @@ type RuntimeCapabilityDiscoveryResponse = {
 - 2026-06-07：完成可行性分析，确认第一阶段范围为只读发现并暴露 HubServer API。
 - 2026-06-07：创建本路线图，锁定全局和 workspace Skill 来源兼容矩阵。
 - 2026-06-07：Phase 2 进入实现收尾，目标是 Runtime 内存缓存、强制刷新 API 和 `capability-discovery` 服务状态。
+- 2026-06-07：Phase 4A 进入执行，目标是 Runtime-only global Skill 注入；workspace Skill 注入等待 trust contract 和前端确认流。
 
 ## 已完成
 
@@ -271,3 +275,4 @@ type RuntimeCapabilityDiscoveryResponse = {
 - 2026-06-07：新增路线图，覆盖只读发现、API、缓存、展示、Skill 注入、MCP 执行、外部 adapter 摘要和治理阶段。
 - 2026-06-07：Phase 1 API 调整为显式 workspace snapshot；避免 Runtime 通过 `workspaceId` 猜测或查询 HubServer 业务状态。
 - 2026-06-07：Phase 2 文档改为当前 flat response；新增 `sources` filter、cache metadata、refresh API 和 `capability-discovery` status 契约。
+- 2026-06-07：Phase 4 明确拆出 Phase 4A：仅实现 Runtime 侧 global Skill 注入、正文长度限制和 metadata-only 诊断事件。

@@ -583,6 +583,7 @@ type RunInput = {
     includeModelStream?: boolean
     includeReasoning?: boolean
     includeRawModelChunks?: boolean
+    includeSkillDiagnostics?: boolean
   }
   conversationState?: {
     messageCountBeforeRun?: number
@@ -603,6 +604,7 @@ type RunInput = {
 - `history` 省略时默认为空数组；Runtime 不从 HubServer 数据库自行读取历史。
 - `workspace.rootPath` 只在请求体内由 HubServer 传给 Runtime 建立 workspace session；Run 查询响应只回显 `workspaceId`、`backendType` 与 `rootLabel`。
 - 真实聊天主路径中，HubServer 从 `/api/settings/diagnostics` 保存的“输出设置”读取当前值，并在每次创建 Runtime Run 时写入 `diagnostics`。浏览器的 `/api/conversations/:conversationId/messages/send` 与 regenerate 请求不直接携带 `diagnostics`。
+- `diagnostics.includeSkillDiagnostics = true` 时，Runtime 可以输出 metadata-only `agent.skill_context.resolved` 事件，说明本次执行解析到哪些 Skill。该事件不得包含 Skill 正文、真实文件路径、workspace root、env、headers 或 secret。
 - `externalSessionHints` 由 HubServer 为已支持的外部 direct session 注入；当前支持 `provider = "opencode"`、`"claude-code"` 与 `"codex"`。Runtime adapter 可用该 hint 恢复 provider session，例如 Claude Code 通过 SDK `resume`、Codex 通过 SDK `resumeThread(threadId)` 传入可恢复的 provider session id。
 - `externalContext` 由 HubServer 为外部 direct run 注入 provider-aware visible context packet；当前支持 OpenCode、Claude Code 与 Codex。packet 只包含用户可见消息和 delegated handoff summary，不包含 raw RunEvent、reasoning、内部工具续跑消息或 Orchestrator 私有计划。
 
@@ -719,6 +721,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
   },
   "allowedSubagents": ["explore", "general", "file", "deploy"],
   "allowedTools": ["write_plan", "run_task", "web_fetch", "bash", "question"],
+  "allowedSkills": [],
   "permissionPolicy": {
     "filesystem": "none",
     "shell": "limited",
@@ -754,6 +757,8 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 如果智能体配置了 `modelRef`，列表和详情都可以透出该绑定；`resolvedModel` 仅在 provider 与 model 都可解析时返回，否则为空。
 
 用户自定义智能体详情会额外返回 `systemPrompt`，用于编辑表单回显；系统预设智能体和外部智能体不会通过详情接口返回内部提示词。
+
+`allowedSkills` 是 Runtime Skill 注入配置，值为 Capability Discovery 返回的逻辑 Skill ref / id，例如 `global:agents:review` 或 `global:codex:.system:openai-docs`。该字段不会返回 Skill 正文。Phase 4A 中用户自定义智能体只允许保存 `global:*` Skill ref；workspace Skill 注入等待明确 workspace trust contract。外部智能体不消费该字段。
 
 ### 当前默认工具与权限矩阵
 
@@ -926,6 +931,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
   "capabilities": ["writing"],
   "allowedSubagents": ["general"],
   "allowedTools": ["ls", "read_file"],
+  "allowedSkills": ["global:agents:writing-style"],
   "permissionPolicy": {
     "filesystem": "read",
     "shell": "none",
@@ -943,6 +949,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `name` 长度 1-120，`description` 长度 1-1000，`systemPrompt` 长度 1-20000，单个 `capabilities` 字符串最长 80。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
 - `allowedTools` 只允许 Tool Catalog 暴露为用户可配置的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。如果客户端 round-trip 了 detail response 中的隐式 `question`，Runtime 会忽略该输入项并在响应中重新注入。
+- `allowedSkills` 只允许引用 Capability Discovery 可发现的 global Skill 逻辑 ref。`workspace:*` Skill ref 在 Phase 4A 返回 `AGENT_INVALID_INPUT`，直到产品侧提供 workspace trust 确认流。
 - `write_plan`、`run_task`、`web_fetch`、`bash` 和其他高风险工具不能授予用户自定义智能体；`question` 是隐式 interaction tool，不通过 CRUD 授权。
 - `toolPermissionRules.bash` 暂不允许用户自定义智能体配置；非空对象返回 `AGENT_INVALID_INPUT`。
 - `permissionPolicy` 中 `shell` / `network` / `deploy` 必须为 `none`。
@@ -965,6 +972,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
   "capabilities": ["editing"],
   "allowedSubagents": ["general"],
   "allowedTools": [],
+  "allowedSkills": ["global:codex:.system:openai-docs"],
   "permissionPolicy": {
     "filesystem": "none",
     "shell": "none",
@@ -979,6 +987,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 - 只能更新 `origin = "user"`、`readonly = false`、`tier = "primary"`、`executorType = "ai-sdk"` 的自定义智能体。
 - 不能通过本端点修改 `id`、`origin`、`tier`、`visibility`、`entryPolicy`、`executorType` 或 `readonly`。
+- `allowedSkills` 更新语义与 create 相同：去重、去空白，只允许 global Skill ref。
 - 系统预设智能体、外部智能体和隐藏子智能体返回 `AGENT_NOT_EDITABLE`。
 - 成功响应返回更新后的 agent detail。
 
@@ -1499,6 +1508,7 @@ type RunInput = {
     includeModelStream?: boolean
     includeReasoning?: boolean
     includeRawModelChunks?: boolean
+    includeSkillDiagnostics?: boolean
   }
   externalSessionHints?: ExternalSessionHint[]
   externalContext?: ExternalContextPacket[]
@@ -1515,7 +1525,7 @@ type RunInput = {
 | `addressedAgentIds` | 当前用户消息显式 @ 的主智能体；为空表示未显式指定 |
 | `conversationState` | HubServer 提供的会话状态快照；首版用于 Runtime 判断是否触发 `title` 系统智能体。`titleSeedUserMessage` 固定为会话第一条用户输入，供自动标题重试时使用 |
 | `workspace` | 可选的本次 Run 主工作区 snapshot；首版只支持已存在本地目录 |
-| `diagnostics` | 可选模型流追踪开关；Runtime 默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk；HubServer 真实聊天 Run 会使用“输出设置”写入当前值 |
+| `diagnostics` | 可选模型流追踪开关；Runtime 默认输出 `model.stream.part` 与 `reasoning.*`，但不输出 AI SDK `raw` chunk；`includeSkillDiagnostics` 只输出已注入 Skill 的元数据，不输出正文；HubServer 真实聊天 Run 会使用“输出设置”写入当前值 |
 | `externalSessionHints` | HubServer 提供的外部智能体 session 复用 hint；当前用于 OpenCode、Claude Code 与 Codex direct `conversation-visible` session 续接，缺失时 Runtime Adapter 可创建 provider session 并在 `agent.started.data.externalSession` 回传 link |
 | `externalContext` | HubServer 为外部智能体组装的用户可见上下文包；当前用于 OpenCode、Claude Code 与 Codex direct `conversation-visible` prompt 前缀，包含公共 chat 消息、delegated handoff summary、同步 cursor candidate 和预算省略信息 |
 | `pinnedMessages` | HubServer 注入的置顶消息快照；Runtime 只把它作为 prompt 上下文，不修改 pin 数据 |
@@ -1610,7 +1620,8 @@ workspace 规则：
   "diagnostics": {
     "includeModelStream": true,
     "includeReasoning": true,
-    "includeRawModelChunks": false
+    "includeRawModelChunks": false,
+    "includeSkillDiagnostics": false
   }
 }
 ```
@@ -1711,6 +1722,7 @@ data: {"id":"evt_xxx","runId":"run_xxx","type":"message.delta","timestamp":"2026
 run.started
 agent.entry.resolved
 agent.started
+agent.skill_context.resolved
 orchestrator.plan.created
 task.group.started
 task.group.completed
@@ -1741,6 +1753,26 @@ run.cancelled
 ```
 
 `orchestrator.plan.created` 目前保留为后续可视化和调试的扩展事件；当前 AI SDK orchestrator V1 主路径不强制发送该事件。
+
+`agent.skill_context.resolved` 是 Phase 4A Skill 注入诊断事件，仅在 `RunInput.diagnostics.includeSkillDiagnostics = true` 且当前 agent 配置了 `allowedSkills` 时输出。它描述 Runtime 为本次执行解析到的 Skill 元数据和 warning，不包含 Skill 正文、真实文件路径、workspace root、env、headers 或 secret。HubServer 应把该事件作为 raw 诊断事实持久化，不投影为普通聊天消息：
+
+```ts
+type AgentSkillContextResolvedEventData = {
+  status: "resolved" | "partial" | "skipped"
+  skills: Array<{
+    id: string
+    ref: string
+    name: string
+    source: "agents" | "codex" | "claude-code" | "opencode"
+    level: "global" | "workspace"
+    truncated: boolean
+    contentChars: number
+    relativeRefs: string[]
+    warnings: string[]
+  }>
+  warnings: string[]
+}
+```
 
 `system_agent.completed` 表示 Runtime 内部系统智能体在当前 Run 完成前产出了可消费结果。首版只定义 `title`；标题只基于会话第一条用户输入生成，不包含第一轮智能体输出。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即发送该事件；主智能体完成时只短暂等待标题任务 flush，如果模型标题仍未赶上或生成失败，Runtime 会在 `run.completed` 前发送一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务：
 

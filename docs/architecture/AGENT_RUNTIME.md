@@ -92,6 +92,12 @@ Runtime 另外暴露 `GET /runtime/services/status` 供 HubServer 读取服务�
 
 Runtime 还暴露 Skill / MCP Capability Discovery 只读端点，供 HubServer 查询当前 Runtime 可见的全局与 workspace/project 级能力摘要。第一阶段只读取 `%USERPROFILE%\.agents`、Codex、Claude Code、OpenCode 相关目录和配置文件，归一化返回 Skill 元数据与 MCP server 配置摘要；不会执行 Skill、不会把 Skill 注入 prompt、不会启动 MCP stdio 进程、不会连接 MCP HTTP/SSE server、不会调用 MCP tool，也不会写入任何外部平台配置。workspace 级发现必须由 HubServer 传入显式 `workspace` snapshot（`workspaceId/backendType/rootPath`）；Runtime 不根据 `workspaceId` 查询平台业务状态。Phase 2 在 Runtime 进程内增加 30 秒 TTL 缓存、基于候选文件 `mtimeMs + size` 的 fingerprint 自动刷新、强制刷新 API，以及 `capability-discovery` 服务状态；这些能力仍只服务只读可观测性，不改变 Run 执行链路。响应不得泄露 token、headers、完整 env、workspace root 或宿主机绝对路径。
 
+#### Phase 4A Skill 注入边界
+
+Runtime 可以在内部 AI SDK / Orchestrator Run 的 prompt assembly 阶段读取 `allowedSkills` 指向的有效 Skill 正文，并以 system prompt 区块注入给模型。该能力仍然不执行 Skill、不会启动 MCP server、不会扩展外部 agent 的 native Skill 开关，也不会把 Skill 正文返回给 HubServer 或前端消息流。
+
+本阶段用户自定义智能体只允许引用 global Skill。workspace Skill 仍可被 discovery API 展示，但在缺少显式 workspace trust contract 前不会被用户自定义智能体注入。Runtime 只在诊断事件中返回 Skill id/name/source/level、截断状态和 warning，不返回正文。
+
 健康检查响应格式：
 
 ```json
