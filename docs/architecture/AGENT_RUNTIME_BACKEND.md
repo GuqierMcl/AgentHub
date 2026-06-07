@@ -77,7 +77,7 @@ Backend 不应该自己决定业务权限；它只暴露能力和执行原语。
 
 ```text
 src/index.ts
-docs/AGENT_RUNTIME.md
+docs/architecture/AGENT_RUNTIME.md
 assets/logo.png
 ```
 

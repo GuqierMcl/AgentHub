@@ -1,5 +1,7 @@
 # Runs 聊天链路接入路线图
 
+> 状态：已完结，交付归档。后续 Artifact 投影、权限 UI、MessagePart 恢复和生产化增强已提取到 `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`。
+
 ## 模块名称
 
 Runs Chat Integration
@@ -392,7 +394,7 @@ POST /api/runs/:runId/cancel
 - 阶段 2：完成 HubServer -> Web 全局产品状态 SSE v1；Run terminal 后可通知已打开 conversation 停止列表卡片运行进度，conversation title/last message 更新改由全局事件刷新缓存。
 - 阶段 2 性能补强：完成 HubServer raw RunEvent 批量落库、`message.delta` / `reasoning.delta` 合并投影、projection catch-up 与 SQLite WAL 配置，降低长回答时磁盘写放大。
 
-## 待办
+## 交付后增强（已提取至 Backlog）
 
 - 阶段 0/1：补充更多手动端到端验证记录，覆盖真实模型绑定、缺失模型绑定、群聊 orchestrator、切会话 replay 和 archive/pin/rename/create 回归。
 - 阶段 2：补充自动化测试，覆盖 send API、RunEvent 幂等、assistant MessagePart 投影、write_plan 持久化、`timelineRuns` raw replay 和产品 SSE replay/live。
@@ -404,7 +406,7 @@ POST /api/runs/:runId/cancel
 - 阶段 7：接入 Sidecar 和恢复能力。
 - 阶段 8：接入真实外部 Agent adapter 和端到端验收。
 
-## 风险与待确认点
+## 历史风险与注意事项
 
 - TanStack Query 尚未安装；进入阶段 0 时需要更新 `web/package.json` 与 lockfile。
 - Runtime 真实模型调用依赖 provider/model binding；未绑定时会结构化失败为 `MODEL_BINDING_MISSING`。

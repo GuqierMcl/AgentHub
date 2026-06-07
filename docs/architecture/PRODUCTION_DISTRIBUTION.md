@@ -1,6 +1,6 @@
 # Production Distribution
 
-本文档记录 AgentHub 生产构建、发行包布局、CLI/Desktop 入口、HubServer Web 托管和 Agent Runtime Sidecar 的约束。后续实现 CLI、Desktop 生产启动或构建链路时，以本文档为优先参考。相关架构决策见 `docs/adr/ADR-002-production-distribution.md`。
+本文档记录 AgentHub 生产构建、发行包布局、CLI/Desktop 入口、HubServer Web 托管和 Agent Runtime Sidecar 的约束。后续实现 CLI、Desktop 生产启动或构建链路时，以本文档为优先参考。相关架构决策见 `docs/adr/ADR-002-production-distribution.md`；Bun `--compile` 与命令行参数解析细节见 `docs/architecture/BUN_RUNTIME_PACKAGING.md`。
 
 ## 目标
 

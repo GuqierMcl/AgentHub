@@ -1,4 +1,6 @@
-# 智能体侧能力缺口与闭环路线图
+# Agent 侧能力交付后 Backlog
+
+> 状态：已从交付路线图中提取，作为交付后增强储备；不阻塞当前交付。
 
 ## 模块名称
 
@@ -6,7 +8,7 @@ Agent-side Capability Backlog
 
 ## 来源需求
 
-原始课题文档 `docs/AgentHub- 多Agent协作平台设计.md` 对智能体侧提出以下核心要求：
+原始课题简报 `docs/product/ASSIGNMENT_BRIEF.md` 对智能体侧提出以下核心要求：
 
 - 多 Agent 群聊协作，由 Orchestrator 自动协调分工。
 - 每个 Agent 是独立聊天对象，可单聊、群聊、被 `@`、被委派。
@@ -16,7 +18,7 @@ Agent-side Capability Backlog
 - Agent 回复不仅是文本，还包括代码、文件、网页预览、Diff、部署状态等内联产物。
 - 支持代码二次编辑、对话式局部修改和一键部署发布。
 
-本文档记录这些要求在当前 AgentHub 智能体侧的闭环状态，作为后续阶段排期依据。
+本文档记录这些要求在当前 AgentHub 智能体侧的闭环状态，并把没有进入本次交付闭环的事项沉淀为后续增强项。已归档路线图不再追加新阶段；进入实施周期时，应从本文档拆出新的专题路线图。
 
 ## 当前已基本闭环
 
@@ -29,7 +31,7 @@ Agent-side Capability Backlog
 - 通用 Workspace Diff 与 ChangeSet 归因 V0：Runtime 在 Run 前后计算 git-based diff summary，HubServer 投影为 diff Artifact 与 Workspace ChangeSet，Web 支持摘要卡、只读 Diff Viewer 和 agent/task/tool/run 归因展示。
 - OpenCode 基础接入：OpenCode 已作为外部可见主智能体接入，支持 direct conversation、Orchestrator delegated task、Session 持久化、模型只读展示、direct context bridge、event stream/tool timeline 和 permission bridge。
 
-## 当前缺口与后续增强
+## 交付后增强机会
 
 ### 1. 通用 Workspace Diff
 
@@ -61,7 +63,7 @@ OpenCode V1 基础集成硬化已补齐 mock 回归与 gated real smoke。不同
 
 原始需求要求至少接入两个主流外部 Agent 平台。当前真实接入的是 OpenCode；Claude Code / Codex 只保留 provider enum 和 Adapter 方向，没有完整实现。后续应在 OpenCode V1 稳定后选择 Codex 或 Claude Code 作为第二个外部 Adapter，并复用 ExternalAdapterExecutor、ExternalAgentSession、Context Bridge、Workspace Diff 和 event mapping 设计。
 
-建议阶段：OpenCode V1 集成硬化后启动外部 Agent Adapter V2。
+建议后续路线：OpenCode V1 集成硬化后启动外部 Agent Adapter V2。
 
 ### 5. 用户自建 Agent 产品化
 
@@ -69,7 +71,7 @@ OpenCode V1 基础集成硬化已补齐 mock 回归与 gated real smoke。不同
 
 Runtime 已有用户自定义主智能体 CRUD 和模型绑定能力，但 HubServer 面向浏览器的管理 API、Web 配置 UI、对话式创建流程和完整工具集授权尚未完成。当前用户自定义 Agent 对 shell、network、deploy 等高风险能力也仍受限。
 
-建议阶段：自定义 Agent Hub API + Web Authoring V1。
+建议后续路线：自定义 Agent Hub API + Web Authoring V1。
 
 ### 6. Pin 关键消息作为长期上下文
 
@@ -77,7 +79,7 @@ Runtime 已有用户自定义主智能体 CRUD 和模型绑定能力，但 HubSe
 
 会话置顶已经存在；`MessagePin` repository 也存在。但原始需求中的“pin 关键消息作为长期上下文”需要把被 pin 的消息注入内部智能体 prompt、OpenCode externalContext 和后续 context compaction 中。当前这条链路尚未完成。
 
-建议阶段：Context Pin Bridge V1。
+建议后续路线：Context Pin Bridge V1。
 
 ### 7. Artifact 产物投影
 
@@ -85,7 +87,7 @@ Runtime 已有用户自定义主智能体 CRUD 和模型绑定能力，但 HubSe
 
 HubServer 已有 Artifact / ArtifactVersion repository，Web 也有 Artifact 卡片组件和 mock preview。但 Agent 运行过程中产生的代码、文件、网页预览、文档、PPT、部署状态等，还没有稳定从 Runtime RunEvent 投影到 HubServer Artifact，再在 Web 中作为真实消息卡片恢复。
 
-建议阶段：Artifact Projection V1。Workspace Diff Summary 可以作为第一个结构化产物摘要先落地。
+建议后续路线：Artifact Projection V1。Workspace Diff Summary 可以作为第一个结构化产物摘要先落地。
 
 ### 8. 对话式局部修改
 
@@ -93,7 +95,7 @@ HubServer 已有 Artifact / ArtifactVersion repository，Web 也有 Artifact 卡
 
 内部文件工具能按路径读写，但 Web 的代码选区、当前 Artifact、编辑器状态和用户“修改这一段”的自然语言请求还没有传入 Runtime。后续需要设计 selected context contract，并让 Coder/File 子智能体使用该上下文进行局部修改。
 
-建议阶段：Selected Context + Local Edit V1。
+建议后续路线：Selected Context + Local Edit V1。
 
 ### 9. 部署发布
 
@@ -101,7 +103,7 @@ HubServer 已有 Artifact / ArtifactVersion repository，Web 也有 Artifact 卡
 
 `deploy` 子智能体和 deploy permission 字段已存在，但没有 deploy Runtime Tool，没有部署状态卡片，也没有预览 URL、静态站点部署、容器化部署或源码打包下载流程。
 
-建议阶段：Deploy Tool + Deployment Artifact V1。
+建议后续路线：Deploy Tool + Deployment Artifact V1。
 
 ### 10. Orchestrator 高级协作能力
 
@@ -109,7 +111,7 @@ HubServer 已有 Artifact / ArtifactVersion repository，Web 也有 Artifact 卡
 
 当前 Orchestrator 能写计划、委派任务并做基础汇总。`run_task.lockPaths` 已提供 P1 advisory file lock：Orchestrator 可在委派写入任务时声明 workspace-relative 文件路径，Runtime 对同一 workspace 内同一路径的 active delegated task 返回 `TASK_FILE_LOCK_CONFLICT` 并阻止目标智能体启动。该能力只覆盖主动声明的委派任务；强制写入拦截、外部 Agent 未声明写入隔离、自动合并、pre-apply review、计划任务与实际 `run_task` 的强校验、复杂 DAG 恢复、多轮计划更新策略，以及多个显式 `@` 主智能体的并行入口与聚合策略仍未完成。
 
-建议阶段：Orchestrator Hardening V2。
+建议后续路线：Orchestrator Hardening V2。
 
 ### 11. 产品级 MessagePart 恢复
 
@@ -117,7 +119,7 @@ HubServer 已有 Artifact / ArtifactVersion repository，Web 也有 Artifact 卡
 
 HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最新计划和部分权限/工具状态。task、tool、reasoning、permission 的完整产品级 MessagePart 投影和重启恢复仍未完成。OpenCode event stream 接入后，也需要进入同一恢复体系。
 
-建议阶段：RunEvent Projection Hardening。
+建议后续路线：RunEvent Projection Hardening。
 
 ## 建议执行顺序
 
@@ -135,7 +137,7 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 - 第二个外部 Agent 选 Codex 还是 Claude Code，需要根据本地安装、SDK/CLI 可控性、事件流能力和权限桥接难度决定。
 - Workspace Diff 的 agent/task 归因在多智能体并发写入时只能近似；V0 应先提供 aggregate summary，后续再细化。
 - OpenCode permission bridge 已有 mock 覆盖；真实 OpenCode server 的不同 permission kind、拒绝后 agent loop 表现仍依赖用户 permission 配置，可作为可选 smoke。
-- Artifact Projection 会跨 Runtime contract、HubServer persistence 和 Web UI，需单独路线图或扩展 `runs-chat-integration` roadmap。
+- Artifact Projection 会跨 Runtime contract、HubServer persistence 和 Web UI，进入实施期时应单独创建路线图；历史聊天链路路线图已归档在 `docs/roadmap/completed/runs-chat-integration.md`。
 - Pin 关键消息需要限制注入预算，避免与普通历史、external context 和 future summary/compaction 互相重复。
 - Deploy 能力涉及真实外部服务或本机命令，应优先设计审批、环境隔离、凭据处理和失败回滚。
 
@@ -147,3 +149,4 @@ HubServer 会持久化 raw RunEvent，并投影文本消息、Run 状态、最�
 - 2026-06-03：同步 OpenCode V1 基础集成硬化：新增真实 write smoke 开关、event stream fallback 回归和产品级 replay 回归；下一步建议转向 AgentHub Native Patch Review Phase 2。
 - 2026-06-04：同步 AgentHub Native Patch Review Phase 2：Workspace ChangeSet 与归因 V0 已落地；下一步建议进入 Run Revert / Restore 或 Artifact Projection V1。
 - 2026-06-05：同步 Orchestrator 冲突规避 P1：`run_task.lockPaths` 声明式文件锁 V0 已覆盖显式委派任务的同文件并发冲突；强制写入拦截、自动合并、隔离 workspace / pre-apply review 仍未完成。
+- 2026-06-06：从 `docs/roadmap/` 移入 `docs/backlog/`，明确其职责是交付后增强储备，而不是未完成路线图。

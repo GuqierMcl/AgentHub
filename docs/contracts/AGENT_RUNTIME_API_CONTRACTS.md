@@ -1976,9 +1976,9 @@ type WorkspaceRevertApplyResponse =
   "toolName": "edit_file",
   "data": {
     "status": "completed",
-    "summary": "Edited docs/intro.md with 1 replacement",
+    "summary": "Edited docs/README.md with 1 replacement",
     "data": {
-      "path": "docs/intro.md",
+      "path": "docs/README.md",
       "size": 1204,
       "replacements": 1,
       "changed": true

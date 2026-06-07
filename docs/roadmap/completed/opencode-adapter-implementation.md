@@ -1,5 +1,7 @@
 # OpenCode Adapter V1 路线图
 
+> 状态：已完结，交付归档。后续真实长任务 smoke、模型只读展示和产品恢复增强已提取到 `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`。
+
 ## 模块名称
 
 OpenCode Adapter V1
@@ -253,12 +255,12 @@ OpenCode Adapter V1
 - 阶段 4D：OpenCode Permission Bridge，复用 AgentHub permission lifecycle，并将用户 decision 回写 OpenCode。
 - 阶段 5：OpenCode V1 集成硬化基础闭环，包含 gated real smoke、mocked fallback/permission/session hardening 和 HubServer/Web replay 回归。
 
-## 待办
+## 交付后增强（已提取至 Backlog）
 
 - OpenCode 会话头部默认模型只读状态：后续再考虑读取 OpenCode provider/config 默认值；AgentHub 仍不接管 OpenCode 模型配置。
 - 真实 permission kind smoke 可在用户显式配置 OpenCode permission 规则后继续补充验收记录。
 
-## 风险与待确认点
+## 历史风险与注意事项
 
 - 当前 `@opencode-ai/sdk@1.15.13` 的 `createOpencode()` ServerOptions 未暴露 cwd/workdir/projectPath；V1 不使用 `process.chdir()`，因此默认通过 `opencode serve` 子进程 cwd 绑定 workspace。若后续 SDK 增加进程局部 workspace 参数，可切回 SDK managed path。
 - OpenCode event stream 的文本 delta、tool part 和断流 fallback 已按 SDK 类型和 mock stream 覆盖；真实长任务和高频事件表现仍可在后续可选 smoke 中观察。

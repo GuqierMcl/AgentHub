@@ -1,5 +1,7 @@
 # Agent Runtime 智能体架构路线图
 
+> 状态：已完结，交付归档。后续增强项已提取到 `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`。
+
 ## 模块名称
 
 Agent Runtime 智能体架构
@@ -212,7 +214,7 @@ Agent Runtime 智能体架构
 - `AGENT_RUNTIME_BACKEND.md` 已建立，明确 Workspace Backend、沙箱外访问审批和本地优先实现。
 - `AGENT_TOOLS.md` 已建立，明确工具可见性、`run_task` 语义、事件流和并发约束。
 
-## 待办
+## 交付后增强（已提取至 Backlog）
 
 - 扩展 `orchestrator` 的更完整计划策略、汇总策略和错误恢复。
 - 后续补充计划持久化、计划任务与 `run_task` 的强校验，以及前端 UI 投影。
@@ -225,9 +227,9 @@ Agent Runtime 智能体架构
 - 实现外部智能体 Adapter 骨架。
 - 后续设计并行 @ 多个主智能体的事件流与聚合策略。
 - 后续扩展 Patch / diff artifact、一键 apply、版本历史、回滚和更复杂的写入冲突处理。
-- 智能体侧尚未接入或尚未闭环能力的完整 backlog 见 `docs/roadmap/agent-side-capability-backlog.md`；通用 Workspace Diff Summary V0 与 OpenCode Event Stream / Tool Timeline 已落地，近期优先级转为 OpenCode Permission Bridge、真实长任务 smoke、产品级 MessagePart 恢复与第二个外部 Agent Adapter。
+- 智能体侧交付后增强项见 `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`；通用 Workspace Diff Summary V0 与 OpenCode Event Stream / Tool Timeline 已落地，后续机会统一进入 Backlog。
 
-## 风险与待确认点
+## 历史风险与注意事项
 
 - 自定义子智能体、外部智能体 CRUD 仍未开放；如后续需要，需要单独设计权限和 Adapter 配置模型。
 - `GET /runtime/agents` 是否默认只返回可见主智能体。
@@ -257,4 +259,4 @@ Agent Runtime 智能体架构
 - 本轮已完成 `write_file` / `edit_file`、write grant 与敏感/沙箱外写入审批；写工具已接入 Tool Catalog、Authoring Options 和 per-agent permission policy。
 - 本轮已将隐藏子智能体迁移到 `ai-sdk` 执行器，并确定子智能体不绑定模型、执行时继承直接调用方模型。
 - 本轮已增强 Run SSE 事件契约：AI SDK `fullStream` 通过 `model.stream.part` 薄封装透传，reasoning/thinking 默认提升为 `reasoning.*`，`raw` chunk 仅显式 opt-in，并新增 `RUNTIME_SSE_EVENTS.md` 作为事件契约专文。
-- 2026-06-02：新增 `agent-side-capability-backlog.md`，对照原始需求记录智能体侧未接入或未闭环能力；OpenCode 后续拆分为 Phase 4B 通用 Workspace Diff、Phase 4C Event Stream / Tool Timeline、Phase 4D Permission Bridge。
+- 2026-06-02：新增 `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`，对照原始需求记录智能体侧未接入或未闭环能力；OpenCode 后续拆分为 Phase 4B 通用 Workspace Diff、Phase 4C Event Stream / Tool Timeline、Phase 4D Permission Bridge。

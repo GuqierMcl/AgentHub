@@ -1,5 +1,7 @@
 # AgentHub Native Patch Review 路线图
 
+> 状态：已完结，交付归档。后续 Patch Review、pre-apply review 和隔离合入增强已提取到 `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`。
+
 ## 模块名称
 
 AgentHub Native Patch Review / Workspace Change Review
@@ -30,8 +32,8 @@ AgentHub Native Patch Review / Workspace Change Review
 - `docs/contracts/RUNTIME_SSE_EVENTS.md`
 - `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`
 - `docs/external_agents/OPENCODE_ADAPTER.md`
-- `docs/roadmap/opencode-adapter-implementation.md`
-- `docs/roadmap/agent-side-capability-backlog.md`
+- `docs/roadmap/completed/opencode-adapter-implementation.md`
+- `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`
 
 ## 范围
 
@@ -150,7 +152,7 @@ AgentHub Native Patch Review / Workspace Change Review
 - Revert artifact 的 Diff Viewer 展示原始被撤销 patch，并通过 `operation.patchDirection = "reverse-applied"` 和 UI banner 说明方向。
 - 同一 source artifact 已成功撤销时再次 apply 返回 `already_applied`，不重复执行、不重复创建 artifact。
 
-### Phase 4：AgentHub 内部写入工具的 Proposed Patch / Pre-Apply Review
+### Phase 4：AgentHub 内部写入工具的 Proposed Patch / Pre-Apply Review（交付后增强）
 
 目标：
 
@@ -166,7 +168,7 @@ AgentHub Native Patch Review / Workspace Change Review
 - 应用失败、冲突、文件变更过期都有结构化错误。
 - 该能力先覆盖 AgentHub 内部工具，不强行套到外部智能体。
 
-### Phase 5：外部智能体写入的隔离与合入策略
+### Phase 5：外部智能体写入的隔离与合入策略（交付后增强）
 
 目标：
 
@@ -182,7 +184,7 @@ AgentHub Native Patch Review / Workspace Change Review
 - 合入失败或冲突时有明确恢复路径。
 - OpenCode Permission Bridge 可作为辅助能力，但不作为 AgentHub Patch Review 的唯一基础。
 
-### Phase 6：版本历史、冲突处理与协作审查
+### Phase 6：版本历史、冲突处理与协作审查（交付后增强）
 
 目标：
 
@@ -223,13 +225,13 @@ AgentHub Native Patch Review / Workspace Change Review
 - 未跟踪文本文件新增行数 best-effort 统计。
 - 无有效行数时不展示 `+0/-0`。
 
-## 待办
+## 交付后增强（已提取至 Backlog）
 
 - Phase 4：AgentHub 内部写入工具 proposed patch / pre-apply review。
 - Phase 5：外部智能体隔离执行与合入策略。
 - Phase 6：版本历史、冲突处理与协作审查。
 
-## 风险与待确认点
+## 历史风险与注意事项
 
 - 当前 bounded patch 有大小预算；Diff Viewer 需要处理 patch 缺失或截断。
 - dirty baseline 下无法保证精确 run-only patch；UI 和 API 都必须保守表达。

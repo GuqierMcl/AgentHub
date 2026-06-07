@@ -847,7 +847,9 @@ permission.cancelled
 
 Runtime 内部现已支持审批请求、批准、拒绝、取消与同一 Run 续跑。HubServer 和前端仍需补齐审批呈现、决定转发与持久化；未接入相应工具的高风险能力仍不可自动执行。
 
-## 14. MVP 落地顺序
+## 14. 历史落地顺序
+
+本节保留智能体架构最初的 MVP 落地顺序，便于理解当前设计如何演进而来。执行型路线图已完结并归档到 `docs/roadmap/completed/agent-runtime-agent-architecture.md`；新的交付后增强项应进入 `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`，不要继续在本文扩写实施计划。
 
 ### 阶段一：智能体定义与注册表
 
@@ -938,9 +940,9 @@ Runtime 内部现已支持审批请求、批准、拒绝、取消与同一 Run �
 - 外部智能体被统一视为主智能体。
 - Runtime 内部协议无需为外部平台分叉。
 
-## 15. 非目标
+## 15. 非目标与交付后增强边界
 
-当前阶段不解决：
+当前交付不解决：
 
 - 完整用户系统和团队权限。
 - 前端 Agent 配置 UI。

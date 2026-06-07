@@ -1,5 +1,7 @@
 # Claude Code Adapter 实现路线图
 
+> 状态：已完结，交付归档。后续真实 smoke、SDK 变化观察和产品化增强已提取到 `docs/backlog/AGENT_SIDE_CAPABILITY_BACKLOG.md`。
+
 ## 模块名称
 
 Claude Code Adapter V1
@@ -26,7 +28,7 @@ Claude Code Adapter V1
 - `docs/architecture/HUB_SERVER.md`
 - `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`
 - `docs/contracts/RUNTIME_SSE_EVENTS.md`
-- `docs/roadmap/opencode-adapter-implementation.md`
+- `docs/roadmap/completed/opencode-adapter-implementation.md`
 
 ## 范围
 
@@ -127,7 +129,7 @@ Claude Code Adapter V1
 - Service status 已落地：`implemented = true`，`status = "idle"`，details 报告 `sdk-bundled` 或 `env` executable source。
 - 默认 fake/mock 测试已覆盖核心行为。
 - 已新增 gated real smoke：`AGENTHUB_CLAUDE_CODE_SMOKE=1` 跑最小 prompt，`AGENTHUB_CLAUDE_CODE_WRITE_SMOKE=1` 跑临时 git workspace 写入与 Diff 验证。默认 CI 仍只 skip，不依赖本机 Claude 登录状态。
-- 生产 binary extraction 仍待补充。
+- 生产 binary extraction 已提取为交付后增强项，不阻塞本路线图归档。
 
 ## 当前进度
 
@@ -136,7 +138,7 @@ Claude Code Adapter V1
 - HubServer external session/context bridge 已支持 `opencode` 与 `claude-code`。
 - 文档新增与契约更新已进入本路线图记录。
 
-## 待办
+## 交付后增强（已提取至 Backlog）
 
 - 在生产打包脚本中处理 Bun compiled executable 的 Claude Code binary extraction，或明确要求设置 `AGENTHUB_CLAUDE_CODE_EXECUTABLE`。
 - 根据真实 smoke 结果校正 `onUserDialog` payload 到 AgentHub question 的映射。
@@ -159,7 +161,7 @@ cd web && bunx tsc --noEmit -p tsconfig.app.json
 
 可选真实 smoke 后续使用环境变量显式开启，不进入默认 CI。
 
-## 风险与待确认点
+## 历史风险与注意事项
 
 - Claude Agent SDK 的 native binary 在 Bun single executable 中需要真实文件路径；发布前必须验证。
 - Claude Code 用户本机配置可能直接允许某些工具，AgentHub 只能桥接 SDK 实际发出的 permission request。
