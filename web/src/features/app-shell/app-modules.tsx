@@ -5,7 +5,7 @@ import { ChatWorkspace } from "@/features/workbench/ChatWorkspace"
 import { PluginConfigWorkspace } from "@/features/plugin-config/PluginConfigWorkspace"
 import { BotMessageSquareIcon } from "@/components/ui/bot-message-square"
 import { AtomIcon } from "@/components/ui/atom"
-import { PuzzleIcon } from "@/components/ui/puzzle"
+import { BlocksNavIcon } from "./BlocksNavIcon"
 
 export type AppModuleId = "chat" | "agents" | "plugin-config"
 
@@ -34,7 +34,7 @@ export const appModules: readonly AppModuleDefinition[] = [
   },
   {
     component: PluginConfigWorkspace,
-    icon: PuzzleIcon,
+    icon: BlocksNavIcon,
     id: "plugin-config",
     label: "插件配置",
     title: "插件配置 | AgentHub",

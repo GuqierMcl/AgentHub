@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Loader2Icon, XIcon } from "lucide-react"
 import { SearchIcon } from "@/components/ui/search"
 import { PlusIcon } from "@/components/ui/plus"
@@ -6,6 +6,13 @@ import { PlusIcon } from "@/components/ui/plus"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  PinnedList,
+  PinnedListPinned,
+  PinnedListUnpinned,
+  PinnedListItems,
+  PinnedListItem,
+} from "@/components/animate-ui/primitives/animate/pinned-list"
 
 import type { AgentOverride } from "@/features/agents/types"
 import type { ConversationListDisplayItem as ConversationItem } from "../types"
@@ -45,6 +52,29 @@ export function ConversationSidebar({
   }, [conversations, search])
 
   const displayConversations = search ? filteredConversations : conversations
+
+  const { pinnedConversations, unpinnedConversations } = useMemo(() => {
+    const pinned: ConversationItem[] = []
+    const unpinned: ConversationItem[] = []
+    for (const c of displayConversations) {
+      if (c.pinnedAt) {
+        pinned.push(c)
+      } else {
+        unpinned.push(c)
+      }
+    }
+    return { pinnedConversations: pinned, unpinnedConversations: unpinned }
+  }, [displayConversations])
+
+  const handlePinnedChange = useCallback(
+    (id: string) => {
+      const conv = conversations.find((c) => c.id === id)
+      if (conv) {
+        onPin(id, !conv.pinnedAt)
+      }
+    },
+    [conversations, onPin],
+  )
 
   return (
     <aside className="flex min-h-0 min-w-0 flex-col border-border border-r bg-sidebar/45">
@@ -92,18 +122,52 @@ export function ConversationSidebar({
               {search ? "无匹配会话" : "暂无会话"}
             </p>
           ) : (
-            displayConversations.map((conversation) => (
-              <ConversationListItemView
-                conversation={conversation}
-                key={conversation.id}
-                selected={conversation.id === activeConversationId}
-                overrides={overrides}
-                onSelect={onSelectConversation}
-                onPin={onPin}
-                onArchive={onArchive}
-                onRename={onRename}
-              />
-            ))
+            <PinnedList
+              onPinnedChange={handlePinnedChange}
+            >
+              <PinnedListPinned>
+                <PinnedListItems className="flex flex-col gap-1">
+                  {pinnedConversations.map((conversation) => (
+                    <PinnedListItem
+                      key={conversation.id}
+                      id={conversation.id}
+                      customTrigger
+                    >
+                      <ConversationListItemView
+                        conversation={conversation}
+                        selected={conversation.id === activeConversationId}
+                        overrides={overrides}
+                        onSelect={onSelectConversation}
+                        onPin={onPin}
+                        onArchive={onArchive}
+                        onRename={onRename}
+                      />
+                    </PinnedListItem>
+                  ))}
+                </PinnedListItems>
+              </PinnedListPinned>
+              <PinnedListUnpinned>
+                <PinnedListItems className="flex flex-col gap-1">
+                  {unpinnedConversations.map((conversation) => (
+                    <PinnedListItem
+                      key={conversation.id}
+                      id={conversation.id}
+                      customTrigger
+                    >
+                      <ConversationListItemView
+                        conversation={conversation}
+                        selected={conversation.id === activeConversationId}
+                        overrides={overrides}
+                        onSelect={onSelectConversation}
+                        onPin={onPin}
+                        onArchive={onArchive}
+                        onRename={onRename}
+                      />
+                    </PinnedListItem>
+                  ))}
+                </PinnedListItems>
+              </PinnedListUnpinned>
+            </PinnedList>
           )}
         </div>
       </ScrollArea>
