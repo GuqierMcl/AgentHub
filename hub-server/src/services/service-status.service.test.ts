@@ -39,6 +39,84 @@ describe("service status snapshot", () => {
       status: "error",
       implemented: true,
     })
+    expect(snapshot.services.find((service) => service.id === "capability-discovery")).toMatchObject({
+      status: "error",
+      implemented: true,
+      details: {
+        reason: "runtime-unavailable",
+      },
+    })
+  })
+
+  it("passes through Runtime capability discovery status", async () => {
+    const client = {
+      forward: async (method: string, path: string) => {
+        if (path === "/health") {
+          return { status: 200, data: { status: "ok" } }
+        }
+        if (path === "/runtime/services/status") {
+          return {
+            status: 200,
+            data: {
+              checkedAt: "2026-06-07T00:00:00.000Z",
+              services: [
+                {
+                  id: "opencode",
+                  label: "OpenCode",
+                  kind: "external-agent",
+                  status: "idle",
+                  implemented: true,
+                  checkedAt: "2026-06-07T00:00:00.000Z",
+                },
+                {
+                  id: "codex",
+                  label: "Codex",
+                  kind: "external-agent",
+                  status: "idle",
+                  implemented: true,
+                  checkedAt: "2026-06-07T00:00:00.000Z",
+                },
+                {
+                  id: "claude-code",
+                  label: "Claude Code",
+                  kind: "external-agent",
+                  status: "idle",
+                  implemented: true,
+                  checkedAt: "2026-06-07T00:00:00.000Z",
+                },
+                {
+                  id: "capability-discovery",
+                  label: "Capability Discovery",
+                  kind: "runtime-capability",
+                  status: "refreshing",
+                  implemented: true,
+                  checkedAt: "2026-06-07T00:00:00.000Z",
+                  details: {
+                    cacheEntryCount: 2,
+                    latestRefreshAt: "2026-06-07T00:00:00.000Z",
+                  },
+                },
+              ],
+            },
+          }
+        }
+        throw new Error(`unexpected ${method} ${path}`)
+      },
+    } as Partial<RuntimeClient> as RuntimeClient
+
+    const snapshot = await fetchSystemServicesStatusSnapshot(client)
+
+    expect(snapshot.services.find((service) => service.id === "capability-discovery")).toMatchObject({
+      id: "capability-discovery",
+      label: "Capability Discovery",
+      kind: "runtime-capability",
+      status: "refreshing",
+      implemented: true,
+      details: expect.objectContaining({
+        cacheEntryCount: 2,
+        latestRefreshAt: "2026-06-07T00:00:00.000Z",
+      }),
+    })
   })
 })
 
@@ -129,6 +207,12 @@ describe("ServiceStatusMonitor", () => {
         serviceId: "claude-code",
         status: "error",
       },
+      {
+        type: "service.status.changed",
+        previousStatus: "idle",
+        serviceId: "capability-discovery",
+        status: "error",
+      },
     ])
   })
 })
@@ -179,6 +263,17 @@ function createRuntimeResponse(
             status: "idle",
             implemented: true,
             checkedAt: "2026-06-03T00:00:00.000Z",
+          },
+          {
+            id: "capability-discovery",
+            label: "Capability Discovery",
+            kind: "runtime-capability",
+            status: "idle",
+            implemented: true,
+            checkedAt: "2026-06-03T00:00:00.000Z",
+            details: {
+              cacheEntryCount: 0,
+            },
           },
         ],
       },

@@ -45,6 +45,16 @@ describe("system router", () => {
                 status: "idle",
                 implemented: true,
                 checkedAt: "2026-06-03T00:00:00.000Z",
+              }, {
+                id: "capability-discovery",
+                label: "Capability Discovery",
+                kind: "runtime-capability",
+                status: "idle",
+                implemented: true,
+                checkedAt: "2026-06-03T00:00:00.000Z",
+                details: {
+                  cacheEntryCount: 1,
+                },
               }],
             },
           }
@@ -64,6 +74,7 @@ describe("system router", () => {
       "opencode",
       "codex",
       "claude-code",
+      "capability-discovery",
     ])
     expect(body.services[0]).toMatchObject({
       id: "agent-runtime",
@@ -81,6 +92,10 @@ describe("system router", () => {
     })
     expect(body.services.find((service) => service.id === "claude-code")).toMatchObject({
       status: "error",
+      implemented: true,
+    })
+    expect(body.services.find((service) => service.id === "capability-discovery")).toMatchObject({
+      status: "idle",
       implemented: true,
     })
     expect(calls).toEqual([
@@ -115,6 +130,10 @@ describe("system router", () => {
       implemented: true,
     })
     expect(body.services.find((service) => service.id === "claude-code")).toMatchObject({
+      status: "error",
+      implemented: true,
+    })
+    expect(body.services.find((service) => service.id === "capability-discovery")).toMatchObject({
       status: "error",
       implemented: true,
     })

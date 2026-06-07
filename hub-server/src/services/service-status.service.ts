@@ -9,11 +9,12 @@ export type ServiceStatus =
   | "idle"
   | "error"
   | "not_integrated"
+  | "refreshing"
 
 export type SystemServiceStatusItem = {
-  id: "agent-runtime" | "opencode" | "codex" | "claude-code"
+  id: "agent-runtime" | "opencode" | "codex" | "claude-code" | "capability-discovery"
   label: string
-  kind: "runtime" | "external-agent"
+  kind: "runtime" | "external-agent" | "runtime-capability"
   status: ServiceStatus
   implemented: boolean
   checkedAt: string
@@ -54,7 +55,7 @@ export async function fetchSystemServicesStatusSnapshot(
       undefined,
       { raw: true }
     )
-    const externalServices = normalizeRuntimeServices(
+    const runtimeManagedServices = normalizeRuntimeServices(
       runtimeServices.data,
       checkedAt
     )
@@ -63,7 +64,7 @@ export async function fetchSystemServicesStatusSnapshot(
       checkedAt,
       services: [
         createAgentRuntimeStatus(runtimeStatus, checkedAt),
-        ...mergeExternalServices(externalServices, checkedAt),
+        ...mergeRuntimeManagedServices(runtimeManagedServices, checkedAt),
       ],
     }
   } catch (error) {
@@ -156,13 +157,13 @@ function normalizeRuntimeServices(
 
   return response.services
     .map((service): SystemServiceStatusItem | null => {
-      if (!isRuntimeExternalService(service)) {
+      if (!isRuntimeManagedService(service)) {
         return null
       }
       return {
         id: service.id,
         label: service.label,
-        kind: "external-agent",
+        kind: service.kind ?? "external-agent",
         status: service.status,
         implemented: service.implemented,
         checkedAt: service.checkedAt ?? checkedAt,
@@ -174,7 +175,7 @@ function normalizeRuntimeServices(
     .filter((service): service is SystemServiceStatusItem => Boolean(service))
 }
 
-function mergeExternalServices(
+function mergeRuntimeManagedServices(
   services: SystemServiceStatusItem[],
   checkedAt: string
 ): SystemServiceStatusItem[] {
@@ -184,6 +185,8 @@ function mergeExternalServices(
     byId.get("codex") ?? createCodexRuntimeUnavailableStatus(checkedAt),
     byId.get("claude-code") ??
       createClaudeCodeRuntimeUnavailableStatus(checkedAt),
+    byId.get("capability-discovery") ??
+      createCapabilityDiscoveryRuntimeUnavailableStatus(checkedAt),
   ]
 }
 
@@ -195,6 +198,7 @@ function createRuntimeUnavailableStatus(checkedAt: string): SystemServicesStatus
       createOpenCodeRuntimeUnavailableStatus(checkedAt),
       createCodexRuntimeUnavailableStatus(checkedAt),
       createClaudeCodeRuntimeUnavailableStatus(checkedAt),
+      createCapabilityDiscoveryRuntimeUnavailableStatus(checkedAt),
     ],
   }
 }
@@ -255,20 +259,49 @@ function createClaudeCodeRuntimeUnavailableStatus(checkedAt: string): SystemServ
   }
 }
 
-function isRuntimeExternalService(value: unknown): value is Omit<SystemServiceStatusItem, "kind"> & {
-  id: "opencode" | "codex" | "claude-code"
-  kind?: "external-agent"
+function createCapabilityDiscoveryRuntimeUnavailableStatus(checkedAt: string): SystemServiceStatusItem {
+  return {
+    id: "capability-discovery",
+    label: "Capability Discovery",
+    kind: "runtime-capability",
+    status: "error",
+    implemented: true,
+    checkedAt,
+    details: {
+      reason: "runtime-unavailable",
+    },
+  }
+}
+
+function isRuntimeManagedService(value: unknown): value is Omit<SystemServiceStatusItem, "kind"> & {
+  id: "opencode" | "codex" | "claude-code" | "capability-discovery"
+  kind?: "external-agent" | "runtime-capability"
 } {
   if (!value || typeof value !== "object") return false
   const service = value as Record<string, unknown>
   return (
     (service.id === "opencode" ||
       service.id === "codex" ||
-      service.id === "claude-code") &&
+      service.id === "claude-code" ||
+      service.id === "capability-discovery") &&
     typeof service.label === "string" &&
+    isRuntimeManagedServiceKind(service.id, service.kind) &&
     isServiceStatus(service.status) &&
     typeof service.implemented === "boolean"
   )
+}
+
+function isRuntimeManagedServiceKind(
+  serviceId: unknown,
+  kind: unknown
+): kind is "external-agent" | "runtime-capability" | undefined {
+  if (kind === undefined) {
+    return serviceId === "opencode" || serviceId === "codex" || serviceId === "claude-code"
+  }
+  if (serviceId === "capability-discovery") {
+    return kind === "runtime-capability"
+  }
+  return kind === "external-agent"
 }
 
 function isServiceStatus(value: unknown): value is ServiceStatus {
@@ -276,5 +309,6 @@ function isServiceStatus(value: unknown): value is ServiceStatus {
     value === "starting" ||
     value === "idle" ||
     value === "error" ||
-    value === "not_integrated"
+    value === "not_integrated" ||
+    value === "refreshing"
 }

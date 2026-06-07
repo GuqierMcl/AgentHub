@@ -30,6 +30,7 @@ export {
   CapabilityDiscoveryError,
   CapabilityDiscoveryRequestSchema,
   CapabilityDiscoveryService,
+  CapabilitySourceSchema,
   CapabilityScopeSchema,
   CapabilityWorkspaceSchema,
 } from "./capabilities"
@@ -123,10 +124,13 @@ export type {
 export type {
   CapabilityDiscoveryRequest,
   CapabilityDiscoveryResponse,
+  CapabilityDiscoveryRuntimeStatus,
+  CapabilityDiscoveryStatusItem,
   CapabilityLevel,
   CapabilityScope,
   CapabilitySource,
   CapabilityWorkspace,
+  CapabilityCacheMetadata,
   McpServerCapabilitySummary,
   McpTransport,
   SkillCapabilitySummary,
@@ -134,6 +138,8 @@ export type {
 export type {
   ExternalAgentRunSummary,
   ExternalAgentRunSummarySource,
+  RuntimeExternalServiceId,
+  RuntimeExternalServiceStatusItem,
   RuntimeServiceStatus,
   RuntimeServiceStatusItem,
   RuntimeServicesStatusContext,

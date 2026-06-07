@@ -51,6 +51,55 @@ describe("runtime capabilities router", () => {
     }])
   })
 
+  test("forwards global refresh without requiring a conversation", async () => {
+    const calls: Array<{ method: string; path: string; body: unknown }> = []
+    const app = createApp({
+      runtimeClient: {
+        forward: async (method: string, path: string, body: unknown) => {
+          calls.push({ method, path, body })
+          return {
+            status: 200,
+            data: {
+              discoveredAt: "2026-06-07T00:00:00.000Z",
+              scope: "global",
+              skills: [],
+              mcps: [],
+              warnings: [],
+              cache: {
+                hit: false,
+                refreshed: true,
+                cacheKey: "scope=global",
+                expiresAt: "2026-06-07T00:00:30.000Z",
+                fingerprint: "abc123",
+              },
+            },
+          }
+        },
+      },
+    })
+
+    const response = await app.request("/api/runtime/capabilities/refresh", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: "global",
+        sources: ["codex"],
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(calls).toEqual([{
+      method: "POST",
+      path: "/runtime/capabilities/refresh",
+      body: {
+        scope: "global",
+        sources: ["codex"],
+      },
+    }])
+  })
+
   test("resolves conversation workspace snapshot before forwarding workspace discovery", async () => {
     const calls: Array<{ method: string; path: string; body: unknown }> = []
     const app = createApp({
@@ -111,6 +160,84 @@ describe("runtime capabilities router", () => {
     }])
   })
 
+  test("resolves conversation workspace snapshot before forwarding workspace refresh", async () => {
+    const calls: Array<{ method: string; path: string; body: unknown }> = []
+    const app = createApp({
+      runtimeClient: {
+        forward: async (method: string, path: string, body: unknown) => {
+          calls.push({ method, path, body })
+          return {
+            status: 200,
+            data: {
+              discoveredAt: "2026-06-07T00:00:00.000Z",
+              scope: "all",
+              skills: [],
+              mcps: [],
+              warnings: [],
+              cache: {
+                hit: false,
+                refreshed: true,
+                cacheKey: "scope=all",
+                expiresAt: "2026-06-07T00:00:30.000Z",
+                fingerprint: "abc123",
+              },
+            },
+          }
+        },
+      },
+      conversationService: {
+        getConversationDetail: async () => ({
+          id: "conv_1",
+          title: "Test",
+          mode: "single",
+          status: "active",
+          orchestratorAgentId: null,
+          lastMessageId: null,
+          lastMessageAt: null,
+          pinnedAt: null,
+          archivedAt: null,
+          metadata: {
+            workspace: {
+              workspaceId: "workspace_1",
+              backendType: "local",
+              rootPath: "D:\\Workspace\\Project",
+            },
+          },
+          createdAt: "2026-06-07T00:00:00.000Z",
+          updatedAt: "2026-06-07T00:00:00.000Z",
+          agents: [],
+        }),
+      },
+    })
+
+    const response = await app.request("/api/runtime/capabilities/refresh", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: "all",
+        conversationId: "conv_1",
+        sources: ["agents", "opencode"],
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(calls).toEqual([{
+      method: "POST",
+      path: "/runtime/capabilities/refresh",
+      body: {
+        scope: "all",
+        sources: ["agents", "opencode"],
+        workspace: {
+          workspaceId: "workspace_1",
+          backendType: "local",
+          rootPath: "D:\\Workspace\\Project",
+        },
+      },
+    }])
+  })
+
   test("returns WORKSPACE_NOT_RESOLVED when workspace discovery has no bound workspace", async () => {
     const app = createApp({
       runtimeClient: {},
@@ -134,6 +261,44 @@ describe("runtime capabilities router", () => {
     })
 
     const response = await app.request("/api/runtime/capabilities?scope=workspace&conversationId=conv_1")
+    const body = await response.json() as { error: { code: string } }
+
+    expect(response.status).toBe(400)
+    expect(body.error.code).toBe("WORKSPACE_NOT_RESOLVED")
+  })
+
+  test("returns WORKSPACE_NOT_RESOLVED when workspace refresh has no bound workspace", async () => {
+    const app = createApp({
+      runtimeClient: {},
+      conversationService: {
+        getConversationDetail: async () => ({
+          id: "conv_1",
+          title: "Test",
+          mode: "single",
+          status: "active",
+          orchestratorAgentId: null,
+          lastMessageId: null,
+          lastMessageAt: null,
+          pinnedAt: null,
+          archivedAt: null,
+          metadata: {},
+          createdAt: "2026-06-07T00:00:00.000Z",
+          updatedAt: "2026-06-07T00:00:00.000Z",
+          agents: [],
+        }),
+      },
+    })
+
+    const response = await app.request("/api/runtime/capabilities/refresh", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: "workspace",
+        conversationId: "conv_1",
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
     const body = await response.json() as { error: { code: string } }
 
     expect(response.status).toBe(400)

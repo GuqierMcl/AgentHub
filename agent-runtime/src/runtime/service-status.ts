@@ -1,5 +1,6 @@
 import type { ManagedOpenCodeServer } from "./external-adapters"
 import { getClaudeCodeReadiness, getCodexReadiness } from "./external-adapters"
+import type { CapabilityDiscoveryStatusItem } from "./capabilities"
 
 export type RuntimeServiceStatus =
   | "running"
@@ -7,8 +8,11 @@ export type RuntimeServiceStatus =
   | "idle"
   | "error"
   | "not_integrated"
+  | "refreshing"
 
-export type RuntimeServiceStatusItem = {
+export type RuntimeExternalServiceId = "opencode" | "codex" | "claude-code"
+
+export type RuntimeExternalServiceStatusItem = {
   id: "opencode" | "codex" | "claude-code"
   label: string
   kind: "external-agent"
@@ -19,6 +23,8 @@ export type RuntimeServiceStatusItem = {
   pendingWorkspaceCount?: number
   details?: Record<string, unknown>
 }
+
+export type RuntimeServiceStatusItem = RuntimeExternalServiceStatusItem | CapabilityDiscoveryStatusItem
 
 export type RuntimeServicesStatusResponse = {
   checkedAt: string
@@ -31,11 +37,12 @@ export type ExternalAgentRunSummary = {
 }
 
 export type ExternalAgentRunSummarySource = {
-  getExternalAgentRunSummary(agentId: RuntimeServiceStatusItem["id"]): ExternalAgentRunSummary
+  getExternalAgentRunSummary(agentId: RuntimeExternalServiceId): ExternalAgentRunSummary
 }
 
 export type RuntimeServicesStatusContext = {
-  externalAgents?: Partial<Record<RuntimeServiceStatusItem["id"], ExternalAgentRunSummary>>
+  externalAgents?: Partial<Record<RuntimeExternalServiceId, ExternalAgentRunSummary>>
+  capabilityDiscovery?: CapabilityDiscoveryStatusItem
 }
 
 export function createRuntimeServicesStatus(
@@ -49,6 +56,7 @@ export function createRuntimeServicesStatus(
       createOpenCodeServiceStatus(openCodeServer, checkedAt),
       createCodexServiceStatus(checkedAt, context.externalAgents?.codex),
       createClaudeCodeServiceStatus(checkedAt, context.externalAgents?.["claude-code"]),
+      context.capabilityDiscovery ?? createDefaultCapabilityDiscoveryStatus(checkedAt),
     ],
   }
 }
@@ -56,7 +64,7 @@ export function createRuntimeServicesStatus(
 function createOpenCodeServiceStatus(
   openCodeServer: Pick<ManagedOpenCodeServer, "getStatus">,
   checkedAt: string
-): RuntimeServiceStatusItem {
+): RuntimeExternalServiceStatusItem {
   const status = openCodeServer.getStatus()
   return {
     id: "opencode",
@@ -76,7 +84,7 @@ function createOpenCodeServiceStatus(
 function createCodexServiceStatus(
   checkedAt: string,
   runSummary?: ExternalAgentRunSummary
-): RuntimeServiceStatusItem {
+): RuntimeExternalServiceStatusItem {
   const readiness = getCodexReadiness()
   const activeRunCount = runSummary?.activeRunCount ?? 0
   return {
@@ -101,7 +109,7 @@ function createCodexServiceStatus(
 function createClaudeCodeServiceStatus(
   checkedAt: string,
   runSummary?: ExternalAgentRunSummary
-): RuntimeServiceStatusItem {
+): RuntimeExternalServiceStatusItem {
   const readiness = getClaudeCodeReadiness()
   const activeRunCount = runSummary?.activeRunCount ?? 0
   return {
@@ -118,6 +126,20 @@ function createClaudeCodeServiceStatus(
       ...(runSummary ? { activeRunCount } : {}),
       ...(runSummary?.latestError ? { latestError: runSummary.latestError } : {}),
       ...(readiness.executablePath ? { executablePath: readiness.executablePath } : {}),
+    },
+  }
+}
+
+function createDefaultCapabilityDiscoveryStatus(checkedAt: string): CapabilityDiscoveryStatusItem {
+  return {
+    id: "capability-discovery",
+    label: "Capability Discovery",
+    kind: "runtime-capability",
+    status: "idle",
+    implemented: true,
+    checkedAt,
+    details: {
+      cacheEntryCount: 0,
     },
   }
 }

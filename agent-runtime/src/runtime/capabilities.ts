@@ -2,8 +2,10 @@ import { existsSync, readdirSync, type Dirent } from "node:fs"
 import { readdir, readFile, stat } from "node:fs/promises"
 import { basename, extname, join, isAbsolute, sep } from "node:path"
 import { homedir } from "node:os"
+import { createHash } from "node:crypto"
 import { z } from "zod"
 
+export const CapabilitySourceSchema = z.enum(["agents", "codex", "claude-code", "opencode"])
 export const CapabilityScopeSchema = z.enum(["all", "global", "workspace"])
 export const CapabilityWorkspaceSchema = z.object({
   workspaceId: z.string().trim().min(1),
@@ -13,14 +15,24 @@ export const CapabilityWorkspaceSchema = z.object({
 export const CapabilityDiscoveryRequestSchema = z.object({
   scope: CapabilityScopeSchema.default("all"),
   workspace: CapabilityWorkspaceSchema.optional(),
+  sources: z.array(CapabilitySourceSchema).min(1).optional(),
 }).strict()
 
 export type CapabilityScope = z.infer<typeof CapabilityScopeSchema>
 export type CapabilityWorkspace = z.infer<typeof CapabilityWorkspaceSchema>
 export type CapabilityDiscoveryRequest = z.input<typeof CapabilityDiscoveryRequestSchema>
-export type CapabilitySource = "agents" | "codex" | "claude-code" | "opencode"
+export type CapabilitySource = z.infer<typeof CapabilitySourceSchema>
 export type CapabilityLevel = "global" | "workspace"
 export type McpTransport = "stdio" | "sse" | "http" | "unknown"
+export type CapabilityDiscoveryRuntimeStatus = "idle" | "refreshing" | "error"
+
+export type CapabilityCacheMetadata = {
+  hit: boolean
+  refreshed: boolean
+  cacheKey: string
+  expiresAt: string
+  fingerprint: string
+}
 
 export type SkillCapabilitySummary = {
   id: string
@@ -52,11 +64,28 @@ export type CapabilityDiscoveryResponse = {
   skills: SkillCapabilitySummary[]
   mcps: McpServerCapabilitySummary[]
   warnings: string[]
+  cache?: CapabilityCacheMetadata
+}
+
+export type CapabilityDiscoveryStatusItem = {
+  id: "capability-discovery"
+  label: "Capability Discovery"
+  kind: "runtime-capability"
+  status: CapabilityDiscoveryRuntimeStatus
+  implemented: true
+  checkedAt: string
+  details: {
+    cacheEntryCount: number
+    latestRefreshAt?: string
+    latestError?: string
+    lastRefreshDurationMs?: number
+  }
 }
 
 export type CapabilityDiscoveryServiceOptions = {
   homeDir?: string
   dataDir?: string
+  cacheTtlMs?: number
 }
 
 type SkillRoot = {
@@ -80,9 +109,18 @@ type McpServerRecord = {
   value: Record<string, unknown>
 }
 
+type NormalizedCapabilityDiscoveryRequest = z.infer<typeof CapabilityDiscoveryRequestSchema>
+
+type CapabilityCacheEntry = {
+  response: Omit<CapabilityDiscoveryResponse, "cache">
+  fingerprint: string
+  expiresAtMs: number
+}
+
 const SECRET_KEY_PATTERN = /(token|secret|password|passwd|api[-_]?key|authorization|credential)/i
 const SECRET_VALUE_PATTERN = /^(sk-|ghp_|github_pat_|xox[baprs]-|ya29\.|eyJ)[A-Za-z0-9._-]{8,}/
 const CONFIG_FILE_EXTENSIONS = new Set([".json", ".toml", ".yaml", ".yml"])
+const DEFAULT_CAPABILITY_CACHE_TTL_MS = 30_000
 
 export class CapabilityDiscoveryError extends Error {
   constructor(
@@ -98,14 +136,50 @@ export class CapabilityDiscoveryError extends Error {
 export class CapabilityDiscoveryService {
   private homeDir: string
   private dataDir: string
+  private cacheTtlMs: number
+  private cache = new Map<string, CapabilityCacheEntry>()
+  private status: CapabilityDiscoveryRuntimeStatus = "idle"
+  private latestRefreshAt: string | undefined
+  private latestError: string | undefined
+  private lastRefreshDurationMs: number | undefined
 
   constructor(options: CapabilityDiscoveryServiceOptions = {}) {
     this.homeDir = options.homeDir ?? process.env.USERPROFILE ?? homedir()
     this.dataDir = options.dataDir ?? join(process.cwd(), "data-tmp")
+    this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CAPABILITY_CACHE_TTL_MS
   }
 
   async discover(input: CapabilityDiscoveryRequest = {}): Promise<CapabilityDiscoveryResponse> {
     const request = CapabilityDiscoveryRequestSchema.parse(input)
+    return this.discoverWithCache(request, { forceRefresh: false })
+  }
+
+  async refresh(input: CapabilityDiscoveryRequest = {}): Promise<CapabilityDiscoveryResponse> {
+    const request = CapabilityDiscoveryRequestSchema.parse(input)
+    return this.discoverWithCache(request, { forceRefresh: true })
+  }
+
+  getStatus(checkedAt = new Date().toISOString()): CapabilityDiscoveryStatusItem {
+    return {
+      id: "capability-discovery",
+      label: "Capability Discovery",
+      kind: "runtime-capability",
+      status: this.status,
+      implemented: true,
+      checkedAt,
+      details: {
+        cacheEntryCount: this.cache.size,
+        ...(this.latestRefreshAt ? { latestRefreshAt: this.latestRefreshAt } : {}),
+        ...(this.latestError ? { latestError: this.latestError } : {}),
+        ...(this.lastRefreshDurationMs !== undefined ? { lastRefreshDurationMs: this.lastRefreshDurationMs } : {}),
+      },
+    }
+  }
+
+  private async discoverWithCache(
+    request: NormalizedCapabilityDiscoveryRequest,
+    options: { forceRefresh: boolean },
+  ): Promise<CapabilityDiscoveryResponse> {
     if ((request.scope === "workspace" || request.scope === "all") && !request.workspace) {
       throw new CapabilityDiscoveryError(
         "CAPABILITY_WORKSPACE_REQUIRED",
@@ -113,19 +187,74 @@ export class CapabilityDiscoveryService {
       )
     }
 
+    const cacheKey = createCacheKey(request)
+    const fingerprint = await this.createFingerprint(request)
+    const now = Date.now()
+    const cached = this.cache.get(cacheKey)
+    if (
+      cached &&
+      !options.forceRefresh &&
+      cached.fingerprint === fingerprint &&
+      cached.expiresAtMs > now
+    ) {
+      return {
+        ...cached.response,
+        cache: {
+          hit: true,
+          refreshed: false,
+          cacheKey,
+          expiresAt: new Date(cached.expiresAtMs).toISOString(),
+          fingerprint,
+        },
+      }
+    }
+
+    const startedAt = Date.now()
+    this.status = "refreshing"
+    try {
+      const response = await this.performDiscovery(request)
+      const expiresAtMs = Date.now() + this.cacheTtlMs
+      this.cache.set(cacheKey, {
+        response,
+        fingerprint,
+        expiresAtMs,
+      })
+      this.latestRefreshAt = new Date().toISOString()
+      this.latestError = undefined
+      this.lastRefreshDurationMs = Date.now() - startedAt
+      this.status = "idle"
+      return {
+        ...response,
+        cache: {
+          hit: false,
+          refreshed: true,
+          cacheKey,
+          expiresAt: new Date(expiresAtMs).toISOString(),
+          fingerprint,
+        },
+      }
+    } catch (error) {
+      this.latestError = sanitizeStatusError(error instanceof Error ? error.message : "Capability discovery failed")
+      this.lastRefreshDurationMs = Date.now() - startedAt
+      this.status = "error"
+      throw error
+    }
+  }
+
+  private async performDiscovery(request: NormalizedCapabilityDiscoveryRequest): Promise<Omit<CapabilityDiscoveryResponse, "cache">> {
     const warnings: string[] = []
     const skills: SkillCapabilitySummary[] = []
     const mcps: McpServerCapabilitySummary[] = []
 
     if (request.scope === "global" || request.scope === "all") {
-      skills.push(...await this.discoverSkills(this.globalSkillRoots()))
-      mcps.push(...await this.discoverMcpServers(this.globalMcpCandidates()))
+      skills.push(...await this.discoverSkills(this.filterSkillRoots(this.globalSkillRoots(), request.sources)))
+      mcps.push(...await this.discoverMcpServers(this.filterMcpCandidates(this.globalMcpCandidates(), request.sources)))
     }
 
     if ((request.scope === "workspace" || request.scope === "all") && request.workspace) {
       const workspaceRoot = request.workspace.rootPath
-      skills.push(...await this.discoverSkills(this.workspaceSkillRoots(workspaceRoot)))
-      mcps.push(...await this.discoverMcpServers(this.workspaceMcpCandidates(workspaceRoot)))
+      skills.push(...await this.discoverSkills(this.filterSkillRoots(this.workspaceSkillRoots(workspaceRoot), request.sources)))
+      mcps.push(...await this.discoverMcpServers(this.filterMcpCandidates(this.workspaceMcpCandidates(workspaceRoot), request.sources)))
     }
 
     return {
@@ -135,6 +264,46 @@ export class CapabilityDiscoveryService {
       mcps: sortById(mcps),
       warnings,
     }
+  }
+
+  private async createFingerprint(request: NormalizedCapabilityDiscoveryRequest): Promise<string> {
+    const parts: string[] = [
+      `scope:${request.scope}`,
+      `sources:${normalizeSources(request.sources).join(",")}`,
+      request.workspace
+        ? `workspace:${request.workspace.workspaceId}:${hashValue(request.workspace.rootPath)}`
+        : "workspace:none",
+    ]
+
+    const skillRoots: SkillRoot[] = []
+    const mcpCandidates: McpConfigCandidate[] = []
+    if (request.scope === "global" || request.scope === "all") {
+      skillRoots.push(...this.filterSkillRoots(this.globalSkillRoots(), request.sources))
+      mcpCandidates.push(...this.filterMcpCandidates(this.globalMcpCandidates(), request.sources))
+    }
+    if ((request.scope === "workspace" || request.scope === "all") && request.workspace) {
+      skillRoots.push(...this.filterSkillRoots(this.workspaceSkillRoots(request.workspace.rootPath), request.sources))
+      mcpCandidates.push(...this.filterMcpCandidates(this.workspaceMcpCandidates(request.workspace.rootPath), request.sources))
+    }
+
+    for (const root of skillRoots) {
+      parts.push(...await fingerprintSkillRoot(root))
+    }
+    for (const candidate of mcpCandidates) {
+      parts.push(...await fingerprintFile(candidate.ref, candidate.filePath))
+    }
+
+    return hashValue(parts.sort().join("|"))
+  }
+
+  private filterSkillRoots(roots: SkillRoot[], sources?: CapabilitySource[]): SkillRoot[] {
+    const allowed = sources ? new Set(sources) : null
+    return allowed ? roots.filter((root) => allowed.has(root.source)) : roots
+  }
+
+  private filterMcpCandidates(candidates: McpConfigCandidate[], sources?: CapabilitySource[]): McpConfigCandidate[] {
+    const allowed = sources ? new Set(sources) : null
+    return allowed ? candidates.filter((candidate) => allowed.has(candidate.source)) : candidates
   }
 
   private globalSkillRoots(): SkillRoot[] {
@@ -424,6 +593,51 @@ function inferTransport(server: Record<string, unknown>): McpTransport {
   return "unknown"
 }
 
+async function fingerprintSkillRoot(root: SkillRoot): Promise<string[]> {
+  const parts: string[] = []
+  parts.push(...await fingerprintFile(`${root.refPrefix}:directory`, root.directory))
+  if (!existsSync(root.directory)) return parts
+
+  let entries: StringDirent[]
+  try {
+    entries = await readdir(root.directory, { withFileTypes: true })
+  } catch {
+    return parts
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const skillFile = join(root.directory, entry.name, "SKILL.md")
+    parts.push(...await fingerprintFile(`${root.refPrefix}:${entry.name}`, skillFile))
+  }
+  return parts
+}
+
+async function fingerprintFile(ref: string, path: string): Promise<string[]> {
+  try {
+    const fileStat = await stat(path)
+    return [`${ref}:${fileStat.isDirectory() ? "dir" : "file"}:${fileStat.mtimeMs}:${fileStat.size}`]
+  } catch {
+    return [`${ref}:missing`]
+  }
+}
+
+function createCacheKey(request: NormalizedCapabilityDiscoveryRequest): string {
+  return stableId([
+    request.scope,
+    normalizeSources(request.sources).join("."),
+    request.workspace
+      ? `${request.workspace.workspaceId}.${hashValue(request.workspace.rootPath).slice(0, 12)}`
+      : "global",
+  ].join(":"))
+}
+
+function normalizeSources(sources?: CapabilitySource[]): CapabilitySource[] {
+  return sources?.length
+    ? [...new Set(sources)].sort()
+    : ["agents", "claude-code", "codex", "opencode"]
+}
+
 function sanitizeCommand(command: string | undefined): string | undefined {
   if (!command) return undefined
   if (isAbsolute(command) || command.includes(sep)) return basename(command)
@@ -474,6 +688,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stableId(value: string): string {
   return value.replace(/[^a-zA-Z0-9:._-]+/g, "-")
+}
+
+function hashValue(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+function sanitizeStatusError(message: string): string {
+  return message
+    .replace(/[A-Za-z]:\\[^\s"'`<>]+/g, "[REDACTED_PATH]")
+    .replace(/(^|\s)\/(?:[^/\s"'`<>]+\/)+[^/\s"'`<>]*/g, "$1[REDACTED_PATH]")
+    .replace(/(token|secret|password|passwd|api[-_]?key|authorization|credential)=([^\s&]+)/gi, "$1=[REDACTED]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+    .replace(/(sk-|ghp_|github_pat_|xox[baprs]-|ya29\.|eyJ)[A-Za-z0-9._-]{8,}/g, "[REDACTED]")
+    .slice(0, 500)
 }
 
 function sortById<T extends { id: string }>(items: T[]): T[] {

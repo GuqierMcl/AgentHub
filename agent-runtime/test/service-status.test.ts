@@ -274,6 +274,43 @@ describe("runtime service status", () => {
     })
   })
 
+  test("services router includes capability discovery status", async () => {
+    const app = new Hono()
+    app.use("*", async (c: Context, next: Next) => {
+      c.set("capabilityDiscoveryService", {
+        getStatus() {
+          return {
+            id: "capability-discovery",
+            label: "Capability Discovery",
+            kind: "runtime-capability",
+            status: "idle",
+            implemented: true,
+            checkedAt: "2026-06-07T00:00:00.000Z",
+            details: {
+              cacheEntryCount: 2,
+              latestRefreshAt: "2026-06-07T00:00:00.000Z",
+            },
+          }
+        },
+      })
+      await next()
+    })
+    app.route("/", servicesRouter)
+
+    const response = await app.request("/runtime/services/status")
+    const body = await response.json() as {
+      services: Array<{ id: string; status: string; details?: Record<string, unknown> }>
+    }
+
+    expect(response.status).toBe(200)
+    expect(body.services.find((service) => service.id === "capability-discovery")).toMatchObject({
+      status: "idle",
+      details: expect.objectContaining({
+        cacheEntryCount: 2,
+      }),
+    })
+  })
+
   test("RunManager summarizes non-terminal direct Claude Code runs", async () => {
     const registry = await createInitializedRegistry()
     const runManager = new RunManager(registry, {} as ProviderService)

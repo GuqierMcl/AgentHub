@@ -65,6 +65,34 @@ capabilitiesRouter.post("/runtime/capabilities/discover", async (c: Context) => 
   }
 })
 
+capabilitiesRouter.post("/runtime/capabilities/refresh", async (c: Context) => {
+  const body = await c.req.json().catch(() => null)
+  const result = CapabilityDiscoveryRequestSchema.safeParse(body ?? {})
+  if (!result.success) {
+    return c.json({
+      error: {
+        code: "CAPABILITY_INVALID_INPUT",
+        message: "Invalid capability refresh request.",
+        details: result.error.issues,
+      },
+    }, 400)
+  }
+
+  try {
+    return c.json(await c.get("capabilityDiscoveryService").refresh(result.data))
+  } catch (error) {
+    if (error instanceof CapabilityDiscoveryError) {
+      return c.json({
+        error: {
+          code: error.code,
+          message: error.message,
+        },
+      }, error.status as 400)
+    }
+    throw error
+  }
+})
+
 capabilitiesRouter.get("/runtime/skills", async (c: Context) => {
   const scope = CapabilityScopeSchema.catch("global").parse(c.req.query("scope") ?? "global")
   if (scope !== "global") {

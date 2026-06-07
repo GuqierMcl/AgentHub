@@ -84,6 +84,7 @@ MCP 配置发现第一阶段只读取配置摘要。对本地 command / args / e
 
 ```http
 POST /runtime/capabilities/discover
+POST /runtime/capabilities/refresh
 GET /runtime/capabilities
 GET /runtime/skills?scope=global
 GET /runtime/mcp/servers?scope=global
@@ -99,84 +100,61 @@ GET /runtime/mcp/servers?scope=global
     backendType: "local"
     rootPath: string
   }
+  sources?: Array<"agents" | "codex" | "claude-code" | "opencode">
 }
 ```
 
-`GET /runtime/capabilities` 只返回 global-only discovery。workspace 发现不能只传 `workspaceId`，因为 Runtime 不持有 HubServer 的 workspace 业务状态。
+`POST /runtime/capabilities/refresh` 使用相同请求体，强制重建对应缓存项。`sources` 可限制本次发现 / 刷新的来源；不传则扫描全部来源。`GET /runtime/capabilities` 只返回 global-only discovery。workspace 发现不能只传 `workspaceId`，因为 Runtime 不持有 HubServer 的 workspace 业务状态。
 
 ### HubServer 代理 API
 
 ```http
 GET /api/runtime/capabilities?scope=global|workspace|all&conversationId=<id>
+POST /api/runtime/capabilities/refresh
 ```
 
-`scope=global` 不需要 `conversationId`。`scope=workspace|all` 时 HubServer 根据 `conversationId` 解析会话 metadata 中的 local workspace snapshot，再转发给 Runtime `POST /runtime/capabilities/discover`。解析失败时返回 `WORKSPACE_NOT_RESOLVED`。
+`scope=global` 不需要 `conversationId`。`scope=workspace|all` 时 HubServer 根据 `conversationId` 解析会话 metadata 中的 local workspace snapshot，再转发给 Runtime `POST /runtime/capabilities/discover` 或 `POST /runtime/capabilities/refresh`。解析失败时返回 `WORKSPACE_NOT_RESOLVED`。浏览器不得直接传入 workspace rootPath。
 
 ### 响应模型
 
 ```ts
 type RuntimeCapabilityDiscoveryResponse = {
-  checkedAt: string
-  workspace?: {
-    workspaceId: string
-    backendType: "local"
-    rootLabel: string
-  }
-  skills: {
-    items: SkillCapabilitySummary[]
-    conflicts: CapabilityConflict[]
-    errors: CapabilityDiscoveryError[]
-  }
-  mcp: {
-    servers: McpServerSummary[]
-    conflicts: CapabilityConflict[]
-    errors: CapabilityDiscoveryError[]
-  }
-}
-
-type SkillCapabilitySummary = {
-  id: string
-  name: string
-  description: string
-  scope: "global" | "workspace"
-  sourceFamily: "agents" | "codex" | "claude-code" | "opencode"
-  sourceRef: string
-  packagePathRef: string
-  relativePath?: string
-  readonly: boolean
-  trusted: boolean
-  validation: {
-    status: "valid" | "invalid"
-    messages: string[]
-  }
-  frontmatter: {
-    license?: string
-    compatibility?: string
-    metadata?: Record<string, string>
-  }
-}
-
-type McpServerSummary = {
-  id: string
-  name: string
-  scope: "global" | "workspace"
-  sourceFamily: "agenthub" | "codex" | "claude-code" | "opencode"
-  sourceRef: string
-  transport: "stdio" | "http" | "sse" | "unknown"
-  enabled: boolean
-  status: "discovered" | "disabled" | "invalid" | "requires_approval"
-  riskLevel: "low" | "medium" | "high"
-  commandSummary?: string
-  urlHost?: string
-  hasSecrets: boolean
-  validation: {
-    status: "valid" | "invalid"
-    messages: string[]
+  discoveredAt: string
+  scope: "all" | "global" | "workspace"
+  skills: Array<{
+    id: string
+    name: string
+    source: "agents" | "codex" | "claude-code" | "opencode"
+    level: "global" | "workspace"
+    path: string
+    description?: string
+    valid: boolean
+    warnings: string[]
+  }>
+  mcps: Array<{
+    id: string
+    name: string
+    source: "agents" | "codex" | "claude-code" | "opencode"
+    level: "global" | "workspace"
+    configPath: string
+    transport?: "stdio" | "sse" | "http" | "unknown"
+    command?: string
+    args?: string[]
+    valid: boolean
+    warnings: string[]
+  }>
+  warnings: string[]
+  cache?: {
+    hit: boolean
+    refreshed: boolean
+    cacheKey: string
+    expiresAt: string
+    fingerprint: string
   }
 }
 ```
 
-`sourceRef` 和 `packagePathRef` 是稳定逻辑引用，例如 `global:codex:.system/openai-docs` 或 `workspace:agents:add-runtime-tool`，不是宿主机绝对路径。
+`path`、`configPath`、`cacheKey` 和 `fingerprint` 都是逻辑或哈希化引用，不得包含宿主机绝对路径、workspace root、token、headers、env 值或其他 secret。
 
 ## 阶段拆分
 
@@ -209,11 +187,13 @@ type McpServerSummary = {
 
 ### 阶段 2：发现缓存、刷新和可观测状态
 
-- 引入 Runtime 内存缓存，缓存 key 包含 source family、scope、workspace identity 和 config mtime fingerprint。
-- `GET` 默认读取缓存，缓存过期或 fingerprint 改变时刷新。
-- `POST /runtime/capabilities/refresh` 支持强制刷新指定 scope / sourceFamily。
-- HubServer 服务状态中可选择合并 capability discovery 状态，例如 `capability-discovery.status = idle | refreshing | error`。
-- 错误分级：单个来源失败只进入 `errors`，不让整个 API 失败；Runtime 内部不可用才由 HubServer 返回 Runtime 错误。
+- 引入 Runtime 进程内缓存，默认 TTL 为 30 秒；缓存 key 包含 scope、sources、workspace identity 和 rootPath 哈希。
+- Runtime 基于候选目录、`SKILL.md` 和 MCP 配置文件的 `mtimeMs + size` 生成 fingerprint；TTL 未过期且 fingerprint 未变化时返回 cache hit。
+- `POST /runtime/capabilities/discover` 默认走缓存；缓存过期或 fingerprint 改变时自动刷新。
+- `POST /runtime/capabilities/refresh` 强制刷新指定 `scope` / `sources`，并返回同一 flat discovery response，`cache.hit = false`、`cache.refreshed = true`。
+- HubServer 新增 `POST /api/runtime/capabilities/refresh`，workspace/all scope 仍只通过 `conversationId` 解析 workspace snapshot 后转发。
+- Runtime `GET /runtime/services/status` 增加 `capability-discovery` 服务项；HubServer `/api/system/services/status` 合并该服务项，Runtime 不可用时返回 `capability-discovery.status = "error"`。
+- 错误分级：单个来源失败只进入 `warnings`，不让整个 API 失败；Runtime 内部不可用才由 HubServer 返回 Runtime 错误。
 
 ### 阶段 3：Web / Agent Authoring 只读展示
 
@@ -257,12 +237,14 @@ type McpServerSummary = {
 
 - 2026-06-07：完成可行性分析，确认第一阶段范围为只读发现并暴露 HubServer API。
 - 2026-06-07：创建本路线图，锁定全局和 workspace Skill 来源兼容矩阵。
+- 2026-06-07：Phase 2 进入实现收尾，目标是 Runtime 内存缓存、强制刷新 API 和 `capability-discovery` 服务状态。
 
 ## 已完成
 
 - 已确认 Runtime 当前已有 Tool Catalog、Agent authoring options 和 HubServer 代理模式，可复用为 Capability Discovery API 的结构参考。
 - 已确认 `agent-runtime` 已依赖 `@modelcontextprotocol/sdk`，后续 MCP 阶段无需从零引入 SDK。
 - 已确认现有文档把外部 agent 的 Skill / MCP 视为外部平台私有配置，后续实现前必须先更新边界文档。
+- Phase 1 已实现 flat `skills[] / mcps[]` discovery response、HubServer `GET /api/runtime/capabilities` 代理和 workspace snapshot 解析边界。
 
 ## 交付后增强项
 
@@ -288,3 +270,4 @@ type McpServerSummary = {
 
 - 2026-06-07：新增路线图，覆盖只读发现、API、缓存、展示、Skill 注入、MCP 执行、外部 adapter 摘要和治理阶段。
 - 2026-06-07：Phase 1 API 调整为显式 workspace snapshot；避免 Runtime 通过 `workspaceId` 猜测或查询 HubServer 业务状态。
+- 2026-06-07：Phase 2 文档改为当前 flat response；新增 `sources` filter、cache metadata、refresh API 和 `capability-discovery` status 契约。

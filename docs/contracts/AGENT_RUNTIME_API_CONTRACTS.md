@@ -85,8 +85,9 @@ type RuntimeServiceStatus =
   | "idle"
   | "error"
   | "not_integrated"
+  | "refreshing"
 
-type RuntimeServiceStatusItem = {
+type RuntimeExternalServiceStatusItem = {
   id: "opencode" | "codex" | "claude-code"
   label: string
   kind: "external-agent"
@@ -97,6 +98,25 @@ type RuntimeServiceStatusItem = {
   pendingWorkspaceCount?: number
   details?: Record<string, unknown>
 }
+
+type CapabilityDiscoveryStatusItem = {
+  id: "capability-discovery"
+  label: "Capability Discovery"
+  kind: "runtime-capability"
+  status: "idle" | "refreshing" | "error"
+  implemented: true
+  checkedAt: string
+  details?: {
+    cacheEntryCount: number
+    latestRefreshAt?: string
+    latestError?: string
+    lastRefreshDurationMs?: number
+  }
+}
+
+type RuntimeServiceStatusItem =
+  | RuntimeExternalServiceStatusItem
+  | CapabilityDiscoveryStatusItem
 
 type RuntimeServicesStatusResponse = {
   checkedAt: string
@@ -109,18 +129,19 @@ type RuntimeServicesStatusResponse = {
 - `opencode` 已接入，状态来自 Runtime 默认 `ManagedOpenCodeServer` 的只读快照。
 - `claude-code` 已接入，状态来自 Claude Agent SDK / executable 配置的只读 readiness 和 Runtime 内存中的非终态 Claude Code Run 摘要；不启动 prompt、不创建 session、不触发 Claude 登录流程。
 - `codex` 已接入，状态来自 `@openai/codex-sdk` 只读 readiness 和 Runtime 内存中的非终态 Codex Run 摘要；不创建 thread、不调用 prompt、不触发登录流程。
+- `capability-discovery` 已接入，状态来自 Runtime Capability Discovery 进程内缓存和最近一次刷新；`idle` 表示未在刷新，`refreshing` 表示正在重建缓存，`error` 表示最近一次刷新失败。该状态不得触发扫描以外的执行行为。
 - OpenCode 的 `idle` 表示待命；`starting` 表示至少一个 workspace server 正在启动；`running` 表示至少一个 workspace server 已连接；`error` 表示最近一次启动或 workspace 校验失败。
 - Codex 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `codex`；`idle` 表示 `@openai/codex-sdk` 可用且当前没有 active Codex Run；`error` 表示 SDK package 或只读 readiness 探测失败。`details.activeRunCount` 返回当前非终态 Codex Run 数，`details.clientMode = "sdk"`，`details.version` 在可读取 SDK package 版本时返回。
 - Claude Code 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `claude-code`；`idle` 表示 SDK/executable 配置可用且当前没有 active Claude Code Run；`error` 表示后续只读 executable 探测发现阻塞。`details.activeRunCount` 返回当前非终态 Claude Code Run 数；`details.executableSource` 为 `"sdk-bundled"` 或 `"env"`；`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 设置时可在 `details.executablePath` 返回该覆盖路径。
-- 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt、Claude 凭据或 provider 凭据。
+- 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt、Claude 凭据、provider 凭据或 capability discovery 中解析到的 env/header/token 值。
 
-HubServer 面向 Web 的服务状态端点为 `GET /api/system/services/status`。它会先调用 Runtime `GET /health` 生成 `agent-runtime` 服务项，再调用 `GET /runtime/services/status` 合并 `opencode`、`codex`、`claude-code`：
+HubServer 面向 Web 的服务状态端点为 `GET /api/system/services/status`。它会先调用 Runtime `GET /health` 生成 `agent-runtime` 服务项，再调用 `GET /runtime/services/status` 合并 `opencode`、`codex`、`claude-code` 和 `capability-discovery`：
 
 ```ts
 type SystemServiceStatusItem = {
-  id: "agent-runtime" | "opencode" | "codex" | "claude-code"
+  id: "agent-runtime" | "opencode" | "codex" | "claude-code" | "capability-discovery"
   label: string
-  kind: "runtime" | "external-agent"
+  kind: "runtime" | "external-agent" | "runtime-capability"
   status: RuntimeServiceStatus
   implemented: boolean
   checkedAt: string
@@ -130,7 +151,7 @@ type SystemServiceStatusItem = {
 }
 ```
 
-若 Runtime 不可用，HubServer 返回 `agent-runtime.status = "error"`、已实现外部服务（当前 `opencode`、`codex` 与 `claude-code`）`status = "error"` 且 `details.reason = "runtime-unavailable"`；未接入服务保持 `not_integrated` 占位。
+若 Runtime 不可用，HubServer 返回 `agent-runtime.status = "error"`、已实现外部服务（当前 `opencode`、`codex` 与 `claude-code`）和 `capability-discovery` 的 `status = "error"` 且 `details.reason = "runtime-unavailable"`；未接入服务保持 `not_integrated` 占位。
 
 ### Runtime Skill / MCP Capability Discovery
 
@@ -148,10 +169,11 @@ type RuntimeCapabilityDiscoveryRequest = {
     backendType: "local"
     rootPath: string
   }
+  sources?: Array<"agents" | "codex" | "claude-code" | "opencode">
 }
 ```
 
-`scope` 默认 `"all"`。当 `scope = "workspace" | "all"` 时，`workspace` 必填；Runtime 不根据 `workspaceId` 查询 HubServer 状态，也不回退到 `config.workdir`。
+`scope` 默认 `"all"`。当 `scope = "workspace" | "all"` 时，`workspace` 必填；Runtime 不根据 `workspaceId` 查询 HubServer 状态，也不回退到 `config.workdir`。`sources` 可限制本次发现来源；不传则扫描全部来源。
 
 成功响应：
 
@@ -182,10 +204,28 @@ type RuntimeCapabilityDiscoveryResponse = {
     warnings: string[]
   }>
   warnings: string[]
+  cache?: {
+    hit: boolean
+    refreshed: boolean
+    cacheKey: string
+    expiresAt: string
+    fingerprint: string
+  }
 }
 ```
 
-`path` 与 `configPath` 是逻辑引用，例如 `global:codex:config.toml` 或 `workspace:agents:my-skill`，不是宿主机绝对路径。MCP `command` 可返回命令名；`args` 会对 token、secret、password、api key、authorization 等敏感值脱敏。响应不返回 env、headers、credential 值、workspace root 或真实 config 绝对路径。
+`path` 与 `configPath` 是逻辑引用，例如 `global:codex:config.toml` 或 `workspace:agents:my-skill`，不是宿主机绝对路径。MCP `command` 可返回命令名；`args` 会对 token、secret、password、api key、authorization 等敏感值脱敏。响应不返回 env、headers、credential 值、workspace root 或真实 config 绝对路径。`cacheKey` 与 `fingerprint` 必须是逻辑或哈希化标识，不得包含 rootPath、绝对路径或 secret。
+
+缓存语义：
+
+- Runtime 使用进程内缓存，默认 TTL 为 30 秒。
+- Cache key 至少包含 `scope`、`sources`、workspace identity 和 workspace root hash。
+- Fingerprint 基于候选目录、`SKILL.md` 和 MCP 配置文件的 `mtimeMs + size` 生成；TTL 未过期且 fingerprint 未变化时返回 `cache.hit = true`。
+- 缓存 miss、TTL 过期或 fingerprint 变化时自动刷新并返回 `cache.refreshed = true`。
+
+**端点**：`POST /runtime/capabilities/refresh`
+
+请求体与 `POST /runtime/capabilities/discover` 相同。该端点强制重建对应缓存项，成功响应与 discovery response 相同，并满足 `cache.hit = false`、`cache.refreshed = true`。当 `scope = "workspace" | "all"` 且缺少显式 workspace snapshot 时返回 `CAPABILITY_WORKSPACE_REQUIRED`。
 
 **端点**：`GET /runtime/capabilities`
 
@@ -193,8 +233,11 @@ type RuntimeCapabilityDiscoveryResponse = {
 
 **HubServer 代理端点**：`GET /api/runtime/capabilities?scope=global|workspace|all&conversationId=...`
 
+**HubServer 代理端点**：`POST /api/runtime/capabilities/refresh`
+
 - `scope=global` 不需要 `conversationId`。
 - `scope=workspace|all` 必须携带 `conversationId`；HubServer 从会话 metadata 中解析 local workspace snapshot 后转发给 Runtime。
+- Refresh 代理请求体仅接受 `scope`、`conversationId` 和 `sources`；浏览器不得直接传 `workspace.rootPath`。
 - 若会话未绑定 workspace 或 workspace metadata 不完整，HubServer 返回 `WORKSPACE_NOT_RESOLVED`，不让 Runtime 猜测路径。
 
 ### Runtime 系统默认模型设置
