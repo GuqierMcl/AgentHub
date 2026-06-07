@@ -19,6 +19,7 @@ export const FALLBACK_SERVICES: SystemServiceStatusItem[] = [
   createFallbackService("opencode", "OpenCode", "external-agent", "error", true),
   createFallbackService("codex", "Codex", "external-agent", "not_integrated", false),
   createFallbackService("claude-code", "Claude Code", "external-agent", "not_integrated", false),
+  createFallbackService("capability-discovery", "能力发现", "runtime-capability", "error", true),
 ]
 
 export const useServiceStatusStore = create<ServiceStatusStore>((set, get) => ({

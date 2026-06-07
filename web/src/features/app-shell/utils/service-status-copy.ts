@@ -11,6 +11,7 @@ const STATUS_LABELS: Record<ServiceStatusValue, string> = {
   idle: "待命",
   error: "错误",
   not_integrated: "未接入",
+  refreshing: "刷新中",
 }
 
 export function getServiceStatusLabel(status: ServiceStatusValue): string {
@@ -22,6 +23,7 @@ export function getServiceStatusTone(status: ServiceStatusValue): ServiceStatusT
     case "running":
       return "success"
     case "starting":
+    case "refreshing":
       return "warning"
     case "error":
       return "danger"
@@ -38,7 +40,7 @@ export function getAggregateServiceStatus(
   if (implemented.some((service) => service.status === "error")) {
     return "error"
   }
-  if (implemented.some((service) => service.status === "starting")) {
+  if (implemented.some((service) => service.status === "starting" || service.status === "refreshing")) {
     return "starting"
   }
   if (implemented.some((service) => service.status === "running")) {

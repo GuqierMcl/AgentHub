@@ -2,10 +2,12 @@ import type { ComponentType } from "react"
 
 import { AgentsWorkspace } from "@/features/agents/AgentsWorkspace"
 import { ChatWorkspace } from "@/features/workbench/ChatWorkspace"
+import { PluginConfigWorkspace } from "@/features/plugin-config/PluginConfigWorkspace"
 import { BotMessageSquareIcon } from "@/components/ui/bot-message-square"
 import { AtomIcon } from "@/components/ui/atom"
+import { PuzzleIcon } from "@/components/ui/puzzle"
 
-export type AppModuleId = "chat" | "agents"
+export type AppModuleId = "chat" | "agents" | "plugin-config"
 
 export type AppModuleDefinition = {
   component: ComponentType
@@ -29,5 +31,12 @@ export const appModules: readonly AppModuleDefinition[] = [
     id: "agents",
     label: "智能体",
     title: "智能体 | AgentHub",
+  },
+  {
+    component: PluginConfigWorkspace,
+    icon: PuzzleIcon,
+    id: "plugin-config",
+    label: "插件配置",
+    title: "插件配置 | AgentHub",
   },
 ]

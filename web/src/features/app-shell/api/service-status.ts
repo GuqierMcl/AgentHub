@@ -4,11 +4,12 @@ export type ServiceStatusValue =
   | "idle"
   | "error"
   | "not_integrated"
+  | "refreshing"
 
 export type SystemServiceStatusItem = {
-  id: "agent-runtime" | "opencode" | "codex" | "claude-code"
+  id: "agent-runtime" | "opencode" | "codex" | "claude-code" | "capability-discovery"
   label: string
-  kind: "runtime" | "external-agent"
+  kind: "runtime" | "external-agent" | "runtime-capability"
   status: ServiceStatusValue
   implemented: boolean
   checkedAt: string
