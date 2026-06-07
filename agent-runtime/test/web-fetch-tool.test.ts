@@ -37,6 +37,7 @@ const networkFullAgent: AgentDefinition = {
   capabilities: ["implementation"],
   allowedSubagents: [],
   allowedTools: ["web_fetch"],
+  allowedSkills: [],
   permissionPolicy: {
     filesystem: "none",
     shell: "none",

@@ -31,6 +31,7 @@ const agent: AgentDefinition = {
   capabilities: ["implementation"],
   allowedSubagents: [],
   allowedTools: [],
+  allowedSkills: [],
   permissionPolicy: {
     filesystem: "none",
     shell: "none",

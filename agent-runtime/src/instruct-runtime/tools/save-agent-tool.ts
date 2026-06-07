@@ -97,6 +97,7 @@ export function createSaveAgentTool(
           capabilities: normalizeStringList(input.capabilities),
           allowedSubagents: normalizeStringList(input.allowedSubagents),
           allowedTools,
+          allowedSkills: [],
           permissionPolicy,
           toolPermissionRules,
           enabled: true,

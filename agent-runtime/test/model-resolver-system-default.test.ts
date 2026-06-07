@@ -20,6 +20,7 @@ function createAgent(overrides: Partial<AgentDefinition>): AgentDefinition {
     capabilities: ["Implementation"],
     allowedSubagents: [],
     allowedTools: [],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "none",
       shell: "none",

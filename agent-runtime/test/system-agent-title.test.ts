@@ -97,6 +97,7 @@ function createEntryAgent(modelProviderId = "entry", modelId = "bound"): AgentDe
     capabilities: ["Implementation"],
     allowedSubagents: [],
     allowedTools: [],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "none",
       shell: "none",

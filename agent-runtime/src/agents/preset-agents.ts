@@ -19,6 +19,7 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["routing", "planning", "delegation", "aggregation"],
     allowedSubagents: orchestrationSubagents,
     allowedTools: ["write_plan", "run_task", "web_fetch", "bash"],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "none",
       shell: "limited",
@@ -45,6 +46,7 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["implementation", "refactor", "tests"],
     allowedSubagents: ["explore", "general", "file"],
     allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file", "web_fetch", "bash"],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "write",
       shell: "limited",
@@ -71,6 +73,7 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["code-review", "risk-analysis", "test-gaps"],
     allowedSubagents: ["explore", "general"],
     allowedTools: ["ls", "read_file", "glob", "grep", "web_fetch", "bash"],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "read",
       shell: "limited",
@@ -97,6 +100,7 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["documentation", "copywriting", "summarization"],
     allowedSubagents: ["general"],
     allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file", "web_fetch", "bash"],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "write",
       shell: "limited",
@@ -123,6 +127,7 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["planning-advice", "architecture-analysis", "risk-assessment", "acceptance-criteria"],
     allowedSubagents: [],
     allowedTools: ["ls", "read_file", "glob", "grep", "web_fetch", "bash"],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "read",
       shell: "limited",
@@ -148,6 +153,7 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["external-agent", "coding", "workspace"],
     allowedSubagents: [],
     allowedTools: [],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "write",
       shell: "limited",
@@ -176,6 +182,7 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["external-agent", "coding", "workspace"],
     allowedSubagents: [],
     allowedTools: [],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "write",
       shell: "limited",
@@ -204,6 +211,7 @@ export const presetAgents: AgentDefinition[] = [
     capabilities: ["external-agent", "coding", "workspace"],
     allowedSubagents: [],
     allowedTools: [],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "write",
       shell: "limited",

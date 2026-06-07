@@ -73,6 +73,7 @@ function serializeAgentDetail(
       : undefined,
     allowedSubagents: agent.allowedSubagents,
     allowedTools: agent.allowedTools,
+    allowedSkills: agent.allowedSkills,
     permissionPolicy: agent.permissionPolicy,
     toolPermissionRules: agent.toolPermissionRules,
     modelRef: agent.modelRef,

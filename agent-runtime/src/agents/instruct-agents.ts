@@ -38,6 +38,7 @@ export const instructAgent: AgentDefinition = {
   capabilities: ["agent-authoring", "requirements-collection", "configuration"],
   allowedSubagents: [],
   allowedTools: ["question", "save_agent"],
+  allowedSkills: [],
   permissionPolicy: {
     filesystem: "none",
     shell: "none",

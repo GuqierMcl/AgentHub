@@ -27,6 +27,13 @@ export const AgentIdSchema = z.string()
   .max(64)
   .regex(/^[a-z][a-z0-9_-]*$/, "Agent id must start with a lowercase letter and contain only lowercase letters, numbers, underscores, or hyphens")
 
+export const AgentSkillRefSchema = z.string()
+  .trim()
+  .min(1)
+  .max(300)
+  .regex(/^(global|workspace):(agents|codex|claude-code|opencode):[A-Za-z0-9._:-]+$/, "Skill refs must be logical capability refs")
+export type AgentSkillRef = z.infer<typeof AgentSkillRefSchema>
+
 export const AgentEntryPolicySchema = z.enum(["default", "callable", "not-callable"])
 export type AgentEntryPolicy = z.infer<typeof AgentEntryPolicySchema>
 
@@ -99,6 +106,7 @@ export const AgentDefinitionSchema = z.object({
   capabilities: z.array(z.string()).default([]),
   allowedSubagents: z.array(z.string()).default([]),
   allowedTools: z.array(z.string()).default([]),
+  allowedSkills: z.array(AgentSkillRefSchema).default([]),
   permissionPolicy: AgentPermissionPolicySchema,
   toolPermissionRules: AgentToolPermissionRulesSchema.optional(),
   external: ExternalAgentConfigSchema.optional(),
@@ -119,6 +127,7 @@ export const UserAgentCreateRequestSchema = z.object({
   capabilities: z.array(z.string().trim().min(1).max(80)).default([]),
   allowedSubagents: z.array(z.string().trim().min(1)).default([]),
   allowedTools: z.array(z.string().trim().min(1)).default([]),
+  allowedSkills: z.array(AgentSkillRefSchema).max(20).default([]),
   permissionPolicy: AgentPermissionPolicySchema.optional(),
   toolPermissionRules: AgentToolPermissionRulesSchema.optional(),
   enabled: z.boolean().default(true),
@@ -132,6 +141,7 @@ export const UserAgentUpdateRequestSchema = z.object({
   capabilities: z.array(z.string().trim().min(1).max(80)).optional(),
   allowedSubagents: z.array(z.string().trim().min(1)).optional(),
   allowedTools: z.array(z.string().trim().min(1)).optional(),
+  allowedSkills: z.array(AgentSkillRefSchema).max(20).optional(),
   permissionPolicy: AgentPermissionPolicySchema.optional(),
   toolPermissionRules: AgentToolPermissionRulesSchema.optional(),
   enabled: z.boolean().optional(),
@@ -181,6 +191,7 @@ export type AgentDetailResponse = AgentSummaryResponse & {
   systemPrompt?: string
   allowedSubagents: string[]
   allowedTools: string[]
+  allowedSkills: string[]
   permissionPolicy: AgentPermissionPolicy
   toolPermissionRules?: AgentToolPermissionRules
   modelRef?: AgentModelRef

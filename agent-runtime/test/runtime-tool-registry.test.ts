@@ -18,6 +18,7 @@ const orchestratorAgent: AgentDefinition = {
   capabilities: ["routing", "delegation"],
   allowedSubagents: ["explore"],
   allowedTools: ["write_plan", "run_task"],
+  allowedSkills: [],
   permissionPolicy: {
     filesystem: "none",
     shell: "none",

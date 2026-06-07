@@ -14,6 +14,7 @@ export const presetSubagents: AgentDefinition[] = [
     capabilities: ["context", "codebase-scan", "read-only"],
     allowedSubagents: [],
     allowedTools: ["ls", "read_file", "glob", "grep"],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "read",
       shell: "none",
@@ -36,6 +37,7 @@ export const presetSubagents: AgentDefinition[] = [
     capabilities: ["reasoning", "summary", "rewrite"],
     allowedSubagents: [],
     allowedTools: [],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "none",
       shell: "none",
@@ -58,6 +60,7 @@ export const presetSubagents: AgentDefinition[] = [
     capabilities: ["file-read", "file-write", "diff", "patch"],
     allowedSubagents: [],
     allowedTools: ["ls", "read_file", "glob", "grep", "write_file", "edit_file"],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "write",
       shell: "none",
@@ -80,6 +83,7 @@ export const presetSubagents: AgentDefinition[] = [
     capabilities: ["preview", "deploy", "publish-status"],
     allowedSubagents: [],
     allowedTools: [],
+    allowedSkills: [],
     permissionPolicy: {
       filesystem: "read",
       shell: "limited",

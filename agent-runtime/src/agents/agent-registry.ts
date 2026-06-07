@@ -144,6 +144,7 @@ export class AgentRegistry {
         capabilities: this.normalizeStringList(input.capabilities),
         allowedSubagents: this.normalizeAllowedSubagents(input.allowedSubagents),
         allowedTools,
+        allowedSkills: this.normalizeAllowedSkills(input.allowedSkills),
         permissionPolicy: this.normalizeUserPermissionPolicy(input.permissionPolicy, allowedTools),
         toolPermissionRules: this.normalizeUserToolPermissionRules(input.toolPermissionRules),
         enabled: input.enabled,
@@ -192,6 +193,9 @@ export class AgentRegistry {
           ? this.normalizeAllowedSubagents(input.allowedSubagents)
           : baseAgent.allowedSubagents,
         allowedTools,
+        allowedSkills: input.allowedSkills
+          ? this.normalizeAllowedSkills(input.allowedSkills)
+          : baseAgent.allowedSkills,
         permissionPolicy: input.permissionPolicy || input.allowedTools
           ? this.normalizeUserPermissionPolicy(input.permissionPolicy, allowedTools)
           : baseAgent.permissionPolicy,
@@ -395,6 +399,30 @@ export class AgentRegistry {
     return normalized
   }
 
+  private normalizeAllowedSkills(
+    skillRefs: string[] | undefined,
+    options: { allowWorkspace: boolean } = { allowWorkspace: false },
+  ): string[] {
+    const normalized = this.normalizeStringList(skillRefs ?? [])
+
+    for (const skillRef of normalized) {
+      if (!options.allowWorkspace && skillRef.startsWith("workspace:")) {
+        throw new AgentRegistryMutationError(
+          "AGENT_INVALID_INPUT",
+          `Workspace Skill ${skillRef} cannot be assigned to user agents until workspace trust is available`,
+          400,
+          {
+            field: "allowedSkills",
+            skillRef,
+            reason: "workspace_skill_requires_trust",
+          }
+        )
+      }
+    }
+
+    return normalized
+  }
+
   private normalizeUserPermissionPolicy(
     policy: AgentPermissionPolicy | undefined,
     allowedTools: string[]
@@ -509,6 +537,7 @@ export class AgentRegistry {
     try {
       normalized.allowedTools = this.normalizeAllowedTools(normalized.allowedTools)
       normalized.allowedSubagents = this.normalizeAllowedSubagents(normalized.allowedSubagents)
+      normalized.allowedSkills = this.normalizeAllowedSkills(normalized.allowedSkills)
       normalized.permissionPolicy = this.normalizeUserPermissionPolicy(
         normalized.permissionPolicy,
         normalized.allowedTools

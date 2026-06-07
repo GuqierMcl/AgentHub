@@ -263,6 +263,7 @@ describe("Runtime question tool", () => {
       capabilities: [],
       allowedSubagents: [],
       allowedTools: [],
+      allowedSkills: [],
       permissionPolicy: {
         filesystem: "none",
         shell: "none",

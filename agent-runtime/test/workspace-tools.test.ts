@@ -27,6 +27,7 @@ const coderAgent: AgentDefinition = {
   capabilities: ["implementation"],
   allowedSubagents: [],
   allowedTools: ["ls", "read_file", "glob", "grep"],
+  allowedSkills: [],
   permissionPolicy: {
     filesystem: "read",
     shell: "none",

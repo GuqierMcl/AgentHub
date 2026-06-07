@@ -36,6 +36,7 @@ const bashAgent: AgentDefinition = {
   capabilities: ["implementation"],
   allowedSubagents: [],
   allowedTools: ["bash"],
+  allowedSkills: [],
   permissionPolicy: {
     filesystem: "none",
     shell: "limited",
