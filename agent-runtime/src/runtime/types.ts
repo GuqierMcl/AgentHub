@@ -238,6 +238,7 @@ export const RunEventTypeSchema = z.enum([
   "run.started",
   "agent.entry.resolved",
   "agent.started",
+  "agent.skill_context.resolved",
   "orchestrator.plan.created",
   "task.group.started",
   "task.group.completed",

@@ -29,6 +29,7 @@ import {
 import { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./tools"
 import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 import type { SystemModelSettingsService } from "./system-model-settings"
+import type { SkillContentResolution, SkillContentService } from "./skill-content"
 import { WorkspaceError, WorkspaceService } from "./workspace"
 import {
   WorkspaceDiffService,
@@ -189,7 +190,8 @@ export class RunManager {
     _legacyWorkspaceService?: WorkspaceService,
     toolRegistry: RuntimeToolRegistry = createDefaultRuntimeToolRegistry(),
     _legacyPermissionService?: RuntimePermissionService,
-    systemModelSettingsService?: SystemModelSettingsService
+    systemModelSettingsService?: SystemModelSettingsService,
+    private skillContentService?: SkillContentService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
     this.toolRegistry = toolRegistry
@@ -843,6 +845,7 @@ export class RunManager {
     }
     const executor = this.resolveExecutor(agent)
     const environmentSnapshot = await this.resolveEnvironmentSnapshot(run.id, state)
+    const skillResolution = await this.resolveSkillContext(run, agent)
     const events: RunEvent[] = []
     let pendingFrame: RunContinuationFrame | undefined
     if (task) {
@@ -878,6 +881,7 @@ export class RunManager {
       workspaceService: state.workspaceService,
       permissionService: state.permissionService,
       environmentSnapshot,
+      injectedSkills: skillResolution.skills,
       executionId,
       resumeMessages,
       onApprovalPending: (messages) => {
@@ -1001,6 +1005,15 @@ export class RunManager {
       }
     }
 
+    if (
+      run.input.diagnostics?.includeSkillDiagnostics &&
+      !resumeMessages &&
+      this.isSkillInjectableExecutor(agent) &&
+      agent.allowedSkills.length > 0
+    ) {
+      emitExecutionEvent(this.createSkillContextResolvedEvent(run, agent, skillResolution))
+    }
+
     try {
       for await (const event of executor.execute(context)) {
         if (abortController.signal.aborted || run.status === "cancelled") {
@@ -1032,6 +1045,84 @@ export class RunManager {
     }
 
     return events
+  }
+
+  private isSkillInjectableExecutor(agent: AgentDefinition): boolean {
+    return agent.executorType === "ai-sdk" || agent.executorType === "orchestrator"
+  }
+
+  private injectableSkillRefs(agent: AgentDefinition): string[] {
+    if (!this.isSkillInjectableExecutor(agent)) {
+      return []
+    }
+
+    if (agent.origin === "user") {
+      return agent.allowedSkills.filter((ref) => ref.startsWith("global:"))
+    }
+
+    return agent.allowedSkills
+  }
+
+  private async resolveSkillContext(run: RunRecord, agent: AgentDefinition): Promise<SkillContentResolution> {
+    const skillRefs = this.injectableSkillRefs(agent)
+    if (skillRefs.length === 0) {
+      return agent.allowedSkills.length > 0
+        ? {
+            skills: [],
+            warnings: ["No Skill refs are injectable for this agent in the current trust policy."],
+          }
+        : { skills: [], warnings: [] }
+    }
+
+    if (!this.skillContentService) {
+      return {
+        skills: [],
+        warnings: ["Skill context service is unavailable."],
+      }
+    }
+
+    try {
+      return await this.skillContentService.resolve({
+        skillRefs,
+        workspace: run.input.workspace,
+      })
+    } catch {
+      return {
+        skills: [],
+        warnings: ["Skill context resolution failed."],
+      }
+    }
+  }
+
+  private createSkillContextResolvedEvent(
+    run: RunRecord,
+    agent: AgentDefinition,
+    resolution: SkillContentResolution
+  ): RunEvent {
+    const expectedSkillCount = this.injectableSkillRefs(agent).length
+    const status = expectedSkillCount === 0
+      ? "skipped"
+      : resolution.skills.length === expectedSkillCount
+      ? "resolved"
+      : resolution.skills.length > 0
+        ? "partial"
+        : "skipped"
+
+    return createRunEvent(run.id, "agent.skill_context.resolved", agent.id, {
+      status,
+      skills: resolution.skills.map((skill) => ({
+        id: skill.id,
+        ref: skill.ref,
+        name: skill.name,
+        source: skill.source,
+        level: skill.level,
+        truncated: skill.truncated,
+        contentChars: skill.contentChars,
+        relativeRefs: skill.relativeRefs,
+        warnings: skill.warnings,
+      })),
+      warnings: resolution.warnings,
+    })
   }
 
   private async executeTask(options: {

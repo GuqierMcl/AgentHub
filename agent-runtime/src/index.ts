@@ -6,6 +6,7 @@ import { ProviderService } from './provider'
 import {
   RunManager,
   CapabilityDiscoveryService,
+  SkillContentService,
   SystemModelSettingsService,
   SystemModelSettingsStore,
   WorkspaceRevertService,
@@ -43,16 +44,18 @@ const systemModelSettingsService = new SystemModelSettingsService(
   new SystemModelSettingsStore(config.dataDir),
   providerService
 )
+const capabilityDiscoveryService = new CapabilityDiscoveryService({ dataDir: config.dataDir })
+const skillContentService = new SkillContentService(capabilityDiscoveryService)
 const runManager = new RunManager(
   agentRegistry,
   providerService,
   undefined,
   toolRegistry,
   undefined,
-  systemModelSettingsService
+  systemModelSettingsService,
+  skillContentService
 )
 const workspaceRevertService = new WorkspaceRevertService()
-const capabilityDiscoveryService = new CapabilityDiscoveryService({ dataDir: config.dataDir })
 
 const instructAgentRegistry = new InstructAgentRegistry()
 const instructToolRegistry = createInstructRuntimeToolRegistry(config.dataDir, {
