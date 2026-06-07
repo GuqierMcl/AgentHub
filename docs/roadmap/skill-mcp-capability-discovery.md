@@ -242,6 +242,7 @@ type RuntimeCapabilityDiscoveryResponse = {
 - 2026-06-07：创建本路线图，锁定全局和 workspace Skill 来源兼容矩阵。
 - 2026-06-07：Phase 2 进入实现收尾，目标是 Runtime 内存缓存、强制刷新 API 和 `capability-discovery` 服务状态。
 - 2026-06-07：Phase 4A 进入执行，目标是 Runtime-only global Skill 注入；workspace Skill 注入等待 trust contract 和前端确认流。
+- 2026-06-07：Phase 4A Runtime-only global Skill 注入完成；workspace Skill 注入等待 trust contract 和前端确认流。
 
 ## 已完成
 
