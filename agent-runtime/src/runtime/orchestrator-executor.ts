@@ -9,6 +9,7 @@ import {
 } from "./model-resolver"
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
 import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
+import { formatInjectedSkillsForPrompt } from "./skill-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
@@ -401,6 +402,7 @@ export class OrchestratorExecutor implements AgentExecutor {
     const availableTargets = this.listAvailableTargets(context)
     const participants = context.input.participantAgentIds.join(", ")
     const pinnedBlock = formatPinnedMessagesForPrompt(context.input.pinnedMessages)
+    const skillBlock = formatInjectedSkillsForPrompt(context.injectedSkills)
 
     return [
       agent.systemPrompt ?? [
@@ -416,6 +418,7 @@ export class OrchestratorExecutor implements AgentExecutor {
         ? formatRuntimeEnvironmentSnapshotForPrompt(context.environmentSnapshot)
         : "",
       pinnedBlock ?? "",
+      skillBlock ?? "",
       [
         "Available run_task targets:",
         availableTargets.length > 0 ? availableTargets.join("\n") : "- none",

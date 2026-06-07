@@ -4,6 +4,7 @@ import { AgentDefinitionSchema, type AgentDefinition } from "../agents"
 import type { WorkspaceService } from "./workspace"
 import type { RuntimePermissionService } from "./permissions"
 import type { RuntimeEnvironmentSnapshot } from "./environment-snapshot"
+import type { ResolvedSkillContent } from "./skill-content"
 import type {
   ExternalQuestionRequest,
   NormalizedQuestionAnswer,
@@ -113,6 +114,7 @@ export const RunDiagnosticsSchema = z.object({
   includeModelStream: z.boolean().optional(),
   includeReasoning: z.boolean().optional(),
   includeRawModelChunks: z.boolean().optional(),
+  includeSkillDiagnostics: z.boolean().optional(),
 }).strict()
 export type RunDiagnostics = z.infer<typeof RunDiagnosticsSchema>
 
@@ -412,6 +414,7 @@ export type AgentExecutionContext = {
   workspaceService?: WorkspaceService
   permissionService?: RuntimePermissionService
   environmentSnapshot?: RuntimeEnvironmentSnapshot
+  injectedSkills?: ResolvedSkillContent[]
   executionId?: string
   resumeMessages?: ModelMessage[]
   onApprovalPending?: (messages: ModelMessage[]) => void

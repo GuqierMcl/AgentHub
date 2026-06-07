@@ -10,6 +10,7 @@ import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
 import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
+import { formatInjectedSkillsForPrompt } from "./skill-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { createRunEvent } from "./run-events"
 import type { PendingQuestionToolCall } from "./question"
@@ -76,6 +77,11 @@ export function buildSystemPrompt(context: AgentExecutionContext): string {
   const pinnedBlock = formatPinnedMessagesForPrompt(context.input.pinnedMessages)
   if (pinnedBlock) {
     systemNotes.push(pinnedBlock)
+  }
+
+  const skillBlock = formatInjectedSkillsForPrompt(context.injectedSkills)
+  if (skillBlock) {
+    systemNotes.push(skillBlock)
   }
 
   return systemNotes.join("\n\n")
