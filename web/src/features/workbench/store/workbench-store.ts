@@ -277,18 +277,30 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         messages,
         current.chatSpeakerIds
       )
+      const replayIsBehindCurrentRun = hasUnreplayedCurrentRunEvents(
+        current,
+        replayed
+      )
 
       return {
         conversations: {
           ...state.conversations,
           [conversationId]: {
             ...current,
-            activeRuntimeRunId,
-            runStatus,
-            connectionStatus: activeRun ? current.connectionStatus : "idle",
-            timelineItems: replayed.timelineItems,
-            receivedEventIds: replayed.receivedEventIds,
-            events: replayed.events,
+            activeRuntimeRunId: replayIsBehindCurrentRun
+              ? current.activeRuntimeRunId
+              : activeRuntimeRunId,
+            runStatus: replayIsBehindCurrentRun ? current.runStatus : runStatus,
+            connectionStatus: replayIsBehindCurrentRun
+              ? current.connectionStatus
+              : activeRun ? current.connectionStatus : "idle",
+            timelineItems: replayIsBehindCurrentRun
+              ? current.timelineItems
+              : replayed.timelineItems,
+            receivedEventIds: replayIsBehindCurrentRun
+              ? current.receivedEventIds
+              : replayed.receivedEventIds,
+            events: replayIsBehindCurrentRun ? current.events : replayed.events,
           },
         },
       }
@@ -470,6 +482,17 @@ function replayTimelineRuns(
   timelineItems = mergePersistedChatMessages(timelineItems, messagesOutsideReplay)
 
   return { timelineItems, receivedEventIds, events }
+}
+
+function hasUnreplayedCurrentRunEvents(
+  current: ConversationRuntimeState,
+  replayed: Pick<ConversationRuntimeState, "receivedEventIds">
+): boolean {
+  const currentRunId = current.activeRuntimeRunId
+  if (!currentRunId) return false
+  return current.events.some((event) =>
+    event.runId === currentRunId && !replayed.receivedEventIds.has(event.id)
+  )
 }
 
 function withSyntheticTerminalRunEvent(

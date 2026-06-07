@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "bun:test"
 
-import type { PersistedMessage } from "../api/messages"
+import type { ActiveRunSnapshot, ConversationTimelineRunSnapshot, PersistedMessage } from "../api/messages"
 import { useWorkbenchStore } from "./workbench-store"
 
 function persistedMessage(input: Partial<PersistedMessage>): PersistedMessage {
@@ -412,6 +412,113 @@ describe("workbench persisted message replay", () => {
       kind: "chat_message",
       regeneratedFromId: "msg_source_assistant",
       text: "Alternative",
+    })
+  })
+
+  it("keeps live run output when a stale replay snapshot hydrates after completion", () => {
+    const conversationId = "conv_stale_replay"
+    const runId = "run_stale_replay"
+    const runtimeRunId = "runtime_stale_replay"
+    const trigger = persistedMessage({
+      id: "msg_stale_trigger",
+      conversationId,
+      runId,
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      parts: [
+        {
+          id: "part_stale_trigger_text",
+          messageId: "msg_stale_trigger",
+          conversationId,
+          runId,
+          runtimeEventId: null,
+          partKey: "text",
+          partIndex: 0,
+          entityType: null,
+          entityId: null,
+          type: "text",
+          state: "done",
+          text: "Please answer.",
+          payloadJson: {},
+          firstEventSequence: 0,
+          lastEventSequence: 0,
+          createdAt: "2026-06-05T10:00:00.000Z",
+          updatedAt: "2026-06-05T10:00:00.000Z",
+        },
+      ],
+    })
+    const staleTimelineRuns: ConversationTimelineRunSnapshot[] = [
+      {
+        run: {
+          id: runId,
+          runtimeId: runtimeRunId,
+          status: "running",
+          triggerMessageId: trigger.id,
+          createdAt: "2026-06-05T10:00:00.000Z",
+          lastEventSequence: 0,
+        },
+        triggerMessage: trigger,
+        events: [],
+      },
+    ]
+    const staleActiveRun: ActiveRunSnapshot = {
+      id: runId,
+      runtimeId: runtimeRunId,
+      status: "running",
+      lastEventSequence: 0,
+      plan: null,
+    }
+
+    useWorkbenchStore.getState().setConversationChatSpeakers(conversationId, ["coder"])
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [trigger],
+      staleTimelineRuns,
+      staleActiveRun
+    )
+    useWorkbenchStore.getState().applyRuntimeEvents(conversationId, [
+      {
+        id: "event_stale_message_completed",
+        runId,
+        runtimeRunId,
+        type: "message.completed",
+        timestamp: "2026-06-05T10:00:01.000Z",
+        agentId: "coder",
+        messageId: "runtime_msg_stale",
+        messageIndex: 0,
+        data: { content: "Final answer." },
+      },
+      {
+        id: "event_stale_run_completed",
+        runId,
+        runtimeRunId,
+        type: "run.completed",
+        timestamp: "2026-06-05T10:00:02.000Z",
+        data: { status: "completed" },
+      },
+    ])
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [trigger],
+      staleTimelineRuns,
+      staleActiveRun
+    )
+
+    const state = useWorkbenchStore.getState().getConversationState(conversationId)
+    const assistant = state.timelineItems.find(
+      (item) => item.kind === "chat_message" && item.role === "assistant"
+    )
+    expect(state.runStatus).toBe("completed")
+    expect(assistant).toMatchObject({
+      kind: "chat_message",
+      id: `chat:${runId}:runtime_msg_stale`,
+      text: "Final answer.",
+      status: "completed",
     })
   })
 })
