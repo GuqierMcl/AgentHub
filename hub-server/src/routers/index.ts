@@ -14,6 +14,7 @@ import system from './system'
 import avatarOverrides from './avatar-overrides'
 import remoteServer from './remote-server'
 import instructRuns from './instruct-runs'
+import runtimeCapabilities from './runtime-capabilities'
 
 const router = new Hono()
 
@@ -41,5 +42,6 @@ router.route('/', system)
 router.route('/', avatarOverrides)
 router.route('/', remoteServer)
 router.route('/', instructRuns)
+router.route('/', runtimeCapabilities)
 
 export default router

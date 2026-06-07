@@ -132,6 +132,71 @@ type SystemServiceStatusItem = {
 
 若 Runtime 不可用，HubServer 返回 `agent-runtime.status = "error"`、已实现外部服务（当前 `opencode`、`codex` 与 `claude-code`）`status = "error"` 且 `details.reason = "runtime-unavailable"`；未接入服务保持 `not_integrated` 占位。
 
+### Runtime Skill / MCP Capability Discovery
+
+Capability Discovery 是 Runtime 面向 HubServer 的只读能力目录。第一阶段只扫描和解析本机配置摘要，不执行 Skill、不启动 MCP server、不连接远程 MCP server、不调用 MCP tool、不修改任何 AgentHub、Codex、Claude Code 或 OpenCode 配置。
+
+**端点**：`POST /runtime/capabilities/discover`
+
+请求体：
+
+```ts
+type RuntimeCapabilityDiscoveryRequest = {
+  scope?: "all" | "global" | "workspace"
+  workspace?: {
+    workspaceId: string
+    backendType: "local"
+    rootPath: string
+  }
+}
+```
+
+`scope` 默认 `"all"`。当 `scope = "workspace" | "all"` 时，`workspace` 必填；Runtime 不根据 `workspaceId` 查询 HubServer 状态，也不回退到 `config.workdir`。
+
+成功响应：
+
+```ts
+type RuntimeCapabilityDiscoveryResponse = {
+  discoveredAt: string
+  scope: "all" | "global" | "workspace"
+  skills: Array<{
+    id: string
+    name: string
+    source: "agents" | "codex" | "claude-code" | "opencode"
+    level: "global" | "workspace"
+    path: string
+    description?: string
+    valid: boolean
+    warnings: string[]
+  }>
+  mcps: Array<{
+    id: string
+    name: string
+    source: "agents" | "codex" | "claude-code" | "opencode"
+    level: "global" | "workspace"
+    configPath: string
+    transport?: "stdio" | "sse" | "http" | "unknown"
+    command?: string
+    args?: string[]
+    valid: boolean
+    warnings: string[]
+  }>
+  warnings: string[]
+}
+```
+
+`path` 与 `configPath` 是逻辑引用，例如 `global:codex:config.toml` 或 `workspace:agents:my-skill`，不是宿主机绝对路径。MCP `command` 可返回命令名；`args` 会对 token、secret、password、api key、authorization 等敏感值脱敏。响应不返回 env、headers、credential 值、workspace root 或真实 config 绝对路径。
+
+**端点**：`GET /runtime/capabilities`
+
+返回 global-only discovery，等价于 `POST /runtime/capabilities/discover` 请求体 `{ "scope": "global" }`。
+
+**HubServer 代理端点**：`GET /api/runtime/capabilities?scope=global|workspace|all&conversationId=...`
+
+- `scope=global` 不需要 `conversationId`。
+- `scope=workspace|all` 必须携带 `conversationId`；HubServer 从会话 metadata 中解析 local workspace snapshot 后转发给 Runtime。
+- 若会话未绑定 workspace 或 workspace metadata 不完整，HubServer 返回 `WORKSPACE_NOT_RESOLVED`，不让 Runtime 猜测路径。
+
 ### Runtime 系统默认模型设置
 
 系统默认模型设置只由 Agent Runtime 保存，存储文件为 Runtime `--data-dir` 下的 `system-model-settings.json`。HubServer 通过本节端点代理给 Web 设置页，不写入 HubServer 自身 `setting.json`。
@@ -334,6 +399,9 @@ type CustomProviderUpdateRequest = Omit<Partial<CustomProviderCreateRequest>, "i
 | 错误码 | HTTP Status / 场景 | 说明 |
 | --- | --- | --- |
 | `RUNTIME_NOT_READY` | 503 | Agent Runtime 尚未就绪 |
+| `CAPABILITY_INVALID_INPUT` | 400 | Capability discovery 请求参数无效 |
+| `CAPABILITY_WORKSPACE_REQUIRED` | 400 | Runtime workspace/all discovery 缺少显式 workspace snapshot |
+| `WORKSPACE_NOT_RESOLVED` | 400 | HubServer 无法从 conversation 解析 workspace snapshot |
 | `RUN_INVALID_INPUT` | 400 | 请求参数校验失败 |
 | `RUN_INVALID_WORKSPACE` | 400 | RunInput.workspace 无效，例如本地目录不存在或不是目录 |
 | `RUN_NOT_FOUND` | 404 | 指定的 Run 不存在 |

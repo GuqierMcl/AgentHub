@@ -26,6 +26,13 @@ export {
 export {
   createRuntimeServicesStatus,
 } from "./service-status"
+export {
+  CapabilityDiscoveryError,
+  CapabilityDiscoveryRequestSchema,
+  CapabilityDiscoveryService,
+  CapabilityScopeSchema,
+  CapabilityWorkspaceSchema,
+} from "./capabilities"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
@@ -113,6 +120,17 @@ export type {
   ClaudeCodeQuestionRequest,
   ClaudeCodeSessionRequest,
 } from "./external-adapters"
+export type {
+  CapabilityDiscoveryRequest,
+  CapabilityDiscoveryResponse,
+  CapabilityLevel,
+  CapabilityScope,
+  CapabilitySource,
+  CapabilityWorkspace,
+  McpServerCapabilitySummary,
+  McpTransport,
+  SkillCapabilitySummary,
+} from "./capabilities"
 export type {
   ExternalAgentRunSummary,
   ExternalAgentRunSummarySource,

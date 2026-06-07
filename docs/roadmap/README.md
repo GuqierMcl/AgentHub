@@ -2,7 +2,7 @@
 
 本目录用于记录长复杂模块的实施路径、阶段拆分和跨会话推进记录。交付前已完成的路线图统一归档到 `docs/roadmap/completed/`。
 
-> 当前交付状态：本目录没有未完结路线图。后续增强统一进入 `docs/backlog/`，只有重新进入实施周期时才创建新的路线图。
+> 当前交付状态：存在进行中的 Skill / MCP 能力发现路线图。其他后续增强统一进入 `docs/backlog/`，只有重新进入实施周期时才创建新的路线图。
 
 ## 什么时候使用
 
@@ -18,6 +18,7 @@
 
 | 状态 | 文档 | 说明 |
 | --- | --- | --- |
+| 进行中 | `skill-mcp-capability-discovery.md` | Skill / MCP 全局与工作区只读发现、Runtime API 和后续受控执行路线 |
 | 已完结 | `completed/initial-implementation-plan.md` | 早期 AgentHub 可行实现计划，已作为历史实施路径归档 |
 | 已完结 | `completed/runs-chat-integration.md` | Runtime RunEvent 到 HubServer / Web 聊天产品链路 |
 | 已完结 | `completed/agent-runtime-agent-architecture.md` | Agent Runtime 智能体架构、预设智能体、工具、Orchestrator 与外部 Adapter 骨架 |

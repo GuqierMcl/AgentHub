@@ -5,6 +5,7 @@ import { AgentRegistry, InstructAgentRegistry } from './agents'
 import { ProviderService } from './provider'
 import {
   RunManager,
+  CapabilityDiscoveryService,
   SystemModelSettingsService,
   SystemModelSettingsStore,
   WorkspaceRevertService,
@@ -51,6 +52,7 @@ const runManager = new RunManager(
   systemModelSettingsService
 )
 const workspaceRevertService = new WorkspaceRevertService()
+const capabilityDiscoveryService = new CapabilityDiscoveryService({ dataDir: config.dataDir })
 
 const instructAgentRegistry = new InstructAgentRegistry()
 const instructToolRegistry = createInstructRuntimeToolRegistry(config.dataDir, {
@@ -71,6 +73,7 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('agentRegistry', agentRegistry)
   c.set('runManager', runManager)
   c.set('workspaceRevertService', workspaceRevertService)
+  c.set('capabilityDiscoveryService', capabilityDiscoveryService)
   c.set('toolRegistry', toolRegistry)
   c.set('systemModelSettingsService', systemModelSettingsService)
   c.set('instructAgentRegistry', instructAgentRegistry)

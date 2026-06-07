@@ -1,0 +1,290 @@
+# Skill 与 MCP 能力发现路线图
+
+> 状态：进行中。
+
+## 模块名称
+
+Skill / MCP Capability Discovery
+
+## 目标
+
+在 Agent Runtime 内建立统一的只读能力发现目录，兼容全局和工作区 / 项目级的 AgentHub、Codex、Claude Code、OpenCode Skill 与 MCP 配置来源，并通过 Runtime API 提供给 HubServer 查询。
+
+第一阶段只做只读发现和 API 暴露：不执行 Skill，不注入 Skill 内容，不启动 MCP stdio 进程，不调用 MCP tool，不修改任何外部平台配置。
+
+## 完成标准
+
+- Runtime 能扫描并返回全局与当前 workspace 相关的 Skill 元数据。
+- Runtime 能扫描并返回全局与当前 workspace 相关的 MCP server 配置摘要。
+- HubServer 能通过代理 API 获取 Runtime 的 Skill / MCP 发现结果。
+- API 响应不泄露宿主机绝对路径、密钥、headers、完整 env 或 MCP command 参数中的敏感值。
+- 现有外部智能体边界文档被修订为：AgentHub 可以做只读发现与状态展示，但不接管外部平台的私有配置执行语义。
+- Runtime 与 HubServer 有覆盖成功扫描、缺失目录、非法 frontmatter、重复 Skill、敏感字段脱敏和 Runtime 不可用的轻量测试。
+
+## 依赖文档
+
+- `docs/architecture/AGENT_RUNTIME.md`
+- `docs/architecture/AGENT_ARCHITECTURE.md`
+- `docs/architecture/AGENT_TOOLS.md`
+- `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`
+- `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`
+- `docs/reference/HONO.md`
+- OpenCode Agent Skills 文档：`https://dev.opencode.ai/docs/skills`
+- OpenCode Config 文档：`https://dev.opencode.ai/docs/config`
+- Claude Code Settings 文档：`https://code.claude.com/docs/en/settings`
+- Claude Code MCP 文档：`https://code.claude.com/docs/en/mcp`
+- OpenAI Docs MCP / Codex MCP 配置入口：`https://platform.openai.com/docs/docs-mcp`
+
+## 范围
+
+### 包含
+
+- 全局 Skill 发现。
+- 工作区 / 项目级 Skill 发现。
+- 全局 MCP server 配置发现。
+- 工作区 / 项目级 MCP server 配置发现。
+- 只读 Runtime API。
+- HubServer 代理 API。
+- 发现结果脱敏、去重、冲突报告和错误报告。
+- 为后续执行阶段预留稳定的数据模型，但第一阶段不执行能力。
+
+### 不包含
+
+- 第一阶段不运行 Skill 中的 shell 片段、脚本或引用文件。
+- 第一阶段不把 Skill 注入任何 agent system prompt。
+- 第一阶段不启动 MCP stdio server。
+- 第一阶段不连接远程 MCP HTTP/SSE server 做 tool/resource/prompt 枚举。
+- 第一阶段不把 MCP tool 注册进 `RuntimeToolRegistry`。
+- 第一阶段不修改 Codex、Claude Code、OpenCode 或用户全局配置文件。
+- 第一阶段不在 Web 前端实现完整配置管理 UI；HubServer API 先作为后端能力面。
+
+## 兼容发现来源
+
+Skill 目录按 source family 保留来源信息，不做静默覆盖。重复 name 以 `conflicts` 返回，消费者可以按 scope、sourceFamily 和 trust 状态决定展示优先级。
+
+| Source family | 全局路径 | 工作区 / 项目路径 | 说明 |
+| --- | --- | --- | --- |
+| `agents` | `%USERPROFILE%\.agents\skills\<name>\SKILL.md` | `<workspace>\.agents\skills\<name>\SKILL.md` | AgentHub 与多工具共享的兼容目录。 |
+| `codex` | `%USERPROFILE%\.codex\skills\<name>\SKILL.md`、`%USERPROFILE%\.codex\skills\.system\<name>\SKILL.md`、Codex plugin cache 中的 `skills\<name>\SKILL.md` | `<workspace>\.codex\skills\<name>\SKILL.md` | Codex 全局、系统和插件 Skill 只读发现。Plugin cache 结果必须标记 `readonly: true`。 |
+| `claude-code` | `%USERPROFILE%\.claude\skills\<name>\SKILL.md` | `<workspace>\.claude\skills\<name>\SKILL.md` | Claude Code / Claude-compatible Skill 目录。 |
+| `opencode` | `%USERPROFILE%\.config\opencode\skills\<name>\SKILL.md` | `<workspace>\.opencode\skills\<name>\SKILL.md` | OpenCode 原生 Skill 目录。OpenCode 也兼容 `.claude/skills` 与 `.agents/skills`，Runtime 仍按真实 source family 分开上报。 |
+
+MCP 配置发现第一阶段只读取配置摘要。对本地 command / args / env 做脱敏和风险标记，不启动进程。
+
+| Source family | 全局配置 | 工作区 / 项目配置 | 第一阶段处理 |
+| --- | --- | --- | --- |
+| `agenthub` | Runtime `dataDir` 下的 AgentHub MCP 配置文件 | `<workspace>\.agenthub\mcp.json` | 作为 AgentHub 自有配置面，优先用于后续托管执行。 |
+| `codex` | `%USERPROFILE%\.codex\config.toml` | `<workspace>\.codex\config.toml` | 只读解析 MCP server 定义并脱敏，不写回。 |
+| `claude-code` | `%USERPROFILE%\.claude.json`、托管部署只读摘要 | `<workspace>\.mcp.json` | 只读解析 user/local/project scope；`~/.claude.json` 中 project-scoped 配置只匹配当前 workspace canonical path。 |
+| `opencode` | `%USERPROFILE%\.config\opencode\` 下 OpenCode config | `<workspace>\.opencode\` 下 OpenCode config | 第一阶段锁定官方 JSON config 文件名并通过 fixtures 覆盖；只读解析 `mcp` / `mcpServers` 等 server 定义。 |
+
+## API 草案
+
+### Runtime 内部 API
+
+```http
+POST /runtime/capabilities/discover
+GET /runtime/capabilities
+GET /runtime/skills?scope=global
+GET /runtime/mcp/servers?scope=global
+```
+
+`POST /runtime/capabilities/discover` 是第一阶段主入口。`scope = "workspace" | "all"` 时请求体必须携带 HubServer 解析出的显式 workspace snapshot：
+
+```ts
+{
+  scope?: "all" | "global" | "workspace"
+  workspace?: {
+    workspaceId: string
+    backendType: "local"
+    rootPath: string
+  }
+}
+```
+
+`GET /runtime/capabilities` 只返回 global-only discovery。workspace 发现不能只传 `workspaceId`，因为 Runtime 不持有 HubServer 的 workspace 业务状态。
+
+### HubServer 代理 API
+
+```http
+GET /api/runtime/capabilities?scope=global|workspace|all&conversationId=<id>
+```
+
+`scope=global` 不需要 `conversationId`。`scope=workspace|all` 时 HubServer 根据 `conversationId` 解析会话 metadata 中的 local workspace snapshot，再转发给 Runtime `POST /runtime/capabilities/discover`。解析失败时返回 `WORKSPACE_NOT_RESOLVED`。
+
+### 响应模型
+
+```ts
+type RuntimeCapabilityDiscoveryResponse = {
+  checkedAt: string
+  workspace?: {
+    workspaceId: string
+    backendType: "local"
+    rootLabel: string
+  }
+  skills: {
+    items: SkillCapabilitySummary[]
+    conflicts: CapabilityConflict[]
+    errors: CapabilityDiscoveryError[]
+  }
+  mcp: {
+    servers: McpServerSummary[]
+    conflicts: CapabilityConflict[]
+    errors: CapabilityDiscoveryError[]
+  }
+}
+
+type SkillCapabilitySummary = {
+  id: string
+  name: string
+  description: string
+  scope: "global" | "workspace"
+  sourceFamily: "agents" | "codex" | "claude-code" | "opencode"
+  sourceRef: string
+  packagePathRef: string
+  relativePath?: string
+  readonly: boolean
+  trusted: boolean
+  validation: {
+    status: "valid" | "invalid"
+    messages: string[]
+  }
+  frontmatter: {
+    license?: string
+    compatibility?: string
+    metadata?: Record<string, string>
+  }
+}
+
+type McpServerSummary = {
+  id: string
+  name: string
+  scope: "global" | "workspace"
+  sourceFamily: "agenthub" | "codex" | "claude-code" | "opencode"
+  sourceRef: string
+  transport: "stdio" | "http" | "sse" | "unknown"
+  enabled: boolean
+  status: "discovered" | "disabled" | "invalid" | "requires_approval"
+  riskLevel: "low" | "medium" | "high"
+  commandSummary?: string
+  urlHost?: string
+  hasSecrets: boolean
+  validation: {
+    status: "valid" | "invalid"
+    messages: string[]
+  }
+}
+```
+
+`sourceRef` 和 `packagePathRef` 是稳定逻辑引用，例如 `global:codex:.system/openai-docs` 或 `workspace:agents:add-runtime-tool`，不是宿主机绝对路径。
+
+## 阶段拆分
+
+### 阶段 0：文档与边界校准
+
+- 更新 `docs/architecture/AGENT_ARCHITECTURE.md`：补充只读发现与外部配置接管的区别。
+- 更新 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`：保留外部平台执行边界，同时允许 Runtime 读取能力摘要。
+- 更新 `docs/architecture/AGENT_RUNTIME.md`：新增 Capability Discovery 作为 Runtime 执行前配置可观测能力。
+- 更新 `docs/contracts/AGENT_RUNTIME_API_CONTRACTS.md`：记录第一阶段 API 与脱敏规则。
+- 明确第一阶段不改变 Run 执行、agent authoring、Tool Catalog 或外部 adapter 行为。
+
+### 阶段 1：只读发现与 HubServer API
+
+目标：实现本路线图当前优先级，只读发现 Skill / MCP 配置并暴露给 HubServer。
+
+- 新增 Runtime capability discovery 模块，按 source family 拆分 resolver。
+- Skill resolver 只读取 `SKILL.md` 的 YAML frontmatter 与基础文件元数据，不返回正文。
+- Skill resolver 支持 `agents`、`codex`、`claude-code`、`opencode` 全局与 workspace 路径。
+- MCP resolver 只读取配置文件并返回脱敏摘要，不启动 stdio、不发起 HTTP 连接。
+- MCP resolver 支持 AgentHub 自有配置、Codex config、Claude Code `~/.claude.json` / `.mcp.json`、OpenCode config。
+- Runtime 路由新增 `POST /runtime/capabilities/discover` 和 global-only `GET /runtime/capabilities`；`GET /runtime/skills`、`GET /runtime/mcp/servers` 第一阶段仅支持 `scope=global`。
+- HubServer 新增 `GET /api/runtime/capabilities` 代理路由，沿用现有 `RuntimeClient.forward()` 模式；workspace/all scope 必须通过 conversation metadata 解析 workspace snapshot 后转发。
+- 测试覆盖空目录、非法 frontmatter、重复 name、workspace 未绑定、Runtime 不可用、MCP 敏感字段脱敏和 Windows home path 归一化。
+
+验收：
+
+- 绑定当前仓库 workspace 时，API 能发现 `.agents/skills/*/SKILL.md`。
+- 在 Windows 用户目录下，API 能发现 `%USERPROFILE%\.agents\skills`、`%USERPROFILE%\.codex\skills`、`%USERPROFILE%\.claude\skills`、`%USERPROFILE%\.config\opencode\skills` 中存在的 Skill。
+- API 返回的 MCP server 不包含原始 token、headers、env 值或完整宿主机路径。
+
+### 阶段 2：发现缓存、刷新和可观测状态
+
+- 引入 Runtime 内存缓存，缓存 key 包含 source family、scope、workspace identity 和 config mtime fingerprint。
+- `GET` 默认读取缓存，缓存过期或 fingerprint 改变时刷新。
+- `POST /runtime/capabilities/refresh` 支持强制刷新指定 scope / sourceFamily。
+- HubServer 服务状态中可选择合并 capability discovery 状态，例如 `capability-discovery.status = idle | refreshing | error`。
+- 错误分级：单个来源失败只进入 `errors`，不让整个 API 失败；Runtime 内部不可用才由 HubServer 返回 Runtime 错误。
+
+### 阶段 3：Web / Agent Authoring 只读展示
+
+- Web 在设置页或 agent authoring 页展示已发现 Skill / MCP server。
+- 默认只展示元数据、来源、scope、风险和校验状态。
+- 用户自定义 agent authoring options 可以读取发现结果，但不允许第一版配置执行权限。
+- 为后续阶段预留 `allowedSkills`、`allowedMcpServers` 字段的 UI 位置，但不提交到 Runtime agent CRUD。
+
+### 阶段 4：受控 Skill 注入
+
+- 扩展 `AgentDefinition`：新增 `allowedSkills?: string[]`，只允许引用发现目录中有效且受信任的 Skill。
+- Runtime 在 Run 创建时基于 agent 配置、workspace trust 和 source scope 选择 Skill。
+- Skill 正文只在 Run prompt assembly 阶段按需读取，且必须限制长度、解析相对引用、禁止执行内联 shell。
+- Skill 注入事件可作为诊断或 raw RunEvent 输出，但不应暴露完整 Skill 正文给普通聊天消息。
+- 用户自定义 agent 选择 workspace Skill 时需要明确 trust 提示。
+
+### 阶段 5：MCP tool 受控执行
+
+- 新增 `McpRuntimeService`，独立于 `RuntimeToolRegistry` 维护 MCP clients、transports、tool schemas 和连接生命周期。
+- MCP stdio server 启动需要显式启用和审批；HTTP/SSE server 连接需要网络权限和凭据脱敏。
+- MCP tool 以命名空间形式注入内部 AI SDK tool set，例如 `mcp_<serverId>_<toolName>`。
+- MCP tool 执行统一输出 `tool.started`、`tool.completed`、`tool.failed`，并在 `data.externalProvider = "mcp"` 中保留来源边界。
+- MCP tool 权限映射到 Runtime 权限模型；需要新增或扩展 `permissionPolicy` 表达外部工具能力。
+- MCP resources/prompts 先作为 application-driven context，不直接交给模型自由调用。
+
+### 阶段 6：外部 Agent Adapter 能力摘要
+
+- OpenCode、Claude Code、Codex adapter 可以把自身检测到的 native Skill / MCP 摘要并入 capability discovery 响应。
+- 外部 native tool 仍不注册为 AgentHub Runtime Tool Catalog。
+- 外部平台配置仍由平台自身负责；AgentHub 只展示、引用、诊断，不在第一版提供写配置 UI。
+- 如果后续要为外部 agent 增加 per-run Skill/MCP 开关，必须单独更新对应 adapter 文档并加审批 / trust 设计。
+
+### 阶段 7：策略治理和分发
+
+- 支持组织级 allowlist / denylist：sourceFamily、scope、server name、skill name、transport 类型。
+- 支持 workspace trust 记录：未信任 workspace 的 Skill 只展示，不参与 prompt 注入。
+- 支持插件 Skill 与 AgentHub marketplace 的只读索引。
+- 支持 capability discovery 的导出诊断包，方便用户排查“为什么某 Skill/MCP 没出现”。
+
+## 当前进度
+
+- 2026-06-07：完成可行性分析，确认第一阶段范围为只读发现并暴露 HubServer API。
+- 2026-06-07：创建本路线图，锁定全局和 workspace Skill 来源兼容矩阵。
+
+## 已完成
+
+- 已确认 Runtime 当前已有 Tool Catalog、Agent authoring options 和 HubServer 代理模式，可复用为 Capability Discovery API 的结构参考。
+- 已确认 `agent-runtime` 已依赖 `@modelcontextprotocol/sdk`，后续 MCP 阶段无需从零引入 SDK。
+- 已确认现有文档把外部 agent 的 Skill / MCP 视为外部平台私有配置，后续实现前必须先更新边界文档。
+
+## 交付后增强项
+
+路线图完结后，未进入当前交付闭环但仍有价值的内容提取到 `docs/backlog/`。
+
+- Skill package lint、签名和来源校验。
+- Skill marketplace / plugin marketplace 的统一索引。
+- MCP OAuth 完整授权流。
+- MCP resource subscription 与变更通知。
+- 跨 workspace 的全局能力健康报告。
+- 基于用户意图的 Skill 推荐，但必须避免自动注入未信任 Skill。
+
+## 风险与待确认点
+
+- Codex、Claude Code、OpenCode 的配置文件格式可能随版本变化；resolver 必须用 fixtures 和版本标记隔离。
+- Workspace Skill 属于仓库内容，可能包含 prompt injection；默认只读展示，后续注入必须经过 trust 策略。
+- MCP stdio 配置可能执行任意本地命令；第一阶段不能自动启动，后续必须经过审批。
+- MCP 配置中可能包含密钥、headers、env；API 和日志必须统一脱敏。
+- Windows、WSL、POSIX home path 解析必须一致，避免重复或漏扫。
+- 旧文档中的“AgentHub 不管理外部平台 Skill/MCP”需要精确修订，避免被误读为第一阶段要接管外部平台配置。
+
+## 最近更新
+
+- 2026-06-07：新增路线图，覆盖只读发现、API、缓存、展示、Skill 注入、MCP 执行、外部 adapter 摘要和治理阶段。
+- 2026-06-07：Phase 1 API 调整为显式 workspace snapshot；避免 Runtime 通过 `workspaceId` 猜测或查询 HubServer 业务状态。
