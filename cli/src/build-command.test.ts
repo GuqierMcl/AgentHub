@@ -1,18 +1,25 @@
 import { describe, expect, it } from "bun:test"
-import { readFile } from "node:fs/promises"
-import { join, resolve } from "node:path"
-
-const CLI_ROOT = resolve(import.meta.dir, "..")
+import { createCliBuildCommand } from "../scripts/build"
 
 describe("CLI build command", () => {
-  it("embeds the AgentHub icon in compiled Windows launchers", async () => {
-    const packageJson = JSON.parse(
-      await readFile(join(CLI_ROOT, "package.json"), "utf8"),
-    ) as { scripts?: Record<string, string> }
-
-    const buildCommand = packageJson.scripts?.build ?? ""
+  it("embeds the AgentHub icon in compiled Windows launchers", () => {
+    const buildCommand = createCliBuildCommand("win32")
 
     expect(buildCommand).toContain("--windows-icon")
     expect(buildCommand).toContain("../desktop/assets/icon.ico")
+  })
+
+  it("does not pass Windows-only icon flags on macOS", () => {
+    const buildCommand = createCliBuildCommand("darwin")
+
+    expect(buildCommand).not.toContain("--windows-icon")
+    expect(buildCommand).not.toContain("../desktop/assets/icon.ico")
+  })
+
+  it("does not pass Windows-only icon flags on Linux", () => {
+    const buildCommand = createCliBuildCommand("linux")
+
+    expect(buildCommand).not.toContain("--windows-icon")
+    expect(buildCommand).not.toContain("../desktop/assets/icon.ico")
   })
 })

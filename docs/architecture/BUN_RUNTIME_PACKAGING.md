@@ -97,6 +97,8 @@ package 阶段必须保证：
 - Bun runtime 与当前平台匹配。
 - AgentHub 自有 compiled launcher 使用 AgentHub 图标；Bun runtime 不做资源改写。
 - service-local `node_modules/` 中包含对应 service bundle 的 external 依赖闭包。
+- HubServer 终端 PTY helper `pty-session-host.cjs` 必须与 `hub-server/index.js` 位于同一目录，供 bundle 运行时按相对路径加载。
+- `pty-session-host.cjs` 优先使用 `AGENTHUB_NODE_BIN` 或系统 `node`，缺失时回落到当前 `process.execPath`；发行包只内置 Bun runtime 时，这个 fallback 必须可用。
 - CLI/Desktop 启动 HubServer 时不依赖全局 `NODE_PATH`；Bun 按 entry 文件所在目录解析 service-local `node_modules/`。
 - HubServer bundle 运行时不依赖源码目录检查 Prisma Client 是否新鲜；构建期必须先生成 Prisma Client，再把生成代码打入 bundle。
 - native 包在发行包 smoke 中真实加载。
@@ -189,7 +191,7 @@ package 阶段维护生产 external 依赖清单。V1 可以先复制服务级�
 
 - `sharp` 及当前平台 `@img/*` 包。
 - `@libsql/client`、`libsql`、当前平台 `@libsql/*` 包，以及它们的普通 JS 依赖。
-- `node-pty` 及当前平台 prebuilds。
+- HubServer terminal PTY 当前使用的 `node-pty`、`node-addon-api`、对应平台 prebuilds 或可靠的 native build 工具链。
 - 外部 agent SDK 需要的 bundled binaries 或通过环境变量显式指定的 executable。
 
 新增 native/dynamic 依赖时，必须同步更新：

@@ -269,7 +269,7 @@ Hub Server 在启动时必须完成数据库初始化：
 - 生产 bundle 运行时不得要求 `prisma/schema.prisma` 或 `src/generated/prisma/*` 源码文件存在；构建期生成和发行包 smoke 负责证明 Prisma Client 可用。
 - 生产环境下 HubServer 启动前置执行内置 SQL migration runner，不调用 `bunx --bun prisma migrate deploy`。如果数据库已经存在业务表但 `agenthub_schema_migrations` 为空，HubServer 会先把当前 manifest 作为基线写入，然后再处理后续迁移。
 - 生产数据库模式由 `--runtime-entry`、`--runtime-bin` 或 `NODE_ENV=production` 触发。开发手动启动且未提供 sidecar 参数时继续使用开发迁移脚本。
-- Native/WASM 依赖（Prisma runtime、SQLite/libsql adapter、`node-pty`、`sharp` 等）必须纳入发行包 smoke test。
+- Native/WASM 依赖（Prisma runtime、SQLite/libsql adapter、`sharp`、`node-pty` 等）必须纳入发行包 smoke test。当前 HubServer terminal PTY helper 通过 `pty-session-host.cjs` 加载 `node-pty`，构建和 package 阶段必须确保该 helper 与 HubServer bundle 同目录分发；helper runtime 优先使用 `AGENTHUB_NODE_BIN` 或系统 `node`，缺失时回落到当前 Bun runtime。
 
 ### 数据目录
 

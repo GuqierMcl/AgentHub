@@ -58,6 +58,16 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Prepare Linux native build toolchain
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 make g++
+
+      - name: Prepare node-gyp for native dependencies
+        if: runner.os != 'Windows'
+        run: npm install -g node-gyp
+
       - name: Build CLI distribution
         run: bun run build && bun run package
 

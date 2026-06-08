@@ -7,11 +7,11 @@
 `.github/workflows/release.yml` 在推送 `v*` tag 时触发：
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
-流水线会读取根目录 `package.json#version`，并要求 tag 精确等于 `v${version}`。例如根版本为 `1.0.1` 时，只允许 `v1.0.1` 发布。
+流水线会读取根目录 `package.json#version`，并要求 tag 精确等于 `v${version}`。例如根版本为 `1.0.2` 时，只允许 `v1.0.2` 发布。
 
 ## Release 产物
 
@@ -33,7 +33,7 @@ Desktop 产物：
 ## Job 结构
 
 - `validate`：校验 release tag 与根版本一致，并运行版本测试。
-- `build-cli`：按平台构建 `bun run build && bun run package`，压缩根级 `dist/`。
+- `build-cli`：按平台构建 `bun run build && bun run package`，压缩根级 `dist/`。非 Windows job 会先准备 `node-gyp`，Linux job 会额外安装 Python/make/g++，用于 `node-pty` 缺少 prebuild 时的 native rebuild。
 - `build-desktop-windows`：运行 `bun run build:desktop`，收集 Electrobun 生成的 Windows installer zip。
 - `publish`：下载所有 job artifact，并使用 GitHub CLI 创建 Release。
 

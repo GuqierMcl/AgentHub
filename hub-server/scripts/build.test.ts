@@ -12,6 +12,8 @@ const paths: HubBuildPaths = {
   webDistDir: "C:\\AgentHub\\web\\dist",
   migrationsDir: "C:\\AgentHub\\hub-server\\prisma\\migrations",
   migrationManifestFile: "C:\\AgentHub\\hub-server\\src\\generated\\prisma-migrations.ts",
+  ptySessionHostSource: "C:\\AgentHub\\hub-server\\src\\services\\terminal\\pty-session-host.cjs",
+  ptySessionHostOutput: "C:\\AgentHub\\hub-server\\dist\\pty-session-host.cjs",
 }
 
 function directoryStat() {
@@ -64,7 +66,7 @@ describe("hub-server production build script", () => {
     ])
   })
 
-  it("generates the migration manifest before running HubServer build commands", async () => {
+  it("generates the migration manifest before running HubServer build commands and copies runtime helper files", async () => {
     const operations: string[] = []
 
     await runHubServerBuild({
@@ -76,12 +78,16 @@ describe("hub-server production build script", () => {
       runCommand: async (command) => {
         operations.push(`command ${command.join(" ")}`)
       },
+      copyFile: async (source, destination) => {
+        operations.push(`copyFile ${source} -> ${destination}`)
+      },
     })
 
     expect(operations).toEqual([
       "manifest C:\\AgentHub\\hub-server\\prisma\\migrations -> C:\\AgentHub\\hub-server\\src\\generated\\prisma-migrations.ts",
       "command bunx --bun prisma generate",
       "command bun build src/index.ts --target bun --outdir dist --external sharp --external @libsql/client --external libsql --external node-pty",
+      "copyFile C:\\AgentHub\\hub-server\\src\\services\\terminal\\pty-session-host.cjs -> C:\\AgentHub\\hub-server\\dist\\pty-session-host.cjs",
     ])
     expect(operations.join("\n")).not.toContain("hub-server/public")
   })

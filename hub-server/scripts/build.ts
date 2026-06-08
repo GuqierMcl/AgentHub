@@ -1,5 +1,5 @@
 import type { Stats } from "node:fs"
-import { stat } from "node:fs/promises"
+import { copyFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { writeMigrationManifest } from "./migration-manifest"
@@ -10,6 +10,8 @@ export interface HubBuildPaths {
   webDistDir: string
   migrationsDir: string
   migrationManifestFile: string
+  ptySessionHostSource: string
+  ptySessionHostOutput: string
 }
 
 export type StatFile = (path: string) => Promise<Pick<Stats, "isDirectory">>
@@ -20,6 +22,7 @@ export type RunCommand = (
 ) => Promise<void>
 
 export type WriteMigrationManifest = typeof writeMigrationManifest
+export type CopyFile = typeof copyFile
 
 export function resolveHubBuildPaths(
   hubRoot = resolve(dirname(fileURLToPath(import.meta.url)), ".."),
@@ -31,6 +34,8 @@ export function resolveHubBuildPaths(
     webDistDir: resolve(projectRoot, "web", "dist"),
     migrationsDir: resolve(hubRoot, "prisma", "migrations"),
     migrationManifestFile: resolve(hubRoot, "src", "generated", "prisma-migrations.ts"),
+    ptySessionHostSource: resolve(hubRoot, "src", "services", "terminal", "pty-session-host.cjs"),
+    ptySessionHostOutput: resolve(hubRoot, "dist", "pty-session-host.cjs"),
   }
 }
 
@@ -91,10 +96,12 @@ export async function runHubServerBuild(options: {
   stat?: StatFile
   runCommand?: RunCommand
   writeMigrationManifest?: WriteMigrationManifest
+  copyFile?: CopyFile
 } = {}): Promise<void> {
   const paths = options.paths ?? resolveHubBuildPaths()
   const run = options.runCommand ?? runCommand
   const writeManifest = options.writeMigrationManifest ?? writeMigrationManifest
+  const copy = options.copyFile ?? copyFile
 
   await assertWebDistExists(paths.webDistDir, options.stat)
   await writeManifest({
@@ -104,6 +111,7 @@ export async function runHubServerBuild(options: {
   for (const command of createHubBuildCommands()) {
     await run(command, { cwd: paths.hubRoot })
   }
+  await copy(paths.ptySessionHostSource, paths.ptySessionHostOutput)
 }
 
 if (import.meta.main) {

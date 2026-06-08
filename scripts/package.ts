@@ -11,6 +11,7 @@ export interface PackagePaths {
     bunBin: string
     cliBin: string
     hubServerEntry: string
+    hubServerPtySessionHost: string
     hubServerNodeModulesDir: string
     runtimeEntry: string
     runtimeNodeModulesDir: string
@@ -21,6 +22,7 @@ export interface PackagePaths {
     cliBin: string
     hubServerDir: string
     hubServerEntry: string
+    hubServerPtySessionHost: string
     hubServerNodeModulesDir: string
     runtimeDir: string
     runtimeEntry: string
@@ -68,6 +70,7 @@ export function resolvePackagePaths(
       bunBin,
       cliBin: path.join(projectRoot, "cli", "dist", `agenthub-cli${exe}`),
       hubServerEntry: path.join(projectRoot, "hub-server", "dist", "index.js"),
+      hubServerPtySessionHost: path.join(projectRoot, "hub-server", "dist", "pty-session-host.cjs"),
       hubServerNodeModulesDir: path.join(projectRoot, "hub-server", "node_modules"),
       runtimeEntry: path.join(projectRoot, "agent-runtime", "dist", "index.js"),
       runtimeNodeModulesDir: path.join(projectRoot, "agent-runtime", "node_modules"),
@@ -78,6 +81,7 @@ export function resolvePackagePaths(
       cliBin: path.join(outputDir, `agenthub-cli${exe}`),
       hubServerDir: path.join(outputDir, "hub-server"),
       hubServerEntry: path.join(outputDir, "hub-server", "index.js"),
+      hubServerPtySessionHost: path.join(outputDir, "hub-server", "pty-session-host.cjs"),
       hubServerNodeModulesDir: path.join(outputDir, "hub-server", "node_modules"),
       runtimeDir: path.join(outputDir, "agent-runtime"),
       runtimeEntry: path.join(outputDir, "agent-runtime", "index.js"),
@@ -116,6 +120,7 @@ export async function assertPackageInputs(
   await assertFile(fs, paths.sources.bunBin, "Bun runtime")
   await assertFile(fs, paths.sources.cliBin, "CLI binary")
   await assertFile(fs, paths.sources.hubServerEntry, "HubServer bundle")
+  await assertFile(fs, paths.sources.hubServerPtySessionHost, "HubServer PTY session helper")
   await assertDirectory(fs, paths.sources.hubServerNodeModulesDir, "HubServer node_modules directory")
   await assertFile(fs, paths.sources.runtimeEntry, "Agent Runtime bundle")
   await assertDirectory(fs, paths.sources.runtimeNodeModulesDir, "Agent Runtime node_modules directory")
@@ -136,6 +141,7 @@ export async function packageAgentHub(options: {
   await fs.copyFile(paths.sources.cliBin, paths.outputs.cliBin)
   await fs.mkdir(paths.outputs.hubServerDir, { recursive: true })
   await fs.copyFile(paths.sources.hubServerEntry, paths.outputs.hubServerEntry)
+  await fs.copyFile(paths.sources.hubServerPtySessionHost, paths.outputs.hubServerPtySessionHost)
   await fs.cp(paths.sources.hubServerNodeModulesDir, paths.outputs.hubServerNodeModulesDir, { recursive: true })
   await fs.mkdir(paths.outputs.runtimeDir, { recursive: true })
   await fs.copyFile(paths.sources.runtimeEntry, paths.outputs.runtimeEntry)

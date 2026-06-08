@@ -9,6 +9,18 @@ export type TerminalSessionEvents = {
   onExit: (code: number | null, signal: number | null) => void
 }
 
+export function resolvePtyHostRuntime(options: {
+  env?: Partial<Pick<NodeJS.ProcessEnv, "AGENTHUB_NODE_BIN">>
+  which?: (command: string) => string | null
+  fallbackRuntime?: string | null
+} = {}): string | null {
+  const env = options.env ?? process.env
+  const which = options.which ?? Bun.which
+  const fallbackRuntime = options.fallbackRuntime ?? process.execPath
+
+  return env.AGENTHUB_NODE_BIN ?? which("node") ?? fallbackRuntime ?? null
+}
+
 export class TerminalSession {
   readonly sessionId: string
   readonly conversationId: string
@@ -76,17 +88,16 @@ export class TerminalSession {
     if (this.proc) return
 
     try {
-      const nodeBinary =
-        process.env.AGENTHUB_NODE_BIN ?? Bun.which("node") ?? null
-      if (!nodeBinary) {
-        throw new Error("Node.js runtime not found for terminal PTY helper")
+      const helperRuntime = resolvePtyHostRuntime()
+      if (!helperRuntime) {
+        throw new Error("Node.js or Bun runtime not found for terminal PTY helper")
       }
 
       const helperScript = fileURLToPath(
         new URL("./pty-session-host.cjs", import.meta.url),
       )
 
-      const helperProcess = Bun.spawn([nodeBinary, helperScript], {
+      const helperProcess = Bun.spawn([helperRuntime, helperScript], {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",

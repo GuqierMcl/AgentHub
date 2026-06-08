@@ -29,6 +29,7 @@ dist/
   agenthub-cli(.exe | .js | platform launcher)
   hub-server/
     index.js
+    pty-session-host.cjs
     node_modules/
       ...
   agent-runtime/
@@ -46,6 +47,8 @@ dist/
 - Windows 的 Bun runtime 使用 `bun.exe`；macOS/Linux 使用 `bun`。
 - `public/` 来自 `web/dist/`。
 - `hub-server/index.js` 和 `agent-runtime/index.js` 是 `bun build --target bun` 生成的生产 bundle。
+- `hub-server/pty-session-host.cjs` 是 HubServer terminal PTY helper，必须与 `hub-server/index.js` 同目录分发。
+- HubServer terminal PTY helper 的运行时解析顺序为 `AGENTHUB_NODE_BIN`、系统 `node`、当前 `process.execPath`。生产包不额外携带 Node 时，应回落到内置 Bun runtime。
 - native/dynamic 依赖必须保留在 service-local 真实 `node_modules/` 中，不能依赖 Bun `--compile` 虚拟文件系统。
 - CLI 和 Desktop 都从同一个资源根目录解析 Bun runtime、service bundle 和 `public/`。
 - Desktop 安装包可以把同一组资源放入应用资源目录，但运行时仍按等价目录关系解析。
@@ -325,7 +328,7 @@ package
 构建规则：
 
 - `build:web` 只负责生成 `web/dist/`。
-- `build:hub` 只负责校验 `web/dist/` 存在、生成内置 migration manifest、在构建期生成 Prisma Client、生成 HubServer Bun bundle。
+- `build:hub` 只负责校验 `web/dist/` 存在、生成内置 migration manifest、在构建期生成 Prisma Client、生成 HubServer Bun bundle，并复制 HubServer terminal PTY helper 到 `hub-server/dist/`。
 - `build:runtime` 生成 Agent Runtime Bun bundle。
 - `build:cli` 可继续生成轻量 launcher，也可生成 JS CLI bundle；CLI 不应承担 native-heavy 服务依赖。
 - `package` 负责组装最终 `dist/`：复制 Bun runtime、service bundles、CLI launcher、`web/dist -> public/`、以及每个服务生产运行需要的 service-local `node_modules/` 依赖闭包。
@@ -361,7 +364,7 @@ cd dist
 - `GET /api/system/services/status` 返回 `agent-runtime` 可用状态。
 - 浏览器不直接访问 Runtime。
 - 退出 CLI 后 HubServer 和 Agent Runtime 子进程都关闭。
-- native 依赖可加载：Prisma/libsql、sharp、node-pty、外部 agent SDK bundled binaries。
+- native 依赖可加载：Prisma/libsql、sharp、HubServer terminal PTY helper/node-pty、外部 agent SDK bundled binaries。
 
 Desktop smoke：
 

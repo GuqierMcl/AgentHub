@@ -13,7 +13,7 @@
 ## File Map
 
 - Modify `hub-server/scripts/build.ts`: generate HubServer Bun bundle instead of `--compile`; keep web dist validation, Prisma generate, and migration manifest generation.
-- Modify `hub-server/scripts/build.test.ts`: assert the new build command and external package list.
+- Modify `hub-server/scripts/build.test.ts`: assert the new build command, external package list, and PTY helper copy.
 - Modify `agent-runtime/package.json`: change `build` and `start` scripts to bundle/runtime commands.
 - Modify `hub-server/src/config/index.ts`: add `--bun-bin` and `--runtime-entry` while keeping `--runtime-bin`.
 - Modify `hub-server/src/config/index.test.ts`: cover bundle sidecar args and dev fallback.
@@ -49,8 +49,8 @@ expect(createHubBuildCommands()).toEqual([
     "src/index.ts",
     "--target",
     "bun",
-    "--outfile",
-    "dist/index.js",
+    "--outdir",
+    "dist",
     "--external",
     "sharp",
     "--external",
@@ -67,11 +67,11 @@ expect(createHubBuildCommands()).toEqual([
 
 Run: `cd hub-server && bun test scripts/build.test.ts`
 
-Expected: FAIL because the command still contains `--compile --outfile dist/hub-server`.
+Expected: FAIL if the command still contains `--compile` or uses single-file `--outfile` service output.
 
 - [ ] **Step 3: Implement the minimal build command change**
 
-Update `createHubBuildCommands()` in `hub-server/scripts/build.ts` to return the expected bundle command. Keep the existing migration manifest and Prisma generate order unchanged.
+Update `createHubBuildCommands()` in `hub-server/scripts/build.ts` to return the expected bundle command. Keep the existing migration manifest and Prisma generate order unchanged, then copy `src/services/terminal/pty-session-host.cjs` to `dist/pty-session-host.cjs`.
 
 - [ ] **Step 4: Verify the focused test passes**
 
@@ -90,7 +90,7 @@ Update:
 
 ```json
 {
-  "build": "bun build src/index.ts --target bun --outfile dist/index.js",
+  "build": "bun build src/index.ts --target bun --outdir dist",
   "start": "bun dist/index.js"
 }
 ```
@@ -302,6 +302,7 @@ sources: {
   bunBin: "<current Bun executable>",
   cliBin: ".../cli/dist/agenthub-cli(.exe)",
   hubServerEntry: ".../hub-server/dist/index.js",
+  hubServerPtySessionHost: ".../hub-server/dist/pty-session-host.cjs",
   hubServerNodeModulesDir: ".../hub-server/node_modules",
   runtimeEntry: ".../agent-runtime/dist/index.js",
   runtimeNodeModulesDir: ".../agent-runtime/node_modules",
@@ -311,6 +312,7 @@ outputs: {
   bunBin: ".../dist/bun(.exe)",
   cliBin: ".../dist/agenthub-cli(.exe)",
   hubServerEntry: ".../dist/hub-server/index.js",
+  hubServerPtySessionHost: ".../dist/hub-server/pty-session-host.cjs",
   hubServerNodeModulesDir: ".../dist/hub-server/node_modules",
   runtimeEntry: ".../dist/agent-runtime/index.js",
   runtimeNodeModulesDir: ".../dist/agent-runtime/node_modules",
@@ -334,6 +336,7 @@ Update `packageAgentHub()` to copy:
 bun(.exe)
 agenthub-cli(.exe)
 hub-server/dist/index.js -> dist/hub-server/index.js
+hub-server/dist/pty-session-host.cjs -> dist/hub-server/pty-session-host.cjs
 hub-server/node_modules -> dist/hub-server/node_modules
 agent-runtime/dist/index.js -> dist/agent-runtime/index.js
 agent-runtime/node_modules -> dist/agent-runtime/node_modules

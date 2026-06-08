@@ -12,7 +12,7 @@ AgentHub 需要落地生产构建和入口模式：
 - Desktop 使用本地壳层，需要自动启动 HubServer，并展示同一套 Web 应用。
 - HubServer 托管构建好的 Web dist。
 - Agent Runtime 作为 HubServer 的 Sidecar 子进程运行。
-- HubServer 和 Runtime 依赖 native/dynamic 包，例如 libsql、sharp、node-pty 和外部 agent SDK bundled binaries。
+- HubServer 和 Runtime 依赖 native/dynamic 包，例如 libsql、sharp、node-pty 和外部 agent SDK bundled binaries。当前 HubServer 终端功能通过 `pty-session-host.cjs` 加载 `node-pty`，因此该 helper 和 native 依赖必须随 HubServer 分发。
 
 此前讨论过两类生产服务打包方式：
 
@@ -92,5 +92,5 @@ http://127.0.0.1:<hub-port>
 - 调整 SidecarManager：支持 `--bun-bin` + `--runtime-entry` 启动 Runtime bundle，并保留 `--runtime-bin` 兼容路径。
 - 调整 CLI：定位 Bun runtime 和 service bundle，启动 `bun hub-server/index.js`。
 - 调整 package 脚本：复制 Bun runtime、service bundle、Web dist、native/dynamic 依赖闭包。
-- 建立发行包 smoke，覆盖 Web、HubServer health、Runtime sidecar、Prisma/libsql、sharp、node-pty 和外部 agent SDK binary resolution。
+- 建立发行包 smoke，覆盖 Web、HubServer health、Runtime sidecar、Prisma/libsql、sharp、HubServer terminal PTY helper/node-pty 和外部 agent SDK binary resolution。
 - 调整 Desktop 主进程：定位应用资源目录中的 Bun runtime 和 HubServer bundle，打开本地 URL。
