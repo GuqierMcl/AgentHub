@@ -254,6 +254,8 @@ Phase 5 的服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP 与 S
 - 缺失 trust record 默认 trusted；显式 `trusted = false` 会阻止后续启用、枚举和 tool 注入候选。
 - 新增 Runtime 内部 `POST /runtime/mcp-trust/query` 与 `PUT /runtime/mcp-trust`，响应不返回 rootPath、env、headers、token、secret args 或 MCP 配置原文。
 - `GET /runtime/services/status` 增加 `mcp-runtime` 服务项；Phase 5A 只返回 `idle` 或 `error`。
+- HubServer 增加 `/api/runtime/mcp-trust/query` 与 `/api/runtime/mcp-trust` 代理；workspace scope 只接受 `conversationId`，不接受浏览器提交 rootPath。
+- Web 插件配置页只为 workspace MCP 提供信任 / 撤销入口；global MCP 继续只读展示。
 - Phase 5A 不启动 MCP stdio server，不连接 HTTP/SSE server，不枚举 MCP tools，不调用 MCP tool。
 
 #### Phase 5B：显式启用、连接与 tool 枚举
@@ -296,6 +298,7 @@ Phase 5 的服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP 与 S
 - 2026-06-08：根据产品决策调整 workspace Skill 语义：自动发现默认 trusted；信任记录主要用于显式撤销；默认 `orchestrator` 在绑定 workspace 时自动注入当前 workspace 的有效、未撤销 Skill。
 - 2026-06-08：Phase 5A 进入执行，目标是补齐 Skill/MCP 服务设计文档，并实现 Runtime MCP trust store、trust API 与 `mcp-runtime` 服务状态；不启动或调用 MCP。
 - 2026-06-08：补齐 Runtime discovery 对 OpenCode 官方 MCP 配置的兼容：支持全局 `%USERPROFILE%\.config\opencode\opencode.jsonc`、workspace 根 `opencode.json` / `opencode.jsonc`、OpenCode `mcp` 顶层 server map 和 local `command` 数组。
+- 2026-06-08：Phase 5A 平台侧对接进入执行：HubServer 代理 Runtime MCP trust API，`/api/system/services/status` 透传 `mcp-runtime`，Web 插件配置页为 workspace MCP 提供信任 / 撤销入口。
 
 ## 已完成
 

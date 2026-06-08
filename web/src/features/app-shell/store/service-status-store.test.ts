@@ -13,22 +13,43 @@ describe("service status store", () => {
 
   it("applies service status changes to the current snapshot", () => {
     useServiceStatusStore.getState().applyServiceStatusChange({
-      id: "claude-code",
-      label: "Claude Code",
-      kind: "external-agent",
+      id: "mcp-runtime",
+      label: "MCP Runtime",
+      kind: "runtime-capability",
       status: "idle",
       implemented: true,
       checkedAt: "2026-06-06T00:00:00.000Z",
-      details: { executableSource: "sdk-bundled" },
+      details: { trustedRecordCount: 1 },
     })
 
     const snapshot = useServiceStatusStore.getState().snapshot
-    expect(snapshot?.services.find((service) => service.id === "claude-code")).toMatchObject({
-      label: "Claude Code",
+    expect(snapshot?.services.find((service) => service.id === "mcp-runtime")).toMatchObject({
+      label: "MCP Runtime",
       status: "idle",
       implemented: true,
-      details: { executableSource: "sdk-bundled" },
+      details: { trustedRecordCount: 1 },
     })
+  })
+
+  it("includes MCP runtime in fallback services", async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => {
+      throw new Error("runtime unavailable")
+    }) as typeof fetch
+
+    try {
+      await useServiceStatusStore.getState().initialize()
+
+      const snapshot = useServiceStatusStore.getState().snapshot
+      expect(snapshot?.services.find((service) => service.id === "mcp-runtime")).toMatchObject({
+        label: "MCP Runtime",
+        kind: "runtime-capability",
+        status: "error",
+        implemented: true,
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it("does not install fallback statuses when initialization is aborted", async () => {

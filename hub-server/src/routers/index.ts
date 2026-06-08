@@ -16,6 +16,7 @@ import remoteServer from './remote-server'
 import instructRuns from './instruct-runs'
 import runtimeCapabilities from './runtime-capabilities'
 import runtimeWorkspaceSkillTrust from './runtime-workspace-skill-trust'
+import runtimeMcpTrust from './runtime-mcp-trust'
 
 const router = new Hono()
 
@@ -45,5 +46,6 @@ router.route('/', remoteServer)
 router.route('/', instructRuns)
 router.route('/', runtimeCapabilities)
 router.route('/', runtimeWorkspaceSkillTrust)
+router.route('/', runtimeMcpTrust)
 
 export default router

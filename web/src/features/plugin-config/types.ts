@@ -75,6 +75,36 @@ export type WorkspaceSkillTrustDecisionResponse = {
   record: WorkspaceSkillTrustRecord
 }
 
+export type McpTrustRecord = {
+  scope: "global" | "workspace"
+  level: "global" | "workspace"
+  workspaceId?: string
+  backendType?: "local"
+  workspaceRootHash?: string
+  mcpRef: string
+  trusted: boolean
+  status: "trusted" | "untrusted"
+  trustedAt?: string
+  revokedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type McpTrustQueryResponse = {
+  checkedAt: string
+  scope: "global" | "workspace"
+  workspace?: {
+    workspaceId: string
+    backendType: "local"
+    workspaceRootHash: string
+  }
+  trusts: McpTrustRecord[]
+}
+
+export type McpTrustDecisionResponse = {
+  record: McpTrustRecord
+}
+
 export type WorkspaceCapabilityGroup = {
   workspaceKey: string
   workspaceId: string

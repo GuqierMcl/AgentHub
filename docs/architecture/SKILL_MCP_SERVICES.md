@@ -37,6 +37,8 @@ MCP trust 的 `mcpRef` 使用 Capability Discovery 返回的 MCP `id`。workspac
 
 OpenCode MCP discovery 需要兼容官方 JSON / JSONC 配置入口：全局 `%USERPROFILE%\.config\opencode\opencode.json` / `opencode.jsonc`，以及工作区根目录 `opencode.json` / `opencode.jsonc`。Runtime 只读解析 `mcp` 顶层 server map；`type = "local"` 与 `command` 数组归一化为 `stdio` metadata，`type = "remote"` 或 HTTP URL 归一化为 `http` metadata。
 
+HubServer 负责把浏览器侧 MCP trust 请求代理到 Runtime：global scope 可直接转发，workspace scope 必须由 `conversationId` 解析 local workspace snapshot，浏览器不得提交 rootPath。当前 Web 插件配置页只为 workspace MCP 显示信任 / 撤销入口；global MCP 保持只读 metadata 展示。
+
 ## MCP 执行边界
 
 后续 MCP tool 接入必须走 Runtime 工具和权限体系：

@@ -489,6 +489,46 @@ type McpTrustRecord = {
 
 响应、错误、status details 和持久化文件不得返回或保存 `rootPath`、MCP env、headers、token、secret args、credential 值或 MCP 配置原文。缺失 trust record 默认 trusted 只表示允许进入后续候选，不表示自动启动 MCP server 或调用 MCP tool。
 
+**HubServer 代理端点**：`POST /api/runtime/mcp-trust/query`
+
+浏览器请求体：
+
+```ts
+type HubMcpTrustQueryRequest =
+  | {
+      scope: "global"
+      mcpRefs?: string[]
+    }
+  | {
+      scope: "workspace"
+      conversationId: string
+      mcpRefs?: string[]
+    }
+```
+
+**HubServer 代理端点**：`PUT /api/runtime/mcp-trust`
+
+浏览器请求体：
+
+```ts
+type HubMcpTrustDecisionRequest =
+  | {
+      scope: "global"
+      mcpRef: string
+      trusted: boolean
+      reason?: string
+    }
+  | {
+      scope: "workspace"
+      conversationId: string
+      mcpRef: string
+      trusted: boolean
+      reason?: string
+    }
+```
+
+`scope = "workspace"` 时，HubServer 必须从 `conversationId` 解析 local workspace snapshot，再转发 Runtime MCP trust API。浏览器请求体必须拒绝 `workspace` / `rootPath` 等本机路径字段；workspace metadata 缺失或不完整时返回 `WORKSPACE_NOT_RESOLVED`。`scope = "global"` 不需要 conversation。当前 Web 插件配置页只为 workspace MCP 展示信任 / 撤销按钮，global MCP 继续只读展示。
+
 ### Runtime 系统默认模型设置
 
 系统默认模型设置只由 Agent Runtime 保存，存储文件为 Runtime `--data-dir` 下的 `system-model-settings.json`。HubServer 通过本节端点代理给 Web 设置页，不写入 HubServer 自身 `setting.json`。

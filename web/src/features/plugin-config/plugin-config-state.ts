@@ -1,10 +1,15 @@
 import type { CapabilityScope } from "./types"
-import type { SkillItem, WorkspaceSkillTrustRecord } from "./types"
+import type { McpItem, McpTrustRecord, SkillItem, WorkspaceSkillTrustRecord } from "./types"
 
 export type SkillTrustState =
   | { kind: "global" }
   | { kind: "trusted"; record: WorkspaceSkillTrustRecord }
   | { kind: "untrusted"; record?: WorkspaceSkillTrustRecord }
+
+export type McpTrustState =
+  | { kind: "global" }
+  | { kind: "trusted"; record: McpTrustRecord }
+  | { kind: "untrusted"; record?: McpTrustRecord }
 
 export function getCapabilityScopeLabel(scope: CapabilityScope): string {
   switch (scope) {
@@ -36,6 +41,21 @@ export function getSkillTrustState(
   }
 
   const record = records.find((item) => item.skillRef === skill.id)
+  if (record?.trusted) {
+    return { kind: "trusted", record }
+  }
+  return { kind: "untrusted", ...(record ? { record } : {}) }
+}
+
+export function getMcpTrustState(
+  mcp: McpItem,
+  records: McpTrustRecord[],
+): McpTrustState {
+  if (mcp.level !== "workspace") {
+    return { kind: "global" }
+  }
+
+  const record = records.find((item) => item.mcpRef === mcp.id)
   if (record?.trusted) {
     return { kind: "trusted", record }
   }
