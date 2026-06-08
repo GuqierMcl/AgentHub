@@ -15,15 +15,19 @@ import {
   type AgentSummaryResponse,
   type RuntimeExternalAgentSettingsResponse,
 } from "../agents"
+import { RuntimeOpenCodeModelCatalogRequestSchema } from "../agents/types"
 import { resolveAgentModelSnapshot } from "../runtime/model-resolver"
 import type { RuntimeToolRegistry } from "../runtime"
 import type { ProviderService } from "../provider"
+import { createDefaultOpenCodeClient } from "../runtime/external-adapters/opencode-real-client"
+import type { OpenCodeClient } from "../runtime/external-adapters/opencode-client"
 
 declare module "hono" {
   interface ContextVariableMap {
     agentRegistry: AgentRegistry
     providerService: ProviderService
     toolRegistry: RuntimeToolRegistry
+    openCodeClient?: OpenCodeClient
   }
 }
 
@@ -181,6 +185,18 @@ function agentInvalidInput(c: Context, details: unknown) {
   }, 400)
 }
 
+function openCodeModelCatalogFailed(c: Context, error: unknown) {
+  return c.json({
+    error: {
+      code: "OPENCODE_MODEL_CATALOG_FAILED",
+      message: "Failed to load OpenCode model catalog",
+      details: {
+        message: error instanceof Error ? error.message : String(error),
+      },
+    },
+  }, 502)
+}
+
 function agentNotFound(c: Context, agentId: string) {
   return c.json({
     error: {
@@ -278,6 +294,22 @@ agents.get("/runtime/agents/authoring-options", (c: Context) => {
   }
 
   return c.json(serializeAuthoringOptions(registry, c.get("toolRegistry")))
+})
+
+agents.post("/runtime/agents/opencode/model-catalog", async (c: Context) => {
+  const body = await readJsonBody(c)
+  const result = RuntimeOpenCodeModelCatalogRequestSchema.safeParse(body)
+  if (!result.success) {
+    return agentInvalidInput(c, result.error.issues)
+  }
+
+  try {
+    const openCodeClient = c.get("openCodeClient") ?? createDefaultOpenCodeClient()
+    const catalog = await openCodeClient.listModels(result.data.workspace.rootPath)
+    return c.json(catalog)
+  } catch (error) {
+    return openCodeModelCatalogFailed(c, error)
+  }
 })
 
 agents.get("/runtime/agents/:agentId/external-settings", (c: Context) => {

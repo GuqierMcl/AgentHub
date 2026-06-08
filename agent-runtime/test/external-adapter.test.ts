@@ -147,6 +147,14 @@ class AbortAwareOpenCodeClient implements OpenCodeClient {
       content: "This should not be emitted after cancellation.",
     }
   }
+
+  async listModels() {
+    return {
+      provider: "opencode" as const,
+      models: [],
+      warnings: [],
+    }
+  }
 }
 
 class PromptCapturingOpenCodeClient extends FakeOpenCodeClient {

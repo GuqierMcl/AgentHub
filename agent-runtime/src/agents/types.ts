@@ -67,6 +67,15 @@ export type ExternalAgentSettingsMap = z.infer<typeof ExternalAgentSettingsMapSc
 export const ExternalAgentSettingsUpdateRequestSchema = ExternalAgentSettingsSchema
 export type ExternalAgentSettingsUpdateRequest = z.infer<typeof ExternalAgentSettingsUpdateRequestSchema>
 
+export const RuntimeOpenCodeModelCatalogRequestSchema = z.object({
+  workspace: z.object({
+    workspaceId: z.string().min(1),
+    backendType: z.literal("local"),
+    rootPath: z.string().min(1),
+  }).strip(),
+}).strip()
+export type RuntimeOpenCodeModelCatalogRequest = z.infer<typeof RuntimeOpenCodeModelCatalogRequestSchema>
+
 export const AgentIdSchema = z.string()
   .min(3)
   .max(64)

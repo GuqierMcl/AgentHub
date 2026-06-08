@@ -83,6 +83,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
 
     const prompt = this.buildPrompt(context, externalContext)
     const executionAgent = this.resolveExecutionAgent(context)
+    const model = this.resolveModelOverride(context)
     const messageId = context.createMessageId?.()
     log.info(
       {
@@ -95,6 +96,8 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         providerSessionId: session.providerSessionId,
         messageId,
         executionAgent,
+        modelProviderId: model?.providerID,
+        modelId: model?.modelID,
         promptLength: prompt.content.length,
         externalContextMode: prompt.externalContext?.mode,
         externalContextMessageCount: prompt.externalContext?.messages.length ?? 0,
@@ -108,6 +111,7 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
       session,
       prompt,
       executionAgent,
+      model,
       signal: context.signal,
       permissionHandler: (request) => this.handlePermissionRequest(context, session.providerSessionId, messageId, request),
     })) {
@@ -247,6 +251,8 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
         taskId: context.task?.taskId,
         providerSessionId: session.providerSessionId,
         executionAgent,
+        modelProviderId: model?.providerID,
+        modelId: model?.modelID,
         externalContextMode: appliedExternalContext?.mode,
         externalContextMessageCount: appliedExternalContext?.messageCount ?? 0,
         externalContextHandoffCount: appliedExternalContext?.handoffSummaryCount ?? 0,
@@ -256,8 +262,18 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
     )
   }
 
-  private resolveExecutionAgent(_context: ExternalAdapterContext): OpenCodeExecutionAgent {
-    return DEFAULT_OPENCODE_EXECUTION_AGENT
+  private resolveExecutionAgent(context: ExternalAdapterContext): OpenCodeExecutionAgent {
+    return this.resolveOpenCodeSettings(context)?.executionAgent ?? DEFAULT_OPENCODE_EXECUTION_AGENT
+  }
+
+  private resolveModelOverride(context: ExternalAdapterContext) {
+    return this.resolveOpenCodeSettings(context)?.model
+  }
+
+  private resolveOpenCodeSettings(context: ExternalAdapterContext) {
+    return context.agent.externalSettings?.provider === "opencode"
+      ? context.agent.externalSettings
+      : undefined
   }
 
   private buildExternalToolData(

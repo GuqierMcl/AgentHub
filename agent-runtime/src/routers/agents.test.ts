@@ -8,6 +8,7 @@ import { AgentRegistry } from "../agents"
 import type { AgentToolAuthoringCatalog } from "../agents"
 import type { ProviderService } from "../provider"
 import type { RuntimeToolRegistry } from "../runtime"
+import type { OpenCodeClient, OpenCodeModelCatalog } from "../runtime/external-adapters/opencode-client"
 
 const tempDirs: string[] = []
 
@@ -24,11 +25,17 @@ const toolRegistryStub = {
   listUserConfigurableTools: () => [],
 } as unknown as RuntimeToolRegistry
 
-function createRuntimeServicesMiddleware(registry: AgentRegistry): MiddlewareHandler {
+function createRuntimeServicesMiddleware(
+  registry: AgentRegistry,
+  openCodeClient?: OpenCodeClient
+): MiddlewareHandler {
   return async (c, next) => {
     c.set("agentRegistry", registry)
     c.set("providerService", providerServiceStub)
     c.set("toolRegistry", toolRegistryStub)
+    if (openCodeClient) {
+      c.set("openCodeClient", openCodeClient)
+    }
     await next()
   }
 }
@@ -39,12 +46,12 @@ async function createTempDataDir(): Promise<string> {
   return dir
 }
 
-async function createApp(): Promise<Hono> {
+async function createApp(openCodeClient?: OpenCodeClient): Promise<Hono> {
   const registry = new AgentRegistry(await createTempDataDir(), emptyToolCatalog)
   await registry.initialize()
 
   const app = new Hono()
-  app.use("*", createRuntimeServicesMiddleware(registry))
+  app.use("*", createRuntimeServicesMiddleware(registry, openCodeClient))
   app.route("/", agentsRouter)
   return app
 }
@@ -153,5 +160,105 @@ describe("agents external settings routes", () => {
     expect(response.status).toBe(404)
     const body = await response.json()
     expect(body.error.code).toBe("AGENT_NOT_FOUND")
+  })
+})
+
+describe("OpenCode model catalog route", () => {
+  test("forwards workspace root to injected OpenCode client and returns catalog", async () => {
+    const requestedRoots: string[] = []
+    const catalog: OpenCodeModelCatalog = {
+      provider: "opencode",
+      models: [
+        {
+          providerID: "anthropic",
+          providerName: "Anthropic",
+          modelID: "claude-sonnet-4-5",
+          modelName: "Claude Sonnet 4.5",
+        },
+      ],
+      warnings: [],
+    }
+    const openCodeClient = {
+      ensureSession: async () => {
+        throw new Error("not used")
+      },
+      streamPrompt: async function* () {},
+      listModels: async (workspaceRootPath: string) => {
+        requestedRoots.push(workspaceRootPath)
+        return catalog
+      },
+    } as OpenCodeClient
+    const app = await createApp(openCodeClient)
+
+    const response = await app.request("/runtime/agents/opencode/model-catalog", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        workspace: {
+          workspaceId: "workspace_1",
+          backendType: "local",
+          rootPath: "D:\\workspace",
+        },
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual(catalog)
+    expect(requestedRoots).toEqual(["D:\\workspace"])
+  })
+
+  test("rejects invalid request with 400", async () => {
+    const app = await createApp()
+
+    const response = await app.request("/runtime/agents/opencode/model-catalog", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        workspace: {
+          workspaceId: "",
+          backendType: "local",
+          rootPath: "",
+        },
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error.code).toBe("AGENT_INVALID_INPUT")
+  })
+
+  test("returns 502 when OpenCode client catalog lookup fails", async () => {
+    const openCodeClient = {
+      ensureSession: async () => {
+        throw new Error("not used")
+      },
+      streamPrompt: async function* () {},
+      listModels: async () => {
+        throw new Error("OpenCode unavailable")
+      },
+    } as OpenCodeClient
+    const app = await createApp(openCodeClient)
+
+    const response = await app.request("/runtime/agents/opencode/model-catalog", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        workspace: {
+          workspaceId: "workspace_1",
+          backendType: "local",
+          rootPath: "D:\\workspace",
+        },
+      }),
+    })
+
+    expect(response.status).toBe(502)
+    const body = await response.json()
+    expect(body.error.code).toBe("OPENCODE_MODEL_CATALOG_FAILED")
   })
 })

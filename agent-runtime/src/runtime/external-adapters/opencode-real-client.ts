@@ -15,6 +15,7 @@ import type {
   OpenCodeClient,
   OpenCodeExecutionAgent,
   OpenCodeExternalModel,
+  OpenCodeModelCatalog,
   OpenCodePermissionRequest,
   OpenCodePromptEvent,
   OpenCodePromptRequest,
@@ -151,6 +152,30 @@ export class RealOpenCodeClient implements OpenCodeClient {
       "OpenCode session ready"
     )
     return createSessionLink(request, session.id)
+  }
+
+  async listModels(workspaceRootPath: string): Promise<OpenCodeModelCatalog> {
+    const connection = await this.server.ensure(workspaceRootPath)
+    try {
+      const response = await connection.client.provider.list({
+        directory: connection.directory,
+      })
+      const catalog = unwrapOpenCodeResponse<unknown>(
+        response,
+        "ADAPTER_PROMPT_FAILED",
+        "OpenCode provider list failed"
+      )
+      return normalizeOpenCodeModelCatalog(catalog)
+    } catch (error) {
+      if (error instanceof ExternalAdapterError) {
+        throw error
+      }
+      throw new ExternalAdapterError(
+        "ADAPTER_PROMPT_FAILED",
+        "OpenCode provider list failed",
+        { provider: "opencode", cause: describeError(error) }
+      )
+    }
   }
 
   async *streamPrompt(request: OpenCodePromptRequest): AsyncIterable<OpenCodePromptEvent> {
@@ -366,6 +391,7 @@ export class RealOpenCodeClient implements OpenCodeClient {
           type: "text",
           text: request.prompt.content,
         }],
+        ...(request.model ? { model: request.model } : {}),
       }, {
         signal: request.signal,
       }).finally(() => {
@@ -1556,6 +1582,59 @@ function lookupOpenCodeModelNames(
   return {
     providerName: getRecordString(provider, "name"),
     modelName: getRecordString(model, "name"),
+  }
+}
+
+function normalizeOpenCodeModelCatalog(catalog: unknown): OpenCodeModelCatalog {
+  const warnings: string[] = []
+  const models: OpenCodeModelCatalog["models"] = []
+  const catalogRecord = getRecord(catalog)
+  const providers = Array.isArray(catalogRecord?.all) ? catalogRecord.all : []
+
+  if (!Array.isArray(catalogRecord?.all)) {
+    warnings.push("OpenCode provider catalog did not include an all array.")
+  }
+
+  for (const providerValue of providers) {
+    const provider = getRecord(providerValue)
+    if (!provider) {
+      warnings.push("Skipped invalid OpenCode provider entry.")
+      continue
+    }
+    const providerID = getRecordString(provider, "id")
+    if (!providerID) {
+      warnings.push("Skipped OpenCode provider without an id.")
+      continue
+    }
+
+    const providerName = getRecordString(provider, "name")
+    const providerModels = getRecord(provider.models)
+    if (!providerModels) {
+      warnings.push(`Skipped OpenCode provider ${providerID} because models were missing.`)
+      continue
+    }
+
+    for (const [modelKey, modelValue] of Object.entries(providerModels)) {
+      const model = getRecord(modelValue)
+      const modelID = getRecordString(model, "id") ?? modelKey
+      if (!modelID) {
+        warnings.push(`Skipped OpenCode model without an id for provider ${providerID}.`)
+        continue
+      }
+
+      models.push({
+        providerID,
+        ...(providerName ? { providerName } : {}),
+        modelID,
+        ...(getRecordString(model, "name") ? { modelName: getRecordString(model, "name") } : {}),
+      })
+    }
+  }
+
+  return {
+    provider: "opencode",
+    models,
+    warnings,
   }
 }
 

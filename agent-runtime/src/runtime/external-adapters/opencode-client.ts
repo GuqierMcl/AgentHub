@@ -16,11 +16,28 @@ export type OpenCodePromptRequest = {
   session: ExternalSessionLink
   prompt: ExternalAdapterPrompt
   executionAgent?: OpenCodeExecutionAgent
+  model?: OpenCodeModelOverride
   signal: AbortSignal
   permissionHandler?: (request: OpenCodePermissionRequest) => Promise<OpenCodePermissionDecision>
 }
 
-export type OpenCodeExecutionAgent = "build"
+export type OpenCodeExecutionAgent = "build" | "plan"
+
+export type OpenCodeModelOverride = {
+  providerID: string
+  modelID: string
+}
+
+export type OpenCodeModelCatalog = {
+  provider: "opencode"
+  models: Array<{
+    providerID: string
+    providerName?: string
+    modelID: string
+    modelName?: string
+  }>
+  warnings: string[]
+}
 
 export type OpenCodeExternalModel = {
   provider: "opencode"
@@ -102,6 +119,7 @@ export type OpenCodePromptEvent =
 export type OpenCodeClient = {
   ensureSession(request: OpenCodeSessionRequest): Promise<ExternalSessionLink>
   streamPrompt(request: OpenCodePromptRequest): AsyncIterable<OpenCodePromptEvent>
+  listModels(workspaceRootPath: string): Promise<OpenCodeModelCatalog>
 }
 
 export class FakeOpenCodeClient implements OpenCodeClient {
@@ -162,6 +180,21 @@ export class FakeOpenCodeClient implements OpenCodeClient {
         providerId: "fake-provider",
         modelId: "fake-model",
       },
+    }
+  }
+
+  async listModels(_workspaceRootPath: string): Promise<OpenCodeModelCatalog> {
+    return {
+      provider: "opencode",
+      models: [
+        {
+          providerID: "fake-provider",
+          providerName: "Fake Provider",
+          modelID: "fake-model",
+          modelName: "Fake Model",
+        },
+      ],
+      warnings: [],
     }
   }
 }
