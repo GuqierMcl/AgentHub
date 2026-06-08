@@ -179,9 +179,9 @@ Claude Agent SDK 默认依赖随包安装的平台原生 Claude Code binary。�
 
 AgentHub 生产发行必须显式处理：
 
-- 开发和非 compiled Runtime：默认使用 SDK bundled binary。
+- 开发和生产 bundle Runtime：默认使用 SDK bundled binary，前提是 package 阶段保留 SDK 需要的真实文件路径。
 - 用户或打包脚本覆盖：设置 `AGENTHUB_CLAUDE_CODE_EXECUTABLE` 指向真实文件路径，并传给 `pathToClaudeCodeExecutable`。
-- Bun compiled Runtime：应把平台 binary 作为 file asset 嵌入，启动时抽取到真实路径，再等价设置 `pathToClaudeCodeExecutable`。Windows 目标需使用 `claude.exe` 子路径。
+- 服务进程不再默认使用 Bun compiled 单 exe。若未来重新尝试 compiled Runtime，必须先证明 SDK bundled binary 能从真实路径解析，或在启动时抽取到真实路径后再设置 `pathToClaudeCodeExecutable`。Windows 目标需使用 `claude.exe` 子路径。
 
 在该打包策略未闭环前，生产 smoke 必须覆盖 `AGENTHUB_CLAUDE_CODE_EXECUTABLE` 路径。
 
@@ -206,4 +206,4 @@ AgentHub 生产发行必须显式处理：
 - `AskUserQuestion` 的 payload shape 可能随 Claude Code 版本演进，并可能出现在 `onUserDialog` 或 `canUseTool` 两条路径；当前实现做了宽松字段读取，仍需要真实 smoke 验证复杂问题表单。
 - Claude Code 原生配置可能直接允许某些工具执行，AgentHub 只能观察工具事件和最终 Diff，不能强制拦截所有操作。
 - 多个外部智能体或内部智能体并发编辑同一 workspace 时，仍依赖通用 Workspace Diff 的 aggregate 归因和后续冲突处理。
-- Bun compiled distribution 的 binary extraction 仍是发布前必须完成的硬化项。
+- 生产 bundle distribution 必须在发行包 smoke 中验证 Claude Code SDK bundled binary 或 `AGENTHUB_CLAUDE_CODE_EXECUTABLE` 覆盖路径可用。

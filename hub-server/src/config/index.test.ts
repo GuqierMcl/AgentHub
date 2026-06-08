@@ -29,4 +29,16 @@ describe("parseHubConfig", () => {
     expect(config.runtimeUrl).toBe("http://127.0.0.1:4096")
     expect(config.noWeb).toBe(false)
   })
+
+  it("parses bundle sidecar flags", () => {
+    const config = parseHubConfig([
+      "--bun-bin",
+      "C:/AgentHub/bun.exe",
+      "--runtime-entry",
+      "C:/AgentHub/agent-runtime/index.js",
+    ], {})
+
+    expect(config.bunBin).toBe("C:\\AgentHub\\bun.exe")
+    expect(config.runtimeEntry).toBe("C:\\AgentHub\\agent-runtime\\index.js")
+  })
 })

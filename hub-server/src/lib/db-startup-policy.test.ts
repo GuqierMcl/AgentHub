@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { shouldRunPrismaGenerate } from './db'
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 
@@ -29,6 +30,16 @@ describe('database startup policy', () => {
 
     expect(dbSource).toContain('allowPrismaGenerate')
     expect(dbSource).toContain('Prisma Client is missing or older than schema')
+  })
+
+  it('does not require source generated Prisma files when generation is disabled', () => {
+    expect(shouldRunPrismaGenerate({
+      allowPrismaGenerate: false,
+      clientExists: false,
+      schemaExists: false,
+      clientMtimeMs: 0,
+      schemaMtimeMs: 0,
+    })).toBe(false)
   })
 
   it('injects the Hub Server database URL for development migrations', async () => {

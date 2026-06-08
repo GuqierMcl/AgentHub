@@ -21,26 +21,37 @@ afterEach(async () => {
 })
 
 describe("distribution paths", () => {
-  it("uses .exe sibling binaries on Windows", () => {
+  it("resolves packaged Bun and service bundle paths on Windows", () => {
     const paths = resolveDistributionPaths("C:/AgentHub/dist", "win32")
 
-    expect(paths.hubServerBin).toBe("C:\\AgentHub\\dist\\hub-server.exe")
-    expect(paths.runtimeBin).toBe("C:\\AgentHub\\dist\\agent-runtime.exe")
+    expect(paths.bunBin).toBe("C:\\AgentHub\\dist\\bun.exe")
+    expect(paths.hubServerEntry).toBe("C:\\AgentHub\\dist\\hub-server\\index.js")
+    expect(paths.hubServerNodeModulesDir).toBe("C:\\AgentHub\\dist\\hub-server\\node_modules")
+    expect(paths.runtimeEntry).toBe("C:\\AgentHub\\dist\\agent-runtime\\index.js")
+    expect(paths.runtimeNodeModulesDir).toBe("C:\\AgentHub\\dist\\agent-runtime\\node_modules")
     expect(paths.publicDir).toBe("C:\\AgentHub\\dist\\public")
   })
 
-  it("uses extensionless sibling binaries on non-Windows platforms", () => {
+  it("resolves packaged Bun and service bundle paths on non-Windows platforms", () => {
     const paths = resolveDistributionPaths("/opt/agenthub", "linux")
 
-    expect(paths.hubServerBin).toBe("/opt/agenthub/hub-server")
-    expect(paths.runtimeBin).toBe("/opt/agenthub/agent-runtime")
+    expect(paths.bunBin).toBe("/opt/agenthub/bun")
+    expect(paths.hubServerEntry).toBe("/opt/agenthub/hub-server/index.js")
+    expect(paths.hubServerNodeModulesDir).toBe("/opt/agenthub/hub-server/node_modules")
+    expect(paths.runtimeEntry).toBe("/opt/agenthub/agent-runtime/index.js")
+    expect(paths.runtimeNodeModulesDir).toBe("/opt/agenthub/agent-runtime/node_modules")
     expect(paths.publicDir).toBe("/opt/agenthub/public")
   })
 
-  it("accepts a complete flat distribution directory", async () => {
+  it("accepts a complete packaged distribution directory", async () => {
     const root = await createTempRoot()
-    await writeFile(join(root, "hub-server.exe"), "")
-    await writeFile(join(root, "agent-runtime.exe"), "")
+    await writeFile(join(root, "bun.exe"), "")
+    await mkdir(join(root, "hub-server"), { recursive: true })
+    await writeFile(join(root, "hub-server", "index.js"), "")
+    await mkdir(join(root, "hub-server", "node_modules"), { recursive: true })
+    await mkdir(join(root, "agent-runtime"), { recursive: true })
+    await writeFile(join(root, "agent-runtime", "index.js"), "")
+    await mkdir(join(root, "agent-runtime", "node_modules"), { recursive: true })
     await mkdir(join(root, "public"))
 
     await expect(assertDistributionPaths(resolveDistributionPaths(root, "win32"))).resolves.toBeUndefined()
@@ -50,7 +61,7 @@ describe("distribution paths", () => {
     const root = await createTempRoot()
 
     await expect(assertDistributionPaths(resolveDistributionPaths(root, "win32"))).rejects.toThrow(
-      "Missing HubServer binary",
+      "Missing Bun runtime",
     )
   })
 })

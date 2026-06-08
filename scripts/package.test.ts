@@ -46,39 +46,55 @@ const windowsPaths: PackagePaths = {
   projectRoot: "C:\\AgentHub",
   outputDir: "C:\\AgentHub\\dist",
   sources: {
+    bunBin: "C:\\Bun\\bun.exe",
     cliBin: "C:\\AgentHub\\cli\\dist\\agenthub-cli.exe",
-    hubServerBin: "C:\\AgentHub\\hub-server\\dist\\hub-server.exe",
-    runtimeBin: "C:\\AgentHub\\agent-runtime\\dist\\agent-runtime.exe",
+    hubServerEntry: "C:\\AgentHub\\hub-server\\dist\\index.js",
+    hubServerNodeModulesDir: "C:\\AgentHub\\hub-server\\node_modules",
+    runtimeEntry: "C:\\AgentHub\\agent-runtime\\dist\\index.js",
+    runtimeNodeModulesDir: "C:\\AgentHub\\agent-runtime\\node_modules",
     webDistDir: "C:\\AgentHub\\web\\dist",
   },
   outputs: {
+    bunBin: "C:\\AgentHub\\dist\\bun.exe",
     cliBin: "C:\\AgentHub\\dist\\agenthub-cli.exe",
-    hubServerBin: "C:\\AgentHub\\dist\\hub-server.exe",
-    runtimeBin: "C:\\AgentHub\\dist\\agent-runtime.exe",
+    hubServerDir: "C:\\AgentHub\\dist\\hub-server",
+    hubServerEntry: "C:\\AgentHub\\dist\\hub-server\\index.js",
+    hubServerNodeModulesDir: "C:\\AgentHub\\dist\\hub-server\\node_modules",
+    runtimeDir: "C:\\AgentHub\\dist\\agent-runtime",
+    runtimeEntry: "C:\\AgentHub\\dist\\agent-runtime\\index.js",
+    runtimeNodeModulesDir: "C:\\AgentHub\\dist\\agent-runtime\\node_modules",
     publicDir: "C:\\AgentHub\\dist\\public",
   },
 }
 
 describe("production package script", () => {
   it("resolves Windows executable paths with .exe suffix", () => {
-    expect(resolvePackagePaths("C:\\AgentHub", "win32")).toEqual(windowsPaths)
+    expect(resolvePackagePaths("C:\\AgentHub", "win32", "C:\\Bun\\bun.exe")).toEqual(windowsPaths)
   })
 
   it("resolves POSIX executable paths without .exe suffix", () => {
-    expect(resolvePackagePaths("/repo/AgentHub", "linux")).toEqual({
+    expect(resolvePackagePaths("/repo/AgentHub", "linux", "/opt/bun/bin/bun")).toEqual({
       platform: "linux",
       projectRoot: "/repo/AgentHub",
       outputDir: "/repo/AgentHub/dist",
       sources: {
+        bunBin: "/opt/bun/bin/bun",
         cliBin: "/repo/AgentHub/cli/dist/agenthub-cli",
-        hubServerBin: "/repo/AgentHub/hub-server/dist/hub-server",
-        runtimeBin: "/repo/AgentHub/agent-runtime/dist/agent-runtime",
+        hubServerEntry: "/repo/AgentHub/hub-server/dist/index.js",
+        hubServerNodeModulesDir: "/repo/AgentHub/hub-server/node_modules",
+        runtimeEntry: "/repo/AgentHub/agent-runtime/dist/index.js",
+        runtimeNodeModulesDir: "/repo/AgentHub/agent-runtime/node_modules",
         webDistDir: "/repo/AgentHub/web/dist",
       },
       outputs: {
+        bunBin: "/repo/AgentHub/dist/bun",
         cliBin: "/repo/AgentHub/dist/agenthub-cli",
-        hubServerBin: "/repo/AgentHub/dist/hub-server",
-        runtimeBin: "/repo/AgentHub/dist/agent-runtime",
+        hubServerDir: "/repo/AgentHub/dist/hub-server",
+        hubServerEntry: "/repo/AgentHub/dist/hub-server/index.js",
+        hubServerNodeModulesDir: "/repo/AgentHub/dist/hub-server/node_modules",
+        runtimeDir: "/repo/AgentHub/dist/agent-runtime",
+        runtimeEntry: "/repo/AgentHub/dist/agent-runtime/index.js",
+        runtimeNodeModulesDir: "/repo/AgentHub/dist/agent-runtime/node_modules",
         publicDir: "/repo/AgentHub/dist/public",
       },
     })
@@ -86,8 +102,11 @@ describe("production package script", () => {
 
   it("fails with a clear error when a required binary is missing", async () => {
     const fs = createFakeFs({
-      [windowsPaths.sources.hubServerBin]: "file",
-      [windowsPaths.sources.runtimeBin]: "file",
+      [windowsPaths.sources.bunBin]: "file",
+      [windowsPaths.sources.hubServerEntry]: "file",
+      [windowsPaths.sources.hubServerNodeModulesDir]: "dir",
+      [windowsPaths.sources.runtimeEntry]: "file",
+      [windowsPaths.sources.runtimeNodeModulesDir]: "dir",
       [windowsPaths.sources.webDistDir]: "dir",
     })
 
@@ -98,9 +117,12 @@ describe("production package script", () => {
 
   it("fails with a clear error when web/dist is missing", async () => {
     const fs = createFakeFs({
+      [windowsPaths.sources.bunBin]: "file",
       [windowsPaths.sources.cliBin]: "file",
-      [windowsPaths.sources.hubServerBin]: "file",
-      [windowsPaths.sources.runtimeBin]: "file",
+      [windowsPaths.sources.hubServerEntry]: "file",
+      [windowsPaths.sources.hubServerNodeModulesDir]: "dir",
+      [windowsPaths.sources.runtimeEntry]: "file",
+      [windowsPaths.sources.runtimeNodeModulesDir]: "dir",
     })
 
     await expect(assertPackageInputs(windowsPaths, fs)).rejects.toThrow(
@@ -108,11 +130,14 @@ describe("production package script", () => {
     )
   })
 
-  it("assembles a flat distribution without copying through hub-server/public", async () => {
+  it("assembles a Bun runtime distribution without copying through hub-server/public", async () => {
     const fs = createFakeFs({
+      [windowsPaths.sources.bunBin]: "file",
       [windowsPaths.sources.cliBin]: "file",
-      [windowsPaths.sources.hubServerBin]: "file",
-      [windowsPaths.sources.runtimeBin]: "file",
+      [windowsPaths.sources.hubServerEntry]: "file",
+      [windowsPaths.sources.hubServerNodeModulesDir]: "dir",
+      [windowsPaths.sources.runtimeEntry]: "file",
+      [windowsPaths.sources.runtimeNodeModulesDir]: "dir",
       [windowsPaths.sources.webDistDir]: "dir",
     })
 
@@ -121,9 +146,14 @@ describe("production package script", () => {
     expect(fs.operations).toEqual([
       "rm C:\\AgentHub\\dist recursive=true force=true",
       "mkdir C:\\AgentHub\\dist recursive=true",
+      "copyFile C:\\Bun\\bun.exe -> C:\\AgentHub\\dist\\bun.exe",
       "copyFile C:\\AgentHub\\cli\\dist\\agenthub-cli.exe -> C:\\AgentHub\\dist\\agenthub-cli.exe",
-      "copyFile C:\\AgentHub\\hub-server\\dist\\hub-server.exe -> C:\\AgentHub\\dist\\hub-server.exe",
-      "copyFile C:\\AgentHub\\agent-runtime\\dist\\agent-runtime.exe -> C:\\AgentHub\\dist\\agent-runtime.exe",
+      "mkdir C:\\AgentHub\\dist\\hub-server recursive=true",
+      "copyFile C:\\AgentHub\\hub-server\\dist\\index.js -> C:\\AgentHub\\dist\\hub-server\\index.js",
+      "cp C:\\AgentHub\\hub-server\\node_modules -> C:\\AgentHub\\dist\\hub-server\\node_modules recursive=true",
+      "mkdir C:\\AgentHub\\dist\\agent-runtime recursive=true",
+      "copyFile C:\\AgentHub\\agent-runtime\\dist\\index.js -> C:\\AgentHub\\dist\\agent-runtime\\index.js",
+      "cp C:\\AgentHub\\agent-runtime\\node_modules -> C:\\AgentHub\\dist\\agent-runtime\\node_modules recursive=true",
       "cp C:\\AgentHub\\web\\dist -> C:\\AgentHub\\dist\\public recursive=true",
     ])
     expect(fs.operations.join("\n")).not.toContain("hub-server\\public")

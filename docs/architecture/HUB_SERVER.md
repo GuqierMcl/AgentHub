@@ -22,22 +22,24 @@ Hub Server 是 AgentHub 的控制面，负责业务状态管理和前端 API。�
 
 ## 生产分发与入口
 
-生产分发、CLI/Desktop 入口、扁平发行包、Web 静态资源托管和 Runtime Sidecar 启动约束见 `docs/architecture/PRODUCTION_DISTRIBUTION.md`。
+生产分发、CLI/Desktop 入口、内置 Bun runtime、Web 静态资源托管和 Runtime Sidecar 启动约束见 `docs/architecture/PRODUCTION_DISTRIBUTION.md`。
 
 首版生产形态采用以下规则：
 
-- 发行包为扁平目录：`agenthub-cli(.exe)`、`hub-server(.exe)`、`agent-runtime(.exe)` 和 `public/` 位于同一级。
-- `build:hub` 只编译 HubServer 并校验 `web/dist/` 存在，不复制 Web 资源；最终发行包由 package 阶段直接复制 `web/dist/` 到 `dist/public/`。
-- CLI 只作为生产 supervisor，负责启动 HubServer、等待 `/health`、打印或打开 `http://127.0.0.1:<port>`；CLI 不直接启动 Agent Runtime。
+- 发行包内置 Bun runtime，HubServer 以 `bun hub-server/index.js` 运行。
+- `build:hub` 生成 HubServer Bun bundle、生成内置 migration manifest 并校验 `web/dist/` 存在，不复制 Web 资源；最终发行包由 package 阶段直接复制 `web/dist/` 到 `dist/public/`。
+- CLI 只作为生产 supervisor，负责启动 Bun runtime + HubServer bundle、等待 `/health`、打印或打开 `http://127.0.0.1:<port>`；CLI 不直接启动 Agent Runtime。
 - Desktop 主进程直接启动 HubServer，并让 WebView 打开 HubServer 托管的本地 URL；Desktop 不通过 CLI，也不使用 `views://` 或 `file://` 加载 Web。
 - HubServer 是浏览器和 Desktop WebView 的唯一后端入口，并在生产环境托管 Web `public/`。
-- 未提供 `--runtime-bin` 时，HubServer 保持开发模式行为，使用 `--runtime-url` 或默认 Runtime URL 连接已手动启动的 Agent Runtime。
+- 未提供 `--runtime-entry` 或 `--runtime-bin` 时，HubServer 保持开发模式行为，使用 `--runtime-url` 或默认 Runtime URL 连接已手动启动的 Agent Runtime。
 
 HubServer 生产入口应支持：
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `--runtime-bin` | string | Agent Runtime 二进制路径；提供时启用 Sidecar 自动启动。 |
+| `--bun-bin` | string | Bun runtime 路径；与 `--runtime-entry` 一起用于启动 Runtime bundle。 |
+| `--runtime-entry` | string | Agent Runtime bundle 入口；提供时启用 Sidecar 自动启动。 |
+| `--runtime-bin` | string | Agent Runtime 可执行文件路径；保留为兼容二进制 sidecar 的入口。 |
 | `--public-dir` | string | Web dist 目录；提供且未禁用 Web 时启用静态文件托管。 |
 | `--no-web` | boolean | 禁用静态文件托管，作为未来扩展点；CLI/Desktop 首版不使用。 |
 | `--runtime-url` | string | 开发或调试时连接已运行 Runtime；生产 Sidecar 启动成功后由实际 Runtime URL 覆盖。 |
@@ -51,6 +53,8 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 ### 启动
 
 - HubServer 启动时，通过 `Bun.spawn` 或等价方式拉起 Agent Runtime 子进程。
+- 生产 V1 优先通过发行包内 Bun runtime 启动 Runtime bundle：`bun agent-runtime/index.js --port ...`。
+- 兼容路径仍可通过 `--runtime-bin` 启动 Runtime 可执行文件。
 - 传入参数：`--port`、`--hostname`、`--hub-callback`、`--workdir`、`--log-level` 等。
 - 监听地址默认固定为 `127.0.0.1`。
 - HubServer 预分配 Runtime 端口并传给 Runtime；若遇到端口占用，应重新分配并重试一次。
@@ -87,7 +91,7 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 - SPA fallback 不得吞掉未知 `/api/*` 请求；未知 API 应返回结构化 404，而不是 `index.html`。
 - `--no-web = false` 且 `--public-dir` 存在时启用托管。
 - CLI/Desktop 首版都通过 HubServer 托管 Web，因此前端可以继续使用相对路径 `/api/*` 和 `/api/events`。
-- 首版不要求把 Web assets 嵌入 HubServer 单 exe；`public/` 随发行包分发，并由 package 阶段从 `web/dist/` 复制到最终发行目录。
+- 首版不要求把 Web assets 嵌入 HubServer bundle；`public/` 随发行包分发，并由 package 阶段从 `web/dist/` 复制到最终发行目录。
 
 ## 系统服务状态
 
@@ -219,6 +223,8 @@ Hub Server 使用 Prisma 管理 SQLite 的 Schema、迁移和数据访问。
 - 通过 `prisma migrate` 管理迁移文件和开发环境部署；应用运行时代码不拼接或执行业务 DDL，也不直接 shell 执行迁移命令。
 - 数据访问统一通过 Prisma Client 进行，不使用原生 SQL 拼接。
 - Prisma 的 datasource URL 应动态指向数据目录下的 `hub.db`，不硬编码路径。
+- 生产启动不调用 Prisma CLI migrate。HubServer 使用构建期内置的 SQL migration manifest 和轻量 runner 应用 `hub-server/prisma/migrations/*/migration.sql`。
+- 生产 migration runner 在应用数据库中维护 `agenthub_schema_migrations` 表。migration 名称已存在但 checksum 不一致时，启动失败。
 - 新增或修改数据模型时，必须同步更新 `docs/architecture/DATA_MODEL.md`。
 
 #### Zod
@@ -240,7 +246,7 @@ Hub Server 在启动时必须完成数据库初始化：
 
 1. **解析数据目录**：通过 `getAppDataDir()` 获取数据目录路径。
 2. **确保目录和 SQLite 文件存在**：若数据目录不存在，使用 `fs.mkdir(path, { recursive: true })` 递归创建；若 `file:` URL 指向的 SQLite 文件不存在，先创建空文件。
-3. **生成 Prisma Client**：若生成产物缺失或落后于 schema，运行 `bunx --bun prisma generate`，确保生成代码与应用版本一致。
+3. **开发生成 Prisma Client**：开发模式下，若生成产物缺失或落后于 schema，运行 `bunx --bun prisma generate`，确保生成代码与应用版本一致。生产 bundle 不执行该步骤，也不依赖源码目录做时间戳检查。
 4. **初始化 Prisma Client**：使用 `@prisma/adapter-libsql` 创建 Prisma Client 实例并验证连接。
 
 初始化顺序约束：
@@ -253,13 +259,16 @@ Hub Server 在启动时必须完成数据库初始化：
 
 ### 生产二进制约束
 
-生产构建后的 `hub-server(.exe)` 不得在运行时依赖 `bunx`、Prisma CLI 或源码生成步骤。
+生产发行包中的 HubServer bundle 不得在运行时依赖 `bunx`、Prisma CLI 或源码生成步骤。
 
 生产规则：
 
-- Prisma Client 必须在构建期生成，并随 HubServer 构建产物可用。
+- Prisma Client 必须在构建期生成，并随 HubServer bundle 可用。
+- Prisma migration SQL manifest 必须在构建期生成，并随 HubServer 构建产物可用。
 - 生产环境下 `initDatabase()` 不得执行 `bunx --bun prisma generate`。
-- 生产迁移策略必须在实现前明确；可以使用随包分发的 SQL migrations 和轻量 runner，但应用运行时代码不得拼接业务 DDL。
+- 生产 bundle 运行时不得要求 `prisma/schema.prisma` 或 `src/generated/prisma/*` 源码文件存在；构建期生成和发行包 smoke 负责证明 Prisma Client 可用。
+- 生产环境下 HubServer 启动前置执行内置 SQL migration runner，不调用 `bunx --bun prisma migrate deploy`。如果数据库已经存在业务表但 `agenthub_schema_migrations` 为空，HubServer 会先把当前 manifest 作为基线写入，然后再处理后续迁移。
+- 生产数据库模式由 `--runtime-entry`、`--runtime-bin` 或 `NODE_ENV=production` 触发。开发手动启动且未提供 sidecar 参数时继续使用开发迁移脚本。
 - Native/WASM 依赖（Prisma runtime、SQLite/libsql adapter、`node-pty`、`sharp` 等）必须纳入发行包 smoke test。
 
 ### 数据目录
@@ -331,6 +340,6 @@ Hub Server 使用 Pino 作为结构化日志库，禁止直接使用 `console.lo
 cd hub-server && bun dev
 ```
 
-`bun dev` 会先运行 `bun run dev:migrate`，再以 hot reload 方式启动 `src/index.ts`。`dev:migrate` 会按 `DATABASE_URL` 优先、`AGENTHUB_DATA_DIR` 次之、平台默认数据目录兜底的顺序解析目标 `hub.db`，再执行 `prisma:migrate:deploy`。这是开发阶段临时迁移策略；生产环境迁移 runner 暂不实现。
+`bun dev` 会先运行 `bun run dev:migrate`，再以 hot reload 方式启动 `src/index.ts`。`dev:migrate` 会按 `DATABASE_URL` 优先、`AGENTHUB_DATA_DIR` 次之、平台默认数据目录兜底的顺序解析目标 `hub.db`，再执行 `prisma:migrate:deploy`。这是开发阶段迁移策略；生产启动不走该脚本，而是使用 HubServer 内置轻量 SQL migration runner。
 
 开发环境若要使用自定义数据目录，应优先设置 `AGENTHUB_DATA_DIR`，确保 Prisma CLI 前导迁移和 Hub Server 运行时解析到同一个 `hub.db`。当前临时脚本不会把 `bun dev -- --data-dir ...` 参数转译为 `DATABASE_URL`。

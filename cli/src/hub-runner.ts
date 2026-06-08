@@ -45,13 +45,16 @@ export function createHubServerCommand(options: {
   logLevel?: string
 }): string[] {
   const command = [
-    options.paths.hubServerBin,
+    options.paths.bunBin,
+    options.paths.hubServerEntry,
     "--port",
     String(options.port),
     "--hostname",
     "127.0.0.1",
-    "--runtime-bin",
-    options.paths.runtimeBin,
+    "--bun-bin",
+    options.paths.bunBin,
+    "--runtime-entry",
+    options.paths.runtimeEntry,
     "--public-dir",
     options.paths.publicDir,
   ]

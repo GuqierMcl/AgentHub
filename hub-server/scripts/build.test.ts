@@ -10,6 +10,8 @@ const paths: HubBuildPaths = {
   hubRoot: "C:\\AgentHub\\hub-server",
   projectRoot: "C:\\AgentHub",
   webDistDir: "C:\\AgentHub\\web\\dist",
+  migrationsDir: "C:\\AgentHub\\hub-server\\prisma\\migrations",
+  migrationManifestFile: "C:\\AgentHub\\hub-server\\src\\generated\\prisma-migrations.ts",
 }
 
 function directoryStat() {
@@ -39,25 +41,48 @@ describe("hub-server production build script", () => {
     )
   })
 
-  it("generates Prisma Client before compiling HubServer", () => {
+  it("generates Prisma Client before bundling HubServer", () => {
     expect(createHubBuildCommands()).toEqual([
       ["bunx", "--bun", "prisma", "generate"],
-      ["bun", "build", "src/index.ts", "--compile", "--outfile", "dist/hub-server"],
+      [
+        "bun",
+        "build",
+        "src/index.ts",
+        "--target",
+        "bun",
+        "--outfile",
+        "dist/index.js",
+        "--external",
+        "sharp",
+        "--external",
+        "@libsql/client",
+        "--external",
+        "libsql",
+        "--external",
+        "node-pty",
+      ],
     ])
   })
 
-  it("validates web/dist and runs only HubServer build commands", async () => {
-    const commands: string[][] = []
+  it("generates the migration manifest before running HubServer build commands", async () => {
+    const operations: string[] = []
 
     await runHubServerBuild({
       paths,
       stat: async () => directoryStat(),
+      writeMigrationManifest: async (options) => {
+        operations.push(`manifest ${options.migrationsDir} -> ${options.outputFile}`)
+      },
       runCommand: async (command) => {
-        commands.push(command)
+        operations.push(`command ${command.join(" ")}`)
       },
     })
 
-    expect(commands).toEqual(createHubBuildCommands())
-    expect(commands.map((command) => command.join(" ")).join("\n")).not.toContain("hub-server/public")
+    expect(operations).toEqual([
+      "manifest C:\\AgentHub\\hub-server\\prisma\\migrations -> C:\\AgentHub\\hub-server\\src\\generated\\prisma-migrations.ts",
+      "command bunx --bun prisma generate",
+      "command bun build src/index.ts --target bun --outfile dist/index.js --external sharp --external @libsql/client --external libsql --external node-pty",
+    ])
+    expect(operations.join("\n")).not.toContain("hub-server/public")
   })
 })

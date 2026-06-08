@@ -43,14 +43,26 @@ Agent Runtime 定位为 HubServer 的 Sidecar 进程。这意味着：
 - **开发环境**：支持手动独立启动 Agent Runtime，便于调试和热重载。
 - **进程隔离**：Agent Runtime 作为独立进程运行，拥有独立的端口和工作目录。
 - **生命周期绑定**：Agent Runtime 的生命周期由 HubServer 管理。
-- **生产入口约束**：生产发行包中 Runtime 是独立二进制，但不是用户入口；CLI 和 Desktop 都通过 HubServer 间接启动 Runtime。
+- **生产入口约束**：生产发行包中 Runtime 是由内置 Bun runtime 执行的 Sidecar bundle，不是用户入口；CLI 和 Desktop 都通过 HubServer 间接启动 Runtime。`--runtime-bin` 仅作为兼容二进制 sidecar 的路径保留。
 
 架构决策详见 `docs/adr/ADR-001-sidecar-architecture.md`。
 生产分发和入口约束详见 `docs/architecture/PRODUCTION_DISTRIBUTION.md`。
 
 ### 2.2 启动与参数传递
 
-HubServer 在启动时通过 `Bun.spawn` 或等价方式启动 Agent Runtime 子进程。
+HubServer 在启动时通过 `Bun.spawn` 或等价方式启动 Agent Runtime 子进程。生产 V1 优先使用发行包内 Bun runtime 启动 Runtime bundle；开发环境仍允许开发者手动运行 `bun dev`。
+
+生产启动形态：
+
+```text
+bun agent-runtime/index.js
+  --port <runtimePort>
+  --hostname 127.0.0.1
+  --hub-callback http://127.0.0.1:<hubPort>
+  --data-dir <runtimeDataDir>
+  --workdir <runtimeWorkdir>
+  --log-level <level>
+```
 
 启动参数规范：
 

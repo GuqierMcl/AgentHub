@@ -30,8 +30,11 @@ describe("startHubServer", () => {
     const running = await startHubServer({
       port: 3456,
       paths: {
-        hubServerBin: "C:/AgentHub/dist/hub-server.exe",
-        runtimeBin: "C:/AgentHub/dist/agent-runtime.exe",
+        bunBin: "C:/AgentHub/dist/bun.exe",
+        hubServerEntry: "C:/AgentHub/dist/hub-server/index.js",
+        hubServerNodeModulesDir: "C:/AgentHub/dist/hub-server/node_modules",
+        runtimeEntry: "C:/AgentHub/dist/agent-runtime/index.js",
+        runtimeNodeModulesDir: "C:/AgentHub/dist/agent-runtime/node_modules",
         publicDir: "C:/AgentHub/dist/public",
       },
       dataDir: "C:/AgentHub/data",
@@ -46,13 +49,16 @@ describe("startHubServer", () => {
 
     expect(running.url).toBe("http://127.0.0.1:3456")
     expect(commands[0]).toEqual([
-      "C:/AgentHub/dist/hub-server.exe",
+      "C:/AgentHub/dist/bun.exe",
+      "C:/AgentHub/dist/hub-server/index.js",
       "--port",
       "3456",
       "--hostname",
       "127.0.0.1",
-      "--runtime-bin",
-      "C:/AgentHub/dist/agent-runtime.exe",
+      "--bun-bin",
+      "C:/AgentHub/dist/bun.exe",
+      "--runtime-entry",
+      "C:/AgentHub/dist/agent-runtime/index.js",
       "--public-dir",
       "C:/AgentHub/dist/public",
       "--data-dir",
@@ -68,8 +74,11 @@ describe("startHubServer", () => {
     await expect(startHubServer({
       port: 3456,
       paths: {
-        hubServerBin: "hub-server",
-        runtimeBin: "agent-runtime",
+        bunBin: "bun",
+        hubServerEntry: "hub-server/index.js",
+        hubServerNodeModulesDir: "hub-server/node_modules",
+        runtimeEntry: "agent-runtime/index.js",
+        runtimeNodeModulesDir: "agent-runtime/node_modules",
         publicDir: "public",
       },
       spawn: () => neverExitProcess(kills),

@@ -24,6 +24,8 @@ const configSchema = z.object({
   dataDir: z.string().min(1),
   dbUrl: z.string().min(1),
   runtimeUrl: z.string().min(1),
+  bunBin: z.string().min(1).optional(),
+  runtimeEntry: z.string().min(1).optional(),
   runtimeBin: z.string().min(1).optional(),
   publicDir: z.string().min(1).optional(),
   noWeb: z.boolean(),
@@ -57,6 +59,12 @@ export function parseHubConfig(args: string[] = Bun.argv.slice(2), env: NodeJS.P
         type: 'string',
         short: 'r',
       },
+      'bun-bin': {
+        type: 'string',
+      },
+      'runtime-entry': {
+        type: 'string',
+      },
       'runtime-bin': {
         type: 'string',
       },
@@ -84,6 +92,8 @@ export function parseHubConfig(args: string[] = Bun.argv.slice(2), env: NodeJS.P
     dataDir,
     dbUrl: `file:${resolve(dataDir, 'hub.db')}`,
     runtimeUrl: values['runtime-url'] ?? env.AGENTHUB_RUNTIME_URL ?? 'http://127.0.0.1:4096',
+    bunBin: values['bun-bin'] ? resolve(values['bun-bin']) : undefined,
+    runtimeEntry: values['runtime-entry'] ? resolve(values['runtime-entry']) : undefined,
     runtimeBin: values['runtime-bin'] ? resolve(values['runtime-bin']) : undefined,
     publicDir: values['public-dir'] ? resolve(values['public-dir']) : undefined,
     noWeb: values['no-web'] ?? false,

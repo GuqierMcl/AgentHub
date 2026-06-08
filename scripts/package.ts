@@ -8,15 +8,23 @@ export interface PackagePaths {
   projectRoot: string
   outputDir: string
   sources: {
+    bunBin: string
     cliBin: string
-    hubServerBin: string
-    runtimeBin: string
+    hubServerEntry: string
+    hubServerNodeModulesDir: string
+    runtimeEntry: string
+    runtimeNodeModulesDir: string
     webDistDir: string
   }
   outputs: {
+    bunBin: string
     cliBin: string
-    hubServerBin: string
-    runtimeBin: string
+    hubServerDir: string
+    hubServerEntry: string
+    hubServerNodeModulesDir: string
+    runtimeDir: string
+    runtimeEntry: string
+    runtimeNodeModulesDir: string
     publicDir: string
   }
 }
@@ -46,6 +54,7 @@ function pathForPlatform(platform: NodeJS.Platform): typeof posix | typeof win32
 export function resolvePackagePaths(
   projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), ".."),
   platform: NodeJS.Platform = process.platform,
+  bunBin = process.execPath,
 ): PackagePaths {
   const path = pathForPlatform(platform)
   const exe = platform === "win32" ? ".exe" : ""
@@ -56,15 +65,23 @@ export function resolvePackagePaths(
     projectRoot,
     outputDir,
     sources: {
+      bunBin,
       cliBin: path.join(projectRoot, "cli", "dist", `agenthub-cli${exe}`),
-      hubServerBin: path.join(projectRoot, "hub-server", "dist", `hub-server${exe}`),
-      runtimeBin: path.join(projectRoot, "agent-runtime", "dist", `agent-runtime${exe}`),
+      hubServerEntry: path.join(projectRoot, "hub-server", "dist", "index.js"),
+      hubServerNodeModulesDir: path.join(projectRoot, "hub-server", "node_modules"),
+      runtimeEntry: path.join(projectRoot, "agent-runtime", "dist", "index.js"),
+      runtimeNodeModulesDir: path.join(projectRoot, "agent-runtime", "node_modules"),
       webDistDir: path.join(projectRoot, "web", "dist"),
     },
     outputs: {
+      bunBin: path.join(outputDir, `bun${exe}`),
       cliBin: path.join(outputDir, `agenthub-cli${exe}`),
-      hubServerBin: path.join(outputDir, `hub-server${exe}`),
-      runtimeBin: path.join(outputDir, `agent-runtime${exe}`),
+      hubServerDir: path.join(outputDir, "hub-server"),
+      hubServerEntry: path.join(outputDir, "hub-server", "index.js"),
+      hubServerNodeModulesDir: path.join(outputDir, "hub-server", "node_modules"),
+      runtimeDir: path.join(outputDir, "agent-runtime"),
+      runtimeEntry: path.join(outputDir, "agent-runtime", "index.js"),
+      runtimeNodeModulesDir: path.join(outputDir, "agent-runtime", "node_modules"),
       publicDir: path.join(outputDir, "public"),
     },
   }
@@ -96,9 +113,12 @@ export async function assertPackageInputs(
   paths: PackagePaths,
   fs: PackageFileSystem = defaultFs,
 ): Promise<void> {
+  await assertFile(fs, paths.sources.bunBin, "Bun runtime")
   await assertFile(fs, paths.sources.cliBin, "CLI binary")
-  await assertFile(fs, paths.sources.hubServerBin, "HubServer binary")
-  await assertFile(fs, paths.sources.runtimeBin, "Agent Runtime binary")
+  await assertFile(fs, paths.sources.hubServerEntry, "HubServer bundle")
+  await assertDirectory(fs, paths.sources.hubServerNodeModulesDir, "HubServer node_modules directory")
+  await assertFile(fs, paths.sources.runtimeEntry, "Agent Runtime bundle")
+  await assertDirectory(fs, paths.sources.runtimeNodeModulesDir, "Agent Runtime node_modules directory")
   await assertDirectory(fs, paths.sources.webDistDir, "Web dist directory")
 }
 
@@ -112,15 +132,19 @@ export async function packageAgentHub(options: {
   await assertPackageInputs(paths, fs)
   await fs.rm(paths.outputDir, { recursive: true, force: true })
   await fs.mkdir(paths.outputDir, { recursive: true })
+  await fs.copyFile(paths.sources.bunBin, paths.outputs.bunBin)
   await fs.copyFile(paths.sources.cliBin, paths.outputs.cliBin)
-  await fs.copyFile(paths.sources.hubServerBin, paths.outputs.hubServerBin)
-  await fs.copyFile(paths.sources.runtimeBin, paths.outputs.runtimeBin)
+  await fs.mkdir(paths.outputs.hubServerDir, { recursive: true })
+  await fs.copyFile(paths.sources.hubServerEntry, paths.outputs.hubServerEntry)
+  await fs.cp(paths.sources.hubServerNodeModulesDir, paths.outputs.hubServerNodeModulesDir, { recursive: true })
+  await fs.mkdir(paths.outputs.runtimeDir, { recursive: true })
+  await fs.copyFile(paths.sources.runtimeEntry, paths.outputs.runtimeEntry)
+  await fs.cp(paths.sources.runtimeNodeModulesDir, paths.outputs.runtimeNodeModulesDir, { recursive: true })
   await fs.cp(paths.sources.webDistDir, paths.outputs.publicDir, { recursive: true })
 
   if (paths.platform !== "win32") {
+    await fs.chmod(paths.outputs.bunBin, 0o755)
     await fs.chmod(paths.outputs.cliBin, 0o755)
-    await fs.chmod(paths.outputs.hubServerBin, 0o755)
-    await fs.chmod(paths.outputs.runtimeBin, 0o755)
   }
 
   return paths

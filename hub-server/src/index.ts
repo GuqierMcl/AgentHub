@@ -2,7 +2,7 @@ import { Hono, Context, Next } from 'hono'
 import { cors } from 'hono/cors'
 import fs from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { initDatabase, closeDatabase } from './lib/db'
+import { closeDatabase } from './lib/db'
 import { errorHandler } from './lib/errors'
 import { ConversationService } from './services/conversation.service'
 import { RuntimeClient } from './lib/runtime'
@@ -21,6 +21,7 @@ import {
   SidecarManager,
 } from './services/sidecar-manager'
 import { attachStaticWeb } from './bootstrap/static'
+import { bootstrapDatabase } from './bootstrap/database'
 import router from './routers'
 
 const banner = `
@@ -92,7 +93,7 @@ function attachStaticWebIfConfigured(app: Hono): void {
 
   if (!fs.existsSync(config.publicDir)) {
     const message = 'Configured Web public directory does not exist'
-    if (config.runtimeBin) {
+    if (config.runtimeEntry || config.runtimeBin) {
       throw new Error(`${message}: ${config.publicDir}`)
     }
     logger.warn({ publicDir: config.publicDir }, message)
@@ -108,7 +109,7 @@ function createHubUrl(): string {
 }
 
 async function createRuntimeClient(): Promise<RuntimeClient> {
-  if (!config.runtimeBin) {
+  if (!config.runtimeEntry && !config.runtimeBin) {
     return new RuntimeClient(config.runtimeUrl)
   }
 
@@ -125,6 +126,8 @@ async function createRuntimeClient(): Promise<RuntimeClient> {
     },
   })
   const endpoint = await sidecarManager.start({
+    bunBin: config.bunBin,
+    runtimeEntry: config.runtimeEntry,
     runtimeBin: config.runtimeBin,
     hubUrl: createHubUrl(),
     dataDir: runtimeDataDir,
@@ -139,9 +142,7 @@ async function createRuntimeClient(): Promise<RuntimeClient> {
 async function start(): Promise<void> {
   logger.level = config.logLevel
   fs.mkdirSync(config.dataDir, { recursive: true })
-  await initDatabase(config.dbUrl, {
-    allowPrismaGenerate: config.env !== 'production',
-  })
+  await bootstrapDatabase({ config })
 
   const runtimeClient = await createRuntimeClient()
   const hubEventBus = new HubEventBus()

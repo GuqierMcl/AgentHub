@@ -8,7 +8,9 @@ export interface RuntimeEndpoint {
 }
 
 export interface SidecarStartOptions {
-  runtimeBin: string
+  bunBin?: string
+  runtimeEntry?: string
+  runtimeBin?: string
   hubUrl: string
   dataDir: string
   workdir: string
@@ -156,8 +158,7 @@ export class SidecarManager {
   }
 
   private createCommand(options: SidecarStartOptions, port: number): string[] {
-    return [
-      options.runtimeBin,
+    const runtimeArgs = [
       '--port',
       String(port),
       '--hostname',
@@ -170,6 +171,26 @@ export class SidecarManager {
       options.workdir,
       '--log-level',
       options.logLevel,
+    ]
+
+    if (options.runtimeEntry) {
+      if (!options.bunBin) {
+        throw new Error('Missing Bun runtime path for Agent Runtime bundle sidecar startup')
+      }
+      return [
+        options.bunBin,
+        options.runtimeEntry,
+        ...runtimeArgs,
+      ]
+    }
+
+    if (!options.runtimeBin) {
+      throw new Error('Missing Agent Runtime sidecar executable or bundle entry')
+    }
+
+    return [
+      options.runtimeBin,
+      ...runtimeArgs,
     ]
   }
 

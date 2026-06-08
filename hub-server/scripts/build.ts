@@ -2,11 +2,14 @@ import type { Stats } from "node:fs"
 import { stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { writeMigrationManifest } from "./migration-manifest"
 
 export interface HubBuildPaths {
   hubRoot: string
   projectRoot: string
   webDistDir: string
+  migrationsDir: string
+  migrationManifestFile: string
 }
 
 export type StatFile = (path: string) => Promise<Pick<Stats, "isDirectory">>
@@ -16,6 +19,8 @@ export type RunCommand = (
   options: { cwd: string },
 ) => Promise<void>
 
+export type WriteMigrationManifest = typeof writeMigrationManifest
+
 export function resolveHubBuildPaths(
   hubRoot = resolve(dirname(fileURLToPath(import.meta.url)), ".."),
 ): HubBuildPaths {
@@ -24,6 +29,8 @@ export function resolveHubBuildPaths(
     hubRoot,
     projectRoot,
     webDistDir: resolve(projectRoot, "web", "dist"),
+    migrationsDir: resolve(hubRoot, "prisma", "migrations"),
+    migrationManifestFile: resolve(hubRoot, "src", "generated", "prisma-migrations.ts"),
   }
 }
 
@@ -46,7 +53,23 @@ export async function assertWebDistExists(
 export function createHubBuildCommands(): string[][] {
   return [
     ["bunx", "--bun", "prisma", "generate"],
-    ["bun", "build", "src/index.ts", "--compile", "--outfile", "dist/hub-server"],
+    [
+      "bun",
+      "build",
+      "src/index.ts",
+      "--target",
+      "bun",
+      "--outfile",
+      "dist/index.js",
+      "--external",
+      "sharp",
+      "--external",
+      "@libsql/client",
+      "--external",
+      "libsql",
+      "--external",
+      "node-pty",
+    ],
   ]
 }
 
@@ -67,11 +90,17 @@ export async function runHubServerBuild(options: {
   paths?: HubBuildPaths
   stat?: StatFile
   runCommand?: RunCommand
+  writeMigrationManifest?: WriteMigrationManifest
 } = {}): Promise<void> {
   const paths = options.paths ?? resolveHubBuildPaths()
   const run = options.runCommand ?? runCommand
+  const writeManifest = options.writeMigrationManifest ?? writeMigrationManifest
 
   await assertWebDistExists(paths.webDistDir, options.stat)
+  await writeManifest({
+    migrationsDir: paths.migrationsDir,
+    outputFile: paths.migrationManifestFile,
+  })
   for (const command of createHubBuildCommands()) {
     await run(command, { cwd: paths.hubRoot })
   }

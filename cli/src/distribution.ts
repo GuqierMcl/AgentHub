@@ -2,8 +2,11 @@ import { stat } from "node:fs/promises"
 import { posix, win32 } from "node:path"
 
 export interface DistributionPaths {
-  hubServerBin: string
-  runtimeBin: string
+  bunBin: string
+  hubServerEntry: string
+  hubServerNodeModulesDir: string
+  runtimeEntry: string
+  runtimeNodeModulesDir: string
   publicDir: string
 }
 
@@ -19,8 +22,11 @@ export function resolveDistributionPaths(
   const exe = platform === "win32" ? ".exe" : ""
 
   return {
-    hubServerBin: path.join(baseDir, `hub-server${exe}`),
-    runtimeBin: path.join(baseDir, `agent-runtime${exe}`),
+    bunBin: path.join(baseDir, `bun${exe}`),
+    hubServerEntry: path.join(baseDir, "hub-server", "index.js"),
+    hubServerNodeModulesDir: path.join(baseDir, "hub-server", "node_modules"),
+    runtimeEntry: path.join(baseDir, "agent-runtime", "index.js"),
+    runtimeNodeModulesDir: path.join(baseDir, "agent-runtime", "node_modules"),
     publicDir: path.join(baseDir, "public"),
   }
 }
@@ -40,7 +46,10 @@ async function assertDirectory(path: string, label: string): Promise<void> {
 }
 
 export async function assertDistributionPaths(paths: DistributionPaths): Promise<void> {
-  await assertFile(paths.hubServerBin, "HubServer binary")
-  await assertFile(paths.runtimeBin, "Agent Runtime binary")
+  await assertFile(paths.bunBin, "Bun runtime")
+  await assertFile(paths.hubServerEntry, "HubServer bundle")
+  await assertDirectory(paths.hubServerNodeModulesDir, "HubServer node_modules directory")
+  await assertFile(paths.runtimeEntry, "Agent Runtime bundle")
+  await assertDirectory(paths.runtimeNodeModulesDir, "Agent Runtime node_modules directory")
   await assertDirectory(paths.publicDir, "Web public directory")
 }
