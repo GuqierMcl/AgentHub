@@ -46,7 +46,7 @@ export function WorkspaceCapabilityCard({
             <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/trigger:rotate-180" />
           </AccordionTrigger>
         </AccordionHeader>
-        <AccordionContent className="border-t border-border p-4">
+        <AccordionContent initial={false} className="border-t border-border p-4">
           {children}
         </AccordionContent>
       </AccordionItem>
