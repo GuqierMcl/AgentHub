@@ -2,11 +2,16 @@ import { describe, expect, it } from "bun:test"
 import {
 	assertReleaseTagMatchesVersion,
 	getAgentHubVersionFromPackageJson,
+	readAgentHubVersion,
 } from "./version"
 
 describe("AgentHub version source", () => {
 	it("reads the version from the root package manifest", () => {
 		expect(getAgentHubVersionFromPackageJson('{"name":"agenthub","version":"0.2.3"}')).toBe("0.2.3")
+	})
+
+	it("uses 0.1.0 as the current repository version", () => {
+		expect(readAgentHubVersion()).toBe("0.1.0")
 	})
 
 	it("rejects package manifests without a string version", () => {

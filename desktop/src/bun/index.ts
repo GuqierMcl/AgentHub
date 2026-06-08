@@ -1,4 +1,5 @@
 import { dlopen, FFIType } from "bun:ffi";
+import { pathToFileURL } from "node:url";
 import type {
 	BrowserWindow as ElectrobunBrowserWindow,
 	ElectrobunRPCSchema,
@@ -6,6 +7,7 @@ import type {
 import {
 	assertDesktopResourcePaths,
 	findAvailablePort,
+	resolveDesktopAppAssetPath,
 	resolveDesktopResourcePaths,
 	resolveDesktopResourceRoot,
 	shutdownDesktopHubServer,
@@ -292,10 +294,12 @@ function createMainWindow(url: string): ElectrobunBrowserWindow {
 }
 
 function createLoadingWindow(): ElectrobunBrowserWindow {
+	const iconUrl = pathToFileURL(resolveDesktopAppAssetPath("icon.png")).href
+
 	return new BrowserWindow({
 		title: "AgentHub",
 		url: null,
-		html: createLoadingWindowHtml(),
+		html: createLoadingWindowHtml(iconUrl),
 		frame: LOADING_WINDOW_FRAME,
 		titleBarStyle: "default",
 		transparent: false,

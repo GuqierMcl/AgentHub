@@ -1,4 +1,16 @@
-export function createLoadingWindowHtml(): string {
+function escapeHtmlAttribute(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+}
+
+export function createLoadingWindowHtml(iconUrl?: string): string {
+	const mark = iconUrl
+		? `<img class="mark" src="${escapeHtmlAttribute(iconUrl)}" alt="AgentHub">`
+		: `<div class="mark" aria-hidden="true"></div>`
+
 	return `<!doctype html>
 <html lang="en">
 <head>
@@ -31,6 +43,7 @@ export function createLoadingWindowHtml(): string {
 			margin: 0 auto;
 			border-radius: 10px;
 			background: #22c55e;
+			object-fit: cover;
 			box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 18px 44px rgb(34 197 94 / 0.24);
 		}
 		h1 {
@@ -68,7 +81,7 @@ export function createLoadingWindowHtml(): string {
 </head>
 <body>
 	<main>
-		<div class="mark"></div>
+		${mark}
 		<h1>Starting AgentHub</h1>
 		<p>Preparing local services...</p>
 		<div class="progress" aria-hidden="true"></div>

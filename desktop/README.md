@@ -33,7 +33,7 @@ Run from the repository root:
 bun run build:desktop
 ```
 
-This command builds Web, Agent Runtime, HubServer, CLI, assembles the root `dist/` resource directory, then runs the Electrobun release build. The release build copies `../dist` into the desktop app resources as `app/agenthub-runtime/`.
+This command builds Web, Agent Runtime, HubServer, CLI, assembles the root `dist/` resource directory, then runs the Electrobun release build. The release build copies `../dist` into the desktop app resources as `app/agenthub-runtime/` and copies `assets/icon.png` as `app/assets/icon.png` for the startup loading window.
 
 In production mode the Desktop app:
 
@@ -50,6 +50,8 @@ $env:AGENTHUB_DESKTOP_RESOURCES_DIR = "D:\PyWorkSpace\AgentHub\dist"
 ```
 
 The app version is read from the root `package.json` version.
+
+On Windows, release builds run `scripts/patch-windows-icons.ts` from Electrobun `postWrap` and `postPackage` hooks. The hook patches the AgentHub launcher and installer icon with `assets/icon.ico`; the bundled Bun runtime is copied unchanged.
 
 ## Project Structure
 

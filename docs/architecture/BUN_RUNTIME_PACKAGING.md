@@ -176,7 +176,8 @@ Bun.serve({
 - `hub-server` 构建只编译服务 bundle，并在构建期生成 Prisma Client 和内置 migration manifest；Web assets 不嵌入、不复制到 `hub-server/public/`，最终由 package 阶段复制 `web/dist/` 到 `dist/public/`。
 - `agent-runtime` 构建生成 Runtime bundle；生产启动由 HubServer 使用发行包内 Bun runtime 拉起。
 - CLI 只负责解析用户启动意图、拉起 HubServer bundle、打开浏览器和转发生命周期信号。
-- Desktop 主进程直接拉起 HubServer bundle，不通过 CLI 中转；release 构建将根级 `dist/` 复制到应用 Resources app code 的 `app/agenthub-runtime/`，ready 前显示加载窗口。
+- Desktop 主进程直接拉起 HubServer bundle，不通过 CLI 中转；release 构建将根级 `dist/` 复制到应用 Resources app code 的 `app/agenthub-runtime/`，并将 `desktop/assets/icon.png` 复制到 `app/assets/icon.png` 供 loading 窗口使用，ready 前显示加载窗口。
+- Windows Desktop release 使用 Electrobun hook 调用仓库内 `rcedit` patch AgentHub launcher 和 installer 图标；若 GitHub Release 上传 installer zip，zip 必须包含 patch 后的 installer。内置 Bun runtime 保持上游图标资源不变。
 - AgentHub 版本号以根目录 `package.json#version` 为唯一来源；Desktop app metadata 应读取该版本，而不是维护自己的独立版本。
 - 所有生产打包 smoke 都必须验证 Web 静态资源、HubServer 健康检查、Runtime sidecar 健康检查、native 依赖加载和进程退出清理。
 

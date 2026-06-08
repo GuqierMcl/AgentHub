@@ -11,7 +11,14 @@ const isBuildCommand = process.argv.includes("build");
 const desktopBuildMode =
 	isBuildCommand && buildEnvironment !== "dev" ? "production" : "development";
 const productionResourceCopy =
-	desktopBuildMode === "production" ? { "../dist": "agenthub-runtime" } : undefined;
+	desktopBuildMode === "production"
+		? {
+				"../dist": "agenthub-runtime",
+				"assets/icon.png": "assets/icon.png",
+			}
+		: undefined;
+const productionIconPatchHook =
+	desktopBuildMode === "production" ? "scripts/patch-windows-icons.ts" : "";
 const appVersion = readAgentHubVersion();
 
 export default {
@@ -39,5 +46,9 @@ export default {
 			bundleCEF: false,
 			icon: "assets/icon.ico",
 		},
+	},
+	scripts: {
+		postWrap: productionIconPatchHook,
+		postPackage: productionIconPatchHook,
 	},
 } satisfies ElectrobunConfig;

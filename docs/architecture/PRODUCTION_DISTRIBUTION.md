@@ -1,6 +1,6 @@
 # Production Distribution
 
-本文档记录 AgentHub 生产构建、发行包布局、CLI/Desktop 入口、HubServer Web 托管、Agent Runtime Sidecar 和数据库迁移的约束。后续实现 CLI、Desktop 生产启动或构建链路时，以本文档为优先参考。CLI 入口细节见 `docs/architecture/AGENTHUB_CLI.md`；Bun 打包细节见 `docs/architecture/BUN_RUNTIME_PACKAGING.md`；相关架构决策见 `docs/adr/ADR-002-production-distribution.md`。
+本文档记录 AgentHub 生产构建、发行包布局、CLI/Desktop 入口、HubServer Web 托管、Agent Runtime Sidecar 和数据库迁移的约束。后续实现 CLI、Desktop 生产启动或构建链路时，以本文档为优先参考。CLI 入口细节见 `docs/architecture/AGENTHUB_CLI.md`；Bun 打包细节见 `docs/architecture/BUN_RUNTIME_PACKAGING.md`；GitHub Release 流水线见 `docs/architecture/GITHUB_RELEASE_WORKFLOW.md`；相关架构决策见 `docs/adr/ADR-002-production-distribution.md`。
 
 ## 目标
 
@@ -72,6 +72,7 @@ AgentHub 分发分为两条线，但共享同一套生产核心资源：
 规则：
 
 - GitHub Release 应按平台发布产物，并附带 sha256。
+- GitHub Release V1 由 `v*` tag 自动触发；tag 必须匹配根目录 `package.json#version`。
 - npm 不应把所有平台 runtime/native 包塞进同一个包；若发布 npm CLI，优先使用 meta package + platform package 方案。
 - CLI、HubServer、Agent Runtime、Bun runtime、native 依赖和 Web assets 必须同版本发布。
 - 版本号以根目录 `package.json#version` 为唯一项目级来源；GitHub Release tag 必须匹配 `v${version}`。
@@ -131,6 +132,7 @@ Desktop
 规则：
 
 - Desktop release 构建通过 Electrobun 将核心资源目录复制到应用 Resources app code 下的 `app/agenthub-runtime/`。
+- Desktop release 构建同时复制 `desktop/assets/icon.png` 到 `app/assets/icon.png`，启动加载窗口从该资源显示 AgentHub 产品图标。
 - Desktop 主进程在生产模式下先显示轻量加载窗口；HubServer `/health` ready 后再关闭加载窗口并打开主窗口。
 - `AGENTHUB_DESKTOP_URL` 可覆盖为开发/调试 URL；此时 Desktop 不启动 HubServer。
 - `AGENTHUB_DESKTOP_RESOURCES_DIR` 可在本地 smoke 中指向已组装的资源目录，例如根级 `dist/`。
@@ -327,7 +329,8 @@ package
 - `build:runtime` 生成 Agent Runtime Bun bundle。
 - `build:cli` 可继续生成轻量 launcher，也可生成 JS CLI bundle；CLI 不应承担 native-heavy 服务依赖。
 - `package` 负责组装最终 `dist/`：复制 Bun runtime、service bundles、CLI launcher、`web/dist -> public/`、以及每个服务生产运行需要的 service-local `node_modules/` 依赖闭包。
-- `build:desktop` 先复用根级 `build` + `package` 生成核心资源，再运行 Desktop release build；Electrobun 将 `dist/` 复制进应用 Resources app code 的 `app/agenthub-runtime/`。
+- `build:desktop` 先复用根级 `build` + `package` 生成核心资源，再运行 Desktop release build；Electrobun 将 `dist/` 复制进应用 Resources app code 的 `app/agenthub-runtime/`，并复制 loading 图标资源到 `app/assets/icon.png`。
+- Windows Desktop release 在 Electrobun `postWrap` / `postPackage` hook 中使用仓库内 `rcedit` patch AgentHub launcher 和 installer 图标；若 installer zip 已生成，需要重建 zip，确保上传到 GitHub Release 的 zip 内也是 patch 后 installer。
 - 生产运行所需 native-heavy 包必须通过 bundle `--external` 保留真实目录结构。V1 可以先复制服务级生产 `node_modules/`，后续再按 smoke 结果裁剪。
 - Package V1 组装 CLI 启动包的资源目录；Desktop installer 在自己的 build 阶段复用这组资源。
 

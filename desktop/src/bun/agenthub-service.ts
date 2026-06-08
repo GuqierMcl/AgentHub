@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises"
 import { createServer } from "node:net"
-import { dirname, posix, resolve, win32 } from "node:path"
+import { dirname, join, posix, resolve, win32 } from "node:path"
 
 export const DESKTOP_RESOURCE_DIR_NAME = "agenthub-runtime"
 
@@ -49,6 +49,18 @@ export function resolveDesktopResourceRoot(options: {
 	}
 
 	return resolve(dirname(options.execPath ?? process.execPath), "..", "Resources", "app", DESKTOP_RESOURCE_DIR_NAME)
+}
+
+export function resolveDesktopAppAssetPath(
+	assetRelativePath: string,
+	options: {
+		env?: NodeJS.ProcessEnv
+		execPath?: string
+		resourceRoot?: string
+	} = {},
+): string {
+	const resourceRoot = options.resourceRoot ?? resolveDesktopResourceRoot(options)
+	return join(dirname(resourceRoot), "assets", assetRelativePath)
 }
 
 export function resolveDesktopResourcePaths(
