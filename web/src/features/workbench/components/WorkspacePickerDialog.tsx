@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import {
   Loader2Icon,
   FolderIcon,
@@ -33,6 +33,9 @@ import {
 import { workspaceBrowserApi } from "@/features/workbench/right-workbench/api/workspace-browser"
 import type { WorkspaceTreeEntry } from "@/features/workbench/right-workbench/types"
 
+// Module-level cache shared across dialog open/close cycles
+const childrenCache = new Map<string, WorkspaceTreeEntry[]>()
+
 type WorkspacePickerDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -43,11 +46,13 @@ function FolderRow({
   name,
   path,
   selected,
+  loading,
   onSelect,
 }: {
   name: string
   path: string
   selected: boolean
+  loading?: boolean
   onSelect: (path: string) => void
 }) {
   return (
@@ -74,21 +79,27 @@ function FolderRow({
         </FolderTriggerPrimitive>
       </FolderHeaderPrimitive>
 
-      <button
-        type="button"
-        aria-label={selected ? `已选中 ${name}` : `选中 ${name}`}
-        className={cn(
-          "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[opacity,color,background-color]",
-          "opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground",
-          selected && "opacity-100 text-primary hover:text-primary",
-        )}
-        onClick={(e) => {
-          e.stopPropagation()
-          onSelect(path)
-        }}
-      >
-        <CheckIcon className="size-3.5" />
-      </button>
+      {loading ? (
+        <div className="flex size-7 shrink-0 items-center justify-center">
+          <Loader2Icon className="size-3 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <button
+          type="button"
+          aria-label={selected ? `已选中 ${name}` : `选中 ${name}`}
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[opacity,color,background-color]",
+            "opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground",
+            selected && "opacity-100 text-primary hover:text-primary",
+          )}
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect(path)
+          }}
+        >
+          <CheckIcon className="size-3.5" />
+        </button>
+      )}
     </div>
   )
 }
@@ -97,12 +108,16 @@ function LazyFolderChildren({
   path,
   selectedPath,
   onSelect,
+  loadingFolders,
 }: {
   path: string
   selectedPath: string | null
   onSelect: (path: string) => void
+  loadingFolders: ReadonlySet<string>
 }) {
-  const [children, setChildren] = useState<WorkspaceTreeEntry[] | null>(null)
+  const [children, setChildren] = useState<WorkspaceTreeEntry[] | null>(
+    () => childrenCache.get(path) ?? null,
+  )
 
   useEffect(() => {
     if (children !== null) return
@@ -110,7 +125,9 @@ function LazyFolderChildren({
     workspaceBrowserApi
       .browseDirectory(path)
       .then((data) => {
-        if (!cancelled) setChildren(data.entries.filter((e) => e.kind === "dir"))
+        const dirs = data.entries.filter((e) => e.kind === "dir")
+        childrenCache.set(path, dirs)
+        if (!cancelled) setChildren(dirs)
       })
       .catch(() => {
         if (!cancelled) setChildren([])
@@ -136,6 +153,7 @@ function LazyFolderChildren({
         name={child.name}
         path={child.path}
         selected={selectedPath === child.path}
+        loading={loadingFolders.has(child.path)}
         onSelect={onSelect}
       />
       <FolderContent>
@@ -144,6 +162,7 @@ function LazyFolderChildren({
             path={child.path}
             selectedPath={selectedPath}
             onSelect={onSelect}
+            loadingFolders={loadingFolders}
           />
         </SubFiles>
       </FolderContent>
@@ -159,32 +178,78 @@ export function WorkspacePickerDialog({
   const [rootEntries, setRootEntries] = useState<WorkspaceTreeEntry[] | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [openValues, setOpenValues] = useState<string[]>([])
+  const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set())
+  const openValuesRef = useRef<string[]>([])
+  const rootCacheRef = useRef<WorkspaceTreeEntry[] | null>(null)
 
   const rootLoading = open && rootEntries === null
 
+  // Keep ref in sync for handleOpenChange closure
+  useEffect(() => {
+    openValuesRef.current = openValues
+  }, [openValues])
+
   useEffect(() => {
     if (!open) return
+    // Use cached root entries if available
+    if (rootCacheRef.current) {
+      setRootEntries(rootCacheRef.current)
+      return
+    }
     workspaceBrowserApi
       .browseDirectory()
       .then((data) => {
-        setRootEntries(data.entries.filter((e) => e.kind === "dir"))
+        const entries = data.entries.filter((e) => e.kind === "dir")
+        rootCacheRef.current = entries
+        setRootEntries(entries)
       })
       .catch(() => {
+        rootCacheRef.current = []
         setRootEntries([])
       })
   }, [open])
 
   const handleDialogOpenChange = useCallback((open: boolean) => {
     if (!open) {
-      setRootEntries(null)
+      // Keep root cache via rootCacheRef, only reset transient state
       setSelectedPath(null)
       setOpenValues([])
+      setLoadingFolders(new Set())
     }
     if (open) return
     onOpenChange(open)
   }, [onOpenChange])
 
   const handleOpenChange = useCallback((newValues: string[]) => {
+    const prev = openValuesRef.current
+    const newlyOpened = newValues.find((v) => !prev.includes(v))
+
+    if (newlyOpened && !childrenCache.has(newlyOpened)) {
+      // Not cached → show spinner, fetch, then expand
+      setLoadingFolders((prevLoading) => new Set(prevLoading).add(newlyOpened))
+      workspaceBrowserApi
+        .browseDirectory(newlyOpened)
+        .then((data) => {
+          const dirs = data.entries.filter((e) => e.kind === "dir")
+          childrenCache.set(newlyOpened, dirs)
+          setLoadingFolders((prevLoading) => {
+            const next = new Set(prevLoading)
+            next.delete(newlyOpened)
+            return next
+          })
+          setOpenValues((prevOpen) => [...prevOpen, newlyOpened])
+        })
+        .catch(() => {
+          setLoadingFolders((prevLoading) => {
+            const next = new Set(prevLoading)
+            next.delete(newlyOpened)
+            return next
+          })
+        })
+      return // Don't expand yet
+    }
+
+    openValuesRef.current = newValues
     setOpenValues(newValues)
   }, [])
 
@@ -231,6 +296,7 @@ export function WorkspacePickerDialog({
                         name={entry.name}
                         path={entry.path}
                         selected={selectedPath === entry.path}
+                        loading={loadingFolders.has(entry.path)}
                         onSelect={handleFolderSelect}
                       />
                       <FolderContent>
@@ -239,6 +305,7 @@ export function WorkspacePickerDialog({
                             path={entry.path}
                             selectedPath={selectedPath}
                             onSelect={handleFolderSelect}
+                            loadingFolders={loadingFolders}
                           />
                         </SubFiles>
                       </FolderContent>

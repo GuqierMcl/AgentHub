@@ -66,6 +66,7 @@ export function NewConversationDialog({
     queryKey: workbenchQueryKeys.agents.primaryEnabled,
     queryFn: () => agentsApi.list({ tier: "primary", enabledOnly: true }),
     enabled: open,
+    staleTime: 30_000,
   })
 
   const agents = agentsQuery.data?.agents ?? EMPTY_AGENTS
