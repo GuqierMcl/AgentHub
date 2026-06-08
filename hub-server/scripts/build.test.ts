@@ -50,8 +50,8 @@ describe("hub-server production build script", () => {
         "src/index.ts",
         "--target",
         "bun",
-        "--outfile",
-        "dist/index.js",
+        "--outdir",
+        "dist",
         "--external",
         "sharp",
         "--external",
@@ -81,7 +81,7 @@ describe("hub-server production build script", () => {
     expect(operations).toEqual([
       "manifest C:\\AgentHub\\hub-server\\prisma\\migrations -> C:\\AgentHub\\hub-server\\src\\generated\\prisma-migrations.ts",
       "command bunx --bun prisma generate",
-      "command bun build src/index.ts --target bun --outfile dist/index.js --external sharp --external @libsql/client --external libsql --external node-pty",
+      "command bun build src/index.ts --target bun --outdir dist --external sharp --external @libsql/client --external libsql --external node-pty",
     ])
     expect(operations.join("\n")).not.toContain("hub-server/public")
   })
