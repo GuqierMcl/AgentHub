@@ -1,6 +1,7 @@
-import { BotIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon } from "lucide-react"
+import { BotIcon, PlusIcon, SearchIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { AnimatedPanelLeftOpenIcon } from "@/components/ui/panel-left-controls"
 import {
   Tooltip,
   TooltipContent,
@@ -57,7 +58,7 @@ export function SidebarActions({
       {collapsed ? (
         <ActionButton
           collapsed={collapsed}
-          icon={<PanelLeftOpenIcon data-icon="inline-start" />}
+          icon={<AnimatedPanelLeftOpenIcon data-icon="inline-start" />}
           label="展开侧栏"
           onClick={onToggleCollapsed}
         />

@@ -1,14 +1,16 @@
 import {
   CircleAlertIcon,
   FolderIcon,
-  PanelRightCloseIcon,
-  PanelRightOpenIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
 import { InfiniteLinearProgress } from "@/components/ui/infinite-linear-progress"
+import {
+  AnimatedPanelLeftCloseIcon,
+  AnimatedPanelLeftOpenIcon,
+} from "@/components/ui/panel-left-controls"
 import {
   Tooltip,
   TooltipContent,
@@ -121,7 +123,7 @@ export function ChatHeader({
           type="button"
           variant="ghost"
         >
-          {isWorkspaceOpen ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
+          {isWorkspaceOpen ? <AnimatedPanelLeftOpenIcon /> : <AnimatedPanelLeftCloseIcon />}
         </Button>
       </div>
       {showRunProgress ? (

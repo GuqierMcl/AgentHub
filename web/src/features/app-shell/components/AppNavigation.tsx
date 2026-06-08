@@ -1,6 +1,8 @@
-import { PanelLeftCloseIcon, PanelLeftOpenIcon } from "lucide-react"
-
 import { Button } from "@/components/ui/button"
+import {
+  AnimatedPanelLeftCloseIcon,
+  AnimatedPanelLeftOpenIcon,
+} from "@/components/ui/panel-left-controls"
 import {
   Tooltip,
   TooltipContent,
@@ -63,7 +65,7 @@ export function AppNavigation({
               type="button"
               variant="ghost"
             >
-              <PanelLeftCloseIcon />
+              <AnimatedPanelLeftCloseIcon />
             </Button>
           )}
         </div>
@@ -87,7 +89,7 @@ export function AppNavigation({
                 type="button"
                 variant="ghost"
               >
-                <PanelLeftOpenIcon />
+                <AnimatedPanelLeftOpenIcon />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">展开导航</TooltipContent>
