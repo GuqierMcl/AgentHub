@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Accordion, AccordionItem, AccordionHeader, AccordionTrigger, AccordionContent } from "@/components/animate-ui/primitives/radix/accordion"
 import { cn } from "@/lib/utils"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { AgentAvatar } from "@/components/agent-avatar"
@@ -58,8 +58,6 @@ export function NewConversationDialog({
   const [search, setSearch] = useState("")
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
-  const [existingOpen, setExistingOpen] = useState(false)
-  const [agentsOpen, setAgentsOpen] = useState(true)
   const [workspacePath, setWorkspacePath] = useState("")
   const [pickerOpen, setPickerOpen] = useState(false)
   const [showNoWorkspaceWarning, setShowNoWorkspaceWarning] = useState(false)
@@ -268,63 +266,69 @@ export function NewConversationDialog({
         <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0 px-6 pb-2">
           <ResizablePanel defaultSize={65} minSize={25}>
             <ScrollArea className="h-full min-h-0">
-              <div className="space-y-2 pr-3">
-                <Collapsible open={existingOpen} onOpenChange={setExistingOpen}>
-                  <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium cursor-pointer hover:text-foreground/80">
-                    <ChevronRightIcon className={`size-4 transition-transform ${existingOpen ? "rotate-90" : ""}`} />
-                    选择已有会话
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-1">
-                    <div className="space-y-0.5">
-                      {filteredConversations.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2">无匹配会话</p>
-                      ) : (
-                        filteredConversations.map((conv) => (
-                          <button
-                            key={conv.id}
-                            type="button"
-                            onClick={() => handleSwitch(conv.id)}
-                            className="w-full text-left text-xs py-1.5 px-2 rounded-md hover:bg-accent transition-colors truncate"
-                          >
-                            {conv.title}
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+              <div className="pr-3">
+                <Accordion type="multiple" defaultValue={["agents"]}>
+                  <AccordionItem value="existing">
+                    <AccordionHeader>
+                      <AccordionTrigger className="flex items-center gap-1 text-sm font-medium cursor-pointer hover:text-foreground/80 group/trigger">
+                        <ChevronRightIcon className="size-4 transition-transform group-data-[state=open]/trigger:rotate-90" />
+                        选择已有会话
+                      </AccordionTrigger>
+                    </AccordionHeader>
+                    <AccordionContent keepRendered className="mt-1">
+                      <div className="space-y-0.5">
+                        {filteredConversations.length === 0 ? (
+                          <p className="text-xs text-muted-foreground py-2">无匹配会话</p>
+                        ) : (
+                          filteredConversations.map((conv) => (
+                            <button
+                              key={conv.id}
+                              type="button"
+                              onClick={() => handleSwitch(conv.id)}
+                              className="w-full text-left text-xs py-1.5 px-2 rounded-md hover:bg-accent transition-colors truncate"
+                            >
+                              {conv.title}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
 
-                <Collapsible open={agentsOpen} onOpenChange={setAgentsOpen}>
-                  <CollapsibleTrigger className="flex items-center gap-1 text-sm font-medium cursor-pointer hover:text-foreground/80">
-                    <ChevronRightIcon className={`size-4 transition-transform ${agentsOpen ? "rotate-90" : ""}`} />
-                    智能体
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-1">
-                    <div className="space-y-0.5">
-                      {filteredAgents.length === 0 ? (
-                        <p className="text-xs text-muted-foreground py-2">无智能体</p>
-                      ) : (
-                        filteredAgents.map((agent) => (
-                          <label
-                            key={agent.id}
-                            className="flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover:bg-accent"
-                          >
-                            <Checkbox
-                              checked={selectedAgentIds.includes(agent.id)}
-                              onCheckedChange={() => toggleAgent(agent.id)}
-                              size="sm"
-                            />
-                             <AgentAvatar agent={agent} override={avatarOverrides[agent.id]} size="sm" />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-medium truncate">{agent.name}</div>
-                              <div className="text-[10px] text-muted-foreground truncate">{agent.description}</div>
-                            </div>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                  <AccordionItem value="agents">
+                    <AccordionHeader>
+                      <AccordionTrigger className="flex items-center gap-1 text-sm font-medium cursor-pointer hover:text-foreground/80 group/trigger">
+                        <ChevronRightIcon className="size-4 transition-transform group-data-[state=open]/trigger:rotate-90" />
+                        智能体
+                      </AccordionTrigger>
+                    </AccordionHeader>
+                    <AccordionContent keepRendered className="mt-1">
+                      <div className="space-y-0.5">
+                        {filteredAgents.length === 0 ? (
+                          <p className="text-xs text-muted-foreground py-2">无智能体</p>
+                        ) : (
+                          filteredAgents.map((agent) => (
+                            <label
+                              key={agent.id}
+                              className="flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover:bg-accent"
+                            >
+                              <Checkbox
+                                checked={selectedAgentIds.includes(agent.id)}
+                                onCheckedChange={() => toggleAgent(agent.id)}
+                                size="sm"
+                              />
+                               <AgentAvatar agent={agent} override={avatarOverrides[agent.id]} size="sm" />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-medium truncate">{agent.name}</div>
+                                <div className="text-[10px] text-muted-foreground truncate">{agent.description}</div>
+                              </div>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
               </div>
             </ScrollArea>
           </ResizablePanel>

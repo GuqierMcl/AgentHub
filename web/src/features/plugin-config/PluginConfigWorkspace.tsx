@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { SearchIcon } from "lucide-react"
 import {
   Tabs,
   TabsContent,
@@ -7,11 +8,14 @@ import {
   TabsTrigger,
 } from "@/components/animate-ui/components/animate/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { AnimatedRefreshCwIcon } from "@/components/ui/refresh-controls"
 import { capabilitiesApi } from "./api/capabilities"
 import { SkillGrid } from "./components/SkillGrid"
 import { McpGrid } from "./components/McpGrid"
 import { ScopeSelector } from "./components/ScopeSelector"
-import type { CapabilitiesResponse, CapabilityScope, McpItem, SkillItem } from "./types"
+import type { CapabilitiesResponse, CapabilityScope } from "./types"
 
 export function PluginConfigWorkspace() {
   const [activeTab, setActiveTab] = useState("skill")
@@ -22,6 +26,7 @@ export function PluginConfigWorkspace() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
 
   const fetchData = useCallback(async () => {
     if (scope !== "global" && !conversationId) return
@@ -78,18 +83,43 @@ export function PluginConfigWorkspace() {
     }
   }, [scope, conversationId])
 
-  const skills: SkillItem[] = data?.skills ?? []
-  const mcps: McpItem[] = data?.mcps ?? []
-  const cacheHit = data?.cache?.hit
   const showRefresh = scope === "global" || !!conversationId
+
+  const filteredSkills = useMemo(() => {
+    const items = data?.skills ?? []
+    if (!searchQuery) return items
+    const q = searchQuery.toLowerCase()
+    return items.filter((s) => s.name.toLowerCase().includes(q))
+  }, [data?.skills, searchQuery])
+
+  const filteredMcps = useMemo(() => {
+    const items = data?.mcps ?? []
+    if (!searchQuery) return items
+    const q = searchQuery.toLowerCase()
+    return items.filter((m) => m.name.toLowerCase().includes(q))
+  }, [data?.mcps, searchQuery])
 
   return (
     <div className="flex h-full flex-col min-h-0">
       <header className="shrink-0 border-b border-border px-6 py-4">
-        <h1 className="text-lg font-semibold">插件配置</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          查看已发现的 Skill 和 MCP Server 配置
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-semibold">插件配置</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              查看已发现的 Skill 和 MCP Server 配置
+            </p>
+          </div>
+          <Button
+            onClick={handleRefresh}
+            disabled={loading || !showRefresh}
+            size="xs"
+            type="button"
+            variant="secondary"
+          >
+            <AnimatedRefreshCwIcon data-icon="inline-start" spinning={loading} />
+            刷新
+          </Button>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
@@ -104,10 +134,15 @@ export function PluginConfigWorkspace() {
                 scope={scope}
                 onScopeChange={handleScopeChange}
                 conversationId={conversationId}
-                loading={loading}
-                cacheHit={cacheHit}
-                refreshable={showRefresh}
-                onRefresh={handleRefresh}
+              />
+            </div>
+            <div className="relative">
+              <SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="搜索..."
+                className="h-8 w-[180px] pl-7 text-xs rounded-3xl"
               />
             </div>
           </div>
@@ -116,7 +151,7 @@ export function PluginConfigWorkspace() {
             <TabsContents>
               <TabsContent value="skill">
                 <SkillGrid
-                  skills={skills}
+                  skills={filteredSkills}
                   loading={loading}
                   error={error}
                   notice={notice}
@@ -125,7 +160,7 @@ export function PluginConfigWorkspace() {
               </TabsContent>
               <TabsContent value="mcp">
                 <McpGrid
-                  mcps={mcps}
+                  mcps={filteredMcps}
                   loading={loading}
                   error={error}
                   notice={notice}
