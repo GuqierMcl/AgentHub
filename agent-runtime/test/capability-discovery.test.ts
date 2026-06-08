@@ -101,6 +101,60 @@ describe("capability discovery", () => {
     expect(result.skills.find((skill) => skill.name === "bad-skill")?.warnings.length).toBeGreaterThan(0)
   })
 
+  test("discovers skills across global and workspace source families", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runtime-capabilities-skill-matrix-"))
+    const homeDir = join(root, "home")
+    const dataDir = join(root, "data")
+    const workspaceRoot = join(root, "workspace")
+
+    await writeText(join(homeDir, ".agents", "skills", "agents-global", "SKILL.md"), "---\nname: Agents Global\n---")
+    await writeText(join(homeDir, ".codex", "skills", "codex-global", "SKILL.md"), "---\nname: Codex Global\n---")
+    await writeText(join(homeDir, ".claude", "skills", "claude-global", "SKILL.md"), "---\nname: Claude Global\n---")
+    await writeText(
+      join(homeDir, ".config", "opencode", "skills", "opencode-global", "SKILL.md"),
+      "---\nname: OpenCode Global\n---",
+    )
+    await writeText(
+      join(workspaceRoot, ".agents", "skills", "agents-workspace", "SKILL.md"),
+      "---\nname: Agents Workspace\n---",
+    )
+    await writeText(
+      join(workspaceRoot, ".codex", "skills", "codex-workspace", "SKILL.md"),
+      "---\nname: Codex Workspace\n---",
+    )
+    await writeText(
+      join(workspaceRoot, ".claude", "skills", "claude-workspace", "SKILL.md"),
+      "---\nname: Claude Workspace\n---",
+    )
+    await writeText(
+      join(workspaceRoot, ".opencode", "skills", "opencode-workspace", "SKILL.md"),
+      "---\nname: OpenCode Workspace\n---",
+    )
+
+    const service = new CapabilityDiscoveryService({ homeDir, dataDir })
+    const result = await service.discover({
+      scope: "all",
+      workspace: {
+        workspaceId: "workspace_skill_matrix",
+        backendType: "local",
+        rootPath: workspaceRoot,
+      },
+    })
+
+    expect(result.skills).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Agents Global", source: "agents", level: "global" }),
+      expect.objectContaining({ name: "Codex Global", source: "codex", level: "global" }),
+      expect.objectContaining({ name: "Claude Global", source: "claude-code", level: "global" }),
+      expect.objectContaining({ name: "OpenCode Global", source: "opencode", level: "global" }),
+      expect.objectContaining({ name: "Agents Workspace", source: "agents", level: "workspace" }),
+      expect.objectContaining({ name: "Codex Workspace", source: "codex", level: "workspace" }),
+      expect.objectContaining({ name: "Claude Workspace", source: "claude-code", level: "workspace" }),
+      expect.objectContaining({ name: "OpenCode Workspace", source: "opencode", level: "workspace" }),
+    ]))
+    expect(JSON.stringify(result)).not.toContain(homeDir)
+    expect(JSON.stringify(result)).not.toContain(workspaceRoot)
+  })
+
   test("discovers MCP server summaries and redacts sensitive values", async () => {
     const root = await mkdtemp(join(tmpdir(), "agent-runtime-capabilities-mcp-"))
     const homeDir = join(root, "home")
@@ -130,6 +184,93 @@ describe("capability discovery", () => {
     })
     expect(JSON.stringify(result)).not.toContain("sk-secret")
     expect(JSON.stringify(result)).not.toContain("ghp_secret")
+  })
+
+  test("discovers MCP server summaries across global and workspace source families", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runtime-capabilities-mcp-matrix-"))
+    const homeDir = join(root, "home")
+    const dataDir = join(root, "data")
+    const workspaceRoot = join(root, "workspace")
+
+    await writeText(
+      join(homeDir, ".agents", "mcp.json"),
+      JSON.stringify({ mcpServers: { agents_global: { command: "node" } } }),
+    )
+    await writeText(
+      join(homeDir, ".codex", "config.toml"),
+      ["[mcp_servers.codex_global]", "command = \"npx\""].join("\n"),
+    )
+    await writeText(
+      join(homeDir, ".claude.json"),
+      JSON.stringify({ mcpServers: { claude_global: { type: "http", url: "https://claude.example/mcp" } } }),
+    )
+    await writeText(
+      join(homeDir, ".config", "opencode", "opencode.jsonc"),
+      [
+        "{",
+        "  // OpenCode supports JSONC.",
+        "  \"mcp\": {",
+        "    \"opencode_global\": {",
+        "      \"type\": \"remote\",",
+        "      \"url\": \"https://opencode.example/mcp\",",
+        "    },",
+        "  },",
+        "}",
+      ].join("\n"),
+    )
+    await writeText(
+      join(workspaceRoot, ".agents", "mcp.json"),
+      JSON.stringify({ mcpServers: { agents_workspace: { command: "node" } } }),
+    )
+    await writeText(
+      join(workspaceRoot, ".codex", "config.toml"),
+      ["[mcp_servers.codex_workspace]", "command = \"npx\""].join("\n"),
+    )
+    await writeText(
+      join(workspaceRoot, ".mcp.json"),
+      JSON.stringify({ mcpServers: { claude_workspace: { command: "python", args: ["server.py"] } } }),
+    )
+    await writeText(
+      join(workspaceRoot, "opencode.json"),
+      JSON.stringify({
+        mcp: {
+          opencode_workspace: {
+            type: "local",
+            command: ["bun", "x", "@example/mcp"],
+          },
+        },
+      }),
+    )
+
+    const service = new CapabilityDiscoveryService({ homeDir, dataDir })
+    const result = await service.discover({
+      scope: "all",
+      workspace: {
+        workspaceId: "workspace_matrix",
+        backendType: "local",
+        rootPath: workspaceRoot,
+      },
+    })
+
+    expect(result.mcps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "agents_global", source: "agents", level: "global" }),
+      expect.objectContaining({ name: "codex_global", source: "codex", level: "global" }),
+      expect.objectContaining({ name: "claude_global", source: "claude-code", level: "global" }),
+      expect.objectContaining({ name: "opencode_global", source: "opencode", level: "global", transport: "http" }),
+      expect.objectContaining({ name: "agents_workspace", source: "agents", level: "workspace" }),
+      expect.objectContaining({ name: "codex_workspace", source: "codex", level: "workspace" }),
+      expect.objectContaining({ name: "claude_workspace", source: "claude-code", level: "workspace" }),
+      expect.objectContaining({
+        name: "opencode_workspace",
+        source: "opencode",
+        level: "workspace",
+        transport: "stdio",
+        command: "bun",
+        args: ["x", "@example/mcp"],
+      }),
+    ]))
+    expect(JSON.stringify(result)).not.toContain(homeDir)
+    expect(JSON.stringify(result)).not.toContain(workspaceRoot)
   })
 
   test("returns cache metadata and reuses unchanged discovery results", async () => {

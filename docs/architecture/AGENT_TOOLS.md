@@ -368,6 +368,8 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 外部 MCP / Adapter 桥接工具
 - 文件工具和沙箱工具在进入实现前，必须先定义对应 backend capability、审批语义和外部授权策略。
 
+MCP tool 后续接入必须遵守 Skill / MCP 服务设计中的 Phase 5 边界，详见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP discovery 和 trust 只决定候选资格，不等于工具可见性或执行授权。实际 MCP tool 注入时必须先经过显式启用、server 连接 / tool schema 枚举、`agent.allowedTools` 可见性过滤、`permissionPolicy` 权限校验和 approval continuation；调用事件必须输出 `tool.started`、`tool.completed`、`tool.failed`，并在 `data.externalProvider = "mcp"` 中保留来源边界。MCP tool 不得绕过 Runtime Tool Registry、权限服务、workspace sandbox 或脱敏规则。
+
 新增工具必须先完成：
 
 - 命名

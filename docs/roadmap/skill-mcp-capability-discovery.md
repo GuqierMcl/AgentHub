@@ -76,7 +76,7 @@ MCP 配置发现第一阶段只读取配置摘要。对本地 command / args / e
 | `agenthub` | Runtime `dataDir` 下的 AgentHub MCP 配置文件 | `<workspace>\.agenthub\mcp.json` | 作为 AgentHub 自有配置面，优先用于后续托管执行。 |
 | `codex` | `%USERPROFILE%\.codex\config.toml` | `<workspace>\.codex\config.toml` | 只读解析 MCP server 定义并脱敏，不写回。 |
 | `claude-code` | `%USERPROFILE%\.claude.json`、托管部署只读摘要 | `<workspace>\.mcp.json` | 只读解析 user/local/project scope；`~/.claude.json` 中 project-scoped 配置只匹配当前 workspace canonical path。 |
-| `opencode` | `%USERPROFILE%\.config\opencode\` 下 OpenCode config | `<workspace>\.opencode\` 下 OpenCode config | 第一阶段锁定官方 JSON config 文件名并通过 fixtures 覆盖；只读解析 `mcp` / `mcpServers` 等 server 定义。 |
+| `opencode` | `%USERPROFILE%\.config\opencode\opencode.json` / `opencode.jsonc` 及兼容配置目录 | `<workspace>\opencode.json` / `opencode.jsonc`，以及 `<workspace>\.opencode\` 兼容配置目录 | 第一阶段锁定官方 JSON / JSONC config 文件名并通过 fixtures 覆盖；只读解析 `mcp` / `mcpServers` 等 server 定义，兼容 OpenCode `mcp` 顶层 server map 与 local command array。 |
 
 ## API 草案
 
@@ -243,13 +243,32 @@ type HubWorkspaceCapabilitiesResponse = {
 - Web / HubServer 产品侧 scope 收敛为 `global | workspace`；工作区/项目级通过会话绑定 workspace 聚合展示，不再暴露 `all` 视图入口。
 - Runtime 诊断事件只返回 Skill 元数据，不返回正文。
 
-### 阶段 5：MCP tool 受控执行
+### 阶段 5：MCP trust 与 tool 受控执行
 
-- 新增 `McpRuntimeService`，独立于 `RuntimeToolRegistry` 维护 MCP clients、transports、tool schemas 和连接生命周期。
+Phase 5 的服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP 与 Skill 共享默认 trusted / 显式撤销的产品语义，但 MCP 是工具执行能力，不是 prompt 正文注入。
+
+#### Phase 5A：MCP trust 与服务状态
+
+- 新增 `McpTrustService`，记录 global 与 workspace MCP server 的显式允许 / 撤销决策。
+- `mcpRef` 使用 Capability Discovery 返回的 MCP `id`；workspace 记录按 `{ workspaceId, workspace root hash, mcpRef }` 隔离。
+- 缺失 trust record 默认 trusted；显式 `trusted = false` 会阻止后续启用、枚举和 tool 注入候选。
+- 新增 Runtime 内部 `POST /runtime/mcp-trust/query` 与 `PUT /runtime/mcp-trust`，响应不返回 rootPath、env、headers、token、secret args 或 MCP 配置原文。
+- `GET /runtime/services/status` 增加 `mcp-runtime` 服务项；Phase 5A 只返回 `idle` 或 `error`。
+- HubServer 增加 `/api/runtime/mcp-trust/query` 与 `/api/runtime/mcp-trust` 代理；workspace scope 只接受 `conversationId`，不接受浏览器提交 rootPath。
+- Web 插件配置页只为 workspace MCP 提供信任 / 撤销入口；global MCP 继续只读展示。
+- Phase 5A 不启动 MCP stdio server，不连接 HTTP/SSE server，不枚举 MCP tools，不调用 MCP tool。
+
+#### Phase 5B：显式启用、连接与 tool 枚举
+
+- 新增 `McpRuntimeService`，独立维护 MCP clients、transports、tool schemas 和连接生命周期。
 - MCP stdio server 启动需要显式启用和审批；HTTP/SSE server 连接需要网络权限和凭据脱敏。
+- 只有 discovery 有效、trust 未撤销且用户显式启用的 MCP server 可以连接和枚举 tool。
+
+#### Phase 5C：MCP tool 注入与执行
+
 - MCP tool 以命名空间形式注入内部 AI SDK tool set，例如 `mcp_<serverId>_<toolName>`。
 - MCP tool 执行统一输出 `tool.started`、`tool.completed`、`tool.failed`，并在 `data.externalProvider = "mcp"` 中保留来源边界。
-- MCP tool 权限映射到 Runtime 权限模型；需要新增或扩展 `permissionPolicy` 表达外部工具能力。
+- MCP tool 权限映射到 Runtime permission / approval 模型，不绕过 Tool Registry、permission continuation 或 workspace sandbox。
 - MCP resources/prompts 先作为 application-driven context，不直接交给模型自由调用。
 
 ### 阶段 6：外部 Agent Adapter 能力摘要
@@ -277,6 +296,9 @@ type HubWorkspaceCapabilitiesResponse = {
 - 2026-06-08：Phase 4B 扩展到 Hub/Web 对接；新增 HubServer workspace Skill trust 代理、插件配置页 trust 操作，以及用户自定义 agent `allowedSkills` 保存入口。
 - 2026-06-08：Web 插件配置页范围收敛为“全局 / 工作区”，移除产品侧 `all` 入口；HubServer 浏览器 API 同步拒绝 `scope=all`，并在 workspace scope 下按 canonical rootPath 聚合 active conversations 为 `workspaces[]` 分组。
 - 2026-06-08：根据产品决策调整 workspace Skill 语义：自动发现默认 trusted；信任记录主要用于显式撤销；默认 `orchestrator` 在绑定 workspace 时自动注入当前 workspace 的有效、未撤销 Skill。
+- 2026-06-08：Phase 5A 进入执行，目标是补齐 Skill/MCP 服务设计文档，并实现 Runtime MCP trust store、trust API 与 `mcp-runtime` 服务状态；不启动或调用 MCP。
+- 2026-06-08：补齐 Runtime discovery 对 OpenCode 官方 MCP 配置的兼容：支持全局 `%USERPROFILE%\.config\opencode\opencode.jsonc`、workspace 根 `opencode.json` / `opencode.jsonc`、OpenCode `mcp` 顶层 server map 和 local `command` 数组。
+- 2026-06-08：Phase 5A 平台侧对接进入执行：HubServer 代理 Runtime MCP trust API，`/api/system/services/status` 透传 `mcp-runtime`，Web 插件配置页为 workspace MCP 提供信任 / 撤销入口。
 
 ## 已完成
 

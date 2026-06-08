@@ -8,6 +8,7 @@ import settings from './settings'
 import instructRuns from './instruct-runs'
 import capabilities from './capabilities'
 import workspaceSkillTrust from './workspace-skill-trust'
+import mcpTrust from './mcp-trust'
 
 const router = new Hono()
 
@@ -33,5 +34,6 @@ router.route('/', settings)
 router.route('/', instructRuns)
 router.route('/', capabilities)
 router.route('/', workspaceSkillTrust)
+router.route('/', mcpTrust)
 
 export default router

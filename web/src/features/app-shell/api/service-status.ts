@@ -7,7 +7,7 @@ export type ServiceStatusValue =
   | "refreshing"
 
 export type SystemServiceStatusItem = {
-  id: "agent-runtime" | "opencode" | "codex" | "claude-code" | "capability-discovery"
+  id: "agent-runtime" | "opencode" | "codex" | "claude-code" | "capability-discovery" | "mcp-runtime"
   label: string
   kind: "runtime" | "external-agent" | "runtime-capability"
   status: ServiceStatusValue

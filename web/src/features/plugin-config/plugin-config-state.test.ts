@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  getMcpTrustState,
   getSkillTrustState,
   getCapabilityScopeLabel,
   getMissingWorkspaceNotice,
   isWorkspaceNotice,
 } from "./plugin-config-state"
-import type { SkillItem, WorkspaceSkillTrustRecord } from "./types"
+import type { McpItem, McpTrustRecord, SkillItem, WorkspaceSkillTrustRecord } from "./types"
 
 describe("plugin config state helpers", () => {
   test("labels capability scopes with workspace semantics", () => {
@@ -60,6 +61,55 @@ describe("plugin config state helpers", () => {
     expect(getSkillTrustState(workspaceSkill, [trustedRecord])).toEqual({
       kind: "trusted",
       record: trustedRecord,
+    })
+  })
+
+  test("maps workspace MCP trust records to UI state", () => {
+    const globalMcp: McpItem = {
+      id: "global:codex:config.toml:filesystem",
+      name: "filesystem",
+      source: "codex",
+      level: "global",
+      configPath: "global:codex:config.toml",
+      valid: true,
+      warnings: [],
+    }
+    const workspaceMcp: McpItem = {
+      ...globalMcp,
+      id: "workspace:agents:mcp.json:filesystem",
+      source: "agents",
+      level: "workspace",
+      configPath: "workspace:agents:mcp.json",
+    }
+    const trustedRecord: McpTrustRecord = {
+      scope: "workspace",
+      level: "workspace",
+      workspaceId: "workspace_1",
+      backendType: "local",
+      workspaceRootHash: "hash",
+      mcpRef: "workspace:agents:mcp.json:filesystem",
+      trusted: true,
+      status: "trusted",
+      createdAt: "2026-06-08T00:00:00.000Z",
+      updatedAt: "2026-06-08T00:00:00.000Z",
+    }
+    const revokedRecord: McpTrustRecord = {
+      ...trustedRecord,
+      trusted: false,
+      status: "untrusted",
+      revokedAt: "2026-06-08T00:00:01.000Z",
+      updatedAt: "2026-06-08T00:00:01.000Z",
+    }
+
+    expect(getMcpTrustState(globalMcp, [])).toEqual({ kind: "global" })
+    expect(getMcpTrustState(workspaceMcp, [])).toEqual({ kind: "untrusted" })
+    expect(getMcpTrustState(workspaceMcp, [trustedRecord])).toEqual({
+      kind: "trusted",
+      record: trustedRecord,
+    })
+    expect(getMcpTrustState(workspaceMcp, [revokedRecord])).toEqual({
+      kind: "untrusted",
+      record: revokedRecord,
     })
   })
 })
