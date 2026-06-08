@@ -11,6 +11,7 @@ import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-e
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
 import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { formatInjectedSkillsForPrompt } from "./skill-prompt"
+import { formatMcpContextForPrompt } from "./mcp-runtime"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { createRunEvent } from "./run-events"
 import type { PendingQuestionToolCall } from "./question"
@@ -82,6 +83,11 @@ export function buildSystemPrompt(context: AgentExecutionContext): string {
   const skillBlock = formatInjectedSkillsForPrompt(context.injectedSkills)
   if (skillBlock) {
     systemNotes.push(skillBlock)
+  }
+
+  const mcpBlock = formatMcpContextForPrompt(context.mcpContext)
+  if (mcpBlock) {
+    systemNotes.push(mcpBlock)
   }
 
   return systemNotes.join("\n\n")
@@ -261,7 +267,7 @@ export class AiSdkExecutor implements AgentExecutor {
     }
 
     const toolSettings = resolution.resolvedModel.capabilities.supports_tools && this.toolRegistry
-      ? this.toolRegistry.buildAiSdkToolSettings(streamContext)
+      ? await this.toolRegistry.buildAiSdkToolSettings(streamContext)
       : null
     const diagnostics = resolveRunDiagnostics(context.input)
 

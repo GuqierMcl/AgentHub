@@ -1,4 +1,4 @@
-import { tool, type ToolSet } from "ai"
+import { jsonSchema, tool, type ToolSet } from "ai"
 import { createRunEvent } from "../run-events"
 import type { AgentExecutionContext, RunEvent } from "../types"
 import type {
@@ -97,13 +97,45 @@ export class RuntimeToolRegistry {
       return this.failBeforeStart(context, name, "TOOL_NOT_FOUND", `Tool ${name} is not registered`)
     }
 
+    return this.executeDefinition(definition, input, context, {
+      enforceAllowedTools: true,
+    })
+  }
+
+  async executeDynamicTool(
+    definition: ToolDefinition<any, any, any>,
+    input: unknown,
+    baseContext: AgentExecutionContext,
+    options: RuntimeToolExecuteOptions = {}
+  ): Promise<ToolExecutionResult> {
+    const toolCallId = options.toolCallId ?? `tool_${crypto.randomUUID()}`
+    const context = this.buildContext(baseContext, toolCallId, options)
+
+    return this.executeDefinition(definition, input, context, {
+      enforceAllowedTools: false,
+    })
+  }
+
+  private async executeDefinition(
+    definition: ToolDefinition<any, any, any>,
+    input: unknown,
+    context: ToolExecutionContext,
+    options: { enforceAllowedTools: boolean }
+  ): Promise<ToolExecutionResult> {
+    const eventData = resolveToolEventData(definition, context)
+    const name = definition.name
+
     if (!context.agent.allowedTools.includes(definition.name)) {
-      return this.failBeforeStart(
-        context,
-        name,
-        "TOOL_NOT_ALLOWED",
-        `Agent ${context.agent.id} is not allowed to use tool ${name}`
-      )
+      if (options.enforceAllowedTools) {
+        return this.failBeforeStart(
+          context,
+          name,
+          "TOOL_NOT_ALLOWED",
+          `Agent ${context.agent.id} is not allowed to use tool ${name}`,
+          undefined,
+          eventData
+        )
+      }
     }
 
     if (!hasRequiredPermissions(context.agent.permissionPolicy, definition.requiredPermissions)) {
@@ -115,7 +147,8 @@ export class RuntimeToolRegistry {
         {
           requiredPermissions: definition.requiredPermissions,
           permissionPolicy: context.agent.permissionPolicy,
-        }
+        },
+        eventData
       )
     }
 
@@ -126,13 +159,14 @@ export class RuntimeToolRegistry {
         name,
         "TOOL_INVALID_INPUT",
         `Invalid input for tool ${name}`,
-        parsed.error.issues
+        parsed.error.issues,
+        eventData
       )
     }
 
     const preflight = await this.prepareToolExecution(definition, parsed.data, context)
     if (preflight?.type === "deny") {
-      return this.failWithResultBeforeStart(context, name, preflight.result)
+      return this.failWithResultBeforeStart(context, name, preflight.result, eventData)
     }
     if (preflight?.type === "ask") {
       return this.requestToolApproval(context, definition.name, preflight.approval)
@@ -150,6 +184,7 @@ export class RuntimeToolRegistry {
     }
 
     this.emitToolEvent(context, "tool.started", definition.name, {
+      ...eventData,
       riskLevel: definition.riskLevel,
     })
 
@@ -157,6 +192,7 @@ export class RuntimeToolRegistry {
       const result = await definition.execute(parsed.data, context)
       const terminalType = result.status === "completed" ? "tool.completed" : "tool.failed"
       this.emitToolEvent(context, terminalType, definition.name, {
+        ...eventData,
         status: result.status,
         summary: result.summary,
         data: result.data,
@@ -174,6 +210,7 @@ export class RuntimeToolRegistry {
         },
       }
       this.emitToolEvent(context, "tool.failed", definition.name, {
+        ...eventData,
         status: result.status,
         summary: result.summary,
         error: result.error,
@@ -182,31 +219,42 @@ export class RuntimeToolRegistry {
     }
   }
 
-  buildAiSdkToolSettings(
+  async buildAiSdkToolSettings(
     baseContext: AgentExecutionContext,
     options: RuntimeToolListOptions = {}
-  ): AiSdkToolSettings | null {
+  ): Promise<AiSdkToolSettings | null> {
     const visibleTools = this.listToolsForAgent(baseContext.agent, {
       includeInternal: options.includeInternal,
     })
-    if (visibleTools.length === 0) {
+    const dynamicTools = this.listDynamicToolsForAgent(baseContext)
+    const allTools = [...visibleTools, ...dynamicTools]
+    const dynamicToolNames = new Set(dynamicTools.map((definition) => definition.name))
+    if (allTools.length === 0) {
       return null
     }
 
     const tools: ToolSet = {}
-    for (const definition of visibleTools) {
+    for (const definition of allTools) {
+      const inputSchema = definition.modelInputJsonSchema
+        ? jsonSchema(definition.modelInputJsonSchema)
+        : definition.inputSchema
+
       if (definition.deferred) {
         tools[definition.name] = tool({
           description: definition.description,
-          inputSchema: definition.inputSchema,
+          inputSchema,
         })
         continue
       }
 
       tools[definition.name] = tool({
         description: definition.description,
-        inputSchema: definition.inputSchema,
+        inputSchema,
         needsApproval: async (input, options) => {
+          if (dynamicToolNames.has(definition.name)) {
+            return false
+          }
+
           if (definition.approvalPolicy === "never") {
             return false
           }
@@ -242,10 +290,15 @@ export class RuntimeToolRegistry {
           return true
         },
         execute: async (input, options) => {
-          const result = await this.executeTool(definition.name, input, baseContext, {
-            toolCallId: options.toolCallId,
-            signal: options.abortSignal,
-          })
+          const result = dynamicToolNames.has(definition.name)
+            ? await this.executeDynamicTool(definition, input, baseContext, {
+                toolCallId: options.toolCallId,
+                signal: options.abortSignal,
+              })
+            : await this.executeTool(definition.name, input, baseContext, {
+                toolCallId: options.toolCallId,
+                signal: options.abortSignal,
+              })
 
           return {
             status: result.status,
@@ -259,8 +312,18 @@ export class RuntimeToolRegistry {
 
     return {
       tools,
-      activeTools: visibleTools.map((definition) => definition.name),
+      activeTools: allTools.map((definition) => definition.name),
     }
+  }
+
+  private listDynamicToolsForAgent(
+    baseContext: AgentExecutionContext
+  ): ToolDefinition<any, any, any>[] {
+    if (!isMcpToolInjectableExecutor(baseContext.agent)) {
+      return []
+    }
+
+    return baseContext.mcpContext?.toolDefinitions ?? []
   }
 
   private buildContext(
@@ -281,6 +344,7 @@ export class RuntimeToolRegistry {
       emitEvent: baseContext.emitEvent ?? (() => {}),
       workspaceService: baseContext.workspaceService,
       permissionService: baseContext.permissionService,
+      mcpContext: baseContext.mcpContext,
       executionId: baseContext.executionId,
       executeTask: baseContext.executeTask,
       runTask: baseContext.runTask,
@@ -293,7 +357,8 @@ export class RuntimeToolRegistry {
     toolName: string,
     code: string,
     message: string,
-    details?: unknown
+    details?: unknown,
+    eventData: Record<string, unknown> = {}
   ): ToolExecutionResult {
     const result: ToolExecutionResult = {
       status: "failed",
@@ -306,6 +371,7 @@ export class RuntimeToolRegistry {
     }
 
     this.emitToolEvent(context, "tool.failed", toolName, {
+      ...eventData,
       status: result.status,
       summary: result.summary,
       error: result.error,
@@ -316,9 +382,11 @@ export class RuntimeToolRegistry {
   private failWithResultBeforeStart(
     context: ToolExecutionContext,
     toolName: string,
-    result: ToolExecutionResult
+    result: ToolExecutionResult,
+    eventData: Record<string, unknown> = {}
   ): ToolExecutionResult {
     this.emitToolEvent(context, "tool.failed", toolName, {
+      ...eventData,
       status: result.status,
       summary: result.summary,
       data: result.data,
@@ -374,6 +442,31 @@ export class RuntimeToolRegistry {
     event.groupId = context.groupId
     context.emitEvent(event)
   }
+}
+
+function isMcpToolInjectableExecutor(agent: AgentExecutionContext["agent"]): boolean {
+  if (agent.executorType === "orchestrator") {
+    return true
+  }
+
+  return (
+    agent.executorType === "ai-sdk" &&
+    agent.tier === "primary" &&
+    agent.visibility === "visible"
+  )
+}
+
+function resolveToolEventData(
+  definition: ToolDefinition<any, any, any>,
+  context: ToolExecutionContext
+): Record<string, unknown> {
+  if (!definition.eventData) {
+    return {}
+  }
+
+  return typeof definition.eventData === "function"
+    ? definition.eventData(context)
+    : definition.eventData
 }
 
 export function createDefaultRuntimeToolRegistry(): RuntimeToolRegistry {

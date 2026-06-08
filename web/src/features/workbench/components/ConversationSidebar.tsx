@@ -125,7 +125,7 @@ export function ConversationSidebar({
             <PinnedList
               onPinnedChange={handlePinnedChange}
             >
-              <PinnedListPinned>
+              <PinnedListPinned className="mb-1">
                 <PinnedListItems className="flex flex-col gap-1">
                   {pinnedConversations.map((conversation) => (
                     <PinnedListItem

@@ -1,7 +1,9 @@
 import { CheckCircle2Icon, AlertTriangleIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/animate-ui/components/radix/switch"
 import { cn } from "@/lib/utils"
-import type { SkillItem } from "../types"
+import { getSkillTrustState } from "../plugin-config-state"
+import type { SkillItem, WorkspaceSkillTrustRecord } from "../types"
 
 const SOURCE_COLORS: Record<string, string> = {
   agents: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -19,9 +21,22 @@ const SOURCE_LABELS: Record<string, string> = {
 
 type SkillCardProps = {
   skill: SkillItem
+  trustRecords?: WorkspaceSkillTrustRecord[]
+  trustLoading?: boolean
+  trustUpdating?: boolean
+  onTrustDecision?: (skillRef: string, trusted: boolean) => void
 }
 
-export function SkillCard({ skill }: SkillCardProps) {
+export function SkillCard({
+  skill,
+  trustRecords = [],
+  trustLoading = false,
+  trustUpdating = false,
+  onTrustDecision,
+}: SkillCardProps) {
+  const trustState = getSkillTrustState(skill, trustRecords)
+  const canChangeTrust = skill.valid && skill.level === "workspace" && !!onTrustDecision
+
   return (
     <div
       className={cn(
@@ -47,6 +62,19 @@ export function SkillCard({ skill }: SkillCardProps) {
         <Badge variant="secondary" className="text-xs">
           {skill.level === "global" ? "全局" : "工作区"}
         </Badge>
+        {trustState.kind === "global" ? (
+          <Badge variant="outline" className="text-xs text-emerald-600">
+            直接注入
+          </Badge>
+        ) : trustState.kind === "trusted" ? (
+          <Badge variant="outline" className="border-emerald-500/30 text-xs text-emerald-600">
+            已信任
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="border-amber-500/30 text-xs text-amber-600">
+            未信任
+          </Badge>
+        )}
       </div>
 
       {skill.description ? (
@@ -56,6 +84,17 @@ export function SkillCard({ skill }: SkillCardProps) {
       )}
 
       <p className="truncate font-mono text-[11px] text-muted-foreground/70">{skill.path}</p>
+
+      {skill.level === "workspace" && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">信任</span>
+          <Switch
+            checked={trustState.kind === "trusted"}
+            disabled={!canChangeTrust || trustLoading || trustUpdating}
+            onCheckedChange={() => onTrustDecision?.(skill.id, trustState.kind !== "trusted")}
+          />
+        </div>
+      )}
 
       {skill.warnings.length > 0 && (
         <div className="space-y-0.5 rounded-md bg-amber-500/5 px-2.5 py-2">

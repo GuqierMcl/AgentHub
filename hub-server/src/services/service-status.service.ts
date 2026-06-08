@@ -12,7 +12,7 @@ export type ServiceStatus =
   | "refreshing"
 
 export type SystemServiceStatusItem = {
-  id: "agent-runtime" | "opencode" | "codex" | "claude-code" | "capability-discovery"
+  id: "agent-runtime" | "opencode" | "codex" | "claude-code" | "capability-discovery" | "mcp-runtime"
   label: string
   kind: "runtime" | "external-agent" | "runtime-capability"
   status: ServiceStatus
@@ -187,6 +187,8 @@ function mergeRuntimeManagedServices(
       createClaudeCodeRuntimeUnavailableStatus(checkedAt),
     byId.get("capability-discovery") ??
       createCapabilityDiscoveryRuntimeUnavailableStatus(checkedAt),
+    byId.get("mcp-runtime") ??
+      createMcpRuntimeUnavailableStatus(checkedAt),
   ]
 }
 
@@ -199,6 +201,7 @@ function createRuntimeUnavailableStatus(checkedAt: string): SystemServicesStatus
       createCodexRuntimeUnavailableStatus(checkedAt),
       createClaudeCodeRuntimeUnavailableStatus(checkedAt),
       createCapabilityDiscoveryRuntimeUnavailableStatus(checkedAt),
+      createMcpRuntimeUnavailableStatus(checkedAt),
     ],
   }
 }
@@ -273,8 +276,22 @@ function createCapabilityDiscoveryRuntimeUnavailableStatus(checkedAt: string): S
   }
 }
 
+function createMcpRuntimeUnavailableStatus(checkedAt: string): SystemServiceStatusItem {
+  return {
+    id: "mcp-runtime",
+    label: "MCP Runtime",
+    kind: "runtime-capability",
+    status: "error",
+    implemented: true,
+    checkedAt,
+    details: {
+      reason: "runtime-unavailable",
+    },
+  }
+}
+
 function isRuntimeManagedService(value: unknown): value is Omit<SystemServiceStatusItem, "kind"> & {
-  id: "opencode" | "codex" | "claude-code" | "capability-discovery"
+  id: "opencode" | "codex" | "claude-code" | "capability-discovery" | "mcp-runtime"
   kind?: "external-agent" | "runtime-capability"
 } {
   if (!value || typeof value !== "object") return false
@@ -283,7 +300,8 @@ function isRuntimeManagedService(value: unknown): value is Omit<SystemServiceSta
     (service.id === "opencode" ||
       service.id === "codex" ||
       service.id === "claude-code" ||
-      service.id === "capability-discovery") &&
+      service.id === "capability-discovery" ||
+      service.id === "mcp-runtime") &&
     typeof service.label === "string" &&
     isRuntimeManagedServiceKind(service.id, service.kind) &&
     isServiceStatus(service.status) &&
@@ -298,7 +316,7 @@ function isRuntimeManagedServiceKind(
   if (kind === undefined) {
     return serviceId === "opencode" || serviceId === "codex" || serviceId === "claude-code"
   }
-  if (serviceId === "capability-discovery") {
+  if (serviceId === "capability-discovery" || serviceId === "mcp-runtime") {
     return kind === "runtime-capability"
   }
   return kind === "external-agent"

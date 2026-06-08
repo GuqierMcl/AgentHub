@@ -10,6 +10,26 @@ import { findConversationById } from '../repositories/conversation.repo'
 
 const workspace = new Hono()
 
+// ── Browse cache (TTL-based, avoids repeated `readdirSync` scans) ──
+
+interface BrowseCacheEntry {
+  entries: { name: string; path: string; kind: 'dir' | 'file'; hasChildren?: boolean }[]
+  ts: number
+}
+
+const browseCache = new Map<string, BrowseCacheEntry>()
+const BROWSE_CACHE_TTL = 30_000 // 30 seconds
+
+function getCachedBrowse(path: string): BrowseCacheEntry['entries'] | null {
+  const cached = browseCache.get(path)
+  if (cached && Date.now() - cached.ts < BROWSE_CACHE_TTL) return cached.entries
+  return null
+}
+
+function setCachedBrowse(path: string, entries: BrowseCacheEntry['entries']) {
+  browseCache.set(path, { entries, ts: Date.now() })
+}
+
 // ── MIME type helpers ──
 
 const TEXT_EXTENSIONS = new Set([
@@ -280,6 +300,10 @@ workspace.get('/api/workspace/browse', async (c: Context) => {
   const os = platform()
 
   try {
+    // Check TTL cache first
+    const cached = getCachedBrowse(pathParam)
+    if (cached) return c.json({ path: pathParam || '', entries: cached })
+
     let targetPath: string
     let entries: { name: string; path: string; kind: 'dir' | 'file'; hasChildren?: boolean }[]
 
@@ -350,6 +374,7 @@ workspace.get('/api/workspace/browse', async (c: Context) => {
       return a.name.localeCompare(b.name)
     })
 
+    setCachedBrowse(pathParam, entries)
     return c.json({ path: targetPath, entries })
   } catch (err) {
     logger.error({ err, pathParam }, 'Workspace browse error')

@@ -311,6 +311,65 @@ describe("runtime service status", () => {
     })
   })
 
+  test("returns default MCP runtime status", () => {
+    const server = {
+      getStatus: () => ({
+        status: "idle" as const,
+        mode: "managed-by-runtime" as const,
+        activeWorkspaceCount: 0,
+        pendingWorkspaceCount: 0,
+      }),
+    }
+
+    const status = createRuntimeServicesStatus(server)
+    expect(status.services.find((service) => service.id === "mcp-runtime")).toMatchObject({
+      id: "mcp-runtime",
+      label: "MCP Runtime",
+      kind: "runtime-capability",
+      status: "idle",
+      implemented: true,
+      details: expect.objectContaining({
+        trustedRecordCount: 0,
+      }),
+    })
+  })
+
+  test("services router includes MCP runtime status", async () => {
+    const app = new Hono()
+    app.use("*", async (c: Context, next: Next) => {
+      c.set("mcpTrustService", {
+        getStatus() {
+          return {
+            id: "mcp-runtime",
+            label: "MCP Runtime",
+            kind: "runtime-capability",
+            status: "idle",
+            implemented: true,
+            checkedAt: "2026-06-08T00:00:00.000Z",
+            details: {
+              trustedRecordCount: 3,
+            },
+          }
+        },
+      })
+      await next()
+    })
+    app.route("/", servicesRouter)
+
+    const response = await app.request("/runtime/services/status")
+    const body = await response.json() as {
+      services: Array<{ id: string; status: string; details?: Record<string, unknown> }>
+    }
+
+    expect(response.status).toBe(200)
+    expect(body.services.find((service) => service.id === "mcp-runtime")).toMatchObject({
+      status: "idle",
+      details: expect.objectContaining({
+        trustedRecordCount: 3,
+      }),
+    })
+  })
+
   test("RunManager summarizes non-terminal direct Claude Code runs", async () => {
     const registry = await createInitializedRegistry()
     const runManager = new RunManager(registry, {} as ProviderService)

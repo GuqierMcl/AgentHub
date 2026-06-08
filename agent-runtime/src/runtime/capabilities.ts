@@ -62,6 +62,15 @@ export type McpServerCapabilitySummary = {
   warnings: string[]
 }
 
+export type McpServerRuntimeConfig = McpServerCapabilitySummary & {
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+}
+
 export type CapabilityDiscoveryResponse = {
   discoveredAt: string
   scope: CapabilityScope
@@ -123,7 +132,7 @@ type CapabilityCacheEntry = {
 
 const SECRET_KEY_PATTERN = /(token|secret|password|passwd|api[-_]?key|authorization|credential)/i
 const SECRET_VALUE_PATTERN = /^(sk-|ghp_|github_pat_|xox[baprs]-|ya29\.|eyJ)[A-Za-z0-9._-]{8,}/
-const CONFIG_FILE_EXTENSIONS = new Set([".json", ".toml", ".yaml", ".yml"])
+const CONFIG_FILE_EXTENSIONS = new Set([".json", ".jsonc", ".toml", ".yaml", ".yml"])
 const DEFAULT_CAPABILITY_CACHE_TTL_MS = 30_000
 
 export class CapabilityDiscoveryError extends Error {
@@ -185,6 +194,31 @@ export class CapabilityDiscoveryService {
       lookups.push(...await this.discoverSkillLookups(root))
     }
     return sortById(lookups)
+  }
+
+  async listMcpRuntimeConfigs(input: CapabilityDiscoveryRequest = {}): Promise<McpServerRuntimeConfig[]> {
+    const request = CapabilityDiscoveryRequestSchema.parse(input)
+    if ((request.scope === "workspace" || request.scope === "all") && !request.workspace) {
+      throw new CapabilityDiscoveryError(
+        "CAPABILITY_WORKSPACE_REQUIRED",
+        "Workspace discovery requires an explicit workspace snapshot.",
+      )
+    }
+
+    const configs: McpServerRuntimeConfig[] = []
+    if (request.scope === "global" || request.scope === "all") {
+      configs.push(...await this.discoverMcpRuntimeConfigs(
+        this.filterMcpCandidates(this.globalMcpCandidates(), request.sources)
+      ))
+    }
+    if ((request.scope === "workspace" || request.scope === "all") && request.workspace) {
+      configs.push(...await this.discoverMcpRuntimeConfigs(
+        this.filterMcpCandidates(this.workspaceMcpCandidates(request.workspace.rootPath), request.sources),
+        request.workspace.rootPath,
+      ))
+    }
+
+    return sortById(configs)
   }
 
   getStatus(checkedAt = new Date().toISOString()): CapabilityDiscoveryStatusItem {
@@ -370,12 +404,19 @@ export class CapabilityDiscoveryService {
 
   private workspaceMcpCandidates(rootPath: string): McpConfigCandidate[] {
     return [
+      mcpFile("agents", "workspace", join(rootPath, "mcp.json"), "workspace:agents:mcp.json"),
+      mcpFile("agents", "workspace", join(rootPath, "mcp.jsonc"), "workspace:agents:mcp.jsonc"),
+      mcpFile("agents", "workspace", join(rootPath, "mcp.yaml"), "workspace:agents:mcp.yaml"),
+      mcpFile("agents", "workspace", join(rootPath, "mcp.yml"), "workspace:agents:mcp.yml"),
+      mcpFile("agents", "workspace", join(rootPath, "mcp.toml"), "workspace:agents:mcp.toml"),
       ...mcpFiles("agents", "workspace", join(rootPath, ".agents"), "workspace:agents"),
       ...mcpDirectoryFiles("agents", "workspace", join(rootPath, ".agents", "mcp"), "workspace:agents:mcp"),
       ...mcpFiles("codex", "workspace", join(rootPath, ".codex"), "workspace:codex"),
       ...mcpDirectoryFiles("codex", "workspace", join(rootPath, ".codex", "mcp"), "workspace:codex:mcp"),
       mcpFile("claude-code", "workspace", join(rootPath, ".mcp.json"), "workspace:claude-code:.mcp.json"),
       ...mcpFiles("claude-code", "workspace", join(rootPath, ".claude"), "workspace:claude-code"),
+      mcpFile("opencode", "workspace", join(rootPath, "opencode.json"), "workspace:opencode:opencode.json"),
+      mcpFile("opencode", "workspace", join(rootPath, "opencode.jsonc"), "workspace:opencode:opencode.jsonc"),
       ...mcpFiles("opencode", "workspace", join(rootPath, ".opencode"), "workspace:opencode"),
     ]
   }
@@ -470,6 +511,25 @@ export class CapabilityDiscoveryService {
     return items
   }
 
+  private async discoverMcpRuntimeConfigs(
+    candidates: McpConfigCandidate[],
+    workspaceRoot?: string,
+  ): Promise<McpServerRuntimeConfig[]> {
+    const items: McpServerRuntimeConfig[] = []
+    for (const candidate of candidates) {
+      if (!existsSync(candidate.filePath)) continue
+      let fileStat: Awaited<ReturnType<typeof stat>>
+      try {
+        fileStat = await stat(candidate.filePath)
+      } catch {
+        continue
+      }
+      if (!fileStat.isFile()) continue
+      items.push(...await this.readMcpRuntimeConfig(candidate, workspaceRoot))
+    }
+    return items
+  }
+
   private async readMcpConfig(candidate: McpConfigCandidate): Promise<McpServerCapabilitySummary[]> {
     let parsed: unknown
     try {
@@ -484,8 +544,7 @@ export class CapabilityDiscoveryService {
 
     return servers.map((server) => {
       const transport = inferTransport(server.value)
-      const command = sanitizeCommand(getString(server.value.command))
-      const args = sanitizeArgs(getStringArray(server.value.args))
+      const { command, args } = getCommandParts(server.value)
       const ref = `${candidate.ref}:${server.name}`
       return {
         id: stableId(ref),
@@ -498,6 +557,59 @@ export class CapabilityDiscoveryService {
         ...(args.length > 0 ? { args } : {}),
         valid: true,
         warnings: [],
+      }
+    })
+  }
+
+  private async readMcpRuntimeConfig(
+    candidate: McpConfigCandidate,
+    workspaceRoot?: string,
+  ): Promise<McpServerRuntimeConfig[]> {
+    let parsed: unknown
+    try {
+      const content = await readFile(candidate.filePath, "utf-8")
+      parsed = parseConfig(candidate.filePath, content)
+    } catch {
+      return [invalidMcp(candidate, basename(candidate.ref), "Unable to parse MCP config.")]
+    }
+
+    const servers = extractMcpServers(parsed)
+    if (servers.length === 0) return []
+
+    return servers.map((server) => {
+      const transport = inferTransport(server.value)
+      const { command, args } = getRawCommandParts(server.value)
+      const env = getStringRecord(server.value.env)
+      const headers = getStringRecord(server.value.headers)
+      const cwd = getString(server.value.cwd) ?? (candidate.level === "workspace" ? workspaceRoot : undefined)
+      const url = getString(server.value.url)
+      const ref = `${candidate.ref}:${server.name}`
+      const warnings: string[] = []
+      if (transport === "stdio" && !command) {
+        warnings.push("MCP stdio server is missing command.")
+      }
+      if ((transport === "http" || transport === "sse") && !url) {
+        warnings.push("MCP HTTP/SSE server is missing url.")
+      }
+      if (transport === "unknown") {
+        warnings.push("MCP server transport is unknown.")
+      }
+
+      return {
+        id: stableId(ref),
+        name: server.name,
+        source: candidate.source,
+        level: candidate.level,
+        configPath: candidate.ref,
+        transport,
+        ...(command ? { command } : {}),
+        ...(args.length > 0 ? { args } : {}),
+        ...(Object.keys(env).length > 0 ? { env } : {}),
+        ...(cwd ? { cwd } : {}),
+        ...(url ? { url } : {}),
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        valid: warnings.length === 0,
+        warnings,
       }
     })
   }
@@ -520,12 +632,15 @@ function mcpFiles(
 ): McpConfigCandidate[] {
   return [
     mcpFile(source, level, join(directory, "mcp.json"), `${refPrefix}:mcp.json`),
+    mcpFile(source, level, join(directory, "mcp.jsonc"), `${refPrefix}:mcp.jsonc`),
     mcpFile(source, level, join(directory, "mcp.yaml"), `${refPrefix}:mcp.yaml`),
     mcpFile(source, level, join(directory, "mcp.yml"), `${refPrefix}:mcp.yml`),
     mcpFile(source, level, join(directory, "mcp.toml"), `${refPrefix}:mcp.toml`),
     mcpFile(source, level, join(directory, "config.toml"), `${refPrefix}:config.toml`),
     mcpFile(source, level, join(directory, "config.json"), `${refPrefix}:config.json`),
+    mcpFile(source, level, join(directory, "config.jsonc"), `${refPrefix}:config.jsonc`),
     mcpFile(source, level, join(directory, "opencode.json"), `${refPrefix}:opencode.json`),
+    mcpFile(source, level, join(directory, "opencode.jsonc"), `${refPrefix}:opencode.jsonc`),
     mcpFile(source, level, join(directory, "opencode.yaml"), `${refPrefix}:opencode.yaml`),
     mcpFile(source, level, join(directory, "opencode.yml"), `${refPrefix}:opencode.yml`),
   ]
@@ -578,6 +693,7 @@ function parseConfig(filePath: string, content: string): unknown {
   const ext = extname(filePath).toLowerCase()
   if (ext === ".toml") return Bun.TOML.parse(content)
   if (ext === ".yaml" || ext === ".yml") return Bun.YAML.parse(content)
+  if (ext === ".jsonc") return JSON.parse(stripJsonCommentsAndTrailingCommas(content))
   return JSON.parse(content)
 }
 
@@ -595,6 +711,7 @@ function extractMcpServers(value: unknown): McpServerRecord[] {
   for (const candidate of candidates) {
     result.push(...extractNamedServerMap(candidate))
   }
+  result.push(...extractOpenCodeMcpMap(root.mcp))
   return dedupeServers(result)
 }
 
@@ -604,6 +721,28 @@ function extractNamedServerMap(value: unknown): McpServerRecord[] {
     if (!isRecord(config)) return []
     return [{ name, value: config }]
   })
+}
+
+function extractOpenCodeMcpMap(value: unknown): McpServerRecord[] {
+  if (!isRecord(value)) return []
+  const reservedKeys = new Set(["servers", "mcpServers", "mcp_servers"])
+  return Object.entries(value).flatMap(([name, config]) => {
+    if (reservedKeys.has(name) || !isRecord(config) || !looksLikeMcpServerConfig(config)) return []
+    return [{ name, value: config }]
+  })
+}
+
+function looksLikeMcpServerConfig(value: Record<string, unknown>): boolean {
+  const serverConfigKeys = new Set([
+    "args",
+    "command",
+    "env",
+    "headers",
+    "transport",
+    "type",
+    "url",
+  ])
+  return Object.keys(value).some((key) => serverConfigKeys.has(key))
 }
 
 function dedupeServers(servers: McpServerRecord[]): McpServerRecord[] {
@@ -638,7 +777,10 @@ function invalidMcp(
 function inferTransport(server: Record<string, unknown>): McpTransport {
   const transport = getString(server.transport)?.toLowerCase()
   if (transport === "stdio" || transport === "sse" || transport === "http") return transport
-  if (getString(server.command)) return "stdio"
+  const type = getString(server.type)?.toLowerCase()
+  if (type === "local") return "stdio"
+  if (type === "remote") return "http"
+  if (getString(server.command) || getStringArray(server.command).length > 0) return "stdio"
   const url = getString(server.url)
   if (url?.startsWith("http://") || url?.startsWith("https://")) return "http"
   return "unknown"
@@ -719,6 +861,158 @@ function sanitizeArgs(args: string[]): string[] {
   })
 }
 
+function getCommandParts(server: Record<string, unknown>): { command?: string; args: string[] } {
+  const explicitArgs = getStringArray(server.args)
+  const command = getString(server.command)
+  if (command) {
+    return {
+      command: sanitizeCommand(command),
+      args: sanitizeArgs(explicitArgs),
+    }
+  }
+
+  const commandParts = getStringArray(server.command)
+  if (commandParts.length === 0) {
+    return { args: sanitizeArgs(explicitArgs) }
+  }
+
+  const [firstCommand, ...rest] = commandParts
+  return {
+    command: sanitizeCommand(firstCommand),
+    args: sanitizeArgs([...rest, ...explicitArgs]),
+  }
+}
+
+function getRawCommandParts(server: Record<string, unknown>): { command?: string; args: string[] } {
+  const explicitArgs = getStringArray(server.args)
+  const command = getString(server.command)
+  if (command) {
+    return {
+      command,
+      args: explicitArgs,
+    }
+  }
+
+  const commandParts = getStringArray(server.command)
+  if (commandParts.length === 0) {
+    return { args: explicitArgs }
+  }
+
+  const [firstCommand, ...rest] = commandParts
+  return {
+    command: firstCommand,
+    args: [...rest, ...explicitArgs],
+  }
+}
+
+function stripJsonCommentsAndTrailingCommas(content: string): string {
+  return removeTrailingJsonCommas(stripJsonComments(content))
+}
+
+function stripJsonComments(content: string): string {
+  let result = ""
+  let inString = false
+  let escaped = false
+  let inLineComment = false
+  let inBlockComment = false
+
+  for (let index = 0; index < content.length; index += 1) {
+    const current = content[index]
+    const next = content[index + 1]
+
+    if (inLineComment) {
+      if (current === "\n" || current === "\r") {
+        inLineComment = false
+        result += current
+      }
+      continue
+    }
+
+    if (inBlockComment) {
+      if (current === "*" && next === "/") {
+        inBlockComment = false
+        index += 1
+      }
+      continue
+    }
+
+    if (inString) {
+      result += current
+      if (escaped) {
+        escaped = false
+      } else if (current === "\\") {
+        escaped = true
+      } else if (current === "\"") {
+        inString = false
+      }
+      continue
+    }
+
+    if (current === "\"") {
+      inString = true
+      result += current
+      continue
+    }
+
+    if (current === "/" && next === "/") {
+      inLineComment = true
+      index += 1
+      continue
+    }
+
+    if (current === "/" && next === "*") {
+      inBlockComment = true
+      index += 1
+      continue
+    }
+
+    result += current
+  }
+
+  return result
+}
+
+function removeTrailingJsonCommas(content: string): string {
+  let result = ""
+  let inString = false
+  let escaped = false
+
+  for (let index = 0; index < content.length; index += 1) {
+    const current = content[index]
+
+    if (inString) {
+      result += current
+      if (escaped) {
+        escaped = false
+      } else if (current === "\\") {
+        escaped = true
+      } else if (current === "\"") {
+        inString = false
+      }
+      continue
+    }
+
+    if (current === "\"") {
+      inString = true
+      result += current
+      continue
+    }
+
+    if (current === ",") {
+      let lookahead = index + 1
+      while (lookahead < content.length && /\s/.test(content[lookahead] ?? "")) {
+        lookahead += 1
+      }
+      const next = content[lookahead]
+      if (next === "}" || next === "]") continue
+    }
+
+    result += current
+  }
+
+  return result
+}
+
 function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined
 }
@@ -727,6 +1021,16 @@ function getStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : []
+}
+
+function getStringRecord(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] =>
+        typeof entry[0] === "string" && typeof entry[1] === "string"
+      )
+  )
 }
 
 function getRecord(value: unknown): Record<string, unknown> | undefined {

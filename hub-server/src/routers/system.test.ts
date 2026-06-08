@@ -55,6 +55,16 @@ describe("system router", () => {
                 details: {
                   cacheEntryCount: 1,
                 },
+              }, {
+                id: "mcp-runtime",
+                label: "MCP Runtime",
+                kind: "runtime-capability",
+                status: "idle",
+                implemented: true,
+                checkedAt: "2026-06-03T00:00:00.000Z",
+                details: {
+                  trustedRecordCount: 2,
+                },
               }],
             },
           }
@@ -75,6 +85,7 @@ describe("system router", () => {
       "codex",
       "claude-code",
       "capability-discovery",
+      "mcp-runtime",
     ])
     expect(body.services[0]).toMatchObject({
       id: "agent-runtime",
@@ -95,6 +106,10 @@ describe("system router", () => {
       implemented: true,
     })
     expect(body.services.find((service) => service.id === "capability-discovery")).toMatchObject({
+      status: "idle",
+      implemented: true,
+    })
+    expect(body.services.find((service) => service.id === "mcp-runtime")).toMatchObject({
       status: "idle",
       implemented: true,
     })
@@ -134,6 +149,10 @@ describe("system router", () => {
       implemented: true,
     })
     expect(body.services.find((service) => service.id === "capability-discovery")).toMatchObject({
+      status: "error",
+      implemented: true,
+    })
+    expect(body.services.find((service) => service.id === "mcp-runtime")).toMatchObject({
       status: "error",
       implemented: true,
     })

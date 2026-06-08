@@ -1,6 +1,6 @@
 import { InfoIcon } from "lucide-react"
 import { McpCard } from "./McpCard"
-import type { McpItem } from "../types"
+import type { McpItem, McpTrustRecord } from "../types"
 
 type McpGridProps = {
   mcps: McpItem[]
@@ -8,9 +8,23 @@ type McpGridProps = {
   error: string | null
   notice?: string | null
   onRetry: () => void
+  trustRecords?: McpTrustRecord[]
+  trustLoading?: boolean
+  trustUpdatingMcpRef?: string | null
+  onTrustDecision?: (mcpRef: string, trusted: boolean) => void
 }
 
-export function McpGrid({ mcps, loading, error, notice, onRetry }: McpGridProps) {
+export function McpGrid({
+  mcps,
+  loading,
+  error,
+  notice,
+  onRetry,
+  trustRecords = [],
+  trustLoading = false,
+  trustUpdatingMcpRef = null,
+  onTrustDecision,
+}: McpGridProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -68,7 +82,14 @@ export function McpGrid({ mcps, loading, error, notice, onRetry }: McpGridProps)
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {mcps.map((mcp) => (
-        <McpCard key={mcp.id} mcp={mcp} />
+        <McpCard
+          key={mcp.id}
+          mcp={mcp}
+          trustRecords={trustRecords}
+          trustLoading={trustLoading}
+          trustUpdating={trustUpdatingMcpRef === mcp.id}
+          onTrustDecision={onTrustDecision}
+        />
       ))}
     </div>
   )

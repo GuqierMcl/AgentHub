@@ -157,7 +157,7 @@ export function RightWorkbench({
           tabs={tabs}
         />
         {tabs.length === 0 ? (
-          <WorkbenchEmptyState />
+          <WorkbenchEmptyState onOpenTab={handleOpenTab} />
         ) : (
           <RightWorkbenchTabView
             activeTabUid={activeTabUid}

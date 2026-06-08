@@ -1,7 +1,9 @@
 import { CheckCircle2Icon, AlertTriangleIcon, TerminalIcon, GlobeIcon, CableIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/animate-ui/components/radix/switch"
 import { cn } from "@/lib/utils"
-import type { McpItem } from "../types"
+import { getMcpTrustState } from "../plugin-config-state"
+import type { McpItem, McpTrustRecord } from "../types"
 
 const SOURCE_COLORS: Record<string, string> = {
   agents: "bg-blue-500/10 text-blue-500 border-blue-500/20",
@@ -25,10 +27,22 @@ const TRANSPORT_ICONS: Record<string, React.ComponentType<{ className?: string }
 
 type McpCardProps = {
   mcp: McpItem
+  trustRecords?: McpTrustRecord[]
+  trustLoading?: boolean
+  trustUpdating?: boolean
+  onTrustDecision?: (mcpRef: string, trusted: boolean) => void
 }
 
-export function McpCard({ mcp }: McpCardProps) {
+export function McpCard({
+  mcp,
+  trustRecords = [],
+  trustLoading = false,
+  trustUpdating = false,
+  onTrustDecision,
+}: McpCardProps) {
   const TransportIcon = mcp.transport ? TRANSPORT_ICONS[mcp.transport] : null
+  const trustState = getMcpTrustState(mcp, trustRecords)
+  const canChangeTrust = mcp.valid && mcp.level === "workspace" && !!onTrustDecision
 
   return (
     <div
@@ -61,6 +75,15 @@ export function McpCard({ mcp }: McpCardProps) {
             {mcp.transport.toUpperCase()}
           </Badge>
         )}
+        {trustState.kind === "trusted" ? (
+          <Badge variant="outline" className="border-emerald-500/30 text-xs text-emerald-600">
+            已信任
+          </Badge>
+        ) : trustState.kind === "untrusted" ? (
+          <Badge variant="outline" className="border-amber-500/30 text-xs text-amber-600">
+            未信任
+          </Badge>
+        ) : null}
       </div>
 
       {mcp.command ? (
@@ -73,6 +96,17 @@ export function McpCard({ mcp }: McpCardProps) {
       )}
 
       <p className="truncate font-mono text-[11px] text-muted-foreground/70">{mcp.configPath}</p>
+
+      {mcp.level === "workspace" && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">信任</span>
+          <Switch
+            checked={trustState.kind === "trusted"}
+            disabled={!canChangeTrust || trustLoading || trustUpdating}
+            onCheckedChange={() => onTrustDecision?.(mcp.id, trustState.kind !== "trusted")}
+          />
+        </div>
+      )}
 
       {mcp.warnings.length > 0 && (
         <div className="space-y-0.5 rounded-md bg-amber-500/5 px-2.5 py-2">

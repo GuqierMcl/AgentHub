@@ -1,7 +1,7 @@
 import type {
   CapabilitiesResponse,
-  CapabilityScope,
   CapabilitySource,
+  WorkspaceCapabilitiesResponse,
 } from "../types"
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -17,22 +17,38 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const capabilitiesApi = {
-  fetch(scope: CapabilityScope, conversationId?: string): Promise<CapabilitiesResponse> {
+  fetchGlobal(): Promise<CapabilitiesResponse> {
     const params = new URLSearchParams()
-    params.set("scope", scope)
-    if (scope !== "global" && conversationId) {
+    params.set("scope", "global")
+    return request(`/api/runtime/capabilities?${params.toString()}`)
+  },
+
+  fetchWorkspaceGroups(conversationId?: string): Promise<WorkspaceCapabilitiesResponse> {
+    const params = new URLSearchParams()
+    params.set("scope", "workspace")
+    if (conversationId) {
       params.set("conversationId", conversationId)
     }
     return request(`/api/runtime/capabilities?${params.toString()}`)
   },
 
-  refresh(
-    scope: CapabilityScope,
+  refreshGlobal(sources?: CapabilitySource[]): Promise<CapabilitiesResponse> {
+    const body: Record<string, unknown> = { scope: "global" }
+    if (sources?.length) {
+      body.sources = sources
+    }
+    return request("/api/runtime/capabilities/refresh", {
+      method: "POST",
+      body: JSON.stringify(body),
+    })
+  },
+
+  refreshWorkspaceGroups(
     conversationId?: string,
     sources?: CapabilitySource[],
-  ): Promise<CapabilitiesResponse> {
-    const body: Record<string, unknown> = { scope }
-    if (scope !== "global" && conversationId) {
+  ): Promise<WorkspaceCapabilitiesResponse> {
+    const body: Record<string, unknown> = { scope: "workspace" }
+    if (conversationId) {
       body.conversationId = conversationId
     }
     if (sources?.length) {

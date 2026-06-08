@@ -35,8 +35,27 @@ export type SkillContentResolveRequest = {
   maxTotalBodyChars?: number
 }
 
+export type SkillContentWorkspace = NonNullable<CapabilityDiscoveryRequest["workspace"]>
+
 export class SkillContentService {
   constructor(private discoveryService: CapabilityDiscoveryService) {}
+
+  async listWorkspaceSkillRefs(workspace: SkillContentWorkspace): Promise<string[]> {
+    const lookups = await this.discoveryService.listSkillLookups({
+      scope: "workspace",
+      workspace,
+    })
+
+    return normalizeSkillRefs(
+      lookups
+        .filter((lookup) =>
+          lookup.valid &&
+          lookup.level === "workspace" &&
+          lookup.path.startsWith("workspace:")
+        )
+        .map((lookup) => lookup.path)
+    )
+  }
 
   async resolve(request: SkillContentResolveRequest): Promise<SkillContentResolution> {
     const skillRefs = normalizeSkillRefs(request.skillRefs).slice(0, DEFAULT_MAX_SKILL_COUNT)

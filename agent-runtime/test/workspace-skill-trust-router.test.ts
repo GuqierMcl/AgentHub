@@ -73,8 +73,8 @@ describe("workspace Skill trust router", () => {
     }))
     expect(queryBody.trusts).toContainEqual(expect.objectContaining({
       skillRef: "workspace:codex:missing",
-      trusted: false,
-      status: "untrusted",
+      trusted: true,
+      status: "trusted",
     }))
     expect(JSON.stringify(queryBody)).not.toContain("D:\\Projects\\Router")
   })

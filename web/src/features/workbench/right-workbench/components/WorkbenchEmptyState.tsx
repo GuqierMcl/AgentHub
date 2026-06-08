@@ -1,39 +1,42 @@
-import { PanelRightOpenIcon } from "lucide-react"
-
 import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
+  FileSearchIcon,
+  FolderOpenIcon,
+  GlobeIcon,
+  ListTodoIcon,
+  RocketIcon,
+  SquareTerminalIcon,
+} from "lucide-react"
 
-import { useTabStore } from "@/store/tab-store"
+import type { TabType } from "@/store/tab-store"
+import { TabCard } from "./TabCard"
 
-export function WorkbenchEmptyState() {
-  const openTab = useTabStore((s) => s.openTab)
+type WorkbenchEmptyStateProps = {
+  onOpenTab: (type: TabType) => void
+}
 
+const tabCards: { type: TabType; title: string; description: string; icon: typeof ListTodoIcon }[] = [
+  { type: "files", icon: FolderOpenIcon, title: "文件", description: "浏览项目文件" },
+  { type: "preview", icon: GlobeIcon, title: "浏览器", description: "打开网站" },
+  { type: "review", icon: FileSearchIcon, title: "审查", description: "查看代码更改" },
+  { type: "terminal", icon: SquareTerminalIcon, title: "终端", description: "启动交互式 shell" },
+  { type: "conversation-status", icon: ListTodoIcon, title: "会话状态", description: "查看计划与运行状态" },
+  { type: "deploy", icon: RocketIcon, title: "部署预览", description: "查看部署状态" },
+]
+
+export function WorkbenchEmptyState({ onOpenTab }: WorkbenchEmptyStateProps) {
   return (
-    <Empty className="h-full border-0">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <PanelRightOpenIcon />
-        </EmptyMedia>
-        <EmptyTitle>暂无打开的标签</EmptyTitle>
-        <EmptyDescription>
-          点击上方 + 按钮打开产物标签
-        </EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
-        <button
-          className="text-muted-foreground text-sm hover:text-foreground"
-          onClick={() => openTab("conversation-status")}
-          type="button"
-        >
-          或点击此处打开会话状态
-        </button>
-      </EmptyContent>
-    </Empty>
+    <div className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-6 p-6">
+      <div className="flex w-full max-w-lg flex-wrap items-stretch justify-center gap-4">
+        {tabCards.map((card) => (
+          <TabCard
+            key={card.type}
+            icon={card.icon}
+            title={card.title}
+            description={card.description}
+            onClick={() => onOpenTab(card.type)}
+          />
+        ))}
+      </div>
+    </div>
   )
 }

@@ -136,7 +136,7 @@ export class WorkspaceSkillTrustService {
     const trusts = request.skillRefs?.length
       ? request.skillRefs.map((skillRef) =>
           this.records.get(createTrustKey(request.workspace.workspaceId, workspaceRootHash, skillRef))
-          ?? createUntrustedRecord(request.workspace, workspaceRootHash, skillRef)
+          ?? createDefaultTrustedRecord(request.workspace, workspaceRootHash, skillRef)
         )
       : Array.from(this.records.values())
         .filter((record) =>
@@ -164,7 +164,7 @@ export class WorkspaceSkillTrustService {
     const existing = this.records.get(key)
     const now = new Date().toISOString()
     const record: WorkspaceSkillTrustRecord = {
-      ...(existing ?? createUntrustedRecord(request.workspace, workspaceRootHash, request.skillRef, now)),
+      ...(existing ?? createDefaultTrustedRecord(request.workspace, workspaceRootHash, request.skillRef, now)),
       trusted: request.trusted,
       status: request.trusted ? "trusted" : "untrusted",
       trustedAt: request.trusted ? now : existing?.trustedAt,
@@ -186,7 +186,7 @@ export class WorkspaceSkillTrustService {
     const skillRef = parseWorkspaceSkillRef(input.skillRef)
     const workspaceRootHash = hashWorkspaceRoot(workspace.rootPath)
     const record = this.records.get(createTrustKey(workspace.workspaceId, workspaceRootHash, skillRef))
-    return record?.trusted === true
+    return record ? record.trusted === true : true
   }
 
   private async save(): Promise<void> {
@@ -288,7 +288,7 @@ function parseWorkspaceSkillRef(skillRef: string): string {
   return parsed.data
 }
 
-function createUntrustedRecord(
+function createDefaultTrustedRecord(
   workspace: WorkspaceSkillTrustWorkspace,
   workspaceRootHash: string,
   skillRef: string,
@@ -300,8 +300,8 @@ function createUntrustedRecord(
     workspaceRootHash,
     skillRef,
     source: parseWorkspaceSkillSource(skillRef),
-    trusted: false,
-    status: "untrusted",
+    trusted: true,
+    status: "trusted",
     createdAt: now,
     updatedAt: now,
   }

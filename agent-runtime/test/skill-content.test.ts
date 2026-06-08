@@ -63,6 +63,49 @@ describe("SkillContentService", () => {
     expect(result.warnings).toContain("Skill global:agents:missing was not found or is not valid.")
   })
 
+  test("lists valid workspace Skill refs for automatic injection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runtime-skill-content-workspace-"))
+    const workspaceRoot = join(root, "workspace")
+    const dataDir = join(root, "data")
+    await writeText(join(workspaceRoot, ".agents", "skills", "review", "SKILL.md"), [
+      "---",
+      "name: Review Skill",
+      "---",
+      "",
+      "Use local review rules.",
+    ].join("\n"))
+    await writeText(join(workspaceRoot, ".codex", "skills", "style", "SKILL.md"), [
+      "---",
+      "name: Style Skill",
+      "---",
+      "",
+      "Use local style rules.",
+    ].join("\n"))
+    await writeText(join(workspaceRoot, ".claude", "skills", "broken", "SKILL.md"), [
+      "---",
+      "name: Broken Skill",
+      "bad-frontmatter",
+      "---",
+      "",
+      "This invalid Skill should not auto inject.",
+    ].join("\n"))
+
+    const discovery = new CapabilityDiscoveryService({
+      homeDir: join(root, "home"),
+      dataDir,
+    })
+    const service = new SkillContentService(discovery)
+
+    await expect(service.listWorkspaceSkillRefs({
+      workspaceId: "workspace_auto",
+      backendType: "local",
+      rootPath: workspaceRoot,
+    })).resolves.toEqual([
+      "workspace:agents:review",
+      "workspace:codex:style",
+    ])
+  })
+
   test("truncates long Skill bodies and parses relative refs", async () => {
     const root = await mkdtemp(join(tmpdir(), "agent-runtime-skill-content-long-"))
     const homeDir = join(root, "home")

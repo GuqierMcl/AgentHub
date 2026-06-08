@@ -46,9 +46,16 @@ describe("service status snapshot", () => {
         reason: "runtime-unavailable",
       },
     })
+    expect(snapshot.services.find((service) => service.id === "mcp-runtime")).toMatchObject({
+      status: "error",
+      implemented: true,
+      details: {
+        reason: "runtime-unavailable",
+      },
+    })
   })
 
-  it("passes through Runtime capability discovery status", async () => {
+  it("passes through Runtime capability discovery and MCP runtime statuses", async () => {
     const client = {
       forward: async (method: string, path: string) => {
         if (path === "/health") {
@@ -96,6 +103,17 @@ describe("service status snapshot", () => {
                     latestRefreshAt: "2026-06-07T00:00:00.000Z",
                   },
                 },
+                {
+                  id: "mcp-runtime",
+                  label: "MCP Runtime",
+                  kind: "runtime-capability",
+                  status: "idle",
+                  implemented: true,
+                  checkedAt: "2026-06-07T00:00:00.000Z",
+                  details: {
+                    trustedRecordCount: 3,
+                  },
+                },
               ],
             },
           }
@@ -115,6 +133,16 @@ describe("service status snapshot", () => {
       details: expect.objectContaining({
         cacheEntryCount: 2,
         latestRefreshAt: "2026-06-07T00:00:00.000Z",
+      }),
+    })
+    expect(snapshot.services.find((service) => service.id === "mcp-runtime")).toMatchObject({
+      id: "mcp-runtime",
+      label: "MCP Runtime",
+      kind: "runtime-capability",
+      status: "idle",
+      implemented: true,
+      details: expect.objectContaining({
+        trustedRecordCount: 3,
       }),
     })
   })
@@ -213,6 +241,12 @@ describe("ServiceStatusMonitor", () => {
         serviceId: "capability-discovery",
         status: "error",
       },
+      {
+        type: "service.status.changed",
+        previousStatus: "idle",
+        serviceId: "mcp-runtime",
+        status: "error",
+      },
     ])
   })
 })
@@ -273,6 +307,17 @@ function createRuntimeResponse(
             checkedAt: "2026-06-03T00:00:00.000Z",
             details: {
               cacheEntryCount: 0,
+            },
+          },
+          {
+            id: "mcp-runtime",
+            label: "MCP Runtime",
+            kind: "runtime-capability",
+            status: "idle",
+            implemented: true,
+            checkedAt: "2026-06-03T00:00:00.000Z",
+            details: {
+              trustedRecordCount: 0,
             },
           },
         ],

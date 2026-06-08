@@ -691,7 +691,7 @@ describe("RuntimeToolRegistry", () => {
     expect(events.some((event) => event.type === "tool.started")).toBe(false)
   })
 
-  test("buildAiSdkToolSettings keeps internal tools visible only for orchestrator internal mode", () => {
+  test("buildAiSdkToolSettings keeps internal tools visible only for orchestrator internal mode", async () => {
     const registry = new RuntimeToolRegistry()
     registry.register(createWritePlanTool())
     registry.register(createRunTaskTool())
@@ -704,7 +704,7 @@ describe("RuntimeToolRegistry", () => {
       },
     }).context
 
-    const orchestratorSettings = registry.buildAiSdkToolSettings(orchestratorContext, {
+    const orchestratorSettings = await registry.buildAiSdkToolSettings(orchestratorContext, {
       includeInternal: true,
     })
     expect(orchestratorSettings?.activeTools).toEqual(["write_plan", "run_task", "ls"])
@@ -723,7 +723,7 @@ describe("RuntimeToolRegistry", () => {
       },
     }).context
 
-    const coderSettings = registry.buildAiSdkToolSettings(coderContext)
+    const coderSettings = await registry.buildAiSdkToolSettings(coderContext)
     expect(coderSettings?.activeTools).toEqual(["ls"])
     expect(coderSettings?.activeTools).not.toContain("write_plan")
     expect(coderSettings?.activeTools).not.toContain("run_task")
@@ -753,7 +753,7 @@ describe("RuntimeToolRegistry", () => {
       agent: userAgent,
     })
 
-    const settings = registry.buildAiSdkToolSettings(context)
+    const settings = await registry.buildAiSdkToolSettings(context)
     expect(settings?.activeTools).toEqual(["grep"])
 
     const result = await registry.executeTool("grep", {}, context)

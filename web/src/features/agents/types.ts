@@ -90,6 +90,7 @@ export type AgentDetail = AgentSummary & {
   systemPrompt?: string
   allowedSubagents: string[]
   allowedTools: string[]
+  allowedSkills: string[]
   permissionPolicy: AgentPermissionPolicy
   external?: {
     provider: string
@@ -116,6 +117,7 @@ export type UserAgentCreateRequest = {
   capabilities?: string[]
   allowedSubagents?: string[]
   allowedTools?: UserAgentAllowedTool[]
+  allowedSkills?: string[]
   permissionPolicy?: AgentPermissionPolicy
   enabled?: boolean
 }
@@ -127,6 +129,7 @@ export type UserAgentUpdateRequest = {
   capabilities?: string[]
   allowedSubagents?: string[]
   allowedTools?: UserAgentAllowedTool[]
+  allowedSkills?: string[]
   permissionPolicy?: AgentPermissionPolicy
   enabled?: boolean
 }

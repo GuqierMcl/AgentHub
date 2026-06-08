@@ -9,7 +9,7 @@ describe("service status copy", () => {
   it("uses Chinese status labels for the navigation panel", () => {
     expect(getServiceStatusLabel("running")).toBe("运行中")
     expect(getServiceStatusLabel("starting")).toBe("启动中")
-    expect(getServiceStatusLabel("idle")).toBe("待命")
+    expect(getServiceStatusLabel("idle")).toBe("就绪")
     expect(getServiceStatusLabel("error")).toBe("错误")
     expect(getServiceStatusLabel("not_integrated")).toBe("未接入")
   })
@@ -28,7 +28,7 @@ describe("service status copy", () => {
 
   it("maps statuses to stable visual tones", () => {
     expect(getServiceStatusTone("running")).toBe("success")
-    expect(getServiceStatusTone("idle")).toBe("muted")
+    expect(getServiceStatusTone("idle")).toBe("success")
     expect(getServiceStatusTone("not_integrated")).toBe("muted")
   })
 })

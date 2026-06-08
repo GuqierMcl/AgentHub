@@ -7,6 +7,8 @@ import { ProviderService } from './provider'
 import {
   RunManager,
   CapabilityDiscoveryService,
+  McpRuntimeService,
+  McpTrustService,
   SkillContentService,
   SystemModelSettingsService,
   SystemModelSettingsStore,
@@ -54,6 +56,11 @@ const systemModelSettingsService = new SystemModelSettingsService(
 const capabilityDiscoveryService = new CapabilityDiscoveryService({ dataDir: config.dataDir })
 const skillContentService = new SkillContentService(capabilityDiscoveryService)
 const workspaceSkillTrustService = new WorkspaceSkillTrustService({ dataDir: config.dataDir })
+const mcpTrustService = new McpTrustService({ dataDir: config.dataDir })
+const mcpRuntimeService = new McpRuntimeService({
+  discoveryService: capabilityDiscoveryService,
+  trustService: mcpTrustService,
+})
 const runManager = new RunManager(
   agentRegistry,
   providerService,
@@ -62,7 +69,8 @@ const runManager = new RunManager(
   undefined,
   systemModelSettingsService,
   skillContentService,
-  workspaceSkillTrustService
+  workspaceSkillTrustService,
+  mcpRuntimeService
 )
 const workspaceRevertService = new WorkspaceRevertService()
 
@@ -87,6 +95,8 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('workspaceRevertService', workspaceRevertService)
   c.set('capabilityDiscoveryService', capabilityDiscoveryService)
   c.set('workspaceSkillTrustService', workspaceSkillTrustService)
+  c.set('mcpTrustService', mcpTrustService)
+  c.set('mcpRuntimeService', mcpRuntimeService)
   c.set('toolRegistry', toolRegistry)
   c.set('systemModelSettingsService', systemModelSettingsService)
   c.set('instructAgentRegistry', instructAgentRegistry)
@@ -122,6 +132,7 @@ Promise.all([
   agentRegistry.initialize(),
   systemModelSettingsService.initialize(),
   workspaceSkillTrustService.initialize(),
+  mcpTrustService.initialize(),
 ]).then(() => {
   runtimeReadiness.markReady()
   console.log(banner)

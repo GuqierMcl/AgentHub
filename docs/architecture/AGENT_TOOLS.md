@@ -368,6 +368,10 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 外部 MCP / Adapter 桥接工具
 - 文件工具和沙箱工具在进入实现前，必须先定义对应 backend capability、审批语义和外部授权策略。
 
+MCP tool 接入必须遵守 Skill / MCP 服务设计中的 Phase 5 边界，详见 `docs/architecture/SKILL_MCP_SERVICES.md`。当前 Phase 5B-lite / 5C-lite 为了尽快让内部智能体感知并调用 workspace MCP，采用临时默认启用规则：discovery 有效、trust 未撤销的 workspace MCP server 会在 workspace status 查询或 Run 开始时连接、枚举，并以 `mcp_<server>_<tool>` 动态工具名注入内部可见主智能体和 Orchestrator。隐藏子智能体、InstructAgent 和外部 adapter 不注入。
+
+动态 MCP tool 仍必须通过 Runtime Tool Registry 执行，并统一输出 `tool.started`、`tool.completed`、`tool.failed`，事件 `data.externalProvider = "mcp"`。本轮动态 MCP tool 不要求静态 `agent.allowedTools`，且暂不做 per-call approval / permission gate；这是后续增强前的临时边界，不改变静态 Runtime Tool 的 allowlist、`permissionPolicy` 和 approval continuation 语义。后续必须把 MCP stdio command、HTTP/SSE 网络连接和具体 tool 调用映射回 Runtime permission / approval 模型，并继续保证 workspace root、env、headers、token、secret args 和原始 MCP 配置不进入 API、日志、事件或模型可见结果。
+
 新增工具必须先完成：
 
 - 命名

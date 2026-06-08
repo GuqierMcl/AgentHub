@@ -15,6 +15,9 @@ import avatarOverrides from './avatar-overrides'
 import remoteServer from './remote-server'
 import instructRuns from './instruct-runs'
 import runtimeCapabilities from './runtime-capabilities'
+import runtimeWorkspaceSkillTrust from './runtime-workspace-skill-trust'
+import runtimeMcpTrust from './runtime-mcp-trust'
+import conversationMcpStatus from './conversation-mcp-status'
 
 const router = new Hono()
 
@@ -43,5 +46,8 @@ router.route('/', avatarOverrides)
 router.route('/', remoteServer)
 router.route('/', instructRuns)
 router.route('/', runtimeCapabilities)
+router.route('/', runtimeWorkspaceSkillTrust)
+router.route('/', runtimeMcpTrust)
+router.route('/', conversationMcpStatus)
 
 export default router

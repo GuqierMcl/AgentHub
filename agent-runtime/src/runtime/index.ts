@@ -49,6 +49,21 @@ export {
   WorkspaceSkillTrustWorkspaceSchema,
   hashWorkspaceRoot,
 } from "./workspace-skill-trust"
+export {
+  McpTrustDecisionRequestSchema,
+  McpTrustError,
+  McpTrustListRequestSchema,
+  McpTrustScopeSchema,
+  McpTrustService,
+  McpTrustWorkspaceSchema,
+  hashMcpTrustWorkspaceRoot,
+} from "./mcp-trust"
+export {
+  McpRuntimeError,
+  McpRuntimeService,
+  McpWorkspaceStatusRequestSchema,
+  formatMcpContextForPrompt,
+} from "./mcp-runtime"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
@@ -147,6 +162,7 @@ export type {
   CapabilityWorkspace,
   CapabilityCacheMetadata,
   McpServerCapabilitySummary,
+  McpServerRuntimeConfig,
   McpTransport,
   SkillCapabilityLookup,
   SkillCapabilitySummary,
@@ -167,6 +183,32 @@ export type {
   WorkspaceSkillTrustStatus,
   WorkspaceSkillTrustWorkspace,
 } from "./workspace-skill-trust"
+export type {
+  McpRuntimeStatusItem,
+  McpTrustDecisionRequest,
+  McpTrustDecisionResponse,
+  McpTrustListRequest,
+  McpTrustListResponse,
+  McpTrustRecord,
+  McpTrustScope,
+  McpTrustServiceOptions,
+  McpTrustStatus,
+  McpTrustWorkspace,
+} from "./mcp-trust"
+export type {
+  McpRuntimeClient,
+  McpRuntimeClientFactory,
+  McpRuntimeContext,
+  McpRuntimeContextServer,
+  McpRuntimeContextTool,
+  McpRuntimeServerStatus,
+  McpRuntimeServiceOptions,
+  McpRuntimeServiceStatusItem,
+  McpRuntimeToolMetadata,
+  McpWorkspaceStatusRequest,
+  McpWorkspaceStatusResponse,
+  McpWorkspaceStatusServer,
+} from "./mcp-runtime"
 export type {
   ExternalAgentRunSummary,
   ExternalAgentRunSummarySource,
