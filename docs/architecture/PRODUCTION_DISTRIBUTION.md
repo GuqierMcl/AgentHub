@@ -252,9 +252,9 @@ package
 
 ```json
 {
-  "build:web": "cd web && bun run build",
+  "build:web": "cd web && bun install && bun run build",
   "build:runtime": "cd agent-runtime && bun run build",
-  "build:hub": "cd hub-server && bun run scripts/build.ts",
+  "build:hub": "cd hub-server && bun install && bun run build",
   "build:cli": "cd cli && bun run build",
   "build": "bun run build:web && bun run build:runtime && bun run build:hub && bun run build:cli",
   "package": "bun run scripts/package.ts"
@@ -263,7 +263,9 @@ package
 
 构建规则：
 
-- `web/dist/` 复制为 `hub-server/public/` 或直接进入最终 `dist/public/`。
+- `build:web` 只负责生成 `web/dist/`。
+- `build:hub` 只负责校验 `web/dist/` 存在、在构建期生成 Prisma Client、编译 `hub-server(.exe)`；不复制 `web/dist/`，也不创建 `hub-server/public/`。
+- `package` 直接复制 `web/dist/` 到最终 `dist/public/`。
 - `agent-runtime` 使用 `bun build src/index.ts --compile --outfile dist/agent-runtime`。
 - `hub-server` 使用 `bun build src/index.ts --compile --outfile dist/hub-server`。
 - `cli` 使用 `bun build src/index.ts --compile --outfile dist/agenthub-cli`。

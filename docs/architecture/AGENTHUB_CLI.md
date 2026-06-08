@@ -202,6 +202,8 @@ CLI 包位于 `cli/`，使用 Bun：
 build:web -> build:runtime -> build:hub -> build:cli -> package
 ```
 
+其中 `build:hub` 不复制 Web assets。最终 `dist/public/` 由 package 阶段直接从 `web/dist/` 复制，CLI 只在运行时把 `<dist>/public` 作为 `--public-dir` 传给 HubServer。
+
 ## 验证清单
 
 CLI V1 的轻量验证：

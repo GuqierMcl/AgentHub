@@ -115,6 +115,7 @@ Bun.serve({
 
 - `agent-runtime` 使用 `--hostname` / `--port` 接收 HubServer 分配的监听地址。
 - `hub-server` 生产入口接收 `--port`、`--runtime-bin`、`--public-dir`、`--data-dir` 等参数。
+- `hub-server` 构建只编译服务二进制并在构建期生成 Prisma Client；Web assets 不嵌入、不复制到 `hub-server/public/`，最终由 package 阶段复制 `web/dist/` 到 `dist/public/`。
 - CLI 只负责解析用户启动意图、拉起 HubServer、打开浏览器和转发生命周期信号。
 - Desktop 主进程直接拉起 HubServer，不通过 CLI 中转。
 - 所有生产打包 smoke 都必须验证 Web 静态资源、HubServer 健康检查、Runtime sidecar 健康检查和进程退出清理。

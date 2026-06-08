@@ -27,6 +27,7 @@ Hub Server 是 AgentHub 的控制面，负责业务状态管理和前端 API。�
 首版生产形态采用以下规则：
 
 - 发行包为扁平目录：`agenthub-cli(.exe)`、`hub-server(.exe)`、`agent-runtime(.exe)` 和 `public/` 位于同一级。
+- `build:hub` 只编译 HubServer 并校验 `web/dist/` 存在，不复制 Web 资源；最终发行包由 package 阶段直接复制 `web/dist/` 到 `dist/public/`。
 - CLI 只作为生产 supervisor，负责启动 HubServer、等待 `/health`、打印或打开 `http://127.0.0.1:<port>`；CLI 不直接启动 Agent Runtime。
 - Desktop 主进程直接启动 HubServer，并让 WebView 打开 HubServer 托管的本地 URL；Desktop 不通过 CLI，也不使用 `views://` 或 `file://` 加载 Web。
 - HubServer 是浏览器和 Desktop WebView 的唯一后端入口，并在生产环境托管 Web `public/`。
@@ -86,7 +87,7 @@ HubServer 负责管理 Agent Runtime 侧车进程的完整生命周期。这是 
 - SPA fallback 不得吞掉未知 `/api/*` 请求；未知 API 应返回结构化 404，而不是 `index.html`。
 - `--no-web = false` 且 `--public-dir` 存在时启用托管。
 - CLI/Desktop 首版都通过 HubServer 托管 Web，因此前端可以继续使用相对路径 `/api/*` 和 `/api/events`。
-- 首版不要求把 Web assets 嵌入 HubServer 单 exe；`public/` 随发行包分发。
+- 首版不要求把 Web assets 嵌入 HubServer 单 exe；`public/` 随发行包分发，并由 package 阶段从 `web/dist/` 复制到最终发行目录。
 
 ## 系统服务状态
 
