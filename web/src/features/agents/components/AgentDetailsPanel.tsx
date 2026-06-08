@@ -13,13 +13,16 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { AgentDetail } from "../types"
+import { RadialIntro } from "@/components/animate-ui/components/community/radial-intro"
+import type { AgentDetail, AgentSummary, AvatarOverridesManifest } from "../types"
 import { AgentModelControl } from "./AgentModelControl"
 import { AvatarEditDialog } from "./AvatarEditDialog"
 import { useAvatarOverrides } from "../hooks/use-avatar-overrides"
 
 type AgentDetailsPanelProps = {
   agent: AgentDetail | null
+  agents: AgentSummary[]
+  avatarManifest: AvatarOverridesManifest | null | undefined
   canConfigureModel: boolean
   loading: boolean
   onConfigureModel: () => void
@@ -338,29 +341,52 @@ function LoadingDetails() {
 
 export function AgentDetailsPanel({
   agent,
+  agents,
+  avatarManifest,
   canConfigureModel,
   loading,
   onConfigureModel,
 }: AgentDetailsPanelProps) {
   const [avatarEditOpen, setAvatarEditOpen] = useState(false)
-  const { data: avatarManifest } = useAvatarOverrides()
-  const currentOverride = agent ? (avatarManifest?.agents[agent.id] ?? null) : null
+  const { data: localManifest } = useAvatarOverrides()
+  const manifest = avatarManifest ?? localManifest
+  const currentOverride = agent ? (manifest?.agents[agent.id] ?? null) : null
 
   if (loading) {
     return <LoadingDetails />
   }
 
   if (!agent) {
+    const orbitItems = agents.map((a, i) => ({
+      id: i,
+      name: a.name,
+      content: (
+        <AgentAvatar
+          agent={a}
+          override={manifest?.agents[a.id] ?? null}
+          className="size-full"
+        />
+      ),
+    }))
+
+    if (orbitItems.length === 0) {
+      return (
+        <Empty className="h-full rounded-none border-0">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <BotIcon />
+            </EmptyMedia>
+            <EmptyTitle>选择一个智能体</EmptyTitle>
+            <EmptyDescription>查看配置详情，或编辑你的自定义智能体。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )
+    }
+
     return (
-      <Empty className="h-full rounded-none border-0">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <BotIcon />
-          </EmptyMedia>
-          <EmptyTitle>选择一个智能体</EmptyTitle>
-          <EmptyDescription>查看配置详情，或编辑你的自定义智能体。</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <div className="flex h-full items-center justify-center">
+        <RadialIntro imageSize={48} orbitItems={orbitItems} stageSize={280} />
+      </div>
     )
   }
 
