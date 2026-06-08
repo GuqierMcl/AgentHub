@@ -230,10 +230,14 @@ Codex app-server 的 `item/tool/requestUserInput` 可表示工具执行期间需
 
 AgentHub 不负责：
 
-- 配置 Codex 使用哪个模型。
+- 写入 Codex 全局配置来配置 Codex 使用哪个模型。
 - 管理 OpenAI API key 或 ChatGPT OAuth token。
 - 管理 Codex Skill、MCP、plugin、hook、command 或 `config.toml`。
 - 将 Codex 模型选择接入 AgentHub ProviderService。
+
+Codex: AgentHub may pass only `model` into `ThreadOptions`. Other Codex SDK options stay fixed in this phase.
+
+AgentHub 可以保存一份只作用于 AgentHub-originated runs 的 Codex SDK runtime override，并在创建或恢复 Codex thread 时把 `model` 传入 `ThreadOptions`。该 override 不写入 Codex `config.toml`、不管理 OpenAI / ChatGPT 凭据、不改变 Skill / MCP / plugin / hook / command，也不把 Codex 模型接入 AgentHub ProviderService。本阶段为了保持最小改动，只开放 `model`；`sandboxMode`、`approvalPolicy`、`modelReasoningEffort`、`webSearchMode`、`additionalDirectories`、app-server experimental API 和 auth/login 能力均保持既有固定策略或后续单独设计。
 
 V1 默认使用用户本机已有 Codex 配置和认证。Runtime 可以做只读状态检查：
 

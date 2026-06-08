@@ -36,7 +36,11 @@ web
 - `onUserDialog`：桥接 Claude Code `AskUserQuestion` 类 dialog 到 AgentHub question lifecycle，用作 SDK dialog control request 路径。
 - `pathToClaudeCodeExecutable`：可由 `AGENTHUB_CLAUDE_CODE_EXECUTABLE` 覆盖。
 
-SDK 还支持 `allowedTools` / `disallowedTools`。AgentHub MVP 暂不主动覆盖这些列表，默认让 Claude Code 使用用户本机配置和 SDK 默认工具集；如后续产品需要 per-run 只读/可写模式，应在本文档新增明确策略后再启用。
+SDK 还支持 `model`、`permissionMode`、`allowedTools` / `disallowedTools`。AgentHub 可以保存一份只作用于 AgentHub-originated runs 的 Claude Code SDK runtime override，并在调用 `query({ options })` 时传入 `model` 和安全范围内的 `permissionMode`。该 override 不写入 Claude Code 全局配置、账号、MCP、Skill、hook 或工具配置。
+
+Claude Code: AgentHub may pass `model` and safe `permissionMode` values to `query({ options })`. `bypassPermissions` is out of scope for this phase.
+
+本阶段允许的 `permissionMode` 为 `default`、`acceptEdits`、`plan`、`dontAsk` 和 `auto`。`bypassPermissions` 需要 `allowDangerouslySkipPermissions` 并会绕过权限检查，当前不在 AgentHub UI、Runtime API 或持久化设置中开放。AgentHub MVP 暂不主动覆盖 `allowedTools` / `disallowedTools`，默认让 Claude Code 使用用户本机配置和 SDK 默认工具集；如后续产品需要 per-run 只读/可写工具列表，应在本文档新增明确策略后再启用。
 
 ## 3. Agent 身份
 

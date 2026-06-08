@@ -1414,6 +1414,77 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 成功响应：返回更新后的 agent detail。
 
+### 外部智能体 SDK runtime settings
+
+外部智能体 SDK runtime settings 是 AgentHub 自有的运行时覆盖层，只作用于 AgentHub-originated runs。它不是外部平台配置管理：Runtime 不得通过该 API 写入 OpenCode、Claude Code 或 Codex 的全局配置、凭据、Skill、MCP、plugin、hook、command 或 provider 文件。外部智能体仍不使用 `PUT /runtime/agents/:agentId/model` 的内部模型绑定；OpenCode 的模型候选来自 OpenCode SDK workspace model catalog，不来自 AgentHub ProviderService。
+
+```ts
+type RuntimeExternalAgentSettings =
+  | {
+      provider: "opencode"
+      model?: { providerID: string; modelID: string }
+      executionAgent?: "build" | "plan"
+    }
+  | {
+      provider: "claude-code"
+      model?: string
+      permissionMode?: "default" | "acceptEdits" | "plan" | "dontAsk" | "auto"
+    }
+  | {
+      provider: "codex"
+      model?: string
+    }
+
+type RuntimeExternalAgentSettingsResponse = {
+  agentId: "opencode" | "claude-code" | "codex"
+  settings: RuntimeExternalAgentSettings
+  updatedAt?: string
+}
+
+type RuntimeOpenCodeModelCatalogRequest = {
+  workspace: {
+    workspaceId: string
+    backendType: "local"
+    rootPath: string
+  }
+}
+
+type RuntimeOpenCodeModelCatalogResponse = {
+  provider: "opencode"
+  models: Array<{
+    providerID: string
+    providerName?: string
+    modelID: string
+    modelName?: string
+  }>
+  warnings: string[]
+}
+```
+
+**Runtime 端点**：
+
+```text
+GET /runtime/agents/:agentId/external-settings
+PUT /runtime/agents/:agentId/external-settings
+POST /runtime/agents/opencode/model-catalog
+```
+
+**HubServer 代理端点**：
+
+```text
+GET /api/runtime/agents/:agentId/external-settings
+PUT /api/runtime/agents/:agentId/external-settings
+POST /api/runtime/agents/opencode/model-catalog
+```
+
+规则：
+
+- `:agentId` 只能是 `opencode`、`claude-code` 或 `codex`，且请求体 `provider` 必须与目标外部智能体一致。
+- `claude-code.permissionMode` 不允许 `bypassPermissions`；该模式需要危险权限跳过开关，后续如需开放必须单独设计审批和风险提示。
+- `codex` 本阶段只接受 `model`，不接受 sandbox、approval、reasoning、web search、auth 或 app-server experimental 配置。
+- `POST /api/runtime/agents/opencode/model-catalog` 不接受浏览器提交的 `workspace.rootPath`；HubServer 必须从会话 workspace metadata 解析 local workspace snapshot 后再转发 Runtime。
+- Runtime 和 HubServer 响应不得包含 OpenCode / Claude Code / Codex 凭据、token、headers、env、外部平台配置正文或未脱敏的 workspace root，除非该端点明确是 HubServer 面向 Web 的已绑定 workspace 展示语义。
+
 ## Conversations API
 
 Conversations API 为 Web 聊天列表、会话详情和会话管理提供产品级数据。

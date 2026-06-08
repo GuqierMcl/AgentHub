@@ -227,7 +227,15 @@ Adapter 可以读取必要的 OpenCode 运行状态和版本信息，用于健�
 
 如果 OpenCode 配置导致某些操作被直接允许，AgentHub 只能观察结果和 Diff；只有 OpenCode 发出 permission request 时，AgentHub 才能桥接审批。
 
-### 8.1 模型状态展示可行性
+### 8.1 SDK runtime override
+
+AgentHub 可以保存一份只作用于 AgentHub-originated runs 的 OpenCode SDK runtime override。该 override 不写入或覆盖 OpenCode provider、model、API key、agent、Skill、MCP、plugin、command 或 hook 配置文件，只在 Adapter 调用 OpenCode SDK 时作为本轮请求参数传入。
+
+OpenCode: AgentHub may select `{ providerID, modelID }` only from an OpenCode SDK model catalog resolved for a workspace. The selector must not use AgentHub ProviderService models.
+
+模型候选必须由 Runtime 通过 OpenCode SDK / OpenCode server 按当前 workspace 解析。HubServer 和 Web 只消费 Runtime 返回的 OpenCode model catalog，不得用 AgentHub ProviderService 的 provider/model 列表填充 OpenCode 选择器。Adapter 仍必须在 `message.completed.data.externalModel` 中回传 OpenCode 实际使用的 provider/model；当 runtime override 与实际使用模型不同，以实际使用模型作为消息和 Run 详情的展示事实。
+
+### 8.2 模型状态展示可行性
 
 AgentHub 不配置 OpenCode model/provider，但可以展示 OpenCode 实际运行状态。需要区分三种“当前模型”含义：
 
@@ -240,9 +248,9 @@ UI 分阶段：
 - V1.1 已采用“每条 OpenCode 回复实际使用的模型”作为首个展示事实：Runtime 从 `session.prompt()` response 的 assistant message `info.providerID/modelID` 读取模型，并尽量通过只读 `provider.list({ directory })` 解析 `providerName/modelName`，写入 `message.completed.data.externalModel = { provider: "opencode", providerId, modelId, providerName?, modelName? }`。HubServer 在产品 Run replay 中原样保留该字段，并可投影到 assistant `Message.metadataJson.runtime.externalModel`；Web 在消息 action 行优先展示 OpenCode 实际回复模型名，拿不到名称时再降级展示可读化 model id。
 - 若尚未产生回复，可以显示“使用 OpenCode 默认配置”或只展示 OpenCode 连接状态，避免把未知值伪装成确定模型。
 - 后续如果需要会话头部展示默认模型，应由 Runtime 读取 OpenCode server 的只读 provider/config 状态，再经 HubServer API 转发；浏览器仍不直连 OpenCode server。
-- AgentHub 不提供 OpenCode 模型切换控件，除非后续明确把“只读展示”升级为“外部平台配置管理”，该升级需要新的产品决策。
+- AgentHub 不提供写入 OpenCode 全局配置的模型切换控件；本阶段如需在 AgentHub 中选择 OpenCode 模型，只能保存 AgentHub 自有 SDK runtime override，并且候选来自 OpenCode SDK workspace model catalog。
 
-### 8.2 执行 Agent / Plan-Build 模式
+### 8.3 执行 Agent / Plan-Build 模式
 
 OpenCode 的 Plan/Build 属于“本轮执行能力开关”，不是模型或 Skill 配置。AgentHub 发起的 prompt 不应继承 OpenCode 原生 TUI 或其他客户端上一次选择的 mode，否则用户在 AgentHub 中请求编辑文件时可能被 OpenCode 以只读 Plan 模式拒绝。
 

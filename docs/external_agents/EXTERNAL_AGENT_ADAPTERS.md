@@ -13,6 +13,8 @@
 - AgentHub 不管理外部智能体内部的模型供应商、Skill、MCP、原生工具或平台私有配置。
 - 外部智能体的私有执行协议必须被 Adapter 封装，不能泄漏到 Runtime 上层编排协议。
 
+AgentHub may still keep a small SDK runtime override for AgentHub-originated runs. This override is not external platform configuration management: it is stored in AgentHub's Runtime data directory, is applied only when AgentHub calls the external SDK, and never writes provider credentials, global config files, Skills, MCP, plugins, hooks, or command definitions. External adapters must record which override was applied in diagnostic metadata and continue to report the model actually used by the provider when available.
+
 ## 2. 边界原则
 
 ### 2.1 AgentHub 负责
@@ -40,6 +42,12 @@ AgentHub 负责产品和编排边界：
 AgentHub 不把这些能力拆成自身配置面板。用户专注于“与这个外部智能体协作”，而不是在 AgentHub 里重新配置外部平台。
 
 需要区分“管理外部平台配置”和“控制本轮 AgentHub 执行请求”：前者仍属于外部平台自身；后者属于 Adapter 的执行正确性。例如 OpenCode V1 不管理 agent 配置文件，但会在 AgentHub-originated prompt 中显式指定 `build` agent，避免用户上一次在 OpenCode TUI 中选择 Plan 后导致 AgentHub 编辑请求变成只读。
+
+本阶段允许的 SDK runtime override 范围：
+
+- OpenCode: AgentHub may select `{ providerID, modelID }` only from an OpenCode SDK model catalog resolved for a workspace. The selector must not use AgentHub ProviderService models.
+- Claude Code: AgentHub may pass `model` and safe `permissionMode` values to `query({ options })`. `bypassPermissions` is out of scope for this phase.
+- Codex: AgentHub may pass only `model` into `ThreadOptions`. Other Codex SDK options stay fixed in this phase.
 
 ## 3. 智能体身份与可见性
 
