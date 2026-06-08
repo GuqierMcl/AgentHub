@@ -40,6 +40,15 @@ export {
   DEFAULT_MAX_TOTAL_SKILL_BODY_CHARS,
   SkillContentService,
 } from "./skill-content"
+export {
+  WorkspaceSkillTrustDecisionRequestSchema,
+  WorkspaceSkillTrustError,
+  WorkspaceSkillTrustListRequestSchema,
+  WorkspaceSkillTrustService,
+  WorkspaceSkillTrustSourceSchema,
+  WorkspaceSkillTrustWorkspaceSchema,
+  hashWorkspaceRoot,
+} from "./workspace-skill-trust"
 export { OrchestratorExecutor } from "./orchestrator-executor"
 export { RunManager, RunWorkspaceValidationError } from "./run-manager"
 export { createRunEvent, isTerminalRunEvent, isTerminalStatus } from "./run-events"
@@ -147,6 +156,17 @@ export type {
   SkillContentResolution,
   SkillContentResolveRequest,
 } from "./skill-content"
+export type {
+  WorkspaceSkillTrustDecisionRequest,
+  WorkspaceSkillTrustDecisionResponse,
+  WorkspaceSkillTrustListRequest,
+  WorkspaceSkillTrustListResponse,
+  WorkspaceSkillTrustRecord,
+  WorkspaceSkillTrustServiceOptions,
+  WorkspaceSkillTrustSource,
+  WorkspaceSkillTrustStatus,
+  WorkspaceSkillTrustWorkspace,
+} from "./workspace-skill-trust"
 export type {
   ExternalAgentRunSummary,
   ExternalAgentRunSummarySource,

@@ -30,7 +30,7 @@ export function ScopeSelector({
   const [conversations, setConversations] = useState<ConversationListItem[]>([])
 
   useEffect(() => {
-    if (scope !== "global") {
+    if (scope === "workspace") {
       conversationsApi.list("active").then(setConversations).catch(() => setConversations([]))
     }
   }, [scope])
@@ -38,18 +38,18 @@ export function ScopeSelector({
   const isGlobal = scope === "global"
 
   const handleSwitchChange = (checked: boolean) => {
-    onScopeChange(checked ? "workspace" : "global")
+    onScopeChange(checked ? "workspace" : "global", checked ? conversationId : undefined)
   }
 
   const handleConversationChange = (value: string) => {
-    onScopeChange("workspace", value)
+    onScopeChange("workspace", value === "__all_workspaces__" ? undefined : value)
   }
 
   return (
     <div className="flex flex-wrap items-center gap-3">
       <div className="inline-flex items-center gap-2">
         <Switch checked={!isGlobal} onCheckedChange={handleSwitchChange} />
-        <RotatingTextContainer text={isGlobal ? "全局" : "会话"} style={{ paddingBlock: 0 }}>
+        <RotatingTextContainer text={isGlobal ? "全局" : "工作区"} style={{ paddingBlock: 0 }}>
           <RotatingText
             transition={{ duration: 0.15, ease: "easeOut" }}
             className="text-base font-semibold text-foreground/80 select-none"
@@ -67,13 +67,16 @@ export function ScopeSelector({
             transition={{ duration: 0.25, ease: "easeOut" }}
           >
             <Select
-              value={conversationId ?? ""}
+              value={conversationId ?? "__all_workspaces__"}
               onValueChange={handleConversationChange}
             >
               <SelectTrigger className="h-8 w-[220px] text-xs">
                 <SelectValue placeholder="选择会话..." />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__all_workspaces__" className="text-xs">
+                  全部聊天
+                </SelectItem>
                 {conversations.map((conv) => (
                   <SelectItem key={conv.id} value={conv.id} className="text-xs">
                     {conv.title}

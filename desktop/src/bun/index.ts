@@ -12,12 +12,22 @@ const MAIN_WINDOW_FRAME = {
 	y: 120,
 };
 const INITIAL_LAYOUT_FALLBACK_DELAY_MS = 500;
+const NOTIFICATION_TITLE_MAX_LENGTH = 120;
+const NOTIFICATION_SUBTITLE_MAX_LENGTH = 120;
+const NOTIFICATION_BODY_MAX_LENGTH = 500;
 const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4;
 const PROCESS_PER_MONITOR_DPI_AWARE = 2;
 const desktopUrl = process.env.AGENTHUB_DESKTOP_URL?.trim() || DEFAULT_DESKTOP_URL;
 
 type WindowState = {
 	maximized: boolean;
+};
+
+type DesktopNotificationOptions = {
+	title: string;
+	body?: string;
+	subtitle?: string;
+	silent?: boolean;
 };
 
 type DesktopWindowRPCSchema = ElectrobunRPCSchema & {
@@ -38,6 +48,14 @@ type DesktopWindowRPCSchema = ElectrobunRPCSchema & {
 			getWindowState: {
 				params: void;
 				response: WindowState;
+			};
+			showNotification: {
+				params: DesktopNotificationOptions;
+				response: void;
+			};
+			showDebugNotification: {
+				params: void;
+				response: void;
 			};
 		};
 		messages: Record<never, never>;
@@ -144,10 +162,55 @@ function refreshInitialLayout(window: ElectrobunBrowserWindow): void {
 	}, INITIAL_LAYOUT_FALLBACK_DELAY_MS);
 }
 
+function truncateNotificationText(
+	value: string | undefined,
+	maxLength: number,
+): string | undefined {
+	const trimmed = value?.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+
+	return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed;
+}
+
+function normalizeNotificationOptions(
+	options: unknown,
+): DesktopNotificationOptions {
+	const input =
+		options && typeof options === "object"
+			? (options as Record<string, unknown>)
+			: {};
+	const title = typeof input.title === "string" ? input.title : undefined;
+	const body = typeof input.body === "string" ? input.body : undefined;
+	const subtitle =
+		typeof input.subtitle === "string" ? input.subtitle : undefined;
+	const silent = typeof input.silent === "boolean" ? input.silent : undefined;
+
+	return {
+		title:
+			truncateNotificationText(
+				title,
+				NOTIFICATION_TITLE_MAX_LENGTH,
+			) ?? "AgentHub",
+		body: truncateNotificationText(
+			body,
+			NOTIFICATION_BODY_MAX_LENGTH,
+		),
+		subtitle: truncateNotificationText(
+			subtitle,
+			NOTIFICATION_SUBTITLE_MAX_LENGTH,
+		),
+		silent,
+	};
+}
+
 configureWindowsDpiAwareness();
 await checkDesktopUrl(desktopUrl);
 
-const { BrowserWindow, defineElectrobunRPC } = await import("electrobun/bun");
+const { BrowserWindow, Utils, defineElectrobunRPC } = await import(
+	"electrobun/bun"
+);
 
 let mainWindow: ElectrobunBrowserWindow | null = null;
 
@@ -175,6 +238,21 @@ const desktopWindowRpc = defineElectrobunRPC<DesktopWindowRPCSchema>("bun", {
 			},
 			getWindowState: () => {
 				return { maximized: mainWindow?.isMaximized() ?? false };
+			},
+			showNotification: (options?: unknown) => {
+				const notification = normalizeNotificationOptions(options);
+				Utils.showNotification({
+					title: notification.title,
+					body: notification.body,
+					subtitle: notification.subtitle,
+					silent: notification.silent,
+				});
+			},
+			showDebugNotification: () => {
+				Utils.showNotification({
+					title: "AgentHub",
+					body: "硬编码 Utils 测试通知。",
+				});
 			},
 		},
 	},

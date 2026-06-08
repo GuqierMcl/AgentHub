@@ -4,6 +4,7 @@ import { useServiceStatusStore } from "@/features/app-shell/store/service-status
 import { workbenchQueryKeys } from "@/features/workbench/api/query-keys"
 import type { RuntimeRunStatus } from "@/features/workbench/api/runtime-runs"
 import { isTerminalRunStatus, useWorkbenchStore } from "@/features/workbench/store/workbench-store"
+import { maybeNotifyDesktop } from "./desktop-notifications"
 
 export type HubGlobalEventType =
   | "conversation.updated"
@@ -49,7 +50,9 @@ class HubEventsManager {
 
   private handleMessage(message: MessageEvent<string>): void {
     try {
-      this.handleEvent(JSON.parse(message.data) as HubGlobalEventEnvelope)
+      const event = JSON.parse(message.data) as HubGlobalEventEnvelope
+      this.handleEvent(event)
+      void maybeNotifyDesktop(event)
     } catch {
       // Ignore malformed best-effort notifications.
     }

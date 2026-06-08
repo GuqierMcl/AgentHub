@@ -9,6 +9,17 @@ export type DesktopWindowControls = {
   getWindowState: () => Promise<DesktopWindowState>
 }
 
+export type DesktopNotificationOptions = {
+  title: string
+  body?: string
+  subtitle?: string
+  silent?: boolean
+}
+
+type DesktopNotifications = {
+  showNotification: (options: DesktopNotificationOptions) => Promise<void>
+}
+
 type DesktopWindowRPCSchema = {
   bun: {
     requests: {
@@ -28,6 +39,10 @@ type DesktopWindowRPCSchema = {
         params: void
         response: DesktopWindowState
       }
+      showNotification: {
+        params: DesktopNotificationOptions
+        response: void
+      }
     }
     messages: Record<never, never>
   }
@@ -42,12 +57,15 @@ type ElectrobunRuntimeWindow = Window & {
   __electrobunWindowId?: number
 }
 
-let controlsPromise: Promise<DesktopWindowControls | null> | null = null
+type DesktopRuntimeBridge = {
+  view: unknown
+  controls: DesktopWindowControls
+  notifications: DesktopNotifications
+}
+
+let bridgePromise: Promise<DesktopRuntimeBridge | null> | null = null
 let runtimeBridge:
-  | {
-      view: unknown
-      controls: DesktopWindowControls
-    }
+  | DesktopRuntimeBridge
   | null = null
 
 export function isElectrobunRuntime(): boolean {
@@ -60,22 +78,42 @@ export function isElectrobunRuntime(): boolean {
 }
 
 export function getDesktopWindowControls(): Promise<DesktopWindowControls | null> {
+  return getDesktopRuntimeBridge().then((bridge) => bridge?.controls ?? null)
+}
+
+export async function showDesktopNotification(
+  options: DesktopNotificationOptions,
+): Promise<boolean> {
+  const bridge = await getDesktopRuntimeBridge()
+  if (!bridge) return false
+
+  try {
+    await bridge.notifications.showNotification(options)
+    return true
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`AgentHub desktop notifications are unavailable. ${message}`)
+    return false
+  }
+}
+
+function getDesktopRuntimeBridge(): Promise<DesktopRuntimeBridge | null> {
   if (!isElectrobunRuntime()) {
     return Promise.resolve(null)
   }
 
-  controlsPromise ??= createDesktopWindowControls().catch((error: unknown) => {
+  bridgePromise ??= createDesktopRuntimeBridge().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn(`AgentHub desktop controls are unavailable. ${message}`)
-    controlsPromise = null
+    console.warn(`AgentHub desktop bridge is unavailable. ${message}`)
+    bridgePromise = null
     return null
   })
-  return controlsPromise
+  return bridgePromise
 }
 
-async function createDesktopWindowControls(): Promise<DesktopWindowControls | null> {
+async function createDesktopRuntimeBridge(): Promise<DesktopRuntimeBridge | null> {
   if (runtimeBridge) {
-    return runtimeBridge.controls
+    return runtimeBridge
   }
 
   const { Electroview } = await import("electrobun/view")
@@ -91,7 +129,11 @@ async function createDesktopWindowControls(): Promise<DesktopWindowControls | nu
     toggleMaximize: () => rpc.request.toggleMaximize(),
     getWindowState: () => rpc.request.getWindowState(),
   }
+  const notifications = {
+    showNotification: (options: DesktopNotificationOptions) =>
+      rpc.request.showNotification(options),
+  }
 
-  runtimeBridge = { view, controls }
-  return controls
+  runtimeBridge = { view, controls, notifications }
+  return runtimeBridge
 }
