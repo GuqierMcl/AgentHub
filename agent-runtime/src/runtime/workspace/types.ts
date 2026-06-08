@@ -72,11 +72,21 @@ export type WorkspaceEditFilePatch = {
   expectedReplacements?: number
 }
 
+export type WorkspaceEditFileDiff = {
+  format: "unified"
+  text: string
+  truncated: boolean
+  additions: number
+  deletions: number
+  contextLines: number
+}
+
 export type WorkspaceEditFileResult = {
   path: string
   size: number
   replacements: number
   changed: boolean
+  diff?: WorkspaceEditFileDiff
 }
 
 export type WorkspaceListEntry = {

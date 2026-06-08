@@ -3,7 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderToStaticMarkup } from "react-dom/server"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
-import type { WorkbenchTimelineChatMessageItem } from "../types"
+import type {
+  WorkbenchTimelineChatMessageItem,
+  WorkbenchTimelineToolItem,
+} from "../types"
 import { TimelineItem } from "./MessageItem"
 
 describe("MessageItem reply preview", () => {
@@ -181,5 +184,58 @@ describe("MessageItem regenerate marker", () => {
     expect(html.match(/已重新生成/g)?.length).toBe(2)
     expect(html).toMatch(/class="[^"]*hidden[^"]*"[^>]*>[\s\S]*Original answer/)
     expect(html).toMatch(/class="[^"]*block[^"]*"[^>]*>[\s\S]*Alternative answer/)
+  })
+})
+
+describe("MessageItem edit_file tool diff", () => {
+  it("renders internal edit_file output as a code diff instead of a generic tool card", () => {
+    const item: WorkbenchTimelineToolItem = {
+      kind: "tool",
+      id: "tool_edit_file",
+      runId: "run_edit",
+      toolCallId: "call_edit",
+      toolName: "edit_file",
+      title: "Edit file",
+      time: "10:10",
+      status: "output-available",
+      input: {
+        path: "src/example.ts",
+        search: "export const answer = 41",
+        replace: "export const answer = 42",
+      },
+      output: {
+        path: "src/example.ts",
+        size: 25,
+        replacements: 1,
+        changed: true,
+        diff: {
+          format: "unified",
+          text: [
+            "diff --git a/src/example.ts b/src/example.ts",
+            "--- a/src/example.ts",
+            "+++ b/src/example.ts",
+            "@@ -1 +1 @@",
+            "-export const answer = 41",
+            "+export const answer = 42",
+          ].join("\n"),
+          truncated: false,
+          additions: 1,
+          deletions: 1,
+          contextLines: 3,
+        },
+      },
+    }
+
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <TimelineItem agentProfiles={[]} item={item} />
+      </TooltipProvider>
+    )
+
+    expect(html).toContain("src/example.ts")
+    expect(html).toContain("-export const answer = 41")
+    expect(html).toContain("+export const answer = 42")
+    expect(html).not.toContain("Parameters")
+    expect(html).not.toContain("Result")
   })
 })

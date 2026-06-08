@@ -49,6 +49,10 @@ const TEXT_EXTENSIONS = new Set([
   ".bash",
 ])
 
+const EDIT_FILE_DIFF_CONTEXT_LINES = 3
+const EDIT_FILE_DIFF_MAX_CHARS = 32_000
+const EDIT_FILE_DIFF_MAX_LCS_CELLS = 200_000
+
 export type LocalWorkspaceBackendOptions = {
   fileOnlyPath?: string
   displayPrefix?: string
@@ -509,13 +513,19 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
     }
 
     const updatedContent = content.split(patch.search).join(patch.replace)
+    const displayPath = this.toDisplayPath(resolvedPath)
+    const diff = content === updatedContent
+      ? undefined
+      : buildUnifiedEditDiff(displayPath, content, updatedContent, patch.search, patch.replace)
+
     await writeFileToFs(resolvedPath, updatedContent, "utf-8")
     const updatedStat = await stat(resolvedPath)
     return {
-      path: this.toDisplayPath(resolvedPath),
+      path: displayPath,
       size: updatedStat.size,
       replacements,
       changed: replacements > 0,
+      ...(diff ? { diff } : {}),
     }
   }
 
@@ -672,4 +682,265 @@ function countOccurrences(content: string, search: string): number {
     count += 1
     index = foundIndex + search.length
   }
+}
+
+type ReplacementRange = {
+  oldStartIndex: number
+  oldEndIndex: number
+  newStartIndex: number
+  newEndIndex: number
+}
+
+type UnifiedHunkRange = {
+  oldStartLine: number
+  oldEndLine: number
+  newStartLine: number
+  newEndLine: number
+}
+
+function buildUnifiedEditDiff(
+  displayPath: string,
+  before: string,
+  after: string,
+  search: string,
+  replace: string
+): WorkspaceEditFileResult["diff"] {
+  const diffPath = formatDiffPath(displayPath)
+  const beforeLines = splitDiffLines(before)
+  const afterLines = splitDiffLines(after)
+  const replacementRanges = findReplacementRanges(before, search, replace)
+  const hunkRanges = mergeUnifiedHunkRanges(
+    replacementRanges.map((range) =>
+      createUnifiedHunkRange(range, before, after, beforeLines.length, afterLines.length)
+    )
+  )
+
+  const diffLines = [
+    `diff --git a/${diffPath} b/${diffPath}`,
+    `--- a/${diffPath}`,
+    `+++ b/${diffPath}`,
+  ]
+
+  for (const range of hunkRanges) {
+    const oldCount = range.oldEndLine - range.oldStartLine + 1
+    const newCount = range.newEndLine - range.newStartLine + 1
+    const oldSlice = beforeLines.slice(range.oldStartLine - 1, range.oldEndLine)
+    const newSlice = afterLines.slice(range.newStartLine - 1, range.newEndLine)
+
+    diffLines.push(`@@ -${range.oldStartLine},${oldCount} +${range.newStartLine},${newCount} @@`)
+    diffLines.push(...buildUnifiedHunkLines(oldSlice, newSlice))
+  }
+
+  const fullText = diffLines.join("\n")
+  const truncated = fullText.length > EDIT_FILE_DIFF_MAX_CHARS
+  const text = truncated
+    ? `${fullText.slice(0, EDIT_FILE_DIFF_MAX_CHARS)}\n... [diff truncated ${fullText.length - EDIT_FILE_DIFF_MAX_CHARS} characters]`
+    : fullText
+
+  return {
+    format: "unified",
+    text,
+    truncated,
+    additions: countDiffLines(diffLines, "+"),
+    deletions: countDiffLines(diffLines, "-"),
+    contextLines: EDIT_FILE_DIFF_CONTEXT_LINES,
+  }
+}
+
+function findReplacementRanges(before: string, search: string, replace: string): ReplacementRange[] {
+  const ranges: ReplacementRange[] = []
+  let oldCursor = 0
+  let newCursor = 0
+
+  while (true) {
+    const foundIndex = before.indexOf(search, oldCursor)
+    if (foundIndex === -1) {
+      return ranges
+    }
+
+    newCursor += foundIndex - oldCursor
+    ranges.push({
+      oldStartIndex: foundIndex,
+      oldEndIndex: foundIndex + search.length,
+      newStartIndex: newCursor,
+      newEndIndex: newCursor + replace.length,
+    })
+    oldCursor = foundIndex + search.length
+    newCursor += replace.length
+  }
+}
+
+function createUnifiedHunkRange(
+  range: ReplacementRange,
+  before: string,
+  after: string,
+  beforeLineCount: number,
+  afterLineCount: number
+): UnifiedHunkRange {
+  const beforeLineStarts = getLineStarts(before)
+  const afterLineStarts = getLineStarts(after)
+  const oldStartLine = getLineNumberForIndex(beforeLineStarts, range.oldStartIndex)
+  const oldEndLine = getLineNumberForIndex(
+    beforeLineStarts,
+    Math.max(range.oldStartIndex, range.oldEndIndex - 1)
+  )
+  const newStartLine = getLineNumberForIndex(afterLineStarts, range.newStartIndex)
+  const newEndLine = getLineNumberForIndex(
+    afterLineStarts,
+    Math.max(range.newStartIndex, range.newEndIndex - 1)
+  )
+
+  return {
+    oldStartLine: Math.max(1, oldStartLine - EDIT_FILE_DIFF_CONTEXT_LINES),
+    oldEndLine: Math.min(beforeLineCount, oldEndLine + EDIT_FILE_DIFF_CONTEXT_LINES),
+    newStartLine: Math.max(1, newStartLine - EDIT_FILE_DIFF_CONTEXT_LINES),
+    newEndLine: Math.min(afterLineCount, newEndLine + EDIT_FILE_DIFF_CONTEXT_LINES),
+  }
+}
+
+function mergeUnifiedHunkRanges(ranges: UnifiedHunkRange[]): UnifiedHunkRange[] {
+  const merged: UnifiedHunkRange[] = []
+
+  for (const range of ranges.sort((left, right) => left.oldStartLine - right.oldStartLine)) {
+    const current = merged.at(-1)
+    if (
+      !current ||
+      (range.oldStartLine > current.oldEndLine + 1 &&
+        range.newStartLine > current.newEndLine + 1)
+    ) {
+      merged.push({ ...range })
+      continue
+    }
+
+    current.oldEndLine = Math.max(current.oldEndLine, range.oldEndLine)
+    current.newEndLine = Math.max(current.newEndLine, range.newEndLine)
+  }
+
+  return merged
+}
+
+function buildUnifiedHunkLines(beforeLines: string[], afterLines: string[]): string[] {
+  if (beforeLines.length * afterLines.length > EDIT_FILE_DIFF_MAX_LCS_CELLS) {
+    return buildUnifiedHunkLinesWithCommonEdges(beforeLines, afterLines)
+  }
+
+  const lcs = Array.from(
+    { length: beforeLines.length + 1 },
+    () => Array<number>(afterLines.length + 1).fill(0)
+  )
+
+  for (let oldIndex = beforeLines.length - 1; oldIndex >= 0; oldIndex -= 1) {
+    for (let newIndex = afterLines.length - 1; newIndex >= 0; newIndex -= 1) {
+      lcs[oldIndex][newIndex] = beforeLines[oldIndex] === afterLines[newIndex]
+        ? lcs[oldIndex + 1][newIndex + 1] + 1
+        : Math.max(lcs[oldIndex + 1][newIndex], lcs[oldIndex][newIndex + 1])
+    }
+  }
+
+  const lines: string[] = []
+  let oldIndex = 0
+  let newIndex = 0
+
+  while (oldIndex < beforeLines.length && newIndex < afterLines.length) {
+    if (beforeLines[oldIndex] === afterLines[newIndex]) {
+      lines.push(` ${beforeLines[oldIndex]}`)
+      oldIndex += 1
+      newIndex += 1
+      continue
+    }
+
+    if (lcs[oldIndex + 1][newIndex] >= lcs[oldIndex][newIndex + 1]) {
+      lines.push(`-${beforeLines[oldIndex]}`)
+      oldIndex += 1
+      continue
+    }
+
+    lines.push(`+${afterLines[newIndex]}`)
+    newIndex += 1
+  }
+
+  while (oldIndex < beforeLines.length) {
+    lines.push(`-${beforeLines[oldIndex]}`)
+    oldIndex += 1
+  }
+  while (newIndex < afterLines.length) {
+    lines.push(`+${afterLines[newIndex]}`)
+    newIndex += 1
+  }
+
+  return lines
+}
+
+function buildUnifiedHunkLinesWithCommonEdges(beforeLines: string[], afterLines: string[]): string[] {
+  let prefixLength = 0
+  while (
+    prefixLength < beforeLines.length &&
+    prefixLength < afterLines.length &&
+    beforeLines[prefixLength] === afterLines[prefixLength]
+  ) {
+    prefixLength += 1
+  }
+
+  let suffixLength = 0
+  while (
+    suffixLength < beforeLines.length - prefixLength &&
+    suffixLength < afterLines.length - prefixLength &&
+    beforeLines[beforeLines.length - suffixLength - 1] ===
+      afterLines[afterLines.length - suffixLength - 1]
+  ) {
+    suffixLength += 1
+  }
+
+  const lines: string[] = []
+  for (const line of beforeLines.slice(0, prefixLength)) {
+    lines.push(` ${line}`)
+  }
+  for (const line of beforeLines.slice(prefixLength, beforeLines.length - suffixLength)) {
+    lines.push(`-${line}`)
+  }
+  for (const line of afterLines.slice(prefixLength, afterLines.length - suffixLength)) {
+    lines.push(`+${line}`)
+  }
+  for (const line of beforeLines.slice(beforeLines.length - suffixLength)) {
+    lines.push(` ${line}`)
+  }
+
+  return lines
+}
+
+function countDiffLines(lines: string[], prefix: "+" | "-"): number {
+  const headerPrefix = prefix === "+" ? "+++" : "---"
+  return lines.filter((line) => line.startsWith(prefix) && !line.startsWith(headerPrefix)).length
+}
+
+function splitDiffLines(text: string): string[] {
+  return text.split(/\r?\n/)
+}
+
+function getLineStarts(text: string): number[] {
+  const starts = [0]
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10) {
+      starts.push(index + 1)
+    }
+  }
+  return starts
+}
+
+function getLineNumberForIndex(lineStarts: number[], index: number): number {
+  let low = 0
+  let high = lineStarts.length - 1
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    if (lineStarts[middle] <= index) {
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
+  }
+  return Math.max(1, high + 1)
+}
+
+function formatDiffPath(pathValue: string): string {
+  return normalizeForDisplay(pathValue).replace(/[\r\n]/g, " ")
 }

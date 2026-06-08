@@ -2497,11 +2497,21 @@ type WorkspaceRevertApplyResponse =
       "path": "docs/README.md",
       "size": 1204,
       "replacements": 1,
-      "changed": true
+      "changed": true,
+      "diff": {
+        "format": "unified",
+        "text": "diff --git a/docs/README.md b/docs/README.md\n--- a/docs/README.md\n+++ b/docs/README.md\n@@ -1,3 +1,3 @@\n # AgentHub\n-Old line\n+New line",
+        "truncated": false,
+        "additions": 1,
+        "deletions": 1,
+        "contextLines": 3
+      }
     }
   }
 }
 ```
+
+`edit_file` 的 `diff` 是每次工具调用成功结果中的轻量展示数据：路径必须是 workspace-relative 或 grant logical path，`text` 使用 unified diff，Runtime 会限制文本长度并用 `truncated` 标记预览截断。它不表示可应用的产品级 Diff Artifact，也不改变 Run 级 diff、撤销或代码审查 API。
 
 ### 查询 Run 权限请求
 
