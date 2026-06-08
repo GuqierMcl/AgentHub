@@ -10,6 +10,30 @@ let prisma: PrismaClient | null = null
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 
+interface InitDatabaseOptions {
+  allowPrismaGenerate?: boolean
+}
+
+export interface PrismaGenerateDecisionInput {
+  allowPrismaGenerate: boolean
+  clientExists: boolean
+  schemaExists: boolean
+  clientMtimeMs: number
+  schemaMtimeMs: number
+}
+
+export function shouldRunPrismaGenerate(input: PrismaGenerateDecisionInput): boolean {
+  if (!input.allowPrismaGenerate) {
+    return false
+  }
+
+  if (!input.clientExists || !input.schemaExists) {
+    return true
+  }
+
+  return input.clientMtimeMs < input.schemaMtimeMs
+}
+
 function resolveSqliteFilePath(dbUrl: string): string | null {
   if (!dbUrl.startsWith('file:')) {
     return null
@@ -37,13 +61,19 @@ function ensureSqliteFile(dbUrl: string): void {
   closeSync(openSync(dbPath, 'a'))
 }
 
-function isPrismaClientUpToDate(): boolean {
+function getPrismaGenerateFileState(): Omit<PrismaGenerateDecisionInput, 'allowPrismaGenerate'> {
   const schemaPath = resolve(PROJECT_ROOT, 'prisma', 'schema.prisma')
   const clientPath = resolve(PROJECT_ROOT, 'src', 'generated', 'prisma', 'client.ts')
-  if (!existsSync(clientPath) || !existsSync(schemaPath)) {
-    return false
+
+  const clientExists = existsSync(clientPath)
+  const schemaExists = existsSync(schemaPath)
+
+  return {
+    clientExists,
+    schemaExists,
+    clientMtimeMs: clientExists ? statSync(clientPath).mtimeMs : 0,
+    schemaMtimeMs: schemaExists ? statSync(schemaPath).mtimeMs : 0,
   }
-  return statSync(clientPath).mtimeMs >= statSync(schemaPath).mtimeMs
 }
 
 export function getPrismaClient(): PrismaClient {
@@ -53,22 +83,38 @@ export function getPrismaClient(): PrismaClient {
   return prisma
 }
 
-export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
+export async function initDatabase(dbUrl: string, options: InitDatabaseOptions = {}): Promise<PrismaClient> {
   if (prisma) {
     return prisma
   }
 
+  const allowPrismaGenerate = options.allowPrismaGenerate ?? true
   process.env.DATABASE_URL = dbUrl
   ensureSqliteFile(dbUrl)
 
-  if (!isPrismaClientUpToDate()) {
+  if (shouldRunPrismaGenerate({
+    allowPrismaGenerate,
+    ...getPrismaGenerateFileState(),
+  })) {
     execSync('bunx --bun prisma generate', {
       cwd: PROJECT_ROOT,
       stdio: 'inherit',
     })
   }
 
-  const { PrismaClient: PC } = await import('../generated/prisma/client')
+  let PC: typeof import('../generated/prisma/client').PrismaClient
+  try {
+    const generatedClient = await import('../generated/prisma/client')
+    PC = generatedClient.PrismaClient
+  } catch (err) {
+    if (!allowPrismaGenerate) {
+      throw new Error(
+        'Prisma Client is missing or older than schema. Generate Prisma Client during the build before starting Hub Server in production.',
+      )
+    }
+    throw err
+  }
+
   const adapter = new PrismaLibSql({ url: dbUrl })
   prisma = new PC({ adapter })
 

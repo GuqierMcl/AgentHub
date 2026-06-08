@@ -2,6 +2,7 @@
   "name": "hub",
   "scripts": {
     "dev": "bun run dev:migrate && bun run --hot src/index.ts",
+    "build": "bun run scripts/build.ts",
     "dev:migrate": "bun run scripts/migrate-dev-database.ts",
     "prisma:generate": "bunx --bun prisma generate",
     "prisma:migrate:dev": "bunx --bun prisma migrate dev && bunx --bun prisma generate",

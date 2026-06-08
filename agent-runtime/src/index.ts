@@ -1,6 +1,7 @@
 import { Hono, Context, Next } from 'hono'
 import { cors } from 'hono/cors'
 import { config } from './config'
+import { logger } from './logger'
 import { AgentRegistry, InstructAgentRegistry } from './agents'
 import { ProviderService } from './provider'
 import {
@@ -21,8 +22,11 @@ import {
   createInstructRuntimeToolRegistry,
 } from './instruct-runtime'
 import router from './routers'
+import { createRuntimeTokenAuthMiddleware } from './runtime/internal-auth'
+import { runtimeReadiness } from './runtime/readiness'
 
 const app = new Hono()
+logger.level = config.logLevel
 
 // 配置 CORS 中间件
 if (config.cors.length > 0) {
@@ -38,6 +42,8 @@ if (config.cors.length > 0) {
   // 默认允许所有来源（开发环境）
   app.use('*', cors())
 }
+
+app.use("*", createRuntimeTokenAuthMiddleware(process.env.AGENTHUB_RUNTIME_TOKEN))
 
 // 初始化 ProviderService
 const providerService = new ProviderService(config.dataDir)
@@ -128,12 +134,13 @@ Promise.all([
   workspaceSkillTrustService.initialize(),
   mcpTrustService.initialize(),
 ]).then(() => {
+  runtimeReadiness.markReady()
   console.log(banner)
   console.log(`Agent Runtime listening on ${server.url}`)
   console.log(`Data directory: ${config.dataDir}`)
 }).catch((error) => {
-  console.error('Failed to initialize Agent Runtime services:', error)
-  console.log(banner)
-  console.log(`Agent Runtime listening on ${server.url}`)
-  console.log(`Data directory: ${config.dataDir}`)
+  runtimeReadiness.markError(error)
+  logger.fatal({ err: error }, 'Failed to initialize Agent Runtime services')
+  server.stop(true)
+  process.exit(1)
 })

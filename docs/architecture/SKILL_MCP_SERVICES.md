@@ -23,6 +23,8 @@ Skill 注入只作用于内部 AI SDK / Orchestrator executor。外部 Codex、C
 
 workspace Skill trust 记录按 `{ workspaceId, workspaceRootHash, skillRef }` 隔离。Runtime 持久化和 API 响应只保存 root hash，不保存、不返回真实 workspace root。默认 `orchestrator` 在 Run 绑定 workspace 时，会自动选择当前 workspace 中可发现、有效、未显式撤销的 workspace Skill 注入上下文；普通内部 agent 仍只消费自身 `allowedSkills`。
 
+Discovery 保留 source 级明细；如果同一个逻辑 Skill 同时存在于 `.agents`、Codex、Claude Code、OpenCode 等来源，发现结果仍会返回多个条目，方便插件配置页展示真实安装状态。但 Run prompt assembly 前会按 `scope + normalized skill name` 形成有效能力组并去重，同组只注入一个 Skill。组内优先级固定为 `.agents > codex > claude-code > opencode`；如果较高优先级 Skill 被显式撤销，则继续尝试同组下一个 trusted Skill。诊断事件中的 expected count 使用去重后的逻辑 Skill 数，避免把重复安装误判为部分解析失败。
+
 ## MCP 服务链路
 
 MCP 已从 Phase 5A trust 地基推进到 Phase 5B-lite / 5C-lite：Runtime 会对 workspace 级 trusted MCP 做最小连接、tool 枚举和 tool 调用闭环。该实现仍不写外部平台配置，不接管 Codex / Claude Code / OpenCode 的 native MCP 执行语义，也不对 global MCP 自动连接。
@@ -39,12 +41,15 @@ OpenCode MCP discovery 需要兼容官方 JSON / JSONC 配置入口：全局 `%U
 
 HubServer 负责把浏览器侧 MCP trust 请求代理到 Runtime：global scope 可直接转发，workspace scope 必须由 `conversationId` 解析 local workspace snapshot，浏览器不得提交 rootPath。当前 Web 插件配置页只为 workspace MCP 显示信任 / 撤销入口；global MCP 保持只读 metadata 展示。
 
+MCP discovery 同样保留 source 级明细；实际连接、tool 注入和聊天输入栏状态显示使用去重后的有效 MCP server。Runtime 按 `level + normalized server name` 分组，同组优先级为 `.agents > codex > claude-code > opencode`，只连接和显示一个 server。若优先来源连接或枚举失败，Runtime 会在同一逻辑组内 fallback 到下一个 trusted 候选；成功后清理同组其他临时状态，避免用户在状态栏看到重复或已经 fallback 的错误来源。Workspace MCP status server 会返回 `sources` 和 `duplicateCount`，用于表达该条状态来自多个 source-specific 配置的合并结果。
+
 ## MCP 执行边界
 
 当前临时执行边界：
 
 - 仅 workspace MCP 默认启用；global MCP 仍只做 discovery / trust metadata。
 - Runtime status 查询 `POST /runtime/mcp/workspace/status` 默认会触发 trusted workspace MCP 连接和 tool 枚举；`GET /runtime/services/status` 只读快照，不触发连接。
+- `GET /runtime/services/status` 中的 `mcp-runtime.status` 在已有 connected workspace MCP client / tool cache 时为 `running`；无连接且无最新错误时为 `idle`。Web 可以把 `idle` 展示为“就绪”，避免用户误解为未运行。
 - Run 开始时，内部 `executorType = "ai-sdk"` 的可见主智能体和 `orchestrator` 会解析当前 workspace MCP context；隐藏子智能体、InstructAgent 和外部 adapter 不注入 MCP tool。
 - MCP stdio 可能启动 workspace 配置中的本地命令；HTTP/SSE 会使用配置中的 URL、headers 或 env 值建立连接。headers、tokens、env、credential、rootPath 不得出现在 API、日志、RunEvent 或 model-visible tool result 中。
 - 本轮不做 per-call approval / permission gate。MCP tool 的 `requiredPermissions = {}`、`approvalPolicy = "never"` 是临时实现，后续必须补上 command/network/tool 级审批和 allowlist。

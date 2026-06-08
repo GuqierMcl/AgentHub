@@ -47,6 +47,8 @@ AI 智能体在每一轮开发前，必须先查阅与任务相关的文档。�
 | `architecture/AGENT_TOOLS.md` | 工具体系、`run_task`、工具可见性、审批与事件流设计 |
 | `architecture/BASH_TOOL.md` | Runtime `bash` 工具、命令规则、审批和事件语义 |
 | `architecture/BUN_RUNTIME_PACKAGING.md` | Bun `--compile`、命令行参数解析和生产二进制约束 |
+| `architecture/AGENTHUB_CLI.md` | AgentHub CLI 生产入口、参数、发行目录解析和 HubServer 启动职责 |
+| `architecture/GITHUB_RELEASE_WORKFLOW.md` | GitHub Release tag 流水线、产物命名、版本校验和 Desktop 图标补丁 |
 | `architecture/PROVIDER_MODEL_DESIGN.md` | Provider/Model 配置管理、models.dev 目录、缓存和用户配置设计 |
 | `architecture/PRODUCTION_DISTRIBUTION.md` | 生产构建、扁平发行包、CLI/Desktop 入口、Web 托管与 Runtime Sidecar 约束 |
 | `architecture/HUB_GLOBAL_EVENTS.md` | HubServer 全局产品状态事件 |

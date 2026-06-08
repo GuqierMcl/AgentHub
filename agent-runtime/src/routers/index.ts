@@ -8,6 +8,7 @@ import settings from './settings'
 import instructRuns from './instruct-runs'
 import capabilities from './capabilities'
 import workspaceSkillTrust from './workspace-skill-trust'
+import { runtimeReadiness } from '../runtime/readiness'
 import mcpTrust from './mcp-trust'
 import mcpRuntime from './mcp-runtime'
 
@@ -18,11 +19,8 @@ router.get('/', (c: Context) => {
 })
 
 router.get('/health', (c: Context) => {
-  return c.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  })
+  const health = runtimeReadiness.getHealth()
+  return c.json(health, health.status === 'ok' ? 200 : 503)
 })
 
 // Provider API 路由

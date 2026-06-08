@@ -38,7 +38,7 @@ import { AgentFormDialog } from "./components/AgentFormDialog"
 import { AgentDetailsPanel } from "./components/AgentDetailsPanel"
 import { InstructAgentCreateDialog } from "./components/InstructAgentCreateDialog"
 import { ModelBindingDialog } from "./components/ModelBindingDialog"
-import { useAgentOverride } from "./hooks/use-avatar-overrides"
+import { useAgentOverride, useAvatarOverrides } from "./hooks/use-avatar-overrides"
 import type { AgentDetail, AgentOrigin, AgentSummary } from "./types"
 
 type OriginFilter = "all" | AgentOrigin
@@ -61,6 +61,7 @@ export function AgentsWorkspace() {
   const [deleteTarget, setDeleteTarget] = useState<AgentDetail | null>(null)
   const [deleting, setDeleting] = useState(false)
   const selectedAgentOverride = useAgentOverride(selectedAgent?.id ?? "")
+  const { data: avatarManifest } = useAvatarOverrides()
 
   const clearSelection = useCallback(() => {
     selectedAgentIdRef.current = null
@@ -308,7 +309,13 @@ export function AgentsWorkspace() {
                                   <AgentCard
                                       agent={agent}
                                       key={agent.id}
-                                      onClick={() => void selectAgent(agent.id)}
+                                      onClick={() => {
+                                          if (selectedAgentId === agent.id) {
+                                              clearSelection()
+                                          } else {
+                                              void selectAgent(agent.id)
+                                          }
+                                      }}
                                       onToggleEnabled={handleToggleEnabled}
                                       selected={selectedAgentId === agent.id}
                                   />
@@ -373,6 +380,8 @@ export function AgentsWorkspace() {
                   {!selectedAgent || !canEdit ? (
                       <AgentDetailsPanel
                           agent={selectedAgent}
+                          agents={agents}
+                          avatarManifest={avatarManifest}
                           canConfigureModel={Boolean(canConfigureModel)}
                           loading={detailLoading}
                           onConfigureModel={() => {

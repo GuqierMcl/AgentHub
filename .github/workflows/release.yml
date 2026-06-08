@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Validate tag against root package version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(bun -e "import { assertReleaseTagMatchesVersion, readAgentHubVersion } from './scripts/version.ts'; const version = readAgentHubVersion(); assertReleaseTagMatchesVersion(process.env.GITHUB_REF_NAME ?? '', version); console.log(version)")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Run version tests
+        run: bun test scripts/version.test.ts
+
+  build-cli:
+    name: Build CLI (${{ matrix.asset_suffix }})
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset_suffix: windows-x64
+          - os: ubuntu-latest
+            asset_suffix: linux-x64
+          - os: macos-15
+            asset_suffix: macos-arm64
+          - os: macos-15-intel
+            asset_suffix: macos-x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build CLI distribution
+        run: bun run build && bun run package
+
+      - name: Archive CLI distribution
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-artifacts | Out-Null
+          $artifact = "agenthub-cli-${env:GITHUB_REF_NAME}-${{ matrix.asset_suffix }}.zip"
+          $artifactPath = Join-Path "release-artifacts" $artifact
+          Compress-Archive -Path "dist/*" -DestinationPath $artifactPath -Force
+          $hash = (Get-FileHash $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "$artifactPath.sha256" -Value "$hash  $artifact" -Encoding ascii
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.asset_suffix }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  build-desktop-windows:
+    name: Build Desktop (windows-x64)
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build Desktop installer
+        run: bun run build:desktop
+
+      - name: Collect Desktop installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-artifacts | Out-Null
+          $installer = Get-ChildItem "desktop/artifacts" -Filter "*AgentHub-Setup.zip" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Desktop installer zip was not produced under desktop/artifacts"
+          }
+          $artifact = "agenthub-desktop-${env:GITHUB_REF_NAME}-windows-x64.zip"
+          $artifactPath = Join-Path "release-artifacts" $artifact
+          Copy-Item $installer.FullName $artifactPath -Force
+          $hash = (Get-FileHash $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "$artifactPath.sha256" -Value "$hash  $artifact" -Encoding ascii
+
+      - name: Upload Desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-x64
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - build-cli
+      - build-desktop-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Show release artifacts
+        run: find release-artifacts -maxdepth 1 -type f -print | sort
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release-artifacts/* \
+            --verify-tag \
+            --title "AgentHub ${GITHUB_REF_NAME}" \
+            --generate-notes

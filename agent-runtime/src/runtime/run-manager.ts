@@ -150,6 +150,63 @@ function normalizeSkillRefList(skillRefs: string[]): string[] {
   return normalized
 }
 
+function groupLogicalSkillRefs(skillRefs: string[]): string[][] {
+  const groups = new Map<string, string[]>()
+  const groupOrder: string[] = []
+  for (const skillRef of normalizeSkillRefList(skillRefs)) {
+    const key = createLogicalSkillRefKey(skillRef)
+    const group = groups.get(key) ?? []
+    if (group.length === 0) {
+      groupOrder.push(key)
+    }
+    group.push(skillRef)
+    groups.set(key, group)
+  }
+
+  return groupOrder.map((key) =>
+    [...(groups.get(key) ?? [])].sort(compareSkillRefsBySource)
+  )
+}
+
+function createLogicalSkillRefKey(skillRef: string): string {
+  const parts = skillRef.split(":")
+  if (parts.length < 3) {
+    return skillRef
+  }
+  const [scope, , ...nameParts] = parts
+  return `${scope}:${toLogicalCapabilityName(nameParts.join(":"))}`
+}
+
+function compareSkillRefsBySource(left: string, right: string): number {
+  return skillRefSourcePriority(left) - skillRefSourcePriority(right) ||
+    left.localeCompare(right)
+}
+
+function skillRefSourcePriority(skillRef: string): number {
+  const source = skillRef.split(":")[1]
+  switch (source) {
+    case "agents":
+      return 0
+    case "codex":
+      return 1
+    case "claude-code":
+      return 2
+    case "opencode":
+      return 3
+    default:
+      return 99
+  }
+}
+
+function toLogicalCapabilityName(value: string): string {
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase() || value.trim().toLowerCase()
+}
+
 export class RunWorkspaceValidationError extends Error {
   code = "RUN_INVALID_WORKSPACE" as const
 
@@ -1146,47 +1203,56 @@ export class RunManager {
       }
     }
 
-    const uniqueCandidateSkillRefs = normalizeSkillRefList(candidateSkillRefs)
-    for (const skillRef of uniqueCandidateSkillRefs) {
-      if (skillRef.startsWith("global:")) {
-        skillRefs.push(skillRef)
+    const candidateSkillRefGroups = groupLogicalSkillRefs(candidateSkillRefs)
+    for (const skillRefGroup of candidateSkillRefGroups) {
+      const globalRef = skillRefGroup.find((skillRef) => skillRef.startsWith("global:"))
+      if (globalRef) {
+        skillRefs.push(globalRef)
         continue
       }
 
-      if (!skillRef.startsWith("workspace:")) {
+      if (!skillRefGroup.every((skillRef) => skillRef.startsWith("workspace:"))) {
+        const skillRef = skillRefGroup[0] ?? ""
         warnings.push(`Skill ${skillRef} is not injectable under the current trust policy.`)
         continue
       }
+      const firstSkillRef = skillRefGroup[0] ?? ""
 
       if (!run.input.workspace) {
-        warnings.push(`Workspace Skill ${skillRef} requires a bound workspace.`)
+        warnings.push(`Workspace Skill ${firstSkillRef} requires a bound workspace.`)
         continue
       }
 
       if (!this.workspaceSkillTrustService) {
-        warnings.push(`Workspace Skill ${skillRef} requires workspace trust service.`)
+        warnings.push(`Workspace Skill ${firstSkillRef} requires workspace trust service.`)
         continue
       }
 
-      try {
-        const trusted = await this.workspaceSkillTrustService.isTrusted({
-          workspace: run.input.workspace,
-          skillRef,
-        })
-        if (trusted) {
-          skillRefs.push(skillRef)
-        } else {
-          warnings.push(`Workspace Skill ${skillRef} is not trusted for this workspace.`)
+      let trustedSkillRef: string | undefined
+      for (const skillRef of skillRefGroup) {
+        try {
+          const trusted = await this.workspaceSkillTrustService.isTrusted({
+            workspace: run.input.workspace,
+            skillRef,
+          })
+          if (trusted && !trustedSkillRef) {
+            trustedSkillRef = skillRef
+          } else if (!trusted) {
+            warnings.push(`Workspace Skill ${skillRef} is not trusted for this workspace.`)
+          }
+        } catch {
+          warnings.push(`Workspace Skill ${skillRef} trust check failed.`)
         }
-      } catch {
-        warnings.push(`Workspace Skill ${skillRef} trust check failed.`)
+      }
+      if (trustedSkillRef) {
+        skillRefs.push(trustedSkillRef)
       }
     }
 
     return {
       skillRefs,
       warnings,
-      expectedSkillCount: uniqueCandidateSkillRefs.length,
+      expectedSkillCount: candidateSkillRefGroups.length,
     }
   }
 

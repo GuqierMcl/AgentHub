@@ -7,6 +7,10 @@ interface RuntimeResponse {
   status: number
 }
 
+interface RuntimeClientOptions {
+  token?: string
+}
+
 export interface RuntimeErrorBody {
   error?: string
   message?: string
@@ -33,19 +37,49 @@ export function mapRuntimeError(status: number, body: RuntimeErrorBody | null): 
 
 export class RuntimeClient {
   private baseUrl: string
+  private token?: string
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, options: RuntimeClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '')
+    this.token = options.token
+  }
+
+  setBaseUrl(baseUrl: string): void {
+    this.baseUrl = baseUrl.replace(/\/+$/, '')
+  }
+
+  setToken(token: string | undefined): void {
+    this.token = token
+  }
+
+  private createHeaders(path: string, initial?: HeadersInit, body?: unknown): Record<string, string> | undefined {
+    const headers = new Headers(initial)
+
+    if (body !== undefined && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json')
+    }
+
+    if (this.token && path.startsWith('/runtime/')) {
+      headers.set('x-agenthub-runtime-token', this.token)
+    }
+
+    const entries = [...headers.entries()]
+    if (entries.length === 0) {
+      return undefined
+    }
+
+    return Object.fromEntries(entries)
   }
 
   async forward(method: string, path: string, body?: unknown, options?: { raw?: boolean }): Promise<RuntimeResponse> {
     const url = `${this.baseUrl}${path}`
+    const headers = this.createHeaders(path, undefined, body)
 
     let response: Response
     try {
       response = await fetch(url, {
         method,
-        headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+        headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
       })
     } catch {
@@ -85,9 +119,13 @@ export class RuntimeClient {
 
   async stream(path: string, init?: RequestInit): Promise<Response> {
     const url = `${this.baseUrl}${path}`
+    const headers = this.createHeaders(path, init?.headers)
 
     try {
-      const response = await fetch(url, init)
+      const response = await fetch(url, {
+        ...init,
+        headers,
+      })
       if (!response.ok) {
         logger.error({ path, status: response.status }, 'Agent Runtime stream returned error')
       }

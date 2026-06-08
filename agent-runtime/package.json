@@ -3,8 +3,8 @@
   "scripts": {
     "dev": "bun run --hot src/index.ts",
     "test": "bun test",
-    "build": "bun build src/index.ts --compile --outfile dist/agent-runtime",
-    "start": "./dist/agent-runtime"
+    "build": "bun build src/index.ts --target bun --outfile dist/index.js",
+    "start": "bun dist/index.js"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.79",

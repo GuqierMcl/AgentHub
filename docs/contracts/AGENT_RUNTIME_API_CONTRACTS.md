@@ -118,7 +118,7 @@ type McpRuntimeStatusItem = {
   id: "mcp-runtime"
   label: "MCP Runtime"
   kind: "runtime-capability"
-  status: "idle" | "error"
+  status: "idle" | "running" | "error"
   implemented: true
   checkedAt: string
   details?: {
@@ -149,8 +149,8 @@ type RuntimeServicesStatusResponse = {
 - `claude-code` 已接入，状态来自 Claude Agent SDK / executable 配置的只读 readiness 和 Runtime 内存中的非终态 Claude Code Run 摘要；不启动 prompt、不创建 session、不触发 Claude 登录流程。
 - `codex` 已接入，状态来自 `@openai/codex-sdk` 只读 readiness 和 Runtime 内存中的非终态 Codex Run 摘要；不创建 thread、不调用 prompt、不触发登录流程。
 - `capability-discovery` 已接入，状态来自 Runtime Capability Discovery 进程内缓存和最近一次刷新；`idle` 表示未在刷新，`refreshing` 表示正在重建缓存，`error` 表示最近一次刷新失败。该状态不得触发扫描以外的执行行为。
-- `mcp-runtime` 已接入 workspace MCP runtime 快照；`idle` 表示当前没有最新 runtime 错误，`error` 表示最近一次连接、枚举或 trust store 操作出现脱敏错误。`details` 返回 trusted record 数、已缓存 client 数、connected/error server 数和 tool 数。该 `GET /runtime/services/status` 状态查询不得启动 MCP server、连接网络、枚举 tool 或调用 tool。
-- OpenCode 的 `idle` 表示待命；`starting` 表示至少一个 workspace server 正在启动；`running` 表示至少一个 workspace server 已连接；`error` 表示最近一次启动或 workspace 校验失败。
+- `mcp-runtime` 已接入 workspace MCP runtime 快照；`running` 表示 Runtime 内存中已有 connected workspace MCP client / tool cache，`idle` 表示当前没有连接中的 workspace MCP 且没有最新 runtime 错误，`error` 表示最近一次连接、枚举或 trust store 操作出现脱敏错误。`details` 返回 trusted record 数、已缓存 client 数、connected/error server 数和 tool 数。该 `GET /runtime/services/status` 状态查询不得启动 MCP server、连接网络、枚举 tool 或调用 tool。
+- OpenCode 的 `idle` 表示就绪且当前无活动 workspace server；`starting` 表示至少一个 workspace server 正在启动；`running` 表示至少一个 workspace server 已连接；`error` 表示最近一次启动或 workspace 校验失败。
 - Codex 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `codex`；`idle` 表示 `@openai/codex-sdk` 可用且当前没有 active Codex Run；`error` 表示 SDK package 或只读 readiness 探测失败。`details.activeRunCount` 返回当前非终态 Codex Run 数，`details.clientMode = "sdk"`，`details.version` 在可读取 SDK package 版本时返回。
 - Claude Code 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `claude-code`；`idle` 表示 SDK/executable 配置可用且当前没有 active Claude Code Run；`error` 表示后续只读 executable 探测发现阻塞。`details.activeRunCount` 返回当前非终态 Claude Code Run 数；`details.executableSource` 为 `"sdk-bundled"` 或 `"env"`；`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 设置时可在 `details.executablePath` 返回该覆盖路径。
 - 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt、Claude 凭据、provider 凭据、MCP env/header/token 值或 capability discovery 中解析到的敏感配置值。
@@ -574,6 +574,8 @@ type RuntimeWorkspaceMcpStatusResponse = {
     id: string
     name: string
     source: "agents" | "codex" | "claude-code" | "opencode"
+    sources: Array<"agents" | "codex" | "claude-code" | "opencode">
+    duplicateCount: number
     transport?: "stdio" | "sse" | "http" | "unknown"
     status: "discovered" | "connecting" | "connected" | "disabled" | "error"
     enabled: boolean
@@ -586,6 +588,8 @@ type RuntimeWorkspaceMcpStatusResponse = {
 
 响应不返回 `rootPath`、env、headers、token、secret args、credential 值或 MCP 配置原文。`latestError` 必须脱敏并截断。
 
+`servers[]` 是有效 MCP server 列表，而不是 discovery 的 source-specific 原始列表。Runtime 会按 `level + normalized server name` 对同名跨来源 MCP 去重，优先级为 `.agents > codex > claude-code > opencode`；`source` 是实际采用的来源，`sources` 是同一逻辑组内可发现的来源集合，`duplicateCount` 是该逻辑组包含的候选数量。优先来源连接或枚举失败时，Runtime 可以 fallback 到同组下一个 trusted 候选，最终只返回一个有效 server 状态。
+
 错误码：
 
 | 错误码 | HTTP Status | 说明 |
@@ -595,7 +599,7 @@ type RuntimeWorkspaceMcpStatusResponse = {
 | `MCP_RUNTIME_CONNECT_FAILED` | 400 / 500 | MCP server 配置不可连接或连接失败 |
 | `MCP_RUNTIME_TOOL_CALL_FAILED` | 500 | MCP tool 调用失败 |
 
-Run 执行期，Runtime 只把动态 MCP tools 注入内部 `executorType = "ai-sdk"` 的可见主智能体和 `orchestrator`。动态工具名使用 `mcp_<server>_<tool>`，冲突时追加短 hash。MCP tool 调用必须通过 Runtime Tool Registry 统一输出 `tool.started`、`tool.completed`、`tool.failed`，事件 `data.externalProvider = "mcp"`。当前轻量实现不做 per-call approval / permission gate，后续必须补 command/network/tool 级审批。
+Run 执行期，Runtime 只把去重后的动态 MCP tools 注入内部 `executorType = "ai-sdk"` 的可见主智能体和 `orchestrator`。动态工具名使用 `mcp_<server>_<tool>`，冲突时追加短 hash。MCP tool 调用必须通过 Runtime Tool Registry 统一输出 `tool.started`、`tool.completed`、`tool.failed`，事件 `data.externalProvider = "mcp"`。当前轻量实现不做 per-call approval / permission gate，后续必须补 command/network/tool 级审批。
 
 **HubServer 代理端点**：`GET /api/conversations/:conversationId/mcp/status`
 

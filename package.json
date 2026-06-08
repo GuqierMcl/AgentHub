@@ -1,12 +1,20 @@
 {
   "name": "agenthub",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "dev:web": "cd web && bun install && bun dev",
     "dev:server": "cd hub-server && bun install && bun dev",
     "dev:runtime": "cd agent-runtime && bun install && bun dev",
     "dev:desktop": "cd desktop && bun install && bun dev",
-    "dev": "concurrently --names \"WEB,HUB-SERVER,AGENT-RUNTIME\" -c \"cyan.bold,green.bold,blue.bold,magenta.bold\" \"bun dev:web\" \"bun dev:server\" \"bun dev:runtime\" "
+    "dev": "concurrently --names \"WEB,HUB-SERVER,AGENT-RUNTIME\" -c \"cyan.bold,green.bold,blue.bold,magenta.bold\" \"bun dev:web\" \"bun dev:server\" \"bun dev:runtime\" ",
+    "build:web": "cd web && bun install && bun run build",
+    "build:runtime": "cd agent-runtime && bun install && bun run build",
+    "build:hub": "cd hub-server && bun install && bun run build",
+    "build:cli": "cd cli && bun install && bun run build",
+    "build:desktop": "bun run build && bun run package && cd desktop && bun install && bun run build:release",
+    "build": "bun run build:web && bun run build:runtime && bun run build:hub && bun run build:cli",
+    "package": "bun run scripts/package.ts"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

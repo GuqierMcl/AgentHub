@@ -32,8 +32,8 @@ describe("external agent status bar items", () => {
         id: "opencode",
         label: "OpenCode",
         status: "idle",
-        statusLabel: "待命",
-        tone: "muted",
+        statusLabel: "就绪",
+        tone: "success",
       },
     ])
   })

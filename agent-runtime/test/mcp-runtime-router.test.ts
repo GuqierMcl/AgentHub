@@ -41,6 +41,8 @@ function statusResponse(): McpWorkspaceStatusResponse {
         id: "workspace:opencode:opencode.json:docs",
         name: "docs",
         source: "opencode",
+        sources: ["opencode"],
+        duplicateCount: 1,
         transport: "stdio",
         status: "connected",
         enabled: true,

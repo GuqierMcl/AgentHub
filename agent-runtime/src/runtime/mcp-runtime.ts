@@ -37,6 +37,8 @@ export type McpWorkspaceStatusServer = {
   id: string
   name: string
   source: CapabilitySource
+  sources: CapabilitySource[]
+  duplicateCount: number
   transport?: McpTransport
   status: McpRuntimeServerStatus
   enabled: boolean
@@ -66,7 +68,7 @@ export type McpRuntimeServiceStatusItem = {
   id: "mcp-runtime"
   label: "MCP Runtime"
   kind: "runtime-capability"
-  status: "idle" | "error"
+  status: "idle" | "running" | "error"
   implemented: true
   checkedAt: string
   details: {
@@ -140,6 +142,19 @@ type RuntimeMcpTool = McpRuntimeToolMetadata & {
   runtimeName: string
 }
 
+type EffectiveMcpCandidate = {
+  config: McpServerRuntimeConfig
+  trusted: boolean
+  enabled: boolean
+}
+
+type EffectiveMcpGroup = {
+  key: string
+  candidates: EffectiveMcpCandidate[]
+  sources: CapabilitySource[]
+  duplicateCount: number
+}
+
 const RuntimeMcpToolInputSchema = z.record(z.string(), z.unknown()).default({})
 
 export class McpRuntimeError extends Error {
@@ -177,47 +192,68 @@ export class McpRuntimeService {
     })
 
     const servers: McpWorkspaceStatusServer[] = []
-    for (const config of configs.filter((candidate) => candidate.level === "workspace")) {
-      const trusted = await this.options.trustService.isTrusted({
-        scope: "workspace",
-        workspace,
-        mcpRef: config.id,
-      })
-      const enabled = trusted
-      if (!enabled) {
-        const entry = this.createOrUpdateEntry(workspace, workspaceRootHash, config, {
+    const groups = await this.resolveEffectiveGroups(
+      workspace,
+      configs.filter((candidate) => candidate.level === "workspace")
+    )
+
+    for (const group of groups) {
+      const trustedCandidates = group.candidates.filter((candidate) => candidate.trusted)
+      if (trustedCandidates.length === 0) {
+        const candidate = group.candidates[0]
+        if (!candidate) continue
+        const entry = this.createOrUpdateEntry(workspace, workspaceRootHash, candidate.config, {
           status: "disabled",
-          trusted,
-          enabled,
+          trusted: false,
+          enabled: false,
           tools: [],
           latestError: undefined,
         })
-        servers.push(this.toStatusServer(entry))
+        this.removeDuplicateEntries(workspaceRootHash, group, entry.config.id)
+        servers.push(this.toStatusServer(entry, group))
         continue
       }
 
       if (!request.connect) {
-        const existing = this.entries.get(createEntryKey(workspaceRootHash, config.id))
-        const entry = this.createOrUpdateEntry(workspace, workspaceRootHash, config, {
+        const candidate = selectStatusCandidate(trustedCandidates, this.entries, workspaceRootHash)
+        const existing = this.entries.get(createEntryKey(workspaceRootHash, candidate.config.id))
+        const entry = this.createOrUpdateEntry(workspace, workspaceRootHash, candidate.config, {
           status: existing?.status ?? "discovered",
-          trusted,
-          enabled,
+          trusted: candidate.trusted,
+          enabled: candidate.enabled,
           client: existing?.client,
           tools: existing?.tools ?? [],
           latestError: existing?.latestError,
         })
-        servers.push(this.toStatusServer(entry))
+        this.removeDuplicateEntries(workspaceRootHash, group, entry.config.id)
+        servers.push(this.toStatusServer(entry, group))
         continue
       }
 
-      const entry = await this.ensureConnected(workspace, workspaceRootHash, config, trusted, enabled)
-      servers.push(this.toStatusServer(entry))
+      let selectedEntry: RuntimeClientEntry | undefined
+      let lastEntry: RuntimeClientEntry | undefined
+      for (const candidate of trustedCandidates) {
+        const entry = await this.ensureConnected(
+          workspace,
+          workspaceRootHash,
+          candidate.config,
+          candidate.trusted,
+          candidate.enabled
+        )
+        lastEntry = entry
+        if (entry.status === "connected") {
+          selectedEntry = entry
+          break
+        }
+      }
+      const entry = selectedEntry ?? lastEntry
+      if (!entry) continue
+      this.removeDuplicateEntries(workspaceRootHash, group, entry.config.id)
+      servers.push(this.toStatusServer(entry, group))
     }
 
     this.latestRefreshAt = new Date().toISOString()
-    if (servers.some((server) => server.status !== "error")) {
-      this.latestError = servers.find((server) => server.status === "error")?.latestError
-    }
+    this.latestError = servers.find((server) => server.status === "error")?.latestError
 
     return {
       checkedAt: new Date().toISOString(),
@@ -247,12 +283,18 @@ export class McpRuntimeService {
       connect: true,
     })
     const workspaceRootHash = status.workspace.workspaceRootHash
+    const connectedServerIds = new Set(
+      status.servers
+        .filter((server) => server.status === "connected")
+        .map((server) => server.id)
+    )
     const connectedEntries = Array.from(this.entries.values())
       .filter((entry) =>
         entry.workspaceRootHash === workspaceRootHash &&
         entry.status === "connected" &&
         entry.enabled &&
-        entry.trusted
+        entry.trusted &&
+        connectedServerIds.has(entry.config.id)
       )
       .sort((left, right) => left.config.name.localeCompare(right.config.name))
 
@@ -285,7 +327,7 @@ export class McpRuntimeService {
       id: "mcp-runtime",
       label: "MCP Runtime",
       kind: "runtime-capability",
-      status: this.latestError ? "error" : "idle",
+      status: this.latestError ? "error" : connectedServerCount > 0 ? "running" : "idle",
       implemented: true,
       checkedAt: new Date().toISOString(),
       details: {
@@ -297,6 +339,48 @@ export class McpRuntimeService {
         ...(this.latestRefreshAt ? { latestRefreshAt: this.latestRefreshAt } : {}),
         ...(this.latestError ? { latestError: this.latestError } : {}),
       },
+    }
+  }
+
+  private async resolveEffectiveGroups(
+    workspace: McpTrustWorkspace,
+    configs: McpServerRuntimeConfig[],
+  ): Promise<EffectiveMcpGroup[]> {
+    const groups = new Map<string, EffectiveMcpCandidate[]>()
+    for (const config of configs) {
+      const trusted = await this.options.trustService.isTrusted({
+        scope: "workspace",
+        workspace,
+        mcpRef: config.id,
+      })
+      const key = createLogicalMcpKey(config)
+      const candidates = groups.get(key) ?? []
+      candidates.push({
+        config,
+        trusted,
+        enabled: trusted,
+      })
+      groups.set(key, candidates)
+    }
+
+    return Array.from(groups.entries())
+      .map(([key, candidates]) => {
+        const ordered = candidates.sort(compareEffectiveMcpCandidates)
+        return {
+          key,
+          candidates: ordered,
+          sources: uniqueSources(ordered.map((candidate) => candidate.config.source)),
+          duplicateCount: ordered.length,
+        }
+      })
+      .sort((left, right) => left.key.localeCompare(right.key))
+  }
+
+  private removeDuplicateEntries(workspaceRootHash: string, group: EffectiveMcpGroup, keepServerId: string): void {
+    for (const candidate of group.candidates) {
+      if (candidate.config.id !== keepServerId) {
+        this.entries.delete(createEntryKey(workspaceRootHash, candidate.config.id))
+      }
     }
   }
 
@@ -398,11 +482,13 @@ export class McpRuntimeService {
     return entry
   }
 
-  private toStatusServer(entry: RuntimeClientEntry): McpWorkspaceStatusServer {
+  private toStatusServer(entry: RuntimeClientEntry, group: EffectiveMcpGroup): McpWorkspaceStatusServer {
     return {
       id: entry.config.id,
       name: entry.config.name,
       source: entry.config.source,
+      sources: group.sources,
+      duplicateCount: group.duplicateCount,
       ...(entry.config.transport ? { transport: entry.config.transport } : {}),
       status: entry.status,
       enabled: entry.enabled,
@@ -502,6 +588,37 @@ function parseWorkspaceStatusRequest(input: McpWorkspaceStatusRequest): { worksp
     workspace: parsed.data.workspace,
     connect: parsed.data.connect,
   }
+}
+
+function createLogicalMcpKey(config: McpServerRuntimeConfig): string {
+  return `${config.level}:${normalizeLogicalName(config.name)}`
+}
+
+function selectStatusCandidate(
+  candidates: EffectiveMcpCandidate[],
+  entries: Map<string, RuntimeClientEntry>,
+  workspaceRootHash: string,
+): EffectiveMcpCandidate {
+  return candidates.find((candidate) =>
+    entries.get(createEntryKey(workspaceRootHash, candidate.config.id))?.status === "connected"
+  ) ?? candidates[0]!
+}
+
+function compareEffectiveMcpCandidates(left: EffectiveMcpCandidate, right: EffectiveMcpCandidate): number {
+  return compareSources(left.config.source, right.config.source) ||
+    left.config.id.localeCompare(right.config.id)
+}
+
+function uniqueSources(sources: CapabilitySource[]): CapabilitySource[] {
+  const seen = new Set<CapabilitySource>()
+  const result: CapabilitySource[] = []
+  for (const source of [...sources].sort(compareSources)) {
+    if (!seen.has(source)) {
+      seen.add(source)
+      result.push(source)
+    }
+  }
+  return result
 }
 
 function createEntryKey(workspaceRootHash: string, serverId: string): string {
@@ -652,6 +769,27 @@ function toSnake(value: string): string {
     .replace(/^_+|_+$/g, "")
     .toLowerCase()
   return normalized || "tool"
+}
+
+function normalizeLogicalName(value: string): string {
+  return toSnake(value)
+}
+
+function compareSources(left: CapabilitySource, right: CapabilitySource): number {
+  return sourcePriority(left) - sourcePriority(right)
+}
+
+function sourcePriority(source: CapabilitySource): number {
+  switch (source) {
+    case "agents":
+      return 0
+    case "codex":
+      return 1
+    case "claude-code":
+      return 2
+    case "opencode":
+      return 3
+  }
 }
 
 function shortHash(value: string): string {
