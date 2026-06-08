@@ -7,6 +7,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/animate-ui/components/radix/switch"
+import {
+  RotatingTextContainer,
+  RotatingText,
+} from "@/components/animate-ui/primitives/texts/rotating"
 import { cn } from "@/lib/utils"
 import { conversationsApi } from "@/features/workbench/api/conversations"
 import type { ConversationListItem } from "@/features/workbench/types"
@@ -39,12 +44,10 @@ export function ScopeSelector({
     }
   }, [scope])
 
-  const handleGlobalClick = () => {
-    onScopeChange("global")
-  }
+  const isGlobal = scope === "global"
 
-  const handleSessionClick = () => {
-    onScopeChange("workspace")
+  const handleSwitchChange = (checked: boolean) => {
+    onScopeChange(checked ? "workspace" : "global")
   }
 
   const handleConversationChange = (value: string) => {
@@ -53,34 +56,17 @@ export function ScopeSelector({
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <div className="inline-flex items-center rounded-lg bg-muted p-0.5">
-        <button
-          type="button"
-          onClick={handleGlobalClick}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-            scope === "global"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          全局
-        </button>
-        <button
-          type="button"
-          onClick={handleSessionClick}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-            scope !== "global"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          会话
-        </button>
+      <div className="inline-flex items-center gap-2">
+        <Switch checked={!isGlobal} onCheckedChange={handleSwitchChange} />
+        <RotatingTextContainer text={isGlobal ? "全局" : "会话"} style={{ paddingBlock: 0 }}>
+          <RotatingText
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="text-base font-semibold text-foreground/80 select-none"
+          />
+        </RotatingTextContainer>
       </div>
 
-      {scope !== "global" && (
+      {!isGlobal && (
         <Select
           value={conversationId ?? ""}
           onValueChange={handleConversationChange}
