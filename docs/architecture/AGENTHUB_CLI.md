@@ -8,6 +8,8 @@ AgentHub CLI 是生产发行包的命令行入口。用户启动 `agenthub-cli(.
 
 CLI 不直接启动 Agent Runtime。Agent Runtime 的生命周期、ready 检查、内部 token 和重启策略都由 HubServer 的 SidecarManager 管理。
 
+CLI 启动包可以通过 GitHub Release 压缩包或 npm 平台包分发。无论分发渠道如何，运行时目录结构都保持一致：`agenthub-cli(.exe)`、`hub-server(.exe)`、`agent-runtime(.exe)` 和 `public/` 位于同一级。
+
 ## 目标
 
 - 提供一个可执行入口启动生产版 AgentHub。
@@ -192,7 +194,8 @@ CLI 包位于 `cli/`，使用 Bun：
 
 ```json
 {
-  "build:cli": "cd cli && bun install && bun run build"
+  "build:cli": "cd cli && bun install && bun run build",
+  "package": "bun run scripts/package.ts"
 }
 ```
 
@@ -203,6 +206,8 @@ build:web -> build:runtime -> build:hub -> build:cli -> package
 ```
 
 其中 `build:hub` 不复制 Web assets。最终 `dist/public/` 由 package 阶段直接从 `web/dist/` 复制，CLI 只在运行时把 `<dist>/public` 作为 `--public-dir` 传给 HubServer。
+
+npm 分发首选 meta package + platform package 方案，避免单个 npm 包携带所有平台的二进制和 Web assets。
 
 ## 验证清单
 

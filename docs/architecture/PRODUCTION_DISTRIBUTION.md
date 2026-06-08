@@ -40,6 +40,20 @@ dist/
 - `agenthub-cli`、`hub-server`、`agent-runtime` 与 `public/` 在同一级目录，便于入口进程通过 `dirname(process.execPath)` 定位资源。
 - 未来 Desktop 安装包可以把同一组二进制和 `public/` 放入应用资源目录，但运行时仍按等价目录关系解析。
 
+## 分发线
+
+AgentHub 分发分为两条线，但共享同一套生产核心产物：
+
+- CLI 启动包：包含 `agenthub-cli(.exe)`、`hub-server(.exe)`、`agent-runtime(.exe)` 和 `public/`。可通过 GitHub Release 压缩包分发，也可通过 npm 平台包分发。
+- Desktop 安装包：包含 Desktop shell、`hub-server(.exe)`、`agent-runtime(.exe)` 和 `public/`。Desktop 不通过 CLI 启动 HubServer，安装包可通过 GitHub Release 或官网分发。
+
+规则：
+
+- GitHub Release 应按平台发布产物，并附带 sha256。
+- npm 不应把所有平台二进制塞进同一个包；若发布 npm CLI，优先使用 meta package + platform package 方案。
+- CLI、HubServer、Agent Runtime 和 Web assets 必须同版本发布。
+- Desktop 复用 HubServer 的 `--runtime-bin` / `--public-dir` 生产行为，不复用 `agenthub-cli(.exe)`。
+
 ## 入口模式
 
 ### CLI
@@ -253,9 +267,9 @@ package
 ```json
 {
   "build:web": "cd web && bun install && bun run build",
-  "build:runtime": "cd agent-runtime && bun run build",
+  "build:runtime": "cd agent-runtime && bun install && bun run build",
   "build:hub": "cd hub-server && bun install && bun run build",
-  "build:cli": "cd cli && bun run build",
+  "build:cli": "cd cli && bun install && bun run build",
   "build": "bun run build:web && bun run build:runtime && bun run build:hub && bun run build:cli",
   "package": "bun run scripts/package.ts"
 }
@@ -270,7 +284,8 @@ package
 - `hub-server` 使用 `bun build src/index.ts --compile --outfile dist/hub-server`。
 - `cli` 使用 `bun build src/index.ts --compile --outfile dist/agenthub-cli`。
 - `--compile` 当前平台构建不使用 `--target bun`。跨平台构建时再显式指定 Bun 支持的平台 target。
-- `scripts/package.ts` 根据当前平台处理可执行文件后缀，并复制三个二进制与 `public/` 到根级 `dist/`。
+- `scripts/package.ts` 根据当前平台处理可执行文件后缀，清理根级 `dist/`，复制三个二进制，并复制 `web/dist/` 到 `dist/public/`。
+- Package V1 只组装 CLI 启动包的扁平目录，不生成 Desktop installer，也不执行生产数据库迁移。
 
 ## 验证清单
 
