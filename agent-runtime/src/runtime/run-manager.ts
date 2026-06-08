@@ -135,6 +135,20 @@ function getEventTargetAgentId(event: RunEvent): string | undefined {
   return typeof targetAgentId === "string" ? targetAgentId : undefined
 }
 
+function normalizeSkillRefList(skillRefs: string[]): string[] {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const skillRef of skillRefs) {
+    const trimmed = skillRef.trim()
+    if (!trimmed || seen.has(trimmed)) {
+      continue
+    }
+    seen.add(trimmed)
+    normalized.push(trimmed)
+  }
+  return normalized
+}
+
 export class RunWorkspaceValidationError extends Error {
   code = "RUN_INVALID_WORKSPACE" as const
 
@@ -173,6 +187,11 @@ type TaskDispatchOptions = {
 type SkillRefSelection = {
   skillRefs: string[]
   warnings: string[]
+  expectedSkillCount: number
+}
+
+type ResolvedSkillContext = SkillContentResolution & {
+  expectedSkillCount: number
 }
 
 export class RunManager {
@@ -1016,7 +1035,11 @@ export class RunManager {
       run.input.diagnostics?.includeSkillDiagnostics &&
       !resumeMessages &&
       this.isSkillInjectableExecutor(agent) &&
-      agent.allowedSkills.length > 0
+      (
+        skillResolution.expectedSkillCount > 0 ||
+        skillResolution.skills.length > 0 ||
+        skillResolution.warnings.length > 0
+      )
     ) {
       emitExecutionEvent(this.createSkillContextResolvedEvent(run, agent, skillResolution))
     }
@@ -1064,13 +1087,29 @@ export class RunManager {
         ? {
             skillRefs: [],
             warnings: ["Skill refs are not injectable for this executor type."],
+            expectedSkillCount: agent.allowedSkills.length,
           }
-        : { skillRefs: [], warnings: [] }
+        : { skillRefs: [], warnings: [], expectedSkillCount: 0 }
     }
 
+    const candidateSkillRefs = [...agent.allowedSkills]
     const skillRefs: string[] = []
     const warnings: string[] = []
-    for (const skillRef of agent.allowedSkills) {
+
+    if (this.shouldAutoInjectWorkspaceSkills(run, agent)) {
+      if (!this.skillContentService) {
+        warnings.push("Workspace Skill auto discovery service is unavailable.")
+      } else {
+        try {
+          candidateSkillRefs.push(...await this.skillContentService.listWorkspaceSkillRefs(run.input.workspace!))
+        } catch {
+          warnings.push("Workspace Skill auto discovery failed.")
+        }
+      }
+    }
+
+    const uniqueCandidateSkillRefs = normalizeSkillRefList(candidateSkillRefs)
+    for (const skillRef of uniqueCandidateSkillRefs) {
       if (skillRef.startsWith("global:")) {
         skillRefs.push(skillRef)
         continue
@@ -1106,15 +1145,28 @@ export class RunManager {
       }
     }
 
-    return { skillRefs, warnings }
+    return {
+      skillRefs,
+      warnings,
+      expectedSkillCount: uniqueCandidateSkillRefs.length,
+    }
   }
 
-  private async resolveSkillContext(run: RunRecord, agent: AgentDefinition): Promise<SkillContentResolution> {
+  private shouldAutoInjectWorkspaceSkills(run: RunRecord, agent: AgentDefinition): boolean {
+    return (
+      agent.id === "orchestrator" &&
+      agent.executorType === "orchestrator" &&
+      Boolean(run.input.workspace)
+    )
+  }
+
+  private async resolveSkillContext(run: RunRecord, agent: AgentDefinition): Promise<ResolvedSkillContext> {
     const selection = await this.selectInjectableSkillRefs(run, agent)
     if (selection.skillRefs.length === 0) {
       return {
         skills: [],
         warnings: selection.warnings,
+        expectedSkillCount: selection.expectedSkillCount,
       }
     }
 
@@ -1122,6 +1174,7 @@ export class RunManager {
       return {
         skills: [],
         warnings: [...selection.warnings, "Skill context service is unavailable."],
+        expectedSkillCount: selection.expectedSkillCount,
       }
     }
 
@@ -1133,11 +1186,13 @@ export class RunManager {
       return {
         skills: resolution.skills,
         warnings: [...selection.warnings, ...resolution.warnings],
+        expectedSkillCount: selection.expectedSkillCount,
       }
     } catch {
       return {
         skills: [],
         warnings: [...selection.warnings, "Skill context resolution failed."],
+        expectedSkillCount: selection.expectedSkillCount,
       }
     }
   }
@@ -1145,9 +1200,9 @@ export class RunManager {
   private createSkillContextResolvedEvent(
     run: RunRecord,
     agent: AgentDefinition,
-    resolution: SkillContentResolution
+    resolution: ResolvedSkillContext
   ): RunEvent {
-    const expectedSkillCount = agent.allowedSkills.length
+    const expectedSkillCount = resolution.expectedSkillCount
     const status = expectedSkillCount === 0
       ? "skipped"
       : resolution.skills.length === expectedSkillCount

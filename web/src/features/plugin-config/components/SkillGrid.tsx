@@ -1,6 +1,6 @@
 import { InfoIcon } from "lucide-react"
 import { SkillCard } from "./SkillCard"
-import type { SkillItem } from "../types"
+import type { SkillItem, WorkspaceSkillTrustRecord } from "../types"
 
 type SkillGridProps = {
   skills: SkillItem[]
@@ -8,9 +8,23 @@ type SkillGridProps = {
   error: string | null
   notice?: string | null
   onRetry: () => void
+  trustRecords?: WorkspaceSkillTrustRecord[]
+  trustLoading?: boolean
+  trustUpdatingSkillRef?: string | null
+  onTrustDecision?: (skillRef: string, trusted: boolean) => void
 }
 
-export function SkillGrid({ skills, loading, error, notice, onRetry }: SkillGridProps) {
+export function SkillGrid({
+  skills,
+  loading,
+  error,
+  notice,
+  onRetry,
+  trustRecords = [],
+  trustLoading = false,
+  trustUpdatingSkillRef = null,
+  onTrustDecision,
+}: SkillGridProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -68,7 +82,14 @@ export function SkillGrid({ skills, loading, error, notice, onRetry }: SkillGrid
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {skills.map((skill) => (
-        <SkillCard key={skill.id} skill={skill} />
+        <SkillCard
+          key={skill.id}
+          skill={skill}
+          trustRecords={trustRecords}
+          trustLoading={trustLoading}
+          trustUpdating={trustUpdatingSkillRef === skill.id}
+          onTrustDecision={onTrustDecision}
+        />
       ))}
     </div>
   )

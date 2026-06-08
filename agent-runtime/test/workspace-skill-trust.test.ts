@@ -24,7 +24,7 @@ const workspace: WorkspaceSkillTrustWorkspace = {
 }
 
 describe("WorkspaceSkillTrustService", () => {
-  test("returns untrusted records without exposing workspace root paths", async () => {
+  test("returns default trusted records without exposing workspace root paths", async () => {
     const { service } = await createService()
 
     const result = await service.list({
@@ -38,11 +38,16 @@ describe("WorkspaceSkillTrustService", () => {
       backendType: "local",
       skillRef: "workspace:agents:review",
       source: "agents",
-      trusted: false,
-      status: "untrusted",
+      trusted: true,
+      status: "trusted",
     })
+    expect(result.trusts[0].trustedAt).toBeUndefined()
     expect(result.workspace.workspaceRootHash).toHaveLength(64)
     expect(JSON.stringify(result)).not.toContain("D:\\Projects\\Alpha")
+    expect(await service.isTrusted({
+      workspace,
+      skillRef: "workspace:agents:review",
+    })).toBe(true)
   })
 
   test("persists trusted and revoked workspace Skill decisions", async () => {
@@ -94,14 +99,19 @@ describe("WorkspaceSkillTrustService", () => {
     expect(raw).not.toContain("D:\\Projects\\Alpha")
   })
 
-  test("invalidates trust when the workspace root hash changes", async () => {
+  test("scopes explicit revokes to the workspace root hash", async () => {
     const { service } = await createService()
 
     await service.decide({
       workspace,
       skillRef: "workspace:agents:review",
-      trusted: true,
+      trusted: false,
     })
+
+    expect(await service.isTrusted({
+      workspace,
+      skillRef: "workspace:agents:review",
+    })).toBe(false)
 
     expect(await service.isTrusted({
       workspace: {
@@ -109,7 +119,7 @@ describe("WorkspaceSkillTrustService", () => {
         rootPath: "D:\\Projects\\Different",
       },
       skillRef: "workspace:agents:review",
-    })).toBe(false)
+    })).toBe(true)
   })
 
   test("rejects global or malformed Skill refs", async () => {

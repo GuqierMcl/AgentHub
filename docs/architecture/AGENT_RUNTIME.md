@@ -96,15 +96,15 @@ Runtime 还暴露 Skill / MCP Capability Discovery 只读端点，供 HubServer 
 
 Runtime 可以在内部 AI SDK / Orchestrator Run 的 prompt assembly 阶段读取 `allowedSkills` 指向的有效 Skill 正文，并以 system prompt 区块注入给模型。该能力仍然不执行 Skill、不会启动 MCP server、不会扩展外部 agent 的 native Skill 开关，也不会把 Skill 正文返回给 HubServer 或前端消息流。
 
-本阶段用户自定义智能体只允许引用 global Skill。workspace Skill 仍可被 discovery API 展示，但在缺少显式 workspace trust contract 前不会被用户自定义智能体注入。Runtime 只在诊断事件中返回 Skill id/name/source/level、截断状态和 warning，不返回正文。
+当前实现允许用户自定义智能体引用 global 与 workspace Skill 逻辑 ref。workspace Skill 仍必须绑定当前 Run 的 workspace，并经过 Workspace Skill Trust 的默认 trusted / 显式撤销语义过滤。Runtime 只在诊断事件中返回 Skill id/name/source/level、截断状态和 warning，不返回正文。
 
 #### Phase 4B Workspace Skill Trust 边界
 
-Runtime 可以保存 workspace Skill trust record，用于判断某个绑定 workspace 中的 `workspace:*` Skill ref 是否允许进入内部 AI SDK / Orchestrator prompt assembly。trust record 只保存 `workspaceId`、workspace root hash、Skill ref、trust 状态和时间戳；不得在 API 响应或持久化记录中保存或返回 workspace root 绝对路径。
+Runtime 可以保存 workspace Skill trust record，用于判断某个绑定 workspace 中的 `workspace:*` Skill ref 是否允许进入内部 AI SDK / Orchestrator prompt assembly。自动发现的 workspace Skill 默认 trusted；trust record 主要用于保存显式允许 / 撤销决策，尤其是 `trusted = false` 的撤销记录。trust record 只保存 `workspaceId`、workspace root hash、Skill ref、trust 状态和时间戳；不得在 API 响应或持久化记录中保存或返回 workspace root 绝对路径。
 
-`workspace:*` Skill ref 可以出现在用户自定义智能体配置中，但在 Run 未绑定 workspace、workspace root hash 不匹配、trust record 不存在或已撤销时，Runtime 必须跳过正文注入，并仅在 `agent.skill_context.resolved` 诊断事件中返回 metadata-only warning。global Skill 注入保持 Phase 4A 行为。
+`workspace:*` Skill ref 可以出现在用户自定义智能体配置中；缺失 trust record 表示默认 trusted。Run 未绑定 workspace、workspace trust 服务不可用，或当前 `{ workspaceId, rootPath hash, skillRef }` 命中显式撤销记录时，Runtime 必须跳过正文注入，并仅在 `agent.skill_context.resolved` 诊断事件中返回 metadata-only warning。global Skill 注入保持 Phase 4A 行为。
 
-本阶段仍不执行 Skill、不启动 MCP server、不读取 Skill 引用文件、不把 Skill 正文返回给 HubServer 或前端，也不实现 Web 确认 UI。HubServer 后续负责把前端确认结果转发给 Runtime trust API。
+默认 `orchestrator` 在 Run 绑定 workspace 时，会自动选择当前 workspace 中可发现、有效、未撤销的 workspace Skill 注入自身上下文，即使 preset `allowedSkills` 为空。普通内部 agent 仍只消费自身 `allowedSkills`；外部 adapter 不消费 AgentHub Skill 注入。该阶段仍不执行 Skill、不启动 MCP server、不读取 Skill 引用文件，也不把 Skill 正文返回给 HubServer 或前端。HubServer 负责把前端允许 / 撤销结果转发给 Runtime trust API。
 
 健康检查响应格式：
 

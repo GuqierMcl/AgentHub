@@ -322,4 +322,169 @@ describe("RunManager Skill injection", () => {
     expect(JSON.stringify(diagnostic)).not.toContain("Always inspect tests")
     expect(JSON.stringify(diagnostic)).not.toContain(workspace.rootPath)
   })
+
+  test("auto injects trusted workspace Skills into the default Orchestrator context", async () => {
+    const registry = await createRegistry()
+    const workspace = {
+      workspaceId: "workspace_orchestrator_auto",
+      backendType: "local" as const,
+      rootPath: await mkdtemp(join(tmpdir(), "agent-runtime-orchestrator-auto-workspace-")),
+    }
+    const workspaceSkill: ResolvedSkillContent = {
+      ...resolvedSkill,
+      id: "workspace:agents:review",
+      ref: "workspace:agents:review",
+      level: "workspace",
+    }
+    const skillContentService = {
+      async listWorkspaceSkillRefs(requestWorkspace: typeof workspace) {
+        expect(requestWorkspace).toEqual(workspace)
+        return ["workspace:agents:review", "workspace:codex:style"]
+      },
+      async resolve(request: { skillRefs: string[]; workspace?: typeof workspace }) {
+        expect(request.skillRefs).toEqual(["workspace:agents:review"])
+        expect(request.workspace).toEqual(workspace)
+        return { skills: [workspaceSkill], warnings: [] }
+      },
+    } as unknown as SkillContentService
+    const workspaceSkillTrustService = {
+      async isTrusted(request: { workspace: typeof workspace; skillRef: string }) {
+        expect(request.workspace).toEqual(workspace)
+        return request.skillRef !== "workspace:codex:style"
+      },
+    }
+    const manager = new RunManager(
+      registry,
+      {} as ProviderService,
+      undefined,
+      createDefaultRuntimeToolRegistry(),
+      undefined,
+      undefined,
+      skillContentService,
+      workspaceSkillTrustService as any,
+    )
+
+    let observedSkills: ResolvedSkillContent[] | undefined
+    ;(manager as any).orchestratorExecutor = {
+      executorType: "orchestrator",
+      async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
+        observedSkills = context.injectedSkills
+        yield createRunEvent(context.runId, "agent.started", context.agent.id, {})
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, { status: "completed" })
+      },
+    }
+
+    const run = manager.createRun({
+      conversationId: "conv_orchestrator_auto_workspace_skill",
+      mode: "group",
+      participantAgentIds: ["orchestrator", "coder", "reviewer"],
+      addressedAgentIds: [],
+      userMessage: {
+        role: "user",
+        content: "Use workspace instructions.",
+      },
+      history: [],
+      workspace,
+      diagnostics: {
+        includeSkillDiagnostics: true,
+      },
+    })
+
+    await waitForStatus(manager, run.id, "completed")
+
+    expect(observedSkills?.map((skill) => skill.ref)).toEqual(["workspace:agents:review"])
+    const diagnostic = manager.getEvents(run.id)?.find((event) =>
+      event.type === "agent.skill_context.resolved"
+    )
+    expect(diagnostic?.data).toMatchObject({
+      status: "partial",
+      skills: [
+        expect.objectContaining({
+          ref: "workspace:agents:review",
+          level: "workspace",
+        }),
+      ],
+      warnings: expect.arrayContaining([
+        "Workspace Skill workspace:codex:style is not trusted for this workspace.",
+      ]),
+    })
+    expect(JSON.stringify(diagnostic)).not.toContain("Always inspect tests")
+    expect(JSON.stringify(diagnostic)).not.toContain(workspace.rootPath)
+  })
+
+  test("does not auto inject workspace Skills into ordinary agents without allowed Skill refs", async () => {
+    const registry = await createRegistry()
+    const agent = await registry.createUserAgent({
+      id: "ordinary_workspace_agent",
+      name: "Ordinary Workspace Agent",
+      description: "Has no configured Skills.",
+      systemPrompt: "Answer normally.",
+      capabilities: [],
+      allowedSubagents: [],
+      allowedTools: [],
+      allowedSkills: [],
+      permissionPolicy: {
+        filesystem: "none",
+        shell: "none",
+        network: "none",
+        deploy: "none",
+      },
+      enabled: true,
+    })
+
+    const skillContentService = {
+      async listWorkspaceSkillRefs() {
+        throw new Error("Ordinary agents should not auto discover workspace Skills")
+      },
+      async resolve() {
+        throw new Error("Ordinary agents should not resolve Skill content without refs")
+      },
+    } as unknown as SkillContentService
+    const manager = new RunManager(
+      registry,
+      {} as ProviderService,
+      undefined,
+      createDefaultRuntimeToolRegistry(),
+      undefined,
+      undefined,
+      skillContentService,
+    )
+
+    let observedSkills: ResolvedSkillContent[] | undefined
+    ;(manager as any).aiSdkExecutor = {
+      executorType: "ai-sdk",
+      async *execute(context: AgentExecutionContext): AsyncIterable<RunEvent> {
+        observedSkills = context.injectedSkills
+        yield createRunEvent(context.runId, "agent.started", context.agent.id, {})
+        yield createRunEvent(context.runId, "agent.completed", context.agent.id, { status: "completed" })
+      },
+    }
+
+    const run = manager.createRun({
+      conversationId: "conv_ordinary_workspace_skill_auto",
+      mode: "single",
+      participantAgentIds: [agent.id],
+      addressedAgentIds: [agent.id],
+      userMessage: {
+        role: "user",
+        content: "Answer without skill injection.",
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_ordinary",
+        backendType: "local",
+        rootPath: await mkdtemp(join(tmpdir(), "agent-runtime-ordinary-workspace-")),
+      },
+      diagnostics: {
+        includeSkillDiagnostics: true,
+      },
+    })
+
+    await waitForStatus(manager, run.id, "completed")
+
+    expect(observedSkills).toEqual([])
+    expect(manager.getEvents(run.id)?.some((event) =>
+      event.type === "agent.skill_context.resolved"
+    )).toBe(false)
+  })
 })

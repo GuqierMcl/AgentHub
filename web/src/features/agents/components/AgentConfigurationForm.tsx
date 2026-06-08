@@ -17,8 +17,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { AgentAvatar } from "@/components/agent-avatar"
+import { capabilitiesApi } from "@/features/plugin-config/api/capabilities"
+import type { SkillItem } from "@/features/plugin-config/types"
 
 import { agentsApi } from "../api/agents"
+import {
+  appendAllowedSkillRef,
+  removeAllowedSkillRef,
+} from "../agent-configuration-state"
 import type {
   AgentDetail,
   AgentPermissionPolicy,
@@ -119,6 +125,15 @@ export function AgentConfigurationForm({
     agent?.capabilities ?? []
   )
   const [customCapability, setCustomCapability] = useState("")
+  const [allowedSkills, setAllowedSkills] = useState<string[]>(
+    agent?.allowedSkills ?? []
+  )
+  const [customSkillRef, setCustomSkillRef] = useState("")
+  const [skillRefError, setSkillRefError] = useState<string | null>(null)
+  const [globalSkillOptions, setGlobalSkillOptions] = useState<Array<{
+    id: string
+    name: string
+  }>>([])
   const [allowedTools, setAllowedTools] = useState<UserAgentAllowedTool[]>(
     (agent?.allowedTools as UserAgentAllowedTool[] | undefined) ?? []
   )
@@ -170,6 +185,33 @@ export function AgentConfigurationForm({
   }, [active])
 
   useEffect(() => {
+    if (!active) {
+      return
+    }
+
+    let cancelled = false
+    void capabilitiesApi.fetchGlobal()
+      .then((result) => {
+        if (!cancelled) {
+          setGlobalSkillOptions(
+            result.skills
+              .filter((skill: SkillItem) => skill.valid)
+              .map((skill: SkillItem) => ({ id: skill.id, name: skill.name }))
+          )
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGlobalSkillOptions([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [active])
+
+  useEffect(() => {
     if (mode !== "create" || !authoring || defaultsAppliedRef.current) {
       return
     }
@@ -201,6 +243,35 @@ export function AgentConfigurationForm({
     setCapabilities((current) => [...current, capability])
     setCustomCapability("")
   }, [capabilities, customCapability])
+
+  const handleAddSkillRef = useCallback(() => {
+    const result = appendAllowedSkillRef(allowedSkills, customSkillRef)
+    setAllowedSkills(result.refs)
+    if (result.error) {
+      setSkillRefError(result.error)
+      return
+    }
+
+    setCustomSkillRef("")
+    setSkillRefError(null)
+  }, [allowedSkills, customSkillRef])
+
+  const handleRemoveSkillRef = useCallback((skillRef: string) => {
+    setAllowedSkills((current) => removeAllowedSkillRef(current, skillRef))
+    setSkillRefError(null)
+  }, [])
+
+  const toggleAllowedSkill = useCallback((skillRef: string) => {
+    if (allowedSkills.includes(skillRef)) {
+      setAllowedSkills(removeAllowedSkillRef(allowedSkills, skillRef))
+      setSkillRefError(null)
+      return
+    }
+
+    const result = appendAllowedSkillRef(allowedSkills, skillRef)
+    setAllowedSkills(result.refs)
+    setSkillRefError(result.error ?? null)
+  }, [allowedSkills])
 
   const toggleTool = useCallback((tool: UserAgentAllowedTool) => {
     setAllowedTools((current) =>
@@ -243,6 +314,7 @@ export function AgentConfigurationForm({
         let savedAgent: AgentDetail
         if (isEdit && agent) {
           const input: UserAgentUpdateRequest = {
+            allowedSkills,
             allowedSubagents,
             allowedTools,
             capabilities,
@@ -254,6 +326,7 @@ export function AgentConfigurationForm({
           savedAgent = await agentsApi.update(agent.id, input)
         } else {
           const input: UserAgentCreateRequest = {
+            allowedSkills,
             allowedSubagents,
             allowedTools,
             capabilities,
@@ -279,6 +352,7 @@ export function AgentConfigurationForm({
     [
       agent,
       agentId,
+      allowedSkills,
       allowedSubagents,
       allowedTools,
       capabilities,
@@ -438,6 +512,71 @@ export function AgentConfigurationForm({
             添加
           </Button>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <span className="text-sm font-medium">Skill 注入</span>
+        {allowedSkills.length === 0 ? null : (
+          <div className="flex flex-wrap gap-2">
+            {allowedSkills.map((skillRef) => (
+              <Badge key={skillRef} variant="secondary">
+                {skillRef}
+                <button
+                  aria-label={`移除 ${skillRef}`}
+                  onClick={() => handleRemoveSkillRef(skillRef)}
+                  type="button"
+                >
+                  <XIcon />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+        {globalSkillOptions.length ? (
+          <div className="flex flex-wrap gap-2">
+            {globalSkillOptions.map((skill) => (
+              <Button
+                key={skill.id}
+                onClick={() => toggleAllowedSkill(skill.id)}
+                size="xs"
+                type="button"
+                variant={allowedSkills.includes(skill.id) ? "secondary" : "outline"}
+              >
+                {skill.name}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex gap-2">
+          <Input
+            onChange={(event) => {
+              setCustomSkillRef(event.currentTarget.value)
+              setSkillRefError(null)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                handleAddSkillRef()
+              }
+            }}
+            placeholder="global:agents:review"
+            value={customSkillRef}
+          />
+          <Button
+            disabled={!customSkillRef.trim()}
+            onClick={handleAddSkillRef}
+            type="button"
+            variant="outline"
+          >
+            <PlusIcon data-icon="inline-start" />
+            添加
+          </Button>
+        </div>
+        {skillRefError ? (
+          <p className="text-destructive text-xs">
+            {skillRefError}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2">
