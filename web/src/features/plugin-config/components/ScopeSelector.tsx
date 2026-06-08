@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import {
   Select,
   SelectContent,
@@ -56,23 +57,33 @@ export function ScopeSelector({
         </RotatingTextContainer>
       </div>
 
-      {!isGlobal && (
-        <Select
-          value={conversationId ?? ""}
-          onValueChange={handleConversationChange}
-        >
-          <SelectTrigger className="h-8 w-[220px] text-xs">
-            <SelectValue placeholder="选择会话..." />
-          </SelectTrigger>
-          <SelectContent>
-            {conversations.map((conv) => (
-              <SelectItem key={conv.id} value={conv.id} className="text-xs">
-                {conv.title}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+      <AnimatePresence mode="wait">
+        {!isGlobal && (
+          <motion.div
+            key="conversation-selector"
+            initial={{ opacity: 0, x: -12 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -12 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+          >
+            <Select
+              value={conversationId ?? ""}
+              onValueChange={handleConversationChange}
+            >
+              <SelectTrigger className="h-8 w-[220px] text-xs">
+                <SelectValue placeholder="选择会话..." />
+              </SelectTrigger>
+              <SelectContent>
+                {conversations.map((conv) => (
+                  <SelectItem key={conv.id} value={conv.id} className="text-xs">
+                    {conv.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   )

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { RefreshCwIcon, SearchIcon } from "lucide-react"
+import { SearchIcon } from "lucide-react"
 import {
   Tabs,
   TabsContent,
@@ -9,7 +9,8 @@ import {
 } from "@/components/animate-ui/components/animate/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { AnimatedRefreshCwIcon } from "@/components/ui/refresh-controls"
 import { capabilitiesApi } from "./api/capabilities"
 import { SkillGrid } from "./components/SkillGrid"
 import { McpGrid } from "./components/McpGrid"
@@ -108,19 +109,16 @@ export function PluginConfigWorkspace() {
               查看已发现的 Skill 和 MCP Server 配置
             </p>
           </div>
-          <button
-            type="button"
+          <Button
             onClick={handleRefresh}
             disabled={loading || !showRefresh}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
-              "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-              (loading || !showRefresh) && "cursor-not-allowed opacity-50"
-            )}
+            size="xs"
+            type="button"
+            variant="secondary"
           >
-            <RefreshCwIcon className={cn("size-3", loading && "animate-spin")} />
+            <AnimatedRefreshCwIcon data-icon="inline-start" spinning={loading} />
             刷新
-          </button>
+          </Button>
         </div>
       </header>
 
