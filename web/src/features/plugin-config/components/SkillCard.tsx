@@ -1,6 +1,6 @@
 import { CheckCircle2Icon, AlertTriangleIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/animate-ui/components/radix/switch"
 import { cn } from "@/lib/utils"
 import { getSkillTrustState } from "../plugin-config-state"
 import type { SkillItem, WorkspaceSkillTrustRecord } from "../types"
@@ -86,16 +86,13 @@ export function SkillCard({
       <p className="truncate font-mono text-[11px] text-muted-foreground/70">{skill.path}</p>
 
       {skill.level === "workspace" && (
-        <div className="flex items-center justify-end">
-          <Button
-            type="button"
-            size="xs"
-            variant={trustState.kind === "trusted" ? "outline" : "secondary"}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">信任</span>
+          <Switch
+            checked={trustState.kind === "trusted"}
             disabled={!canChangeTrust || trustLoading || trustUpdating}
-            onClick={() => onTrustDecision?.(skill.id, trustState.kind !== "trusted")}
-          >
-            {trustUpdating ? "更新中..." : trustState.kind === "trusted" ? "撤销信任" : "信任"}
-          </Button>
+            onCheckedChange={() => onTrustDecision?.(skill.id, trustState.kind !== "trusted")}
+          />
         </div>
       )}
 

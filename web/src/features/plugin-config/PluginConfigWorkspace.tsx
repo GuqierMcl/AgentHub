@@ -11,14 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { AnimatedRefreshCwIcon } from "@/components/ui/refresh-controls"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/animate-ui/components/radix/dialog"
+import { toast } from "sonner"
 import { capabilitiesApi } from "./api/capabilities"
 import { workspaceSkillTrustApi } from "./api/workspace-skill-trust"
 import { SkillGrid } from "./components/SkillGrid"
@@ -41,12 +34,6 @@ type WorkspaceCapabilityViewGroup = WorkspaceCapabilityGroup & {
   trustRecords: WorkspaceSkillTrustRecord[]
 }
 
-type PendingTrustDecision = {
-  conversationId: string
-  skillRef: string
-  trusted: boolean
-}
-
 export function PluginConfigWorkspace() {
   const [activeTab, setActiveTab] = useState("skill")
   const [scope, setScope] = useState<CapabilityScope>("global")
@@ -62,7 +49,6 @@ export function PluginConfigWorkspace() {
   const [trustLoading, setTrustLoading] = useState(false)
   const [trustUpdatingSkillRef, setTrustUpdatingSkillRef] = useState<string | null>(null)
   const [trustUpdatingConversationId, setTrustUpdatingConversationId] = useState<string | null>(null)
-  const [pendingTrustDecision, setPendingTrustDecision] = useState<PendingTrustDecision | null>(null)
 
   const queryTrustRecords = useCallback(async (
     targetConversationId: string | undefined,
@@ -213,52 +199,43 @@ export function PluginConfigWorkspace() {
       return
     }
 
-    setPendingTrustDecision({
-      conversationId: targetConversationId,
-      skillRef,
-      trusted,
-    })
-  }, [])
-
-  const confirmTrustDecision = useCallback(async () => {
-    if (!pendingTrustDecision) return
-
-    const decision = pendingTrustDecision
-    setPendingTrustDecision(null)
-    setTrustUpdatingSkillRef(decision.skillRef)
-    setTrustUpdatingConversationId(decision.conversationId)
+    setTrustUpdatingSkillRef(skillRef)
+    setTrustUpdatingConversationId(targetConversationId)
     setError(null)
     try {
       const result = await workspaceSkillTrustApi.decide({
-        conversationId: decision.conversationId,
-        skillRef: decision.skillRef,
-        trusted: decision.trusted,
-        reason: decision.trusted ? "approved in plugin config" : "revoked in plugin config",
+        conversationId: targetConversationId,
+        skillRef,
+        trusted,
+        reason: trusted ? "approved in plugin config" : "revoked in plugin config",
       })
       setSkillTrustRecords((current) => [
-        ...current.filter((record) => record.skillRef !== decision.skillRef),
+        ...current.filter((record) => record.skillRef !== skillRef),
         result.record,
       ])
       setWorkspaceGroups((current) =>
         current.map((group) =>
-          group.conversationId === decision.conversationId
+          group.conversationId === targetConversationId
             ? {
                 ...group,
                 trustRecords: [
-                  ...group.trustRecords.filter((record) => record.skillRef !== decision.skillRef),
+                  ...group.trustRecords.filter((record) => record.skillRef !== skillRef),
                   result.record,
                 ],
               }
             : group
         )
       )
+      toast.success(trusted ? "已信任该 Skill" : "已撤销该 Skill 信任")
     } catch (err) {
-      setError(err instanceof Error ? err.message : "更新 Skill 信任状态失败")
+      const message = err instanceof Error ? err.message : "更新 Skill 信任状态失败"
+      setError(message)
+      toast.error(message)
     } finally {
       setTrustUpdatingSkillRef(null)
       setTrustUpdatingConversationId(null)
     }
-  }, [pendingTrustDecision])
+  }, [])
 
   const filteredSkills = useMemo(() => {
     const items = data?.skills ?? []
@@ -395,41 +372,6 @@ export function PluginConfigWorkspace() {
         </Tabs>
       </div>
 
-      <Dialog
-        open={!!pendingTrustDecision}
-        onOpenChange={(open) => {
-          if (!open) setPendingTrustDecision(null)
-        }}
-      >
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>
-              {pendingTrustDecision?.trusted ? "信任工作区 Skill" : "撤销 Skill 信任"}
-            </DialogTitle>
-            <DialogDescription>
-              {pendingTrustDecision?.trusted
-                ? "信任后，内部智能体可在绑定工作区的 Run 中注入该 Skill 正文。"
-                : "撤销后，该工作区 Skill 将不会再注入内部智能体 prompt。"}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setPendingTrustDecision(null)}
-            >
-              取消
-            </Button>
-            <Button
-              type="button"
-              variant={pendingTrustDecision?.trusted ? "secondary" : "destructive"}
-              onClick={() => { void confirmTrustDecision() }}
-            >
-              {pendingTrustDecision?.trusted ? "确认信任" : "确认撤销"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
