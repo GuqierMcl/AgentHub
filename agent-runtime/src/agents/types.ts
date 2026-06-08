@@ -22,6 +22,51 @@ export type AgentModelBindingMap = z.infer<typeof AgentModelBindingMapSchema>
 export const AgentModelBindingUpdateRequestSchema = AgentModelRefSchema
 export type AgentModelBindingUpdateRequest = z.infer<typeof AgentModelBindingUpdateRequestSchema>
 
+const ExternalAgentModelNameSchema = z.string().trim().min(1).max(200)
+
+export const ExternalAgentIdSchema = z.enum(["opencode", "claude-code", "codex"])
+export type ExternalAgentId = z.infer<typeof ExternalAgentIdSchema>
+
+export const OpenCodeExternalAgentSettingsSchema = z.object({
+  provider: z.literal("opencode"),
+  model: z.object({
+    providerID: z.string().trim().min(1),
+    modelID: z.string().trim().min(1),
+  }).strip().optional(),
+  executionAgent: z.enum(["build", "plan"]).optional(),
+  updatedAt: z.string().optional(),
+}).strip()
+
+export const ClaudeCodeExternalAgentSettingsSchema = z.object({
+  provider: z.literal("claude-code"),
+  model: ExternalAgentModelNameSchema.optional(),
+  permissionMode: z.enum(["default", "acceptEdits", "plan", "dontAsk", "auto"]).optional(),
+  updatedAt: z.string().optional(),
+}).strip()
+
+export const CodexExternalAgentSettingsSchema = z.object({
+  provider: z.literal("codex"),
+  model: ExternalAgentModelNameSchema.optional(),
+  updatedAt: z.string().optional(),
+}).strip()
+
+export const ExternalAgentSettingsSchema = z.discriminatedUnion("provider", [
+  OpenCodeExternalAgentSettingsSchema,
+  ClaudeCodeExternalAgentSettingsSchema,
+  CodexExternalAgentSettingsSchema,
+])
+export type ExternalAgentSettings = z.infer<typeof ExternalAgentSettingsSchema>
+
+export const ExternalAgentSettingsMapSchema = z.object({
+  opencode: OpenCodeExternalAgentSettingsSchema.optional(),
+  "claude-code": ClaudeCodeExternalAgentSettingsSchema.optional(),
+  codex: CodexExternalAgentSettingsSchema.optional(),
+}).strip()
+export type ExternalAgentSettingsMap = z.infer<typeof ExternalAgentSettingsMapSchema>
+
+export const ExternalAgentSettingsUpdateRequestSchema = ExternalAgentSettingsSchema
+export type ExternalAgentSettingsUpdateRequest = z.infer<typeof ExternalAgentSettingsUpdateRequestSchema>
+
 export const AgentIdSchema = z.string()
   .min(3)
   .max(64)

@@ -1,5 +1,6 @@
 export { AgentStore } from "./agent-store"
 export { AgentModelBindingStore } from "./agent-model-binding-store"
+export { ExternalAgentSettingsStore } from "./external-agent-settings-store"
 export { AgentRegistry, AgentRegistryMutationError } from "./agent-registry"
 export { InstructAgentRegistry } from "./instruct-agent-registry"
 export { presetAgentSystemPrompts } from "./preset-agent-prompts"
@@ -14,6 +15,10 @@ export type {
   AgentModelRef,
   AgentModelBindingMap,
   AgentModelBindingUpdateRequest,
+  ExternalAgentId,
+  ExternalAgentSettings,
+  ExternalAgentSettingsMap,
+  ExternalAgentSettingsUpdateRequest,
   AgentEntryPolicy,
   AgentDelegationPolicy,
   AgentExecutorType,
@@ -48,6 +53,13 @@ export {
   AgentModelRefSchema,
   AgentModelBindingMapSchema,
   AgentModelBindingUpdateRequestSchema,
+  ExternalAgentIdSchema,
+  OpenCodeExternalAgentSettingsSchema,
+  ClaudeCodeExternalAgentSettingsSchema,
+  CodexExternalAgentSettingsSchema,
+  ExternalAgentSettingsSchema,
+  ExternalAgentSettingsMapSchema,
+  ExternalAgentSettingsUpdateRequestSchema,
   AgentEntryPolicySchema,
   AgentDelegationPolicySchema,
   AgentExecutorTypeSchema,
