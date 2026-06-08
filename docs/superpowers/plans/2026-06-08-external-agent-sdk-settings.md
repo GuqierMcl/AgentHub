@@ -563,19 +563,17 @@ In `agent-runtime/src/routers/agents.ts`, add:
 ```ts
 agents.get("/runtime/agents/:agentId/external-settings", (c) => {
   const registry = c.get("agentRegistry")
-  const providerService = c.get("providerService")
   const agentId = c.req.param("agentId")!
   const agent = registry.getAgent(agentId)
   if (!agent || agent.origin !== "external" || !agent.external) {
     return agentNotFound(c, agentId)
   }
 
-  return c.json(serializeAgentDetail(agent, providerService))
+  return c.json(serializeExternalAgentSettings(agent))
 })
 
 agents.put("/runtime/agents/:agentId/external-settings", async (c) => {
   const registry = c.get("agentRegistry")
-  const providerService = c.get("providerService")
   const agentId = c.req.param("agentId")!
   const body = await readJsonBody(c)
   const result = ExternalAgentSettingsUpdateRequestSchema.safeParse(body)
@@ -585,7 +583,7 @@ agents.put("/runtime/agents/:agentId/external-settings", async (c) => {
 
   try {
     const updated = await registry.setExternalAgentSettings(agentId, result.data)
-    return c.json(serializeAgentDetail(updated, providerService))
+    return c.json(serializeExternalAgentSettings(updated))
   } catch (error) {
     return agentMutationFailed(c, error)
   }
@@ -1134,9 +1132,9 @@ it("proxies external agent settings update to Runtime", async () => {
       return {
         status: 200,
         data: {
-          id: "claude-code",
-          origin: "external",
-          externalSettings: { provider: "claude-code", model: "sonnet", permissionMode: "plan" },
+          agentId: "claude-code",
+          settings: { provider: "claude-code", model: "sonnet", permissionMode: "plan" },
+          updatedAt: "2026-06-08T00:00:00.000Z",
         },
       }
     },
@@ -1300,6 +1298,12 @@ export type OpenCodeModelCatalogItem = {
   modelID: string
   modelName?: string
 }
+
+export type ExternalAgentSettingsResponse = {
+  agentId: "opencode" | "claude-code" | "codex"
+  settings: ExternalAgentSettings
+  updatedAt?: string
+}
 ```
 
 Add to `AgentDetail`:
@@ -1313,11 +1317,11 @@ externalSettings?: ExternalAgentSettings
 In `web/src/features/agents/api/agents.ts`:
 
 ```ts
-externalSettings(agentId: string): Promise<AgentDetail> {
+externalSettings(agentId: string): Promise<ExternalAgentSettingsResponse> {
   return request(`/api/runtime/agents/${encodeURIComponent(agentId)}/external-settings`)
 },
 
-updateExternalSettings(agentId: string, input: ExternalAgentSettings): Promise<AgentDetail> {
+updateExternalSettings(agentId: string, input: ExternalAgentSettings): Promise<ExternalAgentSettingsResponse> {
   return request(`/api/runtime/agents/${encodeURIComponent(agentId)}/external-settings`, {
     method: "PUT",
     body: JSON.stringify(input),
@@ -1387,7 +1391,7 @@ export function ExternalAgentSettingsPanel({ agent, conversationId, onSaved }: P
     try {
       const input = buildSettingsInput(provider)
       const saved = await agentsApi.updateExternalSettings(agent.id, input)
-      onSaved(saved)
+      onSaved({ ...agent, externalSettings: saved.settings })
       toast.success("外部智能体配置已保存")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存外部智能体配置失败")
