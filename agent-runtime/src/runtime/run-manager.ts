@@ -31,6 +31,7 @@ import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 import type { SystemModelSettingsService } from "./system-model-settings"
 import type { SkillContentResolution, SkillContentService } from "./skill-content"
 import type { WorkspaceSkillTrustService } from "./workspace-skill-trust"
+import type { McpRuntimeContext, McpRuntimeService } from "./mcp-runtime"
 import { WorkspaceError, WorkspaceService } from "./workspace"
 import {
   WorkspaceDiffService,
@@ -217,7 +218,8 @@ export class RunManager {
     _legacyPermissionService?: RuntimePermissionService,
     systemModelSettingsService?: SystemModelSettingsService,
     private skillContentService?: SkillContentService,
-    private workspaceSkillTrustService?: WorkspaceSkillTrustService
+    private workspaceSkillTrustService?: WorkspaceSkillTrustService,
+    private mcpRuntimeService?: McpRuntimeService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
     this.toolRegistry = toolRegistry
@@ -872,6 +874,7 @@ export class RunManager {
     const executor = this.resolveExecutor(agent)
     const environmentSnapshot = await this.resolveEnvironmentSnapshot(run.id, state)
     const skillResolution = await this.resolveSkillContext(run, agent)
+    const mcpContext = await this.resolveMcpContext(run, agent)
     const events: RunEvent[] = []
     let pendingFrame: RunContinuationFrame | undefined
     if (task) {
@@ -908,6 +911,7 @@ export class RunManager {
       permissionService: state.permissionService,
       environmentSnapshot,
       injectedSkills: skillResolution.skills,
+      mcpContext,
       executionId,
       resumeMessages,
       onApprovalPending: (messages) => {
@@ -1079,6 +1083,40 @@ export class RunManager {
 
   private isSkillInjectableExecutor(agent: AgentDefinition): boolean {
     return agent.executorType === "ai-sdk" || agent.executorType === "orchestrator"
+  }
+
+  private isMcpInjectableExecutor(agent: AgentDefinition): boolean {
+    if (agent.executorType === "orchestrator") {
+      return true
+    }
+
+    return (
+      agent.executorType === "ai-sdk" &&
+      agent.tier === "primary" &&
+      agent.visibility === "visible"
+    )
+  }
+
+  private async resolveMcpContext(run: RunRecord, agent: AgentDefinition): Promise<McpRuntimeContext | undefined> {
+    if (!this.isMcpInjectableExecutor(agent) || !run.input.workspace || !this.mcpRuntimeService) {
+      return undefined
+    }
+
+    try {
+      return await this.mcpRuntimeService.resolveWorkspaceMcpContext({
+        workspace: run.input.workspace,
+      })
+    } catch (error) {
+      log.warn(
+        {
+          runId: run.id,
+          agentId: agent.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Workspace MCP context resolution failed"
+      )
+      return undefined
+    }
   }
 
   private async selectInjectableSkillRefs(run: RunRecord, agent: AgentDefinition): Promise<SkillRefSelection> {

@@ -5,6 +5,7 @@ import type { WorkspaceService } from "./workspace"
 import type { RuntimePermissionService } from "./permissions"
 import type { RuntimeEnvironmentSnapshot } from "./environment-snapshot"
 import type { ResolvedSkillContent } from "./skill-content"
+import type { McpRuntimeContext } from "./mcp-runtime"
 import type {
   ExternalQuestionRequest,
   NormalizedQuestionAnswer,
@@ -416,6 +417,7 @@ export type AgentExecutionContext = {
   permissionService?: RuntimePermissionService
   environmentSnapshot?: RuntimeEnvironmentSnapshot
   injectedSkills?: ResolvedSkillContent[]
+  mcpContext?: McpRuntimeContext
   executionId?: string
   resumeMessages?: ModelMessage[]
   onApprovalPending?: (messages: ModelMessage[]) => void

@@ -1,7 +1,7 @@
 import type { ManagedOpenCodeServer } from "./external-adapters"
 import { getClaudeCodeReadiness, getCodexReadiness } from "./external-adapters"
 import type { CapabilityDiscoveryStatusItem } from "./capabilities"
-import type { McpRuntimeStatusItem } from "./mcp-trust"
+import type { McpRuntimeServiceStatusItem } from "./mcp-runtime"
 
 export type RuntimeServiceStatus =
   | "running"
@@ -28,7 +28,7 @@ export type RuntimeExternalServiceStatusItem = {
 export type RuntimeServiceStatusItem =
   | RuntimeExternalServiceStatusItem
   | CapabilityDiscoveryStatusItem
-  | McpRuntimeStatusItem
+  | McpRuntimeServiceStatusItem
 
 export type RuntimeServicesStatusResponse = {
   checkedAt: string
@@ -47,7 +47,7 @@ export type ExternalAgentRunSummarySource = {
 export type RuntimeServicesStatusContext = {
   externalAgents?: Partial<Record<RuntimeExternalServiceId, ExternalAgentRunSummary>>
   capabilityDiscovery?: CapabilityDiscoveryStatusItem
-  mcpRuntime?: McpRuntimeStatusItem
+  mcpRuntime?: McpRuntimeServiceStatusItem
 }
 
 export function createRuntimeServicesStatus(
@@ -150,7 +150,7 @@ function createDefaultCapabilityDiscoveryStatus(checkedAt: string): CapabilityDi
   }
 }
 
-function createDefaultMcpRuntimeStatus(checkedAt: string): McpRuntimeStatusItem {
+function createDefaultMcpRuntimeStatus(checkedAt: string): McpRuntimeServiceStatusItem {
   return {
     id: "mcp-runtime",
     label: "MCP Runtime",
@@ -160,6 +160,10 @@ function createDefaultMcpRuntimeStatus(checkedAt: string): McpRuntimeStatusItem 
     checkedAt,
     details: {
       trustedRecordCount: 0,
+      clientCount: 0,
+      connectedServerCount: 0,
+      errorServerCount: 0,
+      toolCount: 0,
     },
   }
 }

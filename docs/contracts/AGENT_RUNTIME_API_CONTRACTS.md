@@ -123,6 +123,11 @@ type McpRuntimeStatusItem = {
   checkedAt: string
   details?: {
     trustedRecordCount: number
+    clientCount: number
+    connectedServerCount: number
+    errorServerCount: number
+    toolCount: number
+    latestRefreshAt?: string
     latestError?: string
   }
 }
@@ -144,13 +149,13 @@ type RuntimeServicesStatusResponse = {
 - `claude-code` 已接入，状态来自 Claude Agent SDK / executable 配置的只读 readiness 和 Runtime 内存中的非终态 Claude Code Run 摘要；不启动 prompt、不创建 session、不触发 Claude 登录流程。
 - `codex` 已接入，状态来自 `@openai/codex-sdk` 只读 readiness 和 Runtime 内存中的非终态 Codex Run 摘要；不创建 thread、不调用 prompt、不触发登录流程。
 - `capability-discovery` 已接入，状态来自 Runtime Capability Discovery 进程内缓存和最近一次刷新；`idle` 表示未在刷新，`refreshing` 表示正在重建缓存，`error` 表示最近一次刷新失败。该状态不得触发扫描以外的执行行为。
-- `mcp-runtime` Phase 5A 已接入只读 trust store 状态；`idle` 表示未启动任何 MCP server 且 trust store 可读，`error` 表示 trust store 初始化或写入出现错误。该状态不得启动 MCP server、连接网络、枚举 tool 或调用 tool。
+- `mcp-runtime` 已接入 workspace MCP runtime 快照；`idle` 表示当前没有最新 runtime 错误，`error` 表示最近一次连接、枚举或 trust store 操作出现脱敏错误。`details` 返回 trusted record 数、已缓存 client 数、connected/error server 数和 tool 数。该 `GET /runtime/services/status` 状态查询不得启动 MCP server、连接网络、枚举 tool 或调用 tool。
 - OpenCode 的 `idle` 表示待命；`starting` 表示至少一个 workspace server 正在启动；`running` 表示至少一个 workspace server 已连接；`error` 表示最近一次启动或 workspace 校验失败。
 - Codex 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `codex`；`idle` 表示 `@openai/codex-sdk` 可用且当前没有 active Codex Run；`error` 表示 SDK package 或只读 readiness 探测失败。`details.activeRunCount` 返回当前非终态 Codex Run 数，`details.clientMode = "sdk"`，`details.version` 在可读取 SDK package 版本时返回。
 - Claude Code 的 `running` 表示至少一个非终态 Run 正在直接执行或委派执行 `claude-code`；`idle` 表示 SDK/executable 配置可用且当前没有 active Claude Code Run；`error` 表示后续只读 executable 探测发现阻塞。`details.activeRunCount` 返回当前非终态 Claude Code Run 数；`details.executableSource` 为 `"sdk-bundled"` 或 `"env"`；`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 设置时可在 `details.executablePath` 返回该覆盖路径。
 - 响应不得包含 workspace root 真实路径、OpenCode server token、用户 prompt、Claude 凭据、provider 凭据、MCP env/header/token 值或 capability discovery 中解析到的敏感配置值。
 
-HubServer 面向 Web 的服务状态端点为 `GET /api/system/services/status`。它会先调用 Runtime `GET /health` 生成 `agent-runtime` 服务项，再调用 `GET /runtime/services/status` 合并 `opencode`、`codex`、`claude-code` 和 `capability-discovery`：
+HubServer 面向 Web 的服务状态端点为 `GET /api/system/services/status`。它会先调用 Runtime `GET /health` 生成 `agent-runtime` 服务项，再调用 `GET /runtime/services/status` 合并 `opencode`、`codex`、`claude-code`、`capability-discovery` 和 `mcp-runtime`：
 
 ```ts
 type SystemServiceStatusItem = {
@@ -166,7 +171,7 @@ type SystemServiceStatusItem = {
 }
 ```
 
-若 Runtime 不可用，HubServer 返回 `agent-runtime.status = "error"`、已实现外部服务（当前 `opencode`、`codex` 与 `claude-code`）和 `capability-discovery` 的 `status = "error"` 且 `details.reason = "runtime-unavailable"`；未接入服务保持 `not_integrated` 占位。
+若 Runtime 不可用，HubServer 返回 `agent-runtime.status = "error"`、已实现外部服务（当前 `opencode`、`codex` 与 `claude-code`）、`capability-discovery` 和 `mcp-runtime` 的 `status = "error"` 且 `details.reason = "runtime-unavailable"`；未接入服务保持 `not_integrated` 占位。
 
 ### Runtime Skill / MCP Capability Discovery
 
@@ -400,7 +405,7 @@ HubServer 同样只接受 `conversationId`、`skillRef`、`trusted` 和可选 `r
 
 MCP Trust 是 Runtime 内部 API，用于记录 global 与 workspace MCP server 的显式允许 / 撤销决策。自动发现的 MCP server 默认视为 `trusted`；只有保存了显式 `trusted = false` 的撤销记录时，Runtime 后续的 MCP 启用、server 连接、tool 枚举和 tool 注入候选才必须跳过该 MCP server。
 
-Phase 5A 只实现 trust 与状态，不启动 MCP stdio server，不连接 HTTP/SSE server，不枚举 MCP tool，不调用 MCP tool，也不修改 AgentHub、Codex、Claude Code 或 OpenCode 配置。Skill / MCP 服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。
+Phase 5A 已实现 trust 与状态。当前 Phase 5B-lite / 5C-lite 增加 workspace MCP 最小运行闭环：trusted 且未显式撤销的 workspace MCP server 默认 enabled，并会在 workspace status 查询或内部主智能体 / Orchestrator Run 开始时尝试连接、枚举和动态 tool 注入。Runtime 不修改 AgentHub、Codex、Claude Code 或 OpenCode 配置，也不接管外部 adapter 的 native MCP。Skill / MCP 服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。
 
 ```ts
 type McpTrustScope = "global" | "workspace"
@@ -487,7 +492,7 @@ type McpTrustRecord = {
 | `MCP_TRUST_REF_INVALID` | 400 | `mcpRef` 不是合法 MCP discovery id |
 | `MCP_TRUST_STORE_FAILED` | 500 | MCP trust store 读取或写入失败 |
 
-响应、错误、status details 和持久化文件不得返回或保存 `rootPath`、MCP env、headers、token、secret args、credential 值或 MCP 配置原文。缺失 trust record 默认 trusted 只表示允许进入后续候选，不表示自动启动 MCP server 或调用 MCP tool。
+响应、错误、status details 和持久化文件不得返回或保存 `rootPath`、MCP env、headers、token、secret args、credential 值或 MCP 配置原文。缺失 workspace trust record 默认 trusted，并在当前轻量实现中表示允许进入默认启用、连接、枚举和动态 tool 注入候选；显式 `trusted = false` 会阻止这些行为。
 
 **HubServer 代理端点**：`POST /api/runtime/mcp-trust/query`
 
@@ -528,6 +533,73 @@ type HubMcpTrustDecisionRequest =
 ```
 
 `scope = "workspace"` 时，HubServer 必须从 `conversationId` 解析 local workspace snapshot，再转发 Runtime MCP trust API。浏览器请求体必须拒绝 `workspace` / `rootPath` 等本机路径字段；workspace metadata 缺失或不完整时返回 `WORKSPACE_NOT_RESOLVED`。`scope = "global"` 不需要 conversation。当前 Web 插件配置页只为 workspace MCP 展示信任 / 撤销按钮，global MCP 继续只读展示。
+
+### Runtime Workspace MCP Status 与动态工具
+
+**Runtime 端点**：`POST /runtime/mcp/workspace/status`
+
+请求体：
+
+```ts
+type RuntimeWorkspaceMcpStatusRequest = {
+  workspace: {
+    workspaceId: string
+    backendType: "local"
+    rootPath: string
+  }
+  connect?: boolean // default true
+}
+```
+
+`connect = true` 会触发当前 workspace 中 trusted、未撤销 MCP server 的连接和 tool 枚举；`connect = false` 只返回当前内存快照和 discovery metadata，不主动连接。连接或枚举失败只让对应 server 进入 `error`，不会让整个请求失败。
+
+成功响应：
+
+```ts
+type RuntimeWorkspaceMcpStatusResponse = {
+  checkedAt: string
+  workspace: {
+    workspaceId: string
+    backendType: "local"
+    workspaceRootHash: string
+  }
+  summary: {
+    serverCount: number
+    enabledCount: number
+    connectedCount: number
+    errorCount: number
+    toolCount: number
+  }
+  servers: Array<{
+    id: string
+    name: string
+    source: "agents" | "codex" | "claude-code" | "opencode"
+    transport?: "stdio" | "sse" | "http" | "unknown"
+    status: "discovered" | "connecting" | "connected" | "disabled" | "error"
+    enabled: boolean
+    trusted: boolean
+    toolCount: number
+    latestError?: string
+  }>
+}
+```
+
+响应不返回 `rootPath`、env、headers、token、secret args、credential 值或 MCP 配置原文。`latestError` 必须脱敏并截断。
+
+错误码：
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `MCP_RUNTIME_INVALID_INPUT` | 400 | 请求体格式非法 |
+| `MCP_RUNTIME_WORKSPACE_REQUIRED` | 400 | 缺少显式 workspace snapshot |
+| `MCP_RUNTIME_CONNECT_FAILED` | 400 / 500 | MCP server 配置不可连接或连接失败 |
+| `MCP_RUNTIME_TOOL_CALL_FAILED` | 500 | MCP tool 调用失败 |
+
+Run 执行期，Runtime 只把动态 MCP tools 注入内部 `executorType = "ai-sdk"` 的可见主智能体和 `orchestrator`。动态工具名使用 `mcp_<server>_<tool>`，冲突时追加短 hash。MCP tool 调用必须通过 Runtime Tool Registry 统一输出 `tool.started`、`tool.completed`、`tool.failed`，事件 `data.externalProvider = "mcp"`。当前轻量实现不做 per-call approval / permission gate，后续必须补 command/network/tool 级审批。
+
+**HubServer 代理端点**：`GET /api/conversations/:conversationId/mcp/status`
+
+HubServer 从 `conversationId` 解析 local workspace snapshot 后转发 Runtime `POST /runtime/mcp/workspace/status`，请求体固定包含 `connect: true`。浏览器不能提交 workspace/rootPath；会话未绑定 workspace 或 metadata 不完整时返回 `WORKSPACE_NOT_RESOLVED`。该端点用于 Web 在聊天输入框下方展示当前会话 workspace MCP server 状态。
 
 ### Runtime 系统默认模型设置
 
@@ -737,6 +809,10 @@ type CustomProviderUpdateRequest = Omit<Partial<CustomProviderCreateRequest>, "i
 | `MCP_TRUST_WORKSPACE_REQUIRED` | 400 | workspace MCP trust 缺少显式 workspace snapshot |
 | `MCP_TRUST_REF_INVALID` | 400 | `mcpRef` 不是合法 MCP discovery id |
 | `MCP_TRUST_STORE_FAILED` | 500 | MCP trust store 读取或写入失败 |
+| `MCP_RUNTIME_INVALID_INPUT` | 400 | MCP runtime status 请求参数无效 |
+| `MCP_RUNTIME_WORKSPACE_REQUIRED` | 400 | workspace MCP status 缺少显式 workspace snapshot |
+| `MCP_RUNTIME_CONNECT_FAILED` | 400 / 500 | MCP server 配置不可连接或连接失败 |
+| `MCP_RUNTIME_TOOL_CALL_FAILED` | 500 | MCP tool 调用失败 |
 | `WORKSPACE_NOT_RESOLVED` | 400 | HubServer 无法从 conversation 解析 workspace snapshot |
 | `RUN_INVALID_INPUT` | 400 | 请求参数校验失败 |
 | `RUN_INVALID_WORKSPACE` | 400 | RunInput.workspace 无效，例如本地目录不存在或不是目录 |

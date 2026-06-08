@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
 } from "react"
 import type { ChatStatus } from "ai"
+import { useQuery } from "@tanstack/react-query"
 import { CircleIcon, SquareIcon, XIcon } from "lucide-react"
 
 import {
@@ -52,6 +53,8 @@ import {
   PopoverContent,
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { workspaceMcpStatusApi } from "../api/workspace-mcp-status"
+import { workbenchQueryKeys } from "../api/query-keys"
 import type {
   ChatSubmitInput,
   Conversation,
@@ -63,6 +66,17 @@ import {
   getExternalAgentStatusBarItems,
   type ExternalAgentStatusBarItem,
 } from "../utils/external-agent-status"
+import {
+  getWorkspaceMcpStatusBarItems,
+} from "../utils/workspace-mcp-status"
+
+type ComposerStatusBarItem = {
+  id: string
+  label: string
+  statusLabel: string
+  tone: ExternalAgentStatusBarItem["tone"]
+  description?: string
+}
 
 function AttachmentItem({
   attachment,
@@ -166,11 +180,12 @@ type ChatComposerProps = {
   replyTo?: MessageReplySnapshot | null
 }
 
-type ChatComposerInnerProps = Omit<ChatComposerProps, "conversationId">
+type ChatComposerInnerProps = ChatComposerProps
 
 function ChatComposerInner({
   agentProfiles,
   canCancelRun = false,
+  conversationId,
   conversationMode,
   disabled = false,
   onCancelRun,
@@ -352,6 +367,31 @@ function ChatComposerInner({
       : [],
     [agentProfiles, serviceStatusSnapshot]
   )
+  const mcpStatusQuery = useQuery({
+    queryKey: workbenchQueryKeys.conversations.mcpStatus(conversationId),
+    queryFn: () => workspaceMcpStatusApi.get(conversationId),
+    enabled: Boolean(conversationId),
+    refetchInterval: isGenerating ? 3000 : false,
+    refetchOnWindowFocus: false,
+    retry: false,
+  })
+  const wasGeneratingRef = useRef(isGenerating)
+
+  useEffect(() => {
+    if (wasGeneratingRef.current && !isGenerating) {
+      void mcpStatusQuery.refetch()
+    }
+    wasGeneratingRef.current = isGenerating
+  }, [isGenerating, mcpStatusQuery.refetch])
+
+  const mcpStatusItems = useMemo(
+    () => getWorkspaceMcpStatusBarItems(mcpStatusQuery.data),
+    [mcpStatusQuery.data]
+  )
+  const statusBarItems = useMemo(
+    () => [...externalStatusItems, ...mcpStatusItems],
+    [externalStatusItems, mcpStatusItems]
+  )
 
   useEffect(() => {
     void initializeServiceStatus()
@@ -361,7 +401,7 @@ function ChatComposerInner({
     <div className="grid shrink-0 gap-0 border-border bg-transparent p-3">
       <PromptInput
         className={cn(
-          externalStatusItems.length > 0 &&
+          statusBarItems.length > 0 &&
             "[&_[data-slot=input-group]]:rounded-b-none"
         )}
         globalDrop
@@ -521,12 +561,12 @@ function ChatComposerInner({
           </PromptInputSubmit>
         </PromptInputFooter>
       </PromptInput>
-      <ExternalAgentStatusBar items={externalStatusItems} />
+      <ExternalAgentStatusBar items={statusBarItems} />
     </div>
   )
 }
 
-function ExternalAgentStatusBar({ items }: { items: ExternalAgentStatusBarItem[] }) {
+function ExternalAgentStatusBar({ items }: { items: ComposerStatusBarItem[] }) {
   if (items.length === 0) return null
 
   return (
@@ -540,11 +580,16 @@ function ExternalAgentStatusBar({ items }: { items: ExternalAgentStatusBarItem[]
   )
 }
 
-function ExternalAgentStatusPill({ item }: { item: ExternalAgentStatusBarItem }) {
+function ExternalAgentStatusPill({ item }: { item: ComposerStatusBarItem }) {
+  const ariaLabel = item.description
+    ? `${item.label}：${item.statusLabel}，${item.description}`
+    : `${item.label}：${item.statusLabel}`
+
   return (
     <Badge
-      aria-label={`${item.label}：${item.statusLabel}`}
+      aria-label={ariaLabel}
       className="max-w-full gap-1.5 border-border/60 bg-background/70 px-2 font-normal"
+      title={item.description}
       variant="outline"
     >
       <CircleIcon
@@ -561,7 +606,7 @@ function ExternalAgentStatusPill({ item }: { item: ExternalAgentStatusBarItem })
   )
 }
 
-function getExternalAgentStatusDotClass(tone: ExternalAgentStatusBarItem["tone"]): string {
+function getExternalAgentStatusDotClass(tone: ComposerStatusBarItem["tone"]): string {
   switch (tone) {
     case "success":
       return "text-emerald-500"
@@ -574,7 +619,7 @@ function getExternalAgentStatusDotClass(tone: ExternalAgentStatusBarItem["tone"]
   }
 }
 
-function getExternalAgentStatusTextClass(tone: ExternalAgentStatusBarItem["tone"]): string {
+function getExternalAgentStatusTextClass(tone: ComposerStatusBarItem["tone"]): string {
   switch (tone) {
     case "success":
       return "text-emerald-600 dark:text-emerald-400"
@@ -588,7 +633,7 @@ function getExternalAgentStatusTextClass(tone: ExternalAgentStatusBarItem["tone"
 }
 
 export function ChatComposer({ conversationId, ...rest }: ChatComposerProps) {
-  return <ChatComposerInner key={conversationId} {...rest} />
+  return <ChatComposerInner key={conversationId} conversationId={conversationId} {...rest} />
 }
 
 function formatReplyTargetLabel(replyTo: MessageReplySnapshot): string {

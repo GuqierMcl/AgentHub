@@ -62,6 +62,15 @@ export type McpServerCapabilitySummary = {
   warnings: string[]
 }
 
+export type McpServerRuntimeConfig = McpServerCapabilitySummary & {
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  url?: string
+  headers?: Record<string, string>
+}
+
 export type CapabilityDiscoveryResponse = {
   discoveredAt: string
   scope: CapabilityScope
@@ -185,6 +194,31 @@ export class CapabilityDiscoveryService {
       lookups.push(...await this.discoverSkillLookups(root))
     }
     return sortById(lookups)
+  }
+
+  async listMcpRuntimeConfigs(input: CapabilityDiscoveryRequest = {}): Promise<McpServerRuntimeConfig[]> {
+    const request = CapabilityDiscoveryRequestSchema.parse(input)
+    if ((request.scope === "workspace" || request.scope === "all") && !request.workspace) {
+      throw new CapabilityDiscoveryError(
+        "CAPABILITY_WORKSPACE_REQUIRED",
+        "Workspace discovery requires an explicit workspace snapshot.",
+      )
+    }
+
+    const configs: McpServerRuntimeConfig[] = []
+    if (request.scope === "global" || request.scope === "all") {
+      configs.push(...await this.discoverMcpRuntimeConfigs(
+        this.filterMcpCandidates(this.globalMcpCandidates(), request.sources)
+      ))
+    }
+    if ((request.scope === "workspace" || request.scope === "all") && request.workspace) {
+      configs.push(...await this.discoverMcpRuntimeConfigs(
+        this.filterMcpCandidates(this.workspaceMcpCandidates(request.workspace.rootPath), request.sources),
+        request.workspace.rootPath,
+      ))
+    }
+
+    return sortById(configs)
   }
 
   getStatus(checkedAt = new Date().toISOString()): CapabilityDiscoveryStatusItem {
@@ -370,6 +404,11 @@ export class CapabilityDiscoveryService {
 
   private workspaceMcpCandidates(rootPath: string): McpConfigCandidate[] {
     return [
+      mcpFile("agents", "workspace", join(rootPath, "mcp.json"), "workspace:agents:mcp.json"),
+      mcpFile("agents", "workspace", join(rootPath, "mcp.jsonc"), "workspace:agents:mcp.jsonc"),
+      mcpFile("agents", "workspace", join(rootPath, "mcp.yaml"), "workspace:agents:mcp.yaml"),
+      mcpFile("agents", "workspace", join(rootPath, "mcp.yml"), "workspace:agents:mcp.yml"),
+      mcpFile("agents", "workspace", join(rootPath, "mcp.toml"), "workspace:agents:mcp.toml"),
       ...mcpFiles("agents", "workspace", join(rootPath, ".agents"), "workspace:agents"),
       ...mcpDirectoryFiles("agents", "workspace", join(rootPath, ".agents", "mcp"), "workspace:agents:mcp"),
       ...mcpFiles("codex", "workspace", join(rootPath, ".codex"), "workspace:codex"),
@@ -472,6 +511,25 @@ export class CapabilityDiscoveryService {
     return items
   }
 
+  private async discoverMcpRuntimeConfigs(
+    candidates: McpConfigCandidate[],
+    workspaceRoot?: string,
+  ): Promise<McpServerRuntimeConfig[]> {
+    const items: McpServerRuntimeConfig[] = []
+    for (const candidate of candidates) {
+      if (!existsSync(candidate.filePath)) continue
+      let fileStat: Awaited<ReturnType<typeof stat>>
+      try {
+        fileStat = await stat(candidate.filePath)
+      } catch {
+        continue
+      }
+      if (!fileStat.isFile()) continue
+      items.push(...await this.readMcpRuntimeConfig(candidate, workspaceRoot))
+    }
+    return items
+  }
+
   private async readMcpConfig(candidate: McpConfigCandidate): Promise<McpServerCapabilitySummary[]> {
     let parsed: unknown
     try {
@@ -499,6 +557,59 @@ export class CapabilityDiscoveryService {
         ...(args.length > 0 ? { args } : {}),
         valid: true,
         warnings: [],
+      }
+    })
+  }
+
+  private async readMcpRuntimeConfig(
+    candidate: McpConfigCandidate,
+    workspaceRoot?: string,
+  ): Promise<McpServerRuntimeConfig[]> {
+    let parsed: unknown
+    try {
+      const content = await readFile(candidate.filePath, "utf-8")
+      parsed = parseConfig(candidate.filePath, content)
+    } catch {
+      return [invalidMcp(candidate, basename(candidate.ref), "Unable to parse MCP config.")]
+    }
+
+    const servers = extractMcpServers(parsed)
+    if (servers.length === 0) return []
+
+    return servers.map((server) => {
+      const transport = inferTransport(server.value)
+      const { command, args } = getRawCommandParts(server.value)
+      const env = getStringRecord(server.value.env)
+      const headers = getStringRecord(server.value.headers)
+      const cwd = getString(server.value.cwd) ?? (candidate.level === "workspace" ? workspaceRoot : undefined)
+      const url = getString(server.value.url)
+      const ref = `${candidate.ref}:${server.name}`
+      const warnings: string[] = []
+      if (transport === "stdio" && !command) {
+        warnings.push("MCP stdio server is missing command.")
+      }
+      if ((transport === "http" || transport === "sse") && !url) {
+        warnings.push("MCP HTTP/SSE server is missing url.")
+      }
+      if (transport === "unknown") {
+        warnings.push("MCP server transport is unknown.")
+      }
+
+      return {
+        id: stableId(ref),
+        name: server.name,
+        source: candidate.source,
+        level: candidate.level,
+        configPath: candidate.ref,
+        transport,
+        ...(command ? { command } : {}),
+        ...(args.length > 0 ? { args } : {}),
+        ...(Object.keys(env).length > 0 ? { env } : {}),
+        ...(cwd ? { cwd } : {}),
+        ...(url ? { url } : {}),
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        valid: warnings.length === 0,
+        warnings,
       }
     })
   }
@@ -772,6 +883,28 @@ function getCommandParts(server: Record<string, unknown>): { command?: string; a
   }
 }
 
+function getRawCommandParts(server: Record<string, unknown>): { command?: string; args: string[] } {
+  const explicitArgs = getStringArray(server.args)
+  const command = getString(server.command)
+  if (command) {
+    return {
+      command,
+      args: explicitArgs,
+    }
+  }
+
+  const commandParts = getStringArray(server.command)
+  if (commandParts.length === 0) {
+    return { args: explicitArgs }
+  }
+
+  const [firstCommand, ...rest] = commandParts
+  return {
+    command: firstCommand,
+    args: [...rest, ...explicitArgs],
+  }
+}
+
 function stripJsonCommentsAndTrailingCommas(content: string): string {
   return removeTrailingJsonCommas(stripJsonComments(content))
 }
@@ -888,6 +1021,16 @@ function getStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : []
+}
+
+function getStringRecord(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] =>
+        typeof entry[0] === "string" && typeof entry[1] === "string"
+      )
+  )
 }
 
 function getRecord(value: unknown): Record<string, unknown> | undefined {
