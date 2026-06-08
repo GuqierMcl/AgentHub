@@ -25,7 +25,7 @@ AgentHub 区分两种 Bun 构建方式：
 
 | 构建方式 | 用途 | V1 结论 |
 | --- | --- | --- |
-| `bun build --target bun --outfile ...` | 生成由 Bun runtime 执行的 JS bundle | HubServer 和 Agent Runtime 默认使用 |
+| `bun build --target bun --outdir ...` | 生成由 Bun runtime 执行的 JS bundle | HubServer 和 Agent Runtime 默认使用 |
 | `bun build --compile --outfile ...` | 生成单文件可执行程序 | 不用于 native-heavy 服务进程 |
 
 HubServer 当前依赖 `@prisma/adapter-libsql`、`@libsql/client`、`sharp` 等包；Runtime 也需要兼容外部 agent SDK 和平台二进制。这些依赖可能通过 `.node` addon、DLL/so/dylib、动态 `require()` 或 `require.resolve()` 访问真实文件。`--compile` 的虚拟文件系统会增加运行时解析风险，因此服务进程默认不使用单 exe。
@@ -40,7 +40,7 @@ CLI 可以继续是轻量 compiled launcher，因为它不承载 native-heavy �
 {
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "build": "bun build src/index.ts --target bun --outfile dist/index.js",
+    "build": "bun build src/index.ts --target bun --outdir dist",
     "start": "bun dist/index.js"
   }
 }
@@ -51,12 +51,14 @@ native-heavy 依赖必须 external：
 ```bash
 bun build src/index.ts \
   --target bun \
-  --outfile dist/index.js \
+  --outdir dist \
   --external sharp \
   --external @libsql/client \
   --external libsql \
   --external node-pty
 ```
+
+服务 bundle 使用 `--outdir dist` 而不是 `--outfile dist/index.js`。Bun 在构建过程中如果需要产生多个输出文件，会拒绝 `--outfile`；`--outdir` 保持输出目录稳定，同时单入口 `src/index.ts` 仍会生成 `dist/index.js`，满足 package 阶段的固定入口约定。
 
 是否 external 某个包的判断标准：
 
