@@ -329,7 +329,7 @@ package
 
 - `build:web` 只负责生成 `web/dist/`。
 - `build:hub` 只负责校验 `web/dist/` 存在、生成内置 migration manifest、在构建期生成 Prisma Client、生成 HubServer Bun bundle，并复制 HubServer terminal PTY helper 到 `hub-server/dist/`。
-- `build:runtime` 生成 Agent Runtime Bun bundle。
+- `build:runtime` 生成 Agent Runtime Bun bundle，并 externalize `pino` / `thread-stream` 等 worker/dynamic-path 依赖，避免 bundle 写入构建机绝对路径。
 - `build:cli` 可继续生成轻量 launcher，也可生成 JS CLI bundle；CLI 不应承担 native-heavy 服务依赖。
 - `package` 负责组装最终 `dist/`：复制 Bun runtime、service bundles、CLI launcher、`web/dist -> public/`、以及每个服务生产运行需要的 service-local `node_modules/` 依赖闭包。
 - `build:desktop` 先复用根级 `build` + `package` 生成核心资源，再运行 Desktop release build；Electrobun 将 `dist/` 复制进应用 Resources app code 的 `app/agenthub-runtime/`，并复制 loading 图标资源到 `app/assets/icon.png`。
@@ -364,7 +364,7 @@ cd dist
 - `GET /api/system/services/status` 返回 `agent-runtime` 可用状态。
 - 浏览器不直接访问 Runtime。
 - 退出 CLI 后 HubServer 和 Agent Runtime 子进程都关闭。
-- native 依赖可加载：Prisma/libsql、sharp、HubServer terminal PTY helper/node-pty、外部 agent SDK bundled binaries。
+- native/dynamic 依赖可加载：Prisma/libsql、sharp、HubServer terminal PTY helper/node-pty、Agent Runtime pino/thread-stream worker、外部 agent SDK bundled binaries。
 
 Desktop smoke：
 

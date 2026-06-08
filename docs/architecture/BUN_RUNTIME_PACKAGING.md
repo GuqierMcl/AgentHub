@@ -55,7 +55,11 @@ bun build src/index.ts \
   --external sharp \
   --external @libsql/client \
   --external libsql \
-  --external node-pty
+  --external node-pty \
+  --external pino \
+  --external pino-pretty \
+  --external thread-stream \
+  --external sonic-boom
 ```
 
 服务 bundle 使用 `--outdir dist` 而不是 `--outfile dist/index.js`。Bun 在构建过程中如果需要产生多个输出文件，会拒绝 `--outfile`；`--outdir` 保持输出目录稳定，同时单入口 `src/index.ts` 仍会生成 `dist/index.js`，满足 package 阶段的固定入口约定。
@@ -64,6 +68,7 @@ bun build src/index.ts \
 
 - 包含 `.node`、DLL/so/dylib、平台二进制或 wasm runtime。
 - 包在运行时使用动态 `require()`、`require.resolve()` 或扫描自身 package 目录。
+- 包在运行时创建 worker/thread，并需要从 package 目录加载 worker entry。
 - 包的官方文档明确要求真实文件路径或不支持单文件虚拟文件系统。
 
 ## 发行包运行
@@ -192,6 +197,7 @@ package 阶段维护生产 external 依赖清单。V1 可以先复制服务级�
 - `sharp` 及当前平台 `@img/*` 包。
 - `@libsql/client`、`libsql`、当前平台 `@libsql/*` 包，以及它们的普通 JS 依赖。
 - HubServer terminal PTY 当前使用的 `node-pty`、`node-addon-api`、对应平台 prebuilds 或可靠的 native build 工具链。
+- Agent Runtime 日志 transport 当前使用的 `pino`、`pino-pretty`、`thread-stream`、`sonic-boom`；`thread-stream` worker 必须从发行包内 `agent-runtime/node_modules` 解析，不能写入构建机绝对路径。
 - 外部 agent SDK 需要的 bundled binaries 或通过环境变量显式指定的 executable。
 
 新增 native/dynamic 依赖时，必须同步更新：

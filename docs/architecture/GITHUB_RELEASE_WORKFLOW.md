@@ -7,11 +7,11 @@
 `.github/workflows/release.yml` 在推送 `v*` tag 时触发：
 
 ```bash
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
-流水线会读取根目录 `package.json#version`，并要求 tag 精确等于 `v${version}`。例如根版本为 `1.0.2` 时，只允许 `v1.0.2` 发布。
+流水线会读取根目录 `package.json#version`，并要求 tag 精确等于 `v${version}`。例如根版本为 `1.0.3` 时，只允许 `v1.0.3` 发布。
 
 ## Release 产物
 

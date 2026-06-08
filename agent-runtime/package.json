@@ -3,7 +3,7 @@
   "scripts": {
     "dev": "bun run --hot src/index.ts",
     "test": "bun test",
-    "build": "bun build src/index.ts --target bun --outfile dist/index.js",
+    "build": "bun run scripts/build.ts",
     "start": "bun dist/index.js"
   },
   "dependencies": {

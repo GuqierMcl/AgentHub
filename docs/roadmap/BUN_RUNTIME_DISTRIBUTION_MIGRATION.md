@@ -15,6 +15,7 @@
 - Modify `hub-server/scripts/build.ts`: generate HubServer Bun bundle instead of `--compile`; keep web dist validation, Prisma generate, and migration manifest generation.
 - Modify `hub-server/scripts/build.test.ts`: assert the new build command, external package list, and PTY helper copy.
 - Modify `agent-runtime/package.json`: change `build` and `start` scripts to bundle/runtime commands.
+- Modify `agent-runtime/scripts/build.ts` and `agent-runtime/scripts/build.test.ts`: assert Runtime external package list for worker/dynamic-path dependencies.
 - Modify `hub-server/src/config/index.ts`: add `--bun-bin` and `--runtime-entry` while keeping `--runtime-bin`.
 - Modify `hub-server/src/config/index.test.ts`: cover bundle sidecar args and dev fallback.
 - Modify `hub-server/src/bootstrap/database.ts`: treat `runtimeEntry` as production DB mode.
@@ -83,25 +84,51 @@ Expected: all tests in `scripts/build.test.ts` pass.
 
 **Files:**
 - Modify `agent-runtime/package.json`
+- Add `agent-runtime/scripts/build.ts`
+- Add `agent-runtime/scripts/build.test.ts`
 
-- [ ] **Step 1: Change scripts**
+- [ ] **Step 1: Add failing Runtime build-command test**
+
+Assert the Runtime build command:
+
+```ts
+expect(createRuntimeBuildCommand()).toEqual([
+  "bun",
+  "build",
+  "src/index.ts",
+  "--target",
+  "bun",
+  "--outdir",
+  "dist",
+  "--external",
+  "pino",
+  "--external",
+  "pino-pretty",
+  "--external",
+  "thread-stream",
+  "--external",
+  "sonic-boom",
+])
+```
+
+- [ ] **Step 2: Change scripts**
 
 Update:
 
 ```json
 {
-  "build": "bun build src/index.ts --target bun --outdir dist",
+  "build": "bun run scripts/build.ts",
   "start": "bun dist/index.js"
 }
 ```
 
-- [ ] **Step 2: Verify Runtime build**
+- [ ] **Step 3: Verify Runtime build**
 
 Run: `cd agent-runtime && bun run build`
 
 Expected: `agent-runtime/dist/index.js` exists.
 
-- [ ] **Step 3: Verify Runtime tests**
+- [ ] **Step 4: Verify Runtime tests**
 
 Run: `cd agent-runtime && bun test`
 
