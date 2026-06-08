@@ -10,8 +10,8 @@ describe("AgentHub version source", () => {
 		expect(getAgentHubVersionFromPackageJson('{"name":"agenthub","version":"0.2.3"}')).toBe("0.2.3")
 	})
 
-	it("uses 1.0.0 as the current repository version", () => {
-		expect(readAgentHubVersion()).toBe("1.0.0")
+	it("uses 1.0.1 as the current repository version", () => {
+		expect(readAgentHubVersion()).toBe("1.0.1")
 	})
 
 	it("rejects package manifests without a string version", () => {
