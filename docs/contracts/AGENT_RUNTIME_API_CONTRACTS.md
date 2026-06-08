@@ -1449,6 +1449,10 @@ type RuntimeOpenCodeModelCatalogRequest = {
   }
 }
 
+type HubOpenCodeModelCatalogRequest = {
+  conversationId: string
+}
+
 type RuntimeOpenCodeModelCatalogResponse = {
   provider: "opencode"
   models: Array<{
@@ -1480,9 +1484,9 @@ POST /api/runtime/agents/opencode/model-catalog
 规则：
 
 - `:agentId` 只能是 `opencode`、`claude-code` 或 `codex`，且请求体 `provider` 必须与目标外部智能体一致。
-- `claude-code.permissionMode` 不允许 `bypassPermissions`；该模式需要危险权限跳过开关，后续如需开放必须单独设计审批和风险提示。
+- `claude-code.permissionMode` 允许 `default`、`acceptEdits`、`plan`、`dontAsk` 和 `auto`，但该 allowlist 不表示所有模式风险相同；`acceptEdits` 和 `auto` 必须在 UI 和诊断元数据中以非默认自动化权限模式展示。`bypassPermissions` 不允许；该模式需要危险权限跳过开关，后续如需开放必须单独设计审批和风险提示。
 - `codex` 本阶段只接受 `model`，不接受 sandbox、approval、reasoning、web search、auth 或 app-server experimental 配置。
-- `POST /api/runtime/agents/opencode/model-catalog` 不接受浏览器提交的 `workspace.rootPath`；HubServer 必须从会话 workspace metadata 解析 local workspace snapshot 后再转发 Runtime。
+- Runtime `POST /runtime/agents/opencode/model-catalog` 接受 `RuntimeOpenCodeModelCatalogRequest`；HubServer `POST /api/runtime/agents/opencode/model-catalog` 只接受 `HubOpenCodeModelCatalogRequest`，不得接受浏览器提交的 `workspace.rootPath`。HubServer 必须从会话 workspace metadata 解析 local workspace snapshot 后再转发 Runtime。
 - Runtime 和 HubServer 响应不得包含 OpenCode / Claude Code / Codex 凭据、token、headers、env、外部平台配置正文或未脱敏的 workspace root，除非该端点明确是 HubServer 面向 Web 的已绑定 workspace 展示语义。
 
 ## Conversations API

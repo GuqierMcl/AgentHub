@@ -46,7 +46,7 @@ AgentHub 不把这些能力拆成自身配置面板。用户专注于“与这�
 本阶段允许的 SDK runtime override 范围：
 
 - OpenCode: AgentHub may select `{ providerID, modelID }` only from an OpenCode SDK model catalog resolved for a workspace. The selector must not use AgentHub ProviderService models.
-- Claude Code: AgentHub may pass `model` and safe `permissionMode` values to `query({ options })`. `bypassPermissions` is out of scope for this phase.
+- Claude Code: AgentHub may pass `model` and allowlisted non-`bypassPermissions` `permissionMode` values to `query({ options })`. `acceptEdits` and `auto` have automation risk semantics and must be shown as such in the product UI; `bypassPermissions` is out of scope for this phase.
 - Codex: AgentHub may pass only `model` into `ThreadOptions`. Other Codex SDK options stay fixed in this phase.
 
 ## 3. 智能体身份与可见性
