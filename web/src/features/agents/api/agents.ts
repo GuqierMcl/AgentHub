@@ -6,6 +6,9 @@ import type {
   UserAgentUpdateRequest,
   AgentModelRef,
   AuthoringOptionsResponse,
+  ExternalAgentSettingsUpdateInput,
+  ExternalAgentSettingsResponse,
+  OpenCodeModelCatalogResponse,
 } from "../types"
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -90,6 +93,34 @@ export const agentsApi = {
   unbindModel(agentId: string): Promise<AgentDetail> {
     return request(`/api/runtime/agents/${encodeURIComponent(agentId)}/model`, {
       method: "DELETE",
+    })
+  },
+
+  getExternalSettings(agentId: string): Promise<ExternalAgentSettingsResponse> {
+    return request(
+      `/api/runtime/agents/${encodeURIComponent(agentId)}/external-settings`
+    )
+  },
+
+  updateExternalSettings(
+    agentId: string,
+    input: ExternalAgentSettingsUpdateInput
+  ): Promise<ExternalAgentSettingsResponse> {
+    return request(
+      `/api/runtime/agents/${encodeURIComponent(agentId)}/external-settings`,
+      {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }
+    )
+  },
+
+  listOpenCodeModelCatalog(
+    conversationId: string
+  ): Promise<OpenCodeModelCatalogResponse> {
+    return request("/api/runtime/agents/opencode/model-catalog", {
+      method: "POST",
+      body: JSON.stringify({ conversationId }),
     })
   },
 }

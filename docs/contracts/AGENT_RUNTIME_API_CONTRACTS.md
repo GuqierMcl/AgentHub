@@ -1441,6 +1441,20 @@ type RuntimeExternalAgentSettingsResponse = {
   updatedAt?: string
 }
 
+type HubOpenCodeExternalSettingsPutRequest =
+  | {
+      provider: "opencode"
+      executionAgent?: "build" | "plan"
+    }
+  | {
+      settings: {
+        provider: "opencode"
+        model?: { providerID: string; modelID: string }
+        executionAgent?: "build" | "plan"
+      }
+      conversationId: string
+    }
+
 type RuntimeOpenCodeModelCatalogRequest = {
   workspace: {
     workspaceId: string
@@ -1484,6 +1498,10 @@ POST /api/runtime/agents/opencode/model-catalog
 规则：
 
 - `:agentId` 只能是 `opencode`、`claude-code` 或 `codex`，且请求体 `provider` 必须与目标外部智能体一致。
+- HubServer `PUT /api/runtime/agents/:agentId/external-settings` 对非 OpenCode 外部智能体保持普通代理语义：浏览器请求体就是 external settings 对象，HubServer 完成 JSON 解析后原样转发 Runtime。
+- HubServer `PUT /api/runtime/agents/opencode/external-settings` 只允许浏览器提交不含 `model` 的直接 settings（用于 SDK 默认模型和 `executionAgent`），或在包含模型覆盖时提交 `{ settings, conversationId }`。HubServer 不得把 `conversationId` 转发给 Runtime。
+- OpenCode settings PUT 中浏览器不得提交 `workspace`、`rootPath`、`workspaceRootPath`、`cwd` 等本机路径字段；HubServer 必须以稳定 400（当前 `AGENT_INVALID_INPUT`）拒绝，且不得转发 Runtime。
+- OpenCode settings PUT 中如果 `settings.model` 存在，HubServer 必须要求非空 `conversationId`，从该会话解析 workspace snapshot，调用 Runtime `POST /runtime/agents/opencode/model-catalog` 读取 workspace catalog，并确认 `{ providerID, modelID }` 存在于 `catalog.models`。不存在时返回 400 `OPENCODE_MODEL_NOT_IN_CATALOG`，不得转发 settings update；存在时只转发 sanitized `RuntimeExternalAgentSettings` 到 `PUT /runtime/agents/opencode/external-settings`。
 - `claude-code.permissionMode` 允许 `default`、`acceptEdits`、`plan`、`dontAsk` 和 `auto`，但该 allowlist 不表示所有模式风险相同；`acceptEdits` 和 `auto` 必须在 UI 和诊断元数据中以非默认自动化权限模式展示。`bypassPermissions` 不允许；该模式需要危险权限跳过开关，后续如需开放必须单独设计审批和风险提示。
 - `codex` 本阶段只接受 `model`，不接受 sandbox、approval、reasoning、web search、auth 或 app-server experimental 配置。
 - Runtime `POST /runtime/agents/opencode/model-catalog` 接受 `RuntimeOpenCodeModelCatalogRequest`；HubServer `POST /api/runtime/agents/opencode/model-catalog` 只接受 `HubOpenCodeModelCatalogRequest`，不得接受浏览器提交的 `workspace.rootPath`。HubServer 必须从会话 workspace metadata 解析 local workspace snapshot 后再转发 Runtime。

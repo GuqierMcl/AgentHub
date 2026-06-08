@@ -82,6 +82,247 @@ describe("agent router Runtime proxy", () => {
     }])
   })
 
+  test("returns stable invalid input for malformed external settings JSON", async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      runtimeClient: {
+        forward: async () => {
+          calls.push("called")
+          return { status: 200, data: {} }
+        },
+      },
+    })
+
+    const response = await app.request("/api/runtime/agents/claude-code/external-settings", {
+      method: "PUT",
+      body: "{",
+      headers: { "Content-Type": "application/json" },
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "AGENT_INVALID_INPUT" },
+    })
+    expect(calls).toEqual([])
+  })
+
+  test("forwards OpenCode settings without model override directly to Runtime", async () => {
+    const calls: Array<{ method: string; path: string; body: unknown }> = []
+    const settings = {
+      provider: "opencode",
+      executionAgent: "plan",
+    }
+    const runtimeResponse = {
+      agentId: "opencode",
+      settings,
+      updatedAt: "2026-06-08T00:00:00.000Z",
+    }
+    const app = createApp({
+      runtimeClient: {
+        forward: async (method: string, path: string, body: unknown) => {
+          calls.push({ method, path, body })
+          return { status: 200, data: runtimeResponse }
+        },
+      },
+    })
+
+    const response = await app.request("/api/runtime/agents/opencode/external-settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+      headers: { "Content-Type": "application/json" },
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual(runtimeResponse)
+    expect(calls).toEqual([{
+      method: "PUT",
+      path: "/runtime/agents/opencode/external-settings",
+      body: settings,
+    }])
+  })
+
+  test("rejects browser-supplied OpenCode external settings workspace roots", async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      runtimeClient: {
+        forward: async () => {
+          calls.push("called")
+          return { status: 200, data: {} }
+        },
+      },
+    })
+
+    const response = await app.request("/api/runtime/agents/opencode/external-settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        settings: {
+          provider: "opencode",
+          model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+        },
+        conversationId: "conv_1",
+        rootPath: "D:\\secret",
+      }),
+      headers: { "Content-Type": "application/json" },
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "AGENT_INVALID_INPUT" },
+    })
+    expect(calls).toEqual([])
+  })
+
+  test("requires conversationId for OpenCode model override settings", async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      runtimeClient: {
+        forward: async () => {
+          calls.push("called")
+          return { status: 200, data: {} }
+        },
+      },
+    })
+
+    const response = await app.request("/api/runtime/agents/opencode/external-settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        settings: {
+          provider: "opencode",
+          model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+        },
+        conversationId: "   ",
+      }),
+      headers: { "Content-Type": "application/json" },
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "AGENT_INVALID_INPUT" },
+    })
+    expect(calls).toEqual([])
+  })
+
+  test("rejects OpenCode model override missing from Runtime catalog", async () => {
+    const calls: Array<{ method: string; path: string; body: unknown }> = []
+    const app = createApp({
+      runtimeClient: {
+        forward: async (method: string, path: string, body: unknown) => {
+          calls.push({ method, path, body })
+          return {
+            status: 200,
+            data: {
+              provider: "opencode",
+              models: [
+                { providerID: "github-copilot", modelID: "gpt-5" },
+              ],
+              warnings: [],
+            },
+          }
+        },
+      },
+      conversationService: {
+        getConversationDetail: async () => conversationWithWorkspace(),
+      },
+    })
+
+    const response = await app.request("/api/runtime/agents/opencode/external-settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        settings: {
+          provider: "opencode",
+          model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+        },
+        conversationId: "conv_1",
+      }),
+      headers: { "Content-Type": "application/json" },
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "OPENCODE_MODEL_NOT_IN_CATALOG" },
+    })
+    expect(calls).toEqual([{
+      method: "POST",
+      path: "/runtime/agents/opencode/model-catalog",
+      body: {
+        workspace: {
+          workspaceId: "workspace_1",
+          backendType: "local",
+          rootPath: "D:\\Workspace\\Project",
+        },
+      },
+    }])
+  })
+
+  test("validates OpenCode model override against catalog and forwards sanitized settings", async () => {
+    const calls: Array<{ method: string; path: string; body: unknown }> = []
+    const settings = {
+      provider: "opencode",
+      model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+      executionAgent: "build",
+    }
+    const runtimeResponse = {
+      agentId: "opencode",
+      settings,
+      updatedAt: "2026-06-08T00:00:00.000Z",
+    }
+    const app = createApp({
+      runtimeClient: {
+        forward: async (method: string, path: string, body: unknown) => {
+          calls.push({ method, path, body })
+          if (path === "/runtime/agents/opencode/model-catalog") {
+            return {
+              status: 200,
+              data: {
+                provider: "opencode",
+                models: [
+                  { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+                ],
+                warnings: [],
+              },
+            }
+          }
+          return { status: 200, data: runtimeResponse }
+        },
+      },
+      conversationService: {
+        getConversationDetail: async () => conversationWithWorkspace(),
+      },
+    })
+
+    const response = await app.request("/api/runtime/agents/opencode/external-settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        settings,
+        conversationId: "conv_1",
+      }),
+      headers: { "Content-Type": "application/json" },
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual(runtimeResponse)
+    expect(calls).toEqual([
+      {
+        method: "POST",
+        path: "/runtime/agents/opencode/model-catalog",
+        body: {
+          workspace: {
+            workspaceId: "workspace_1",
+            backendType: "local",
+            rootPath: "D:\\Workspace\\Project",
+          },
+        },
+      },
+      {
+        method: "PUT",
+        path: "/runtime/agents/opencode/external-settings",
+        body: settings,
+      },
+    ])
+  })
+
   test("proxies external agent settings read to Runtime", async () => {
     const calls: Array<{ method: string; path: string; body: unknown }> = []
     const runtimeResponse = {
@@ -162,6 +403,85 @@ describe("agent router Runtime proxy", () => {
 
     expect(response.status).toBe(200)
     expect(body).toEqual(runtimeResponse)
+    expect(calls).toEqual([{
+      method: "POST",
+      path: "/runtime/agents/opencode/model-catalog",
+      body: {
+        workspace: {
+          workspaceId: "workspace_1",
+          backendType: "local",
+          rootPath: "D:\\Workspace\\Project",
+        },
+      },
+    }])
+  })
+
+  test("returns WORKSPACE_NOT_RESOLVED when workspace id is blank", async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      runtimeClient: {
+        forward: async () => {
+          calls.push("called")
+          return { status: 200, data: {} }
+        },
+      },
+      conversationService: {
+        getConversationDetail: async () => ({
+          ...conversationWithWorkspace(),
+          metadata: {
+            workspace: {
+              workspaceId: "   ",
+              backendType: "local",
+              rootPath: "D:\\Workspace\\Project",
+            },
+          },
+        }),
+      },
+    })
+
+    const response = await app.request("/api/runtime/agents/opencode/model-catalog", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: "conv_1" }),
+      headers: { "Content-Type": "application/json" },
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "WORKSPACE_NOT_RESOLVED" },
+    })
+    expect(calls).toEqual([])
+  })
+
+  test("trims resolved OpenCode workspace metadata before forwarding", async () => {
+    const calls: Array<{ method: string; path: string; body: unknown }> = []
+    const app = createApp({
+      runtimeClient: {
+        forward: async (method: string, path: string, body: unknown) => {
+          calls.push({ method, path, body })
+          return { status: 200, data: { provider: "opencode", models: [], warnings: [] } }
+        },
+      },
+      conversationService: {
+        getConversationDetail: async () => ({
+          ...conversationWithWorkspace(),
+          metadata: {
+            workspace: {
+              workspaceId: " workspace_1 ",
+              backendType: "local",
+              rootPath: " D:\\Workspace\\Project ",
+            },
+          },
+        }),
+      },
+    })
+
+    const response = await app.request("/api/runtime/agents/opencode/model-catalog", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: "conv_1" }),
+      headers: { "Content-Type": "application/json" },
+    })
+
+    expect(response.status).toBe(200)
     expect(calls).toEqual([{
       method: "POST",
       path: "/runtime/agents/opencode/model-catalog",

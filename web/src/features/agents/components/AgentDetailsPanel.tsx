@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { RadialIntro } from "@/components/animate-ui/components/community/radial-intro"
 import type { AgentDetail, AgentSummary, AvatarOverridesManifest } from "../types"
 import { AgentModelControl } from "./AgentModelControl"
+import { ExternalAgentSettingsPanel } from "./ExternalAgentSettingsPanel"
 import { AvatarEditDialog } from "./AvatarEditDialog"
 import { useAvatarOverrides } from "../hooks/use-avatar-overrides"
 
@@ -207,12 +208,10 @@ function ModelSection({
   if (agent.origin === "external") {
     return (
       <Section
-        description="外部智能体使用适配器配置，不在 AgentHub 内绑定模型。"
-        title="模型"
+        description="配置 AgentHub 发起运行时传给外部 SDK 的轻量覆盖项。"
+        title="外部 SDK 设置"
       >
-        <div className="rounded-lg bg-muted/60 px-3 py-2 text-muted-foreground text-sm">
-          由外部适配器管理
-        </div>
+        <ExternalAgentSettingsPanel agent={agent} />
       </Section>
     )
   }

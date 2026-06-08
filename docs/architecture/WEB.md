@@ -54,6 +54,7 @@
 - 桌面运行时只允许通过 Electrobun 最小 RPC 调用窗口控制能力（最小化、最大化/还原、关闭、查询窗口状态）和受限系统通知能力（`title`、`body`、`subtitle`、`silent`）。前端仍只能调用 `hub-server` 业务 API，不得通过桌面桥接访问文件、Shell、网络、Runtime 或 LLM 能力。
 - Windows 桌面壳必须在加载 Electrobun 窗口 API 之前设置 per-monitor DPI awareness，避免系统在 125%/150% 等缩放屏幕上对整个窗口做位图拉伸，导致 Web 内容模糊。该行为属于 `desktop` 壳层职责，Web CSS 不应为此做额外缩放补偿。
 - 创建智能体、绑定模型和删除确认维持模态操作；已有用户智能体配置在智能体模块右侧内容区内联编辑。用户自定义智能体表单可以保存 `allowedSkills` 逻辑 ref；全局 Skill 可从只读发现结果中点选，`workspace:*` ref 可回显和移除，但实际注入仍由当前 Run 的 workspace 绑定和 Workspace Skill Trust 默认 trusted / 显式撤销结果决定。
+- “智能体”页的外部 SDK 设置只调用 HubServer 代理 API：`GET /api/runtime/agents/:agentId/external-settings`、`PUT /api/runtime/agents/:agentId/external-settings` 和 `POST /api/runtime/agents/opencode/model-catalog`。OpenCode 模型目录由 OpenCode SDK/catalog 提供，浏览器请求体只允许 `{ conversationId }`，不得发送或编辑 `rootPath`；保存 OpenCode 模型覆盖时，Web 也只随设置提交当前 `conversationId`，由 HubServer 使用会话工作区做 catalog validation，SDK 默认模型保存不需要会话上下文。Claude Code 只暴露 allowlisted `permissionMode` 和可选 `model`，Codex 当前只暴露可选 `model`。
 
 ## 状态管理
 

@@ -10,6 +10,82 @@ export type AgentModelRef = {
   modelId: string
 }
 
+export type OpenCodeExecutionAgent = "build" | "plan"
+
+export type OpenCodeModelRef = {
+  providerID: string
+  modelID: string
+}
+
+export type ClaudeCodePermissionMode =
+  | "default"
+  | "acceptEdits"
+  | "plan"
+  | "dontAsk"
+  | "auto"
+
+export type ExternalAgentSettings =
+  | {
+      provider: "opencode"
+      model?: OpenCodeModelRef
+      executionAgent?: OpenCodeExecutionAgent
+    }
+  | {
+      provider: "claude-code"
+      model?: string
+      permissionMode?: ClaudeCodePermissionMode
+    }
+  | {
+      provider: "codex"
+      model?: string
+    }
+
+type OpenCodeExternalAgentSettings = Extract<
+  ExternalAgentSettings,
+  { provider: "opencode" }
+>
+
+type OpenCodeExternalAgentSettingsWithoutModel = Omit<
+  OpenCodeExternalAgentSettings,
+  "model"
+> & {
+  model?: never
+}
+
+type OpenCodeExternalAgentSettingsWithModel = Omit<
+  OpenCodeExternalAgentSettings,
+  "model"
+> & {
+  model: OpenCodeModelRef
+}
+
+export type ExternalAgentSettingsUpdateInput =
+  | Exclude<ExternalAgentSettings, OpenCodeExternalAgentSettings>
+  | OpenCodeExternalAgentSettingsWithoutModel
+  | {
+      settings: OpenCodeExternalAgentSettingsWithModel
+      conversationId: string
+    }
+
+export type ExternalAgentSettingsResponse = {
+  agentId: "opencode" | "claude-code" | "codex"
+  settings: ExternalAgentSettings
+  updatedAt?: string
+}
+
+export type OpenCodeModelCatalogItem = {
+  providerID: string
+  providerName?: string
+  modelID: string
+  modelName?: string
+}
+
+export type OpenCodeModelCatalogResponse = {
+  provider: "opencode"
+  models: OpenCodeModelCatalogItem[]
+  warnings: string[]
+}
+
 export type AgentPermissionPolicy = {
   filesystem: "none" | "read" | "write"
   shell: "none" | "limited" | "full"
@@ -92,6 +168,7 @@ export type AgentDetail = AgentSummary & {
   allowedTools: string[]
   allowedSkills: string[]
   permissionPolicy: AgentPermissionPolicy
+  externalSettings?: ExternalAgentSettings
   external?: {
     provider: string
     outputFormat: string

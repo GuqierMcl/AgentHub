@@ -19,6 +19,7 @@ export async function resolveConversationWorkspaceSnapshot(
 
   if (
     typeof workspace.workspaceId !== "string" ||
+    workspace.workspaceId.trim().length === 0 ||
     workspace.backendType !== "local" ||
     typeof workspace.rootPath !== "string" ||
     workspace.rootPath.trim().length === 0
@@ -27,9 +28,9 @@ export async function resolveConversationWorkspaceSnapshot(
   }
 
   return {
-    workspaceId: workspace.workspaceId,
+    workspaceId: workspace.workspaceId.trim(),
     backendType: "local",
-    rootPath: workspace.rootPath,
+    rootPath: workspace.rootPath.trim(),
   }
 }
 
