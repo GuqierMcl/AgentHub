@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, startTransition } from "react"
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { usePanelRef } from "react-resizable-panels"
 import { toast } from "sonner"
@@ -70,6 +70,7 @@ export function WorkbenchContentLayout({
   const failRunStart = useWorkbenchStore((s) => s.failRunStart)
   const setConversationChatSpeakers = useWorkbenchStore((s) => s.setConversationChatSpeakers)
   const hasTabsRef = useRef(false)
+  const lastHydratedAtRef = useRef<Record<string, number>>({})
 
   const conversationQuery = useQuery({
     queryKey: activeConversationId
@@ -91,8 +92,7 @@ export function WorkbenchContentLayout({
       : workbenchQueryKeys.conversations.messages("__none__"),
     queryFn: () => conversationMessagesApi.list(activeConversationId ?? ""),
     enabled: !!activeConversationId,
-    refetchOnMount: "always",
-    staleTime: 0,
+    staleTime: 30_000,
   })
 
   const conversationDetail = conversationQuery.data
@@ -139,12 +139,19 @@ export function WorkbenchContentLayout({
       conversationDetail.agents.map((agent) => agent.agentId)
     )
 
-    hydrateTimelineFromReplay(
-      activeConversationId,
-      messagesQuery.data.messages,
-      messagesQuery.data.timelineRuns,
-      messagesQuery.data.activeRun
-    )
+    const dataUpdatedAt = messagesQuery.dataUpdatedAt
+    const lastHydratedAt = lastHydratedAtRef.current[activeConversationId]
+    if (lastHydratedAt !== dataUpdatedAt) {
+      lastHydratedAtRef.current[activeConversationId] = dataUpdatedAt
+      startTransition(() => {
+        hydrateTimelineFromReplay(
+          activeConversationId,
+          messagesQuery.data!.messages,
+          messagesQuery.data!.timelineRuns,
+          messagesQuery.data!.activeRun
+        )
+      })
+    }
 
     if (
       messagesQuery.data.activeRun &&
@@ -161,6 +168,7 @@ export function WorkbenchContentLayout({
     conversationDetail,
     hydrateTimelineFromReplay,
     messagesQuery.data,
+    messagesQuery.dataUpdatedAt,
     setConversationChatSpeakers,
   ])
 
