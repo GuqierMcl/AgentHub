@@ -4,6 +4,7 @@ import {
   AgentListQuerySchema,
   AgentDetailQuerySchema,
   AgentModelBindingUpdateRequestSchema,
+  ExternalAgentSettingsUpdateRequestSchema,
   UserAgentCreateRequestSchema,
   UserAgentUpdateRequestSchema,
   DEFAULT_USER_AGENT_PERMISSION_POLICY,
@@ -84,8 +85,9 @@ function serializeAgentDetail(
           outputFormat: agent.external.outputFormat,
           workingDirectoryPolicy: agent.external.workingDirectoryPolicy,
           configDirectoryPolicy: agent.external.configDirectoryPolicy,
-        }
+      }
       : undefined,
+    externalSettings: agent.externalSettings,
   }
 }
 
@@ -290,6 +292,44 @@ agents.get("/runtime/agents/:agentId", (c: Context) => {
   }
 
   return c.json(serializeAgentDetail(agent, providerService))
+})
+
+agents.get("/runtime/agents/:agentId/external-settings", (c: Context) => {
+  const registry = c.get("agentRegistry")
+  const providerService = c.get("providerService")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  const agentId = c.req.param("agentId")!
+  const agent = registry.getAgent(agentId)
+  if (!agent || agent.visibility === "hidden" || agent.origin !== "external" || !agent.external) {
+    return agentNotFound(c, agentId)
+  }
+
+  return c.json(serializeAgentDetail(agent, providerService))
+})
+
+agents.put("/runtime/agents/:agentId/external-settings", async (c: Context) => {
+  const registry = c.get("agentRegistry")
+  const providerService = c.get("providerService")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  const body = await readJsonBody(c)
+  const result = ExternalAgentSettingsUpdateRequestSchema.safeParse(body)
+  if (!result.success) {
+    return agentInvalidInput(c, result.error.issues)
+  }
+
+  const agentId = c.req.param("agentId")!
+  try {
+    const updatedAgent = await registry.setExternalAgentSettings(agentId, result.data)
+    return c.json(serializeAgentDetail(updatedAgent, providerService))
+  } catch (error) {
+    return agentMutationFailed(c, error)
+  }
 })
 
 agents.put("/runtime/agents/:agentId", async (c: Context) => {

@@ -1,5 +1,6 @@
 import { AgentStore } from "./agent-store"
 import { AgentModelBindingStore } from "./agent-model-binding-store"
+import { ExternalAgentSettingsStore } from "./external-agent-settings-store"
 import { presetAgents } from "./preset-agents"
 import { presetSubagents } from "./preset-subagents"
 import {
@@ -7,6 +8,9 @@ import {
 } from "./types"
 import type {
   AgentDefinition,
+  ExternalAgentSettings,
+  ExternalAgentSettingsMap,
+  ExternalAgentSettingsUpdateRequest,
   AgentModelBindingMap,
   AgentModelRef,
   AgentListOptions,
@@ -31,6 +35,7 @@ export class AgentRegistryMutationError extends Error {
       | "AGENT_INVALID_INPUT"
       | "AGENT_ALREADY_EXISTS"
       | "AGENT_NOT_EDITABLE"
+      | "AGENT_EXTERNAL_SETTINGS_NOT_ALLOWED"
       | "AGENT_STORE_WRITE_FAILED",
     message: string,
     public status: 400 | 403 | 409 | 500,
@@ -44,22 +49,26 @@ export class AgentRegistryMutationError extends Error {
 export class AgentRegistry {
   private store: AgentStore
   private bindingStore: AgentModelBindingStore
+  private externalSettingsStore: ExternalAgentSettingsStore
   private baseAgents: Map<string, AgentDefinition> = new Map()
   private agents: Map<string, AgentDefinition> = new Map()
   private systemAgentIds: Set<string> = new Set()
   private modelBindings: AgentModelBindingMap = {}
+  private externalSettings: ExternalAgentSettingsMap = {}
   private writeQueue: Promise<unknown> = Promise.resolve()
   private initialized = false
 
   constructor(dataDir: string, private toolCatalog: AgentToolAuthoringCatalog) {
     this.store = new AgentStore(dataDir)
     this.bindingStore = new AgentModelBindingStore(dataDir)
+    this.externalSettingsStore = new ExternalAgentSettingsStore(dataDir)
     this.loadPresets()
   }
 
   async initialize(): Promise<void> {
     const userAgents = await this.store.loadAgents()
     this.modelBindings = await this.bindingStore.loadBindings()
+    this.externalSettings = await this.externalSettingsStore.loadSettings()
 
     for (const agent of userAgents) {
       if (this.systemAgentIds.has(agent.id)) {
@@ -75,6 +84,7 @@ export class AgentRegistry {
     }
 
     this.applyBindingsToRegisteredAgents()
+    this.applyExternalSettingsToRegisteredAgents()
     this.validateDefaultEntryAgent()
     this.initialized = true
   }
@@ -96,6 +106,11 @@ export class AgentRegistry {
 
   getAgent(agentId: string): AgentDefinition | null {
     return this.agents.get(agentId) ?? null
+  }
+
+  getExternalAgentSettings(agentId: string): ExternalAgentSettings | undefined {
+    const settings = this.externalSettings[agentId as keyof ExternalAgentSettingsMap]
+    return this.cloneExternalSettings(settings)
   }
 
   async syncPersistedUserAgent(agent: AgentDefinition): Promise<AgentDefinition | null> {
@@ -399,6 +414,54 @@ export class AgentRegistry {
     return normalized
   }
 
+  async setExternalAgentSettings(
+    agentId: string,
+    input: ExternalAgentSettingsUpdateRequest
+  ): Promise<AgentDefinition> {
+    return this.serializeMutation(async () => {
+      const agent = this.agents.get(agentId)
+      if (!agent || !this.canConfigureExternalSettings(agent, input.provider)) {
+        throw new AgentRegistryMutationError(
+          "AGENT_EXTERNAL_SETTINGS_NOT_ALLOWED",
+          `Agent ${agentId} cannot configure external settings for ${input.provider}`,
+          403,
+          {
+            agentId,
+            provider: input.provider,
+          }
+        )
+      }
+
+      const settings: ExternalAgentSettings = {
+        ...this.cloneExternalSettings(input),
+        updatedAt: new Date().toISOString(),
+      } as ExternalAgentSettings
+      const snapshot = this.createStateSnapshot()
+      this.externalSettings[input.provider] = settings as never
+
+      const baseAgent = this.baseAgents.get(agentId) ?? agent
+      const updated = this.applyModelBinding(baseAgent)
+      updated.updatedAt = settings.updatedAt
+      this.agents.set(agentId, updated)
+
+      try {
+        await this.externalSettingsStore.saveSettings(this.externalSettings)
+      } catch (error) {
+        this.restoreStateSnapshot(snapshot)
+        throw new AgentRegistryMutationError(
+          "AGENT_STORE_WRITE_FAILED",
+          "Failed to persist external agent settings",
+          500,
+          {
+            message: error instanceof Error ? error.message : String(error),
+          }
+        )
+      }
+
+      return this.cloneAgent(updated)
+    })
+  }
+
   private normalizeAllowedSkills(skillRefs: string[] | undefined): string[] {
     return this.normalizeStringList(skillRefs ?? [])
   }
@@ -573,6 +636,7 @@ export class AgentRegistry {
       baseAgents: new Map(this.baseAgents),
       agents: new Map(this.agents),
       modelBindings: structuredClone(this.modelBindings),
+      externalSettings: structuredClone(this.externalSettings),
     }
   }
 
@@ -580,6 +644,7 @@ export class AgentRegistry {
     this.baseAgents = snapshot.baseAgents
     this.agents = snapshot.agents
     this.modelBindings = snapshot.modelBindings
+    this.externalSettings = snapshot.externalSettings
   }
 
   private applyBindingsToRegisteredAgents(): void {
@@ -593,6 +658,21 @@ export class AgentRegistry {
 
       const updated = this.applyModelBinding(baseAgent, binding)
       this.agents.set(agentId, updated)
+    }
+  }
+
+  private applyExternalSettingsToRegisteredAgents(): void {
+    for (const agentId of Object.keys(this.externalSettings)) {
+      const baseAgent = this.baseAgents.get(agentId)
+      const agent = this.agents.get(agentId)
+      const provider = this.externalSettings[agentId as keyof ExternalAgentSettingsMap]?.provider
+      if (!baseAgent || !agent || !provider || !this.canConfigureExternalSettings(agent, provider)) {
+        console.warn(`Ignoring external settings for unsupported agent "${agentId}"`)
+        delete this.externalSettings[agentId as keyof ExternalAgentSettingsMap]
+        continue
+      }
+
+      this.agents.set(agentId, this.applyModelBinding(baseAgent))
     }
   }
 
@@ -611,7 +691,18 @@ export class AgentRegistry {
       cloned.modelRef = this.cloneModelRef(cloned.modelRef)
     }
 
-    return cloned
+    return this.applyExternalSettings(cloned)
+  }
+
+  private applyExternalSettings(agent: AgentDefinition): AgentDefinition {
+    const settings = this.externalSettings[agent.id as keyof ExternalAgentSettingsMap]
+    if (!settings || !this.canConfigureExternalSettings(agent, settings.provider)) {
+      delete agent.externalSettings
+      return agent
+    }
+
+    agent.externalSettings = this.cloneExternalSettings(settings)
+    return agent
   }
 
   private applyImplicitRuntimeTools(agent: AgentDefinition): AgentDefinition {
@@ -637,6 +728,17 @@ export class AgentRegistry {
       agent.enabled &&
       agent.origin !== "external" &&
       (agent.executorType === "ai-sdk" || agent.executorType === "orchestrator")
+    )
+  }
+
+  private canConfigureExternalSettings(agent: AgentDefinition, provider: string): boolean {
+    return (
+      agent.id === provider &&
+      agent.origin === "external" &&
+      agent.tier === "primary" &&
+      agent.visibility === "visible" &&
+      agent.executorType === "external-adapter" &&
+      agent.external?.provider === provider
     )
   }
 
@@ -671,11 +773,18 @@ export class AgentRegistry {
   private cloneToolPermissionRules(rules: AgentToolPermissionRules): AgentToolPermissionRules {
     return structuredClone(rules)
   }
+
+  private cloneExternalSettings<T extends ExternalAgentSettings | ExternalAgentSettingsUpdateRequest | undefined>(
+    settings: T
+  ): T {
+    return settings ? structuredClone(settings) : settings
+  }
 }
 
 type AgentRegistryStateSnapshot = {
   baseAgents: Map<string, AgentDefinition>
   agents: Map<string, AgentDefinition>
   modelBindings: AgentModelBindingMap
+  externalSettings: ExternalAgentSettingsMap
 }
 

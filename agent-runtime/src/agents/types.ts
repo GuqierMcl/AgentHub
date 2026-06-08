@@ -155,6 +155,7 @@ export const AgentDefinitionSchema = z.object({
   permissionPolicy: AgentPermissionPolicySchema,
   toolPermissionRules: AgentToolPermissionRulesSchema.optional(),
   external: ExternalAgentConfigSchema.optional(),
+  externalSettings: ExternalAgentSettingsSchema.optional(),
   enabled: z.boolean().default(true),
   readonly: z.boolean().default(false),
   createdAt: z.string().optional(),
@@ -247,6 +248,7 @@ export type AgentDetailResponse = AgentSummaryResponse & {
     workingDirectoryPolicy: ExternalAgentConfig["workingDirectoryPolicy"]
     configDirectoryPolicy: ExternalAgentConfig["configDirectoryPolicy"]
   }
+  externalSettings?: ExternalAgentSettings
 }
 
 export type AgentResolvedModelResponse = {
