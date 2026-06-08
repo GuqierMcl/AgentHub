@@ -10,6 +10,7 @@ import {
 import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapshot"
 import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { formatInjectedSkillsForPrompt } from "./skill-prompt"
+import { formatMcpContextForPrompt } from "./mcp-runtime"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
@@ -179,7 +180,7 @@ export class OrchestratorExecutor implements AgentExecutor {
       getCurrentMessageId: () => messageIdentity.getOrCreateCurrentMessageId(),
     }
 
-    const toolSettings = this.toolRegistry.buildAiSdkToolSettings(streamContext, {
+    const toolSettings = await this.toolRegistry.buildAiSdkToolSettings(streamContext, {
       includeInternal: true,
     })
     if (!toolSettings || toolSettings.activeTools.length === 0) {
@@ -403,6 +404,7 @@ export class OrchestratorExecutor implements AgentExecutor {
     const participants = context.input.participantAgentIds.join(", ")
     const pinnedBlock = formatPinnedMessagesForPrompt(context.input.pinnedMessages)
     const skillBlock = formatInjectedSkillsForPrompt(context.injectedSkills)
+    const mcpBlock = formatMcpContextForPrompt(context.mcpContext)
 
     return [
       agent.systemPrompt ?? [
@@ -419,6 +421,7 @@ export class OrchestratorExecutor implements AgentExecutor {
         : "",
       pinnedBlock ?? "",
       skillBlock ?? "",
+      mcpBlock,
       [
         "Available run_task targets:",
         availableTargets.length > 0 ? availableTargets.join("\n") : "- none",

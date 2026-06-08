@@ -6,6 +6,7 @@ import { ProviderService } from './provider'
 import {
   RunManager,
   CapabilityDiscoveryService,
+  McpRuntimeService,
   McpTrustService,
   SkillContentService,
   SystemModelSettingsService,
@@ -50,6 +51,10 @@ const capabilityDiscoveryService = new CapabilityDiscoveryService({ dataDir: con
 const skillContentService = new SkillContentService(capabilityDiscoveryService)
 const workspaceSkillTrustService = new WorkspaceSkillTrustService({ dataDir: config.dataDir })
 const mcpTrustService = new McpTrustService({ dataDir: config.dataDir })
+const mcpRuntimeService = new McpRuntimeService({
+  discoveryService: capabilityDiscoveryService,
+  trustService: mcpTrustService,
+})
 const runManager = new RunManager(
   agentRegistry,
   providerService,
@@ -58,7 +63,8 @@ const runManager = new RunManager(
   undefined,
   systemModelSettingsService,
   skillContentService,
-  workspaceSkillTrustService
+  workspaceSkillTrustService,
+  mcpRuntimeService
 )
 const workspaceRevertService = new WorkspaceRevertService()
 
@@ -84,6 +90,7 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('capabilityDiscoveryService', capabilityDiscoveryService)
   c.set('workspaceSkillTrustService', workspaceSkillTrustService)
   c.set('mcpTrustService', mcpTrustService)
+  c.set('mcpRuntimeService', mcpRuntimeService)
   c.set('toolRegistry', toolRegistry)
   c.set('systemModelSettingsService', systemModelSettingsService)
   c.set('instructAgentRegistry', instructAgentRegistry)

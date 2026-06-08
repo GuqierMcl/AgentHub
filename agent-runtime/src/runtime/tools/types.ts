@@ -1,8 +1,9 @@
 import type { z } from "zod"
-import type { ToolSet } from "ai"
+import type { JSONSchema7, ToolSet } from "ai"
 import type { AgentDefinition, AgentPermissionPolicy, AgentAuthoringToolOption } from "../../agents"
 import type { WorkspaceService } from "../workspace"
 import type { RuntimePermissionService } from "../permissions"
+import type { McpRuntimeContext } from "../mcp-runtime"
 import type {
   OrchestratorRiskLevel,
   OrchestratorTask,
@@ -41,6 +42,7 @@ export type ToolExecutionContext = {
   emitEvent: (event: RunEvent) => void
   workspaceService?: WorkspaceService
   permissionService?: RuntimePermissionService
+  mcpContext?: McpRuntimeContext
   executionId?: string
   executeTask?: (task: OrchestratorTask, options?: {
     groupId?: string
@@ -74,10 +76,12 @@ export type ToolDefinition<TInput = unknown, TData = unknown, TRuntime = unknown
   description: string
   category: string
   inputSchema: z.ZodType<TInput>
+  modelInputJsonSchema?: JSONSchema7
   riskLevel: OrchestratorRiskLevel
   requiredPermissions: ToolRequiredPermissions
   approvalPolicy: ToolApprovalPolicy
   configurableByUserAgent: boolean
+  eventData?: Record<string, unknown> | ((context: ToolExecutionContext) => Record<string, unknown>)
   deferred?: boolean
   prepareExecution?: (input: TInput, context: ToolExecutionContext) => Promise<ToolPreflightDecision<TData, TRuntime> | null>
   prepareApproval?: (input: TInput, context: ToolExecutionContext) => Promise<ToolApprovalDraft | null>

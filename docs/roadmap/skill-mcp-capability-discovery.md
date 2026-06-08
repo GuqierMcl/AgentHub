@@ -261,14 +261,16 @@ Phase 5 的服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP 与 S
 #### Phase 5B：显式启用、连接与 tool 枚举
 
 - 新增 `McpRuntimeService`，独立维护 MCP clients、transports、tool schemas 和连接生命周期。
-- MCP stdio server 启动需要显式启用和审批；HTTP/SSE server 连接需要网络权限和凭据脱敏。
-- 只有 discovery 有效、trust 未撤销且用户显式启用的 MCP server 可以连接和枚举 tool。
+- Phase 5B-lite 当前采用默认启用规则：discovery 有效、workspace trust 未撤销的 workspace MCP server 会在 workspace status 查询或 Run 开始时连接和枚举 tool。
+- MCP stdio server 可能启动 workspace 配置中的本地命令；HTTP/SSE server 连接会使用配置 URL、headers 或 env。所有 API、日志、事件和模型可见结果必须脱敏。
+- 显式启用开关、command/network approval、allowlist 和 OAuth 后续补强。
 
 #### Phase 5C：MCP tool 注入与执行
 
 - MCP tool 以命名空间形式注入内部 AI SDK tool set，例如 `mcp_<serverId>_<toolName>`。
 - MCP tool 执行统一输出 `tool.started`、`tool.completed`、`tool.failed`，并在 `data.externalProvider = "mcp"` 中保留来源边界。
-- MCP tool 权限映射到 Runtime permission / approval 模型，不绕过 Tool Registry、permission continuation 或 workspace sandbox。
+- Phase 5C-lite 当前只注入内部可见主智能体和 `orchestrator`；隐藏子智能体、InstructAgent、外部 adapter 不注入。
+- Phase 5C-lite 暂不做 per-call approval / permission gate，动态 MCP tool 不要求静态 `agent.allowedTools`，但必须通过 Runtime Tool Registry 统一事件化。后续必须把 MCP tool 权限映射到 Runtime permission / approval 模型，不绕过 Tool Registry、permission continuation 或 workspace sandbox。
 - MCP resources/prompts 先作为 application-driven context，不直接交给模型自由调用。
 
 ### 阶段 6：外部 Agent Adapter 能力摘要
@@ -299,6 +301,7 @@ Phase 5 的服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP 与 S
 - 2026-06-08：Phase 5A 进入执行，目标是补齐 Skill/MCP 服务设计文档，并实现 Runtime MCP trust store、trust API 与 `mcp-runtime` 服务状态；不启动或调用 MCP。
 - 2026-06-08：补齐 Runtime discovery 对 OpenCode 官方 MCP 配置的兼容：支持全局 `%USERPROFILE%\.config\opencode\opencode.jsonc`、workspace 根 `opencode.json` / `opencode.jsonc`、OpenCode `mcp` 顶层 server map 和 local `command` 数组。
 - 2026-06-08：Phase 5A 平台侧对接进入执行：HubServer 代理 Runtime MCP trust API，`/api/system/services/status` 透传 `mcp-runtime`，Web 插件配置页为 workspace MCP 提供信任 / 撤销入口。
+- 2026-06-08：Phase 5B-lite / 5C-lite 进入实现：trusted workspace MCP 默认启用，Runtime 连接 / 枚举 / 动态 tool 注入内部主智能体和 Orchestrator；HubServer 新增 conversation MCP status 代理；Web 输入框状态栏展示当前会话 workspace MCP server 状态。
 
 ## 已完成
 
@@ -308,6 +311,8 @@ Phase 5 的服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP 与 S
 - Phase 1 已实现 flat `skills[] / mcps[]` discovery response、HubServer `GET /api/runtime/capabilities` 代理和 workspace snapshot 解析边界。
 - Phase 4B 已实现 Runtime workspace Skill trust contract，并完成 HubServer 代理与 Web metadata-only 信任配置入口；浏览器不向 HubServer/Runtime 提交 workspace root 或 Skill body，workspace 分组展示的 rootPath 只来自 HubServer conversation metadata。
 - Phase 4B 已实现默认 `orchestrator` workspace Skill 自动注入：Run 绑定 workspace 时，Runtime 自动发现 workspace Skill refs，经默认 trusted / 显式撤销过滤后复用现有 Skill 正文解析与 metadata-only 诊断事件。
+- Phase 5A 已实现 Runtime MCP trust store、trust API、HubServer trust 代理和 Web workspace MCP trust 操作。
+- Phase 5B-lite / 5C-lite 已实现 Runtime workspace MCP status、连接 / 枚举、动态 MCP tool 注入与调用事件；HubServer/Web 已可在聊天输入框状态栏展示当前会话 workspace MCP server 状态。
 
 ## 交付后增强项
 
@@ -324,7 +329,7 @@ Phase 5 的服务设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP 与 S
 
 - Codex、Claude Code、OpenCode 的配置文件格式可能随版本变化；resolver 必须用 fixtures 和版本标记隔离。
 - Workspace Skill 属于仓库内容，可能包含 prompt injection；当前默认 `orchestrator` 会自动注入有效且未显式撤销的 workspace Skill，因此撤销入口、诊断事件和文档提示必须保持清晰。
-- MCP stdio 配置可能执行任意本地命令；第一阶段不能自动启动，后续必须经过审批。
+- MCP stdio 配置可能执行任意本地命令；当前 Phase 5B-lite 已默认启动 trusted workspace MCP，本轮未做 per-call approval，后续必须补 command/network/tool 级审批、allowlist 和禁用开关。
 - MCP 配置中可能包含密钥、headers、env；API 和日志必须统一脱敏。
 - Windows、WSL、POSIX home path 解析必须一致，避免重复或漏扫。
 - 旧文档中的“AgentHub 不管理外部平台 Skill/MCP”需要精确修订，避免被误读为第一阶段要接管外部平台配置。

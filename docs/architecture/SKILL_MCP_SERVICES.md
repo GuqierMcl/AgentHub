@@ -5,7 +5,7 @@
 Skill / MCP 服务是 Agent Runtime 面向 AgentHub 内部智能体的能力层。它们共享同一套发现、来源、scope 和 trust 语义，但运行边界不同：
 
 - Skill 是上下文能力。Runtime 可以在内部 AI SDK / Orchestrator prompt assembly 阶段读取 Skill 正文，并以受控 system prompt 区块注入。
-- MCP 是工具能力。Runtime 后续只能在显式启用、连接、枚举和权限审批后，把 MCP tool 作为受控工具入口暴露给内部模型。
+- MCP 是工具能力。当前 Phase 5B-lite / 5C-lite 为了让内部智能体先能感知并调用 workspace MCP，采用临时默认启用边界：发现且 trusted、未显式撤销的 workspace MCP server 会在 workspace status 查询或 Run 开始时尝试连接、枚举，并作为动态 Runtime Tool 注入内部主智能体与 Orchestrator。细粒度 permission / approval 后续补强。
 
 AgentHub 产品侧只暴露两个范围：全局和工作区 / 项目级。全局来自用户本机全局配置目录；工作区能力来自 HubServer 解析出的 local workspace snapshot。Runtime 不根据 `workspaceId` 查询平台业务状态，也不让浏览器直接传 `rootPath`。
 
@@ -25,15 +25,15 @@ workspace Skill trust 记录按 `{ workspaceId, workspaceRootHash, skillRef }` �
 
 ## MCP 服务链路
 
-MCP 当前只完成 metadata discovery；Phase 5A 增加 trust 地基，不启动 MCP server，不连接远程 MCP endpoint，不枚举 tool，也不调用 tool。
+MCP 已从 Phase 5A trust 地基推进到 Phase 5B-lite / 5C-lite：Runtime 会对 workspace 级 trusted MCP 做最小连接、tool 枚举和 tool 调用闭环。该实现仍不写外部平台配置，不接管 Codex / Claude Code / OpenCode 的 native MCP 执行语义，也不对 global MCP 自动连接。
 
 | 服务 | 阶段 | 职责 |
 | --- | --- | --- |
 | `CapabilityDiscoveryService` | 已实现 | 只读解析 MCP server 配置摘要，返回 server `id`、name、source、level、transport、command 和脱敏 args。 |
 | `McpTrustService` | Phase 5A | 记录 global / workspace MCP 显式允许或撤销决策。缺失记录默认 trusted，显式 revoke 阻止后续启用、枚举和注入候选。 |
-| `McpRuntimeService` | Phase 5B+ | 显式启用后管理 MCP client、transport、连接生命周期、tool schema 枚举和 tool 调用。 |
+| `McpRuntimeService` | Phase 5B-lite / 5C-lite | 管理 workspace MCP client、transport、连接生命周期、tool schema 枚举、动态 tool 注入、tool 调用和状态快照。 |
 
-MCP trust 的 `mcpRef` 使用 Capability Discovery 返回的 MCP `id`。workspace MCP trust 记录按 `{ workspaceId, workspaceRootHash, mcpRef }` 隔离；global MCP trust 记录按 `{ level = "global", mcpRef }` 隔离。缺失记录默认 trusted 只表示该 MCP server 可以进入后续候选，不表示 Runtime 会自动启动 stdio 进程、连接 HTTP/SSE server 或调用 tool。
+MCP trust 的 `mcpRef` 使用 Capability Discovery 返回的 MCP `id`。workspace MCP trust 记录按 `{ workspaceId, workspaceRootHash, mcpRef }` 隔离；global MCP trust 记录按 `{ level = "global", mcpRef }` 隔离。缺失记录默认 trusted；显式 `trusted = false` 表示撤销，并会阻止后续连接、枚举和动态 tool 注入。
 
 OpenCode MCP discovery 需要兼容官方 JSON / JSONC 配置入口：全局 `%USERPROFILE%\.config\opencode\opencode.json` / `opencode.jsonc`，以及工作区根目录 `opencode.json` / `opencode.jsonc`。Runtime 只读解析 `mcp` 顶层 server map；`type = "local"` 与 `command` 数组归一化为 `stdio` metadata，`type = "remote"` 或 HTTP URL 归一化为 `http` metadata。
 
@@ -41,14 +41,17 @@ HubServer 负责把浏览器侧 MCP trust 请求代理到 Runtime：global scope
 
 ## MCP 执行边界
 
-后续 MCP tool 接入必须走 Runtime 工具和权限体系：
+当前临时执行边界：
 
-- MCP stdio server 启动需要显式启用，并根据 command 风险触发 Runtime approval。
-- MCP HTTP/SSE server 连接需要网络权限；headers、tokens、env 和 credential 值必须脱敏。
+- 仅 workspace MCP 默认启用；global MCP 仍只做 discovery / trust metadata。
+- Runtime status 查询 `POST /runtime/mcp/workspace/status` 默认会触发 trusted workspace MCP 连接和 tool 枚举；`GET /runtime/services/status` 只读快照，不触发连接。
+- Run 开始时，内部 `executorType = "ai-sdk"` 的可见主智能体和 `orchestrator` 会解析当前 workspace MCP context；隐藏子智能体、InstructAgent 和外部 adapter 不注入 MCP tool。
+- MCP stdio 可能启动 workspace 配置中的本地命令；HTTP/SSE 会使用配置中的 URL、headers 或 env 值建立连接。headers、tokens、env、credential、rootPath 不得出现在 API、日志、RunEvent 或 model-visible tool result 中。
+- 本轮不做 per-call approval / permission gate。MCP tool 的 `requiredPermissions = {}`、`approvalPolicy = "never"` 是临时实现，后续必须补上 command/network/tool 级审批和 allowlist。
 - MCP tool 注入内部模型时使用命名空间名称，例如 `mcp_<serverId>_<toolName>`，避免与内置 Runtime Tool 冲突。
 - MCP tool 调用必须输出 `tool.started`、`tool.completed`、`tool.failed`，并在事件 `data.externalProvider = "mcp"` 中保留来源边界。
-- MCP tool 不绕过 `agent.allowedTools`、`permissionPolicy`、approval continuation 或 workspace sandbox。
-- MCP resources / prompts 首版作为 application-driven context，不直接开放给模型自由调用。
+- 当前动态 MCP tool 不要求静态 `agent.allowedTools`，但必须通过 Runtime Tool Registry 统一执行并输出事件；静态 Runtime Tool 的 allowlist / permission 语义不变。
+- MCP resources / prompts 暂不开放给模型自由调用。
 
 外部 Codex、Claude Code、OpenCode 的原生 MCP 调用仍属于对应外部 adapter 的私有执行语义。AgentHub 可以只读发现和展示摘要，但不写入外部平台配置，也不把外部平台 native MCP tool 注册为 AgentHub Tool Catalog 条目。
 

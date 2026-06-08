@@ -90,7 +90,7 @@ Runtime 可以在 HTTP server 已监听但内部服务仍初始化时返回非 2
 
 Runtime 另外暴露 `GET /runtime/services/status` 供 HubServer 读取服务状态快照。该端点只读，不会启动 OpenCode server、创建外部 Session、调用 Claude Code / Codex prompt 或修改 workspace。当前返回 OpenCode、Codex、Claude Code 三类服务状态，其中三者均已作为外部智能体接入。OpenCode 状态来自默认 `ManagedOpenCodeServer`：`idle` 表示待命，`starting` 表示 workspace server 启动中，`running` 表示至少一个 workspace connection 已就绪，`error` 表示最近一次启动或 workspace 校验失败。Codex 状态来自 `@openai/codex-sdk` 只读 readiness 和 Runtime 内存中的 active Run 摘要：`running` 表示至少一个非终态 Run 正在直接执行或委派执行 `codex`，`idle` 表示 SDK 可用且当前没有 active Codex Run，`details.clientMode = "sdk"`，`details.activeRunCount` 返回当前非终态 Codex Run 数。Claude Code 状态来自 SDK/可执行文件配置来源和 Runtime 内存中的 active Run 摘要：`running` 表示至少一个非终态 Run 正在直接执行或委派执行 `claude-code`，`idle` 表示 SDK/executable 可用且当前没有 active Claude Code Run，`details.activeRunCount` 返回当前非终态 Claude Code Run 数，`details.executableSource` 为 `sdk-bundled` 或 `env`，`AGENTHUB_CLAUDE_CODE_EXECUTABLE` 可覆盖真实 Claude Code executable 路径。
 
-Runtime 还暴露 Skill / MCP Capability Discovery 只读端点，供 HubServer 查询当前 Runtime 可见的全局与 workspace/project 级能力摘要。第一阶段只读取 `%USERPROFILE%\.agents`、Codex、Claude Code、OpenCode 相关目录和配置文件，归一化返回 Skill 元数据与 MCP server 配置摘要；OpenCode MCP 兼容官方 JSON / JSONC 配置入口，包括全局 `%USERPROFILE%\.config\opencode\opencode.jsonc` 和工作区根目录 `opencode.json` / `opencode.jsonc`。Runtime 不会执行 Skill、不会把 Skill 注入 prompt、不会启动 MCP stdio 进程、不会连接 MCP HTTP/SSE server、不会调用 MCP tool，也不会写入任何外部平台配置。workspace 级发现必须由 HubServer 传入显式 `workspace` snapshot（`workspaceId/backendType/rootPath`）；Runtime 不根据 `workspaceId` 查询平台业务状态。Phase 2 在 Runtime 进程内增加 30 秒 TTL 缓存、基于候选文件 `mtimeMs + size` 的 fingerprint 自动刷新、强制刷新 API，以及 `capability-discovery` 服务状态；这些能力仍只服务只读可观测性，不改变 Run 执行链路。响应不得泄露 token、headers、完整 env、workspace root 或宿主机绝对路径。
+Runtime 还暴露 Skill / MCP Capability Discovery 只读端点，供 HubServer 查询当前 Runtime 可见的全局与 workspace/project 级能力摘要。第一阶段只读取 `%USERPROFILE%\.agents`、Codex、Claude Code、OpenCode 相关目录和配置文件，归一化返回 Skill 元数据与 MCP server 配置摘要；OpenCode MCP 兼容官方 JSON / JSONC 配置入口，包括全局 `%USERPROFILE%\.config\opencode\opencode.jsonc` 和工作区根目录 `opencode.json` / `opencode.jsonc`。Capability Discovery 本身不执行 Skill、不启动 MCP stdio 进程、不连接 MCP HTTP/SSE server、不调用 MCP tool，也不会写入任何外部平台配置。workspace 级发现必须由 HubServer 传入显式 `workspace` snapshot（`workspaceId/backendType/rootPath`）；Runtime 不根据 `workspaceId` 查询平台业务状态。Phase 2 在 Runtime 进程内增加 30 秒 TTL 缓存、基于候选文件 `mtimeMs + size` 的 fingerprint 自动刷新、强制刷新 API，以及 `capability-discovery` 服务状态。响应不得泄露 token、headers、完整 env、workspace root 或宿主机绝对路径。
 
 #### Phase 4A Skill 注入边界
 
@@ -106,13 +106,17 @@ Runtime 可以保存 workspace Skill trust record，用于判断某个绑定 wor
 
 默认 `orchestrator` 在 Run 绑定 workspace 时，会自动选择当前 workspace 中可发现、有效、未撤销的 workspace Skill 注入自身上下文，即使 preset `allowedSkills` 为空。普通内部 agent 仍只消费自身 `allowedSkills`；外部 adapter 不消费 AgentHub Skill 注入。该阶段仍不执行 Skill、不启动 MCP server、不读取 Skill 引用文件，也不把 Skill 正文返回给 HubServer 或前端。HubServer 负责把前端允许 / 撤销结果转发给 Runtime trust API。
 
-#### Phase 5A MCP Trust 边界
+#### Phase 5B-lite / 5C-lite MCP Runtime 边界
 
-Skill / MCP 服务的完整设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。Phase 5A 只为 MCP 增加 Runtime 侧 trust 地基和服务状态，不启动 MCP stdio 进程，不连接 HTTP/SSE server，不枚举 MCP tools，也不把 MCP tool 注入模型。
+Skill / MCP 服务的完整设计见 `docs/architecture/SKILL_MCP_SERVICES.md`。MCP 已从 Phase 5A trust 地基推进到轻量执行闭环：发现且 trusted、未显式撤销的 workspace MCP server 默认 enabled。Runtime 在 `POST /runtime/mcp/workspace/status` 或绑定 workspace 的内部主智能体 / Orchestrator Run 开始时，会尝试连接 stdio / HTTP / SSE MCP server、枚举 tools，并把动态 MCP tools 注入内部 AI SDK tool set。
 
-MCP trust 语义与 workspace Skill trust 对齐：自动发现的 MCP server 默认 trusted；trust record 主要用于保存显式允许 / 撤销决策，尤其是 `trusted = false` 的撤销记录。global MCP 按 MCP discovery `id` 记录；workspace MCP 按 `{ workspaceId, workspace root hash, mcpRef }` 记录。缺失记录表示默认 trusted，但只代表该 MCP server 可以进入后续显式启用 / 枚举 / 注入候选，不代表 Runtime 会自动执行任何 MCP 行为。
+MCP trust 语义与 workspace Skill trust 对齐：自动发现的 MCP server 默认 trusted；trust record 主要用于保存显式允许 / 撤销决策，尤其是 `trusted = false` 的撤销记录。global MCP 按 MCP discovery `id` 记录；workspace MCP 按 `{ workspaceId, workspace root hash, mcpRef }` 记录。缺失记录表示默认 trusted；显式撤销会阻止连接、tool 枚举和 tool 注入。
 
-`mcp-runtime` 服务状态只反映 Runtime MCP trust store 与后续 MCP runtime 子系统的只读状态。Phase 5A 中状态为 `idle` 或 `error`；不得因为状态查询而启动 MCP server、读取 secret、连接网络或调用 tool。所有 MCP trust API、status details 和持久化记录都不得保存或返回 workspace root 真实路径、env、headers、token、secret args 或原始 MCP 配置正文。
+当前只为内部 `executorType = "ai-sdk"` 的可见主智能体和 `orchestrator` 注入 MCP tools；隐藏子智能体、InstructAgent、Claude Code、Codex、OpenCode 等外部 adapter 不消费 AgentHub 动态 MCP 注入，也不由 AgentHub 接管其 native MCP。
+
+本轮是临时最小实现：MCP tool 通过 Runtime Tool Registry 统一发出 `tool.started`、`tool.completed`、`tool.failed`，事件 `data.externalProvider = "mcp"`；但暂不做 per-call approval / permission gate。stdio MCP 可能启动 workspace 配置中的本地命令，HTTP/SSE 可能使用配置中的 URL、headers 或 env 建立连接。所有 MCP trust API、status details、RunEvent、日志、model-visible tool result 和持久化记录都不得保存或返回 workspace root 真实路径、env、headers、token、secret args 或原始 MCP 配置正文。后续必须补上 command/network/tool 级审批、allowlist 和更细的权限策略。
+
+`GET /runtime/services/status` 仍是只读快照，不会因为查询而启动 MCP server、读取 secret、连接网络、枚举 tool 或调用 tool；`mcp-runtime.details` 只返回缓存的 client / connected / error / tool 计数和脱敏错误。
 
 健康检查响应格式：
 
