@@ -4,7 +4,6 @@ import {
   FolderIcon,
   FolderOpenIcon,
   HardDriveIcon,
-  CheckIcon,
 } from "lucide-react"
 import {
   Dialog,
@@ -24,7 +23,6 @@ import {
 } from "@/components/animate-ui/components/radix/files"
 import {
   FolderHeader as FolderHeaderPrimitive,
-  FolderTrigger as FolderTriggerPrimitive,
   FolderHighlight as FolderHighlightPrimitive,
   Folder as FolderPrimitive,
   FolderIcon as FolderIconPrimitive,
@@ -48,17 +46,23 @@ function FolderRow({
   selected,
   loading,
   onSelect,
+  onToggle,
 }: {
   name: string
   path: string
   selected: boolean
   loading?: boolean
   onSelect: (path: string) => void
+  onToggle: (path: string) => void
 }) {
   return (
     <div className="group flex min-w-0 items-center gap-1">
       <FolderHeaderPrimitive className="min-w-0 flex-1">
-        <FolderTriggerPrimitive className="min-w-0 w-full text-start">
+        <div
+          className="min-w-0 w-full text-start cursor-pointer"
+          onClick={(e) => { e.stopPropagation(); onSelect(path) }}
+          onDoubleClick={(e) => { e.stopPropagation(); onToggle(path) }}
+        >
           <FolderHighlightPrimitive>
             <FolderPrimitive className="pointer-events-none flex min-w-0 items-center gap-2 p-2">
               <FolderIconPrimitive
@@ -76,29 +80,13 @@ function FolderRow({
               </FileLabelPrimitive>
             </FolderPrimitive>
           </FolderHighlightPrimitive>
-        </FolderTriggerPrimitive>
+        </div>
       </FolderHeaderPrimitive>
 
-      {loading ? (
+      {loading && (
         <div className="flex size-7 shrink-0 items-center justify-center">
           <Loader2Icon className="size-3 animate-spin text-muted-foreground" />
         </div>
-      ) : (
-        <button
-          type="button"
-          aria-label={selected ? `已选中 ${name}` : `选中 ${name}`}
-          className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[opacity,color,background-color]",
-            "opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-foreground",
-            selected && "opacity-100 text-primary hover:text-primary",
-          )}
-          onClick={(e) => {
-            e.stopPropagation()
-            onSelect(path)
-          }}
-        >
-          <CheckIcon className="size-3.5" />
-        </button>
       )}
     </div>
   )
@@ -108,11 +96,13 @@ function LazyFolderChildren({
   path,
   selectedPath,
   onSelect,
+  onToggle,
   loadingFolders,
 }: {
   path: string
   selectedPath: string | null
   onSelect: (path: string) => void
+  onToggle: (path: string) => void
   loadingFolders: ReadonlySet<string>
 }) {
   const [children, setChildren] = useState<WorkspaceTreeEntry[] | null>(
@@ -155,6 +145,7 @@ function LazyFolderChildren({
         selected={selectedPath === child.path}
         loading={loadingFolders.has(child.path)}
         onSelect={onSelect}
+        onToggle={onToggle}
       />
       <FolderContent>
         <SubFiles>
@@ -162,6 +153,7 @@ function LazyFolderChildren({
             path={child.path}
             selectedPath={selectedPath}
             onSelect={onSelect}
+            onToggle={onToggle}
             loadingFolders={loadingFolders}
           />
         </SubFiles>
@@ -179,15 +171,9 @@ export function WorkspacePickerDialog({
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [openValues, setOpenValues] = useState<string[]>([])
   const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set())
-  const openValuesRef = useRef<string[]>([])
   const rootCacheRef = useRef<WorkspaceTreeEntry[] | null>(null)
 
   const rootLoading = open && rootEntries === null
-
-  // Keep ref in sync for handleOpenChange closure
-  useEffect(() => {
-    openValuesRef.current = openValues
-  }, [openValues])
 
   useEffect(() => {
     if (!open) return
@@ -220,37 +206,42 @@ export function WorkspacePickerDialog({
     onOpenChange(open)
   }, [onOpenChange])
 
-  const handleOpenChange = useCallback((newValues: string[]) => {
-    const prev = openValuesRef.current
-    const newlyOpened = newValues.find((v) => !prev.includes(v))
+  const handleToggle = useCallback((path: string) => {
+    setOpenValues((prev) => {
+      if (prev.includes(path)) {
+        // Already open → collapse
+        return prev.filter((v) => v !== path)
+      }
 
-    if (newlyOpened && !childrenCache.has(newlyOpened)) {
+      if (childrenCache.has(path)) {
+        // Cached → expand immediately
+        return [...prev, path]
+      }
+
       // Not cached → show spinner, fetch, then expand
-      setLoadingFolders((prevLoading) => new Set(prevLoading).add(newlyOpened))
+      setLoadingFolders((prevLoading) => new Set(prevLoading).add(path))
       workspaceBrowserApi
-        .browseDirectory(newlyOpened)
+        .browseDirectory(path)
         .then((data) => {
           const dirs = data.entries.filter((e) => e.kind === "dir")
-          childrenCache.set(newlyOpened, dirs)
+          childrenCache.set(path, dirs)
           setLoadingFolders((prevLoading) => {
             const next = new Set(prevLoading)
-            next.delete(newlyOpened)
+            next.delete(path)
             return next
           })
-          setOpenValues((prevOpen) => [...prevOpen, newlyOpened])
+          setOpenValues((prevOpen) => [...prevOpen, path])
         })
         .catch(() => {
           setLoadingFolders((prevLoading) => {
             const next = new Set(prevLoading)
-            next.delete(newlyOpened)
+            next.delete(path)
             return next
           })
         })
-      return // Don't expand yet
-    }
 
-    openValuesRef.current = newValues
-    setOpenValues(newValues)
+      return prev // Don't expand yet
+    })
   }, [])
 
   const handleConfirm = useCallback(() => {
@@ -285,11 +276,7 @@ export function WorkspacePickerDialog({
                   <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
                 </div>
               ) : rootEntries && rootEntries.length > 0 ? (
-                <Files
-                  open={openValues}
-                  onOpenChange={handleOpenChange}
-                  style={{ overflowY: "visible" }}
-                >
+                <Files open={openValues} style={{ overflowY: "visible" }}>
                   {rootEntries.map((entry) => (
                     <FolderItem key={entry.path} value={entry.path}>
                       <FolderRow
@@ -298,6 +285,7 @@ export function WorkspacePickerDialog({
                         selected={selectedPath === entry.path}
                         loading={loadingFolders.has(entry.path)}
                         onSelect={handleFolderSelect}
+                        onToggle={handleToggle}
                       />
                       <FolderContent>
                         <SubFiles>
@@ -305,6 +293,7 @@ export function WorkspacePickerDialog({
                             path={entry.path}
                             selectedPath={selectedPath}
                             onSelect={handleFolderSelect}
+                            onToggle={handleToggle}
                             loadingFolders={loadingFolders}
                           />
                         </SubFiles>
