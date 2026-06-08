@@ -66,7 +66,7 @@ Run 事件 payload 至少包含：
   conversationId: string
   runId: string
   runtimeRunId?: string | null
-  status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled"
+  status: "queued" | "running" | "waiting_approval" | "waiting_input" | "completed" | "failed" | "cancelled"
 }
 ```
 
@@ -104,4 +104,5 @@ Service status 事件 payload 至少包含：
 - conversation 相关事件只触发 TanStack Query invalidate。
 - run 状态事件只更新 Zustand 中已经存在的 conversation runtime state；未打开过的 conversation 不创建本地运行态。
 - terminal Run 事件可让已打开 conversation 的列表卡片停止 spinner/progress，并 invalidate 对应 messages cache。
+- 当 Web 运行在 Electrobun 桌面壳内时，`run.completed`、`run.failed` 以及 `run.status.changed(status="completed" | "failed" | "waiting_approval" | "waiting_input")` 可驱动一次性系统通知；同一 `runId + status` 只通知一次，避免 terminal event 与 status event 重复弹出。该通知同样遵循全局事件 best-effort 语义，不做 replay 或漏事件补偿。
 - service status 事件只更新 Web 的服务状态 store。左侧系统服务状态面板和聊天输入框下方的当前会话外部智能体状态栏消费该 store；该事件不得写入聊天 timeline、不得落库、不得参与 Runtime event projection 或 replay。
