@@ -11,6 +11,7 @@ import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapsho
 import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { formatInjectedSkillsForPrompt } from "./skill-prompt"
 import { formatMcpContextForPrompt } from "./mcp-runtime"
+import { formatWorkspaceToolPreferenceForPrompt } from "./tool-use-preference-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
@@ -405,6 +406,10 @@ export class OrchestratorExecutor implements AgentExecutor {
     const pinnedBlock = formatPinnedMessagesForPrompt(context.input.pinnedMessages)
     const skillBlock = formatInjectedSkillsForPrompt(context.injectedSkills)
     const mcpBlock = formatMcpContextForPrompt(context.mcpContext)
+    const toolPreferenceBlock = formatWorkspaceToolPreferenceForPrompt({
+      allowedTools: agent.allowedTools,
+      workspaceBound: context.environmentSnapshot?.workspace.bound ?? Boolean(context.input.workspace),
+    })
 
     return [
       agent.systemPrompt ?? [
@@ -419,6 +424,7 @@ export class OrchestratorExecutor implements AgentExecutor {
       context.environmentSnapshot
         ? formatRuntimeEnvironmentSnapshotForPrompt(context.environmentSnapshot)
         : "",
+      toolPreferenceBlock,
       pinnedBlock ?? "",
       skillBlock ?? "",
       mcpBlock,

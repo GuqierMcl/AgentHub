@@ -12,6 +12,7 @@ import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapsho
 import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { formatInjectedSkillsForPrompt } from "./skill-prompt"
 import { formatMcpContextForPrompt } from "./mcp-runtime"
+import { formatWorkspaceToolPreferenceForPrompt } from "./tool-use-preference-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { createRunEvent } from "./run-events"
 import type { PendingQuestionToolCall } from "./question"
@@ -73,6 +74,14 @@ export function buildSystemPrompt(context: AgentExecutionContext): string {
 
   if (context.environmentSnapshot) {
     systemNotes.push(formatRuntimeEnvironmentSnapshotForPrompt(context.environmentSnapshot))
+  }
+
+  const toolPreferenceBlock = formatWorkspaceToolPreferenceForPrompt({
+    allowedTools: context.agent.allowedTools,
+    workspaceBound: context.environmentSnapshot?.workspace.bound ?? Boolean(context.input.workspace),
+  })
+  if (toolPreferenceBlock) {
+    systemNotes.push(toolPreferenceBlock)
   }
 
   const pinnedBlock = formatPinnedMessagesForPrompt(context.input.pinnedMessages)

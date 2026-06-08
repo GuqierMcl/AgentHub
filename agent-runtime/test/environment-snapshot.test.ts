@@ -201,6 +201,8 @@ describe("Runtime environment snapshot", () => {
     const aiPrompt = buildSystemPrompt(context)
     expect(aiPrompt).toContain("Runtime environment snapshot (captured at run start)")
     expect(aiPrompt).toContain("Workspace absolute path")
+    expect(aiPrompt).toContain("Prefer AgentHub workspace tools")
+    expect(aiPrompt).toContain("Use bash only when the workspace tools cannot complete the requirement")
 
     const executor = new OrchestratorExecutor(
       registry,
