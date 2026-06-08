@@ -59,7 +59,7 @@ function FolderRow({
     <div className="group flex min-w-0 items-center gap-1">
       <FolderHeaderPrimitive className="min-w-0 flex-1">
         <div
-          className="min-w-0 w-full text-start cursor-pointer"
+          className="min-w-0 w-full text-start cursor-pointer select-none"
           onClick={(e) => { e.stopPropagation(); onSelect(path) }}
           onDoubleClick={(e) => { e.stopPropagation(); onToggle(path) }}
         >
@@ -94,12 +94,14 @@ function FolderRow({
 
 function LazyFolderChildren({
   path,
+  openValues,
   selectedPath,
   onSelect,
   onToggle,
   loadingFolders,
 }: {
   path: string
+  openValues: string[]
   selectedPath: string | null
   onSelect: (path: string) => void
   onToggle: (path: string) => void
@@ -148,9 +150,10 @@ function LazyFolderChildren({
         onToggle={onToggle}
       />
       <FolderContent>
-        <SubFiles>
+        <SubFiles open={openValues}>
           <LazyFolderChildren
             path={child.path}
+            openValues={openValues}
             selectedPath={selectedPath}
             onSelect={onSelect}
             onToggle={onToggle}
@@ -288,9 +291,10 @@ export function WorkspacePickerDialog({
                         onToggle={handleToggle}
                       />
                       <FolderContent>
-                        <SubFiles>
+                        <SubFiles open={openValues}>
                           <LazyFolderChildren
                             path={entry.path}
+                            openValues={openValues}
                             selectedPath={selectedPath}
                             onSelect={handleFolderSelect}
                             onToggle={handleToggle}
