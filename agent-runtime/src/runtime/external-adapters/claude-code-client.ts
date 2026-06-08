@@ -16,11 +16,15 @@ export type ClaudeCodeSessionRequest = {
   handoffSummary?: string
 }
 
+export type ClaudeCodePermissionMode = "default" | "acceptEdits" | "plan" | "dontAsk" | "auto"
+
 export type ClaudeCodePromptRequest = {
   session: ExternalSessionLink
   prompt: ExternalAdapterPrompt
   cwd: string
   signal: AbortSignal
+  model?: string
+  permissionMode?: ClaudeCodePermissionMode
   permissionHandler?: (request: ClaudeCodePermissionRequest) => Promise<ClaudeCodePermissionDecision>
   questionHandler?: (request: ClaudeCodeQuestionRequest) => Promise<NormalizedQuestionAnswer[]>
 }

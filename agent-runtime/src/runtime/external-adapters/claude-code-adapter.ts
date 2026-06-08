@@ -31,6 +31,9 @@ export class ClaudeCodeAdapter implements ExternalAgentAdapter {
         (!context.task?.taskId || hint.taskId === undefined || hint.taskId === context.task.taskId)
     })
     const externalContext = this.resolveExternalContext(context)
+    const settings = context.agent.externalSettings?.provider === "claude-code"
+      ? context.agent.externalSettings
+      : undefined
 
     log.info(
       {
@@ -46,6 +49,8 @@ export class ClaudeCodeAdapter implements ExternalAgentAdapter {
         externalContextMode: externalContext?.mode,
         externalContextMessageCount: externalContext?.messages.length ?? 0,
         externalContextHandoffCount: externalContext?.handoffSummaries.length ?? 0,
+        model: settings?.model,
+        permissionMode: settings?.permissionMode ?? "default",
       },
       "Claude Code adapter execution starting"
     )
@@ -88,6 +93,8 @@ export class ClaudeCodeAdapter implements ExternalAgentAdapter {
         providerSessionId: session.providerSessionId,
         messageId,
         promptLength: prompt.content.length,
+        model: settings?.model,
+        permissionMode: settings?.permissionMode ?? "default",
       },
       "Claude Code adapter prompt dispatching"
     )
@@ -98,6 +105,8 @@ export class ClaudeCodeAdapter implements ExternalAgentAdapter {
       prompt,
       cwd: context.workspace.rootPath,
       signal: context.signal,
+      model: settings?.model,
+      permissionMode: settings?.permissionMode,
       permissionHandler: (request) => this.handlePermissionRequest(context, session.providerSessionId, messageId, request),
       questionHandler: (request) => this.handleQuestionRequest(context, session.providerSessionId, messageId, request),
     })) {

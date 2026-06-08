@@ -31,6 +31,12 @@ type ToolStateStore = {
 
 type CanUseToolOptions = Parameters<CanUseTool>[2]
 
+export type ClaudeCodeQuery = typeof query
+
+export type RealClaudeCodeClientDependencies = {
+  query?: ClaudeCodeQuery
+}
+
 export type ClaudeCodeServiceReadiness = {
   available: boolean
   executableSource: "env" | "sdk-bundled"
@@ -38,6 +44,8 @@ export type ClaudeCodeServiceReadiness = {
 }
 
 export class RealClaudeCodeClient implements ClaudeCodeClient {
+  constructor(private readonly dependencies: RealClaudeCodeClientDependencies = {}) {}
+
   async ensureSession(request: ClaudeCodeSessionRequest): Promise<ExternalSessionLink> {
     return {
       provider: "claude-code",
@@ -68,13 +76,14 @@ export class RealClaudeCodeClient implements ClaudeCodeClient {
 
     try {
       const executablePath = process.env.AGENTHUB_CLAUDE_CODE_EXECUTABLE?.trim()
-      const stream = query({
+      const stream = (this.dependencies.query ?? query)({
         prompt: request.prompt.content,
         options: {
           cwd: request.cwd,
           abortController,
           includePartialMessages: true,
-          permissionMode: "default",
+          permissionMode: request.permissionMode ?? "default",
+          ...(request.model ? { model: request.model } : {}),
           ...(executablePath ? { pathToClaudeCodeExecutable: executablePath } : {}),
           ...(isResumableSessionId(request.session.providerSessionId)
             ? { resume: request.session.providerSessionId }
