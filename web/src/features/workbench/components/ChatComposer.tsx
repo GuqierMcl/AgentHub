@@ -9,7 +9,7 @@ import {
 } from "react"
 import type { ChatStatus } from "ai"
 import { useQuery } from "@tanstack/react-query"
-import { CircleIcon, SquareIcon, XIcon } from "lucide-react"
+import { CircleIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react"
 
 import {
   Attachment,
@@ -20,11 +20,8 @@ import {
 } from "@/components/ai-elements/attachments"
 import {
   PromptInput,
-  PromptInputActionAddAttachments,
-  PromptInputActionMenu,
-  PromptInputActionMenuContent,
-  PromptInputActionMenuTrigger,
   PromptInputBody,
+  PromptInputButton,
   PromptInputFooter,
   PromptInputHeader,
   PromptInputSubmit,
@@ -121,6 +118,15 @@ function PromptInputAttachmentsDisplay() {
         />
       ))}
     </Attachments>
+  )
+}
+
+function AttachmentButton() {
+  const attachments = usePromptInputAttachments()
+  return (
+    <PromptInputButton onClick={() => attachments.openFileDialog()}>
+      <PlusIcon className="size-4" />
+    </PromptInputButton>
   )
 }
 
@@ -534,12 +540,7 @@ function ChatComposerInner({
         </PromptInputBody>
         <PromptInputFooter>
           <PromptInputTools>
-            <PromptInputActionMenu>
-              <PromptInputActionMenuTrigger />
-              <PromptInputActionMenuContent>
-                <PromptInputActionAddAttachments />
-              </PromptInputActionMenuContent>
-            </PromptInputActionMenu>
+            <AttachmentButton />
             <SpeechInput
               className="shrink-0"
               onTranscriptionChange={handleTranscriptionChange}
