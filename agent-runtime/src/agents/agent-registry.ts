@@ -656,6 +656,12 @@ export class AgentRegistry {
         continue
       }
 
+      if (!this.canBindModel(baseAgent)) {
+        console.warn(`Ignoring model binding for non-bindable agent "${agentId}"`)
+        delete this.modelBindings[agentId]
+        continue
+      }
+
       const updated = this.applyModelBinding(baseAgent, binding)
       this.agents.set(agentId, updated)
     }
@@ -678,6 +684,11 @@ export class AgentRegistry {
 
   private applyModelBinding(agent: AgentDefinition, modelRef?: AgentModelRef): AgentDefinition {
     const cloned = this.applyImplicitRuntimeTools(this.cloneAgent(agent))
+    if (!this.canBindModel(cloned)) {
+      delete cloned.modelRef
+      return this.applyExternalSettings(cloned)
+    }
+
     if (modelRef) {
       cloned.modelRef = this.cloneModelRef(modelRef)
     } else if (cloned.id in this.modelBindings) {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { AgentRegistry, AgentRegistryMutationError } from "./agent-registry"
@@ -72,6 +72,40 @@ describe("AgentRegistry external agent settings", () => {
       provider: "codex",
       model: "gpt-5.1-codex",
       updatedAt: expect.any(String),
+    })
+  })
+
+  test("drops persisted internal model bindings for external agents during initialization", async () => {
+    const dataDir = await createTempDataDir()
+    await writeFile(
+      join(dataDir, "agent-model-bindings.json"),
+      JSON.stringify({
+        codex: {
+          providerId: "openai",
+          modelId: "gpt-5.1",
+        },
+        coder: {
+          providerId: "openai",
+          modelId: "gpt-5.1",
+        },
+      }),
+      "utf-8"
+    )
+
+    const registry = new AgentRegistry(dataDir, emptyToolCatalog)
+    const originalWarn = console.warn
+    console.warn = () => undefined
+    try {
+      await registry.initialize()
+    } finally {
+      console.warn = originalWarn
+    }
+
+    expect(registry.isModelBindingAllowed("codex")).toBe(false)
+    expect(registry.getAgent("codex")?.modelRef).toBeUndefined()
+    expect(registry.getAgent("coder")?.modelRef).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5.1",
     })
   })
 
