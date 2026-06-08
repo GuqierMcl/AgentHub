@@ -24,7 +24,7 @@ export function WorkspaceCapabilityCard({
   children,
 }: WorkspaceCapabilityCardProps) {
   return (
-    <Accordion type="multiple" className="overflow-hidden rounded-xl border border-border bg-card">
+    <Accordion type="multiple" defaultValue={["item"]} className="overflow-hidden rounded-xl border border-border bg-card">
       <AccordionItem value="item">
         <AccordionHeader>
           <AccordionTrigger className="group/trigger flex w-full cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/50">
