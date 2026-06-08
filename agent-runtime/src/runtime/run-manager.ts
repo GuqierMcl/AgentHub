@@ -30,6 +30,7 @@ import { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./tools"
 import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 import type { SystemModelSettingsService } from "./system-model-settings"
 import type { SkillContentResolution, SkillContentService } from "./skill-content"
+import type { WorkspaceSkillTrustService } from "./workspace-skill-trust"
 import { WorkspaceError, WorkspaceService } from "./workspace"
 import {
   WorkspaceDiffService,
@@ -169,6 +170,11 @@ type TaskDispatchOptions = {
   parentTaskId?: string
 }
 
+type SkillRefSelection = {
+  skillRefs: string[]
+  warnings: string[]
+}
+
 export class RunManager {
   private entryResolver: EntryResolver
   private aiSdkExecutor: AiSdkExecutor
@@ -191,7 +197,8 @@ export class RunManager {
     toolRegistry: RuntimeToolRegistry = createDefaultRuntimeToolRegistry(),
     _legacyPermissionService?: RuntimePermissionService,
     systemModelSettingsService?: SystemModelSettingsService,
-    private skillContentService?: SkillContentService
+    private skillContentService?: SkillContentService,
+    private workspaceSkillTrustService?: WorkspaceSkillTrustService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
     this.toolRegistry = toolRegistry
@@ -1051,45 +1058,86 @@ export class RunManager {
     return agent.executorType === "ai-sdk" || agent.executorType === "orchestrator"
   }
 
-  private injectableSkillRefs(agent: AgentDefinition): string[] {
+  private async selectInjectableSkillRefs(run: RunRecord, agent: AgentDefinition): Promise<SkillRefSelection> {
     if (!this.isSkillInjectableExecutor(agent)) {
-      return []
+      return agent.allowedSkills.length > 0
+        ? {
+            skillRefs: [],
+            warnings: ["Skill refs are not injectable for this executor type."],
+          }
+        : { skillRefs: [], warnings: [] }
     }
 
-    if (agent.origin === "user") {
-      return agent.allowedSkills.filter((ref) => ref.startsWith("global:"))
+    const skillRefs: string[] = []
+    const warnings: string[] = []
+    for (const skillRef of agent.allowedSkills) {
+      if (skillRef.startsWith("global:")) {
+        skillRefs.push(skillRef)
+        continue
+      }
+
+      if (!skillRef.startsWith("workspace:")) {
+        warnings.push(`Skill ${skillRef} is not injectable under the current trust policy.`)
+        continue
+      }
+
+      if (!run.input.workspace) {
+        warnings.push(`Workspace Skill ${skillRef} requires a bound workspace.`)
+        continue
+      }
+
+      if (!this.workspaceSkillTrustService) {
+        warnings.push(`Workspace Skill ${skillRef} requires workspace trust service.`)
+        continue
+      }
+
+      try {
+        const trusted = await this.workspaceSkillTrustService.isTrusted({
+          workspace: run.input.workspace,
+          skillRef,
+        })
+        if (trusted) {
+          skillRefs.push(skillRef)
+        } else {
+          warnings.push(`Workspace Skill ${skillRef} is not trusted for this workspace.`)
+        }
+      } catch {
+        warnings.push(`Workspace Skill ${skillRef} trust check failed.`)
+      }
     }
 
-    return agent.allowedSkills
+    return { skillRefs, warnings }
   }
 
   private async resolveSkillContext(run: RunRecord, agent: AgentDefinition): Promise<SkillContentResolution> {
-    const skillRefs = this.injectableSkillRefs(agent)
-    if (skillRefs.length === 0) {
-      return agent.allowedSkills.length > 0
-        ? {
-            skills: [],
-            warnings: ["No Skill refs are injectable for this agent in the current trust policy."],
-          }
-        : { skills: [], warnings: [] }
+    const selection = await this.selectInjectableSkillRefs(run, agent)
+    if (selection.skillRefs.length === 0) {
+      return {
+        skills: [],
+        warnings: selection.warnings,
+      }
     }
 
     if (!this.skillContentService) {
       return {
         skills: [],
-        warnings: ["Skill context service is unavailable."],
+        warnings: [...selection.warnings, "Skill context service is unavailable."],
       }
     }
 
     try {
-      return await this.skillContentService.resolve({
-        skillRefs,
+      const resolution = await this.skillContentService.resolve({
+        skillRefs: selection.skillRefs,
         workspace: run.input.workspace,
       })
+      return {
+        skills: resolution.skills,
+        warnings: [...selection.warnings, ...resolution.warnings],
+      }
     } catch {
       return {
         skills: [],
-        warnings: ["Skill context resolution failed."],
+        warnings: [...selection.warnings, "Skill context resolution failed."],
       }
     }
   }
@@ -1099,7 +1147,7 @@ export class RunManager {
     agent: AgentDefinition,
     resolution: SkillContentResolution
   ): RunEvent {
-    const expectedSkillCount = this.injectableSkillRefs(agent).length
+    const expectedSkillCount = agent.allowedSkills.length
     const status = expectedSkillCount === 0
       ? "skipped"
       : resolution.skills.length === expectedSkillCount

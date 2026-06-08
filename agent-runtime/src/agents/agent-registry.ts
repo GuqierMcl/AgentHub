@@ -399,28 +399,8 @@ export class AgentRegistry {
     return normalized
   }
 
-  private normalizeAllowedSkills(
-    skillRefs: string[] | undefined,
-    options: { allowWorkspace: boolean } = { allowWorkspace: false },
-  ): string[] {
-    const normalized = this.normalizeStringList(skillRefs ?? [])
-
-    for (const skillRef of normalized) {
-      if (!options.allowWorkspace && skillRef.startsWith("workspace:")) {
-        throw new AgentRegistryMutationError(
-          "AGENT_INVALID_INPUT",
-          `Workspace Skill ${skillRef} cannot be assigned to user agents until workspace trust is available`,
-          400,
-          {
-            field: "allowedSkills",
-            skillRef,
-            reason: "workspace_skill_requires_trust",
-          }
-        )
-      }
-    }
-
-    return normalized
+  private normalizeAllowedSkills(skillRefs: string[] | undefined): string[] {
+    return this.normalizeStringList(skillRefs ?? [])
   }
 
   private normalizeUserPermissionPolicy(

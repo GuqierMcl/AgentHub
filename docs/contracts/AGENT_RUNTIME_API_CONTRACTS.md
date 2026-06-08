@@ -240,6 +240,89 @@ type RuntimeCapabilityDiscoveryResponse = {
 - Refresh 代理请求体仅接受 `scope`、`conversationId` 和 `sources`；浏览器不得直接传 `workspace.rootPath`。
 - 若会话未绑定 workspace 或 workspace metadata 不完整，HubServer 返回 `WORKSPACE_NOT_RESOLVED`，不让 Runtime 猜测路径。
 
+### Runtime Workspace Skill Trust
+
+Workspace Skill Trust 是 Runtime 内部 API，用于记录 HubServer 后续从产品确认流转发来的 workspace Skill 信任决策。浏览器不得直接调用这些端点，也不得直接传 workspace root 给 Runtime。
+
+```ts
+type WorkspaceSkillTrustWorkspace = {
+  workspaceId: string
+  backendType: "local"
+  rootPath: string
+}
+
+type WorkspaceSkillTrustRecord = {
+  workspaceId: string
+  backendType: "local"
+  workspaceRootHash: string
+  skillRef: string // must start with workspace:
+  source: "agents" | "codex" | "claude-code" | "opencode"
+  trusted: boolean
+  status: "trusted" | "untrusted"
+  trustedAt?: string
+  revokedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+```
+
+**端点**：`POST /runtime/workspace-skill-trust/query`
+
+请求体：
+
+```ts
+{
+  workspace: WorkspaceSkillTrustWorkspace
+  skillRefs?: string[]
+}
+```
+
+成功响应：
+
+```ts
+{
+  checkedAt: string
+  workspace: {
+    workspaceId: string
+    backendType: "local"
+    workspaceRootHash: string
+  }
+  trusts: WorkspaceSkillTrustRecord[]
+}
+```
+
+`skillRefs` 为空时返回该 workspace root hash 下已保存的 trust records；传入 `skillRefs` 时必须只包含 `workspace:*` Skill refs，未保存的 ref 以 `trusted = false` / `status = "untrusted"` 返回。
+
+**端点**：`PUT /runtime/workspace-skill-trust`
+
+请求体：
+
+```ts
+{
+  workspace: WorkspaceSkillTrustWorkspace
+  skillRef: string
+  trusted: boolean
+  reason?: string
+}
+```
+
+成功响应：
+
+```ts
+{
+  record: WorkspaceSkillTrustRecord
+}
+```
+
+错误码：
+
+| 错误码 | HTTP Status | 说明 |
+| --- | --- | --- |
+| `WORKSPACE_SKILL_TRUST_INVALID_INPUT` | 400 | 请求体格式非法 |
+| `WORKSPACE_SKILL_TRUST_REF_INVALID` | 400 | `skillRef` 不是合法 `workspace:*` Skill ref |
+
+响应和错误不得返回 `rootPath`、Skill body、真实文件路径、headers、env 或 secret。
+
 ### Runtime 系统默认模型设置
 
 系统默认模型设置只由 Agent Runtime 保存，存储文件为 Runtime `--data-dir` 下的 `system-model-settings.json`。HubServer 通过本节端点代理给 Web 设置页，不写入 HubServer 自身 `setting.json`。
@@ -758,7 +841,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 用户自定义智能体详情会额外返回 `systemPrompt`，用于编辑表单回显；系统预设智能体和外部智能体不会通过详情接口返回内部提示词。
 
-`allowedSkills` 是 Runtime Skill 注入配置，值为 Capability Discovery 返回的逻辑 Skill ref / id，例如 `global:agents:review` 或 `global:codex:.system:openai-docs`。该字段不会返回 Skill 正文。Phase 4A 中用户自定义智能体只允许保存 `global:*` Skill ref；workspace Skill 注入等待明确 workspace trust contract。外部智能体不消费该字段。
+`allowedSkills` 是 Runtime Skill 注入配置，值为 Capability Discovery 返回的逻辑 Skill ref / id，例如 `global:agents:review`、`global:codex:.system:openai-docs` 或 `workspace:agents:local-review`。该字段不会返回 Skill 正文。`allowedSkills` can contain `global:*` and `workspace:*` refs. Runtime injects `global:*` refs directly, but injects `workspace:*` refs only when the current Run has a bound workspace and the Workspace Skill Trust service reports the exact `{ workspaceId, rootPath hash, skillRef }` as trusted. 外部智能体不消费该字段。
 
 ### 当前默认工具与权限矩阵
 
@@ -949,7 +1032,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 - `name` 长度 1-120，`description` 长度 1-1000，`systemPrompt` 长度 1-20000，单个 `capabilities` 字符串最长 80。
 - `allowedSubagents` 只能包含已注册、启用、隐藏的子智能体。
 - `allowedTools` 只允许 Tool Catalog 暴露为用户可配置的文件工具：`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`。如果客户端 round-trip 了 detail response 中的隐式 `question`，Runtime 会忽略该输入项并在响应中重新注入。
-- `allowedSkills` 只允许引用 Capability Discovery 可发现的 global Skill 逻辑 ref。`workspace:*` Skill ref 在 Phase 4A 返回 `AGENT_INVALID_INPUT`，直到产品侧提供 workspace trust 确认流。
+- `allowedSkills` 允许引用 Capability Discovery 可发现的 `global:*` 或 `workspace:*` Skill 逻辑 ref。Runtime 只在当前 Run 绑定 workspace 且 Workspace Skill Trust 命中精确 `{ workspaceId, rootPath hash, skillRef }` 时注入 `workspace:*` 正文。
 - `write_plan`、`run_task`、`web_fetch`、`bash` 和其他高风险工具不能授予用户自定义智能体；`question` 是隐式 interaction tool，不通过 CRUD 授权。
 - `toolPermissionRules.bash` 暂不允许用户自定义智能体配置；非空对象返回 `AGENT_INVALID_INPUT`。
 - `permissionPolicy` 中 `shell` / `network` / `deploy` 必须为 `none`。
@@ -987,7 +1070,7 @@ Runtime Agents API 用于让 HubServer 查询 Agent Runtime 当前可执行的�
 
 - 只能更新 `origin = "user"`、`readonly = false`、`tier = "primary"`、`executorType = "ai-sdk"` 的自定义智能体。
 - 不能通过本端点修改 `id`、`origin`、`tier`、`visibility`、`entryPolicy`、`executorType` 或 `readonly`。
-- `allowedSkills` 更新语义与 create 相同：去重、去空白，只允许 global Skill ref。
+- `allowedSkills` 更新语义与 create 相同：去重、去空白，允许 `global:*` 与 `workspace:*` Skill ref；workspace Skill 注入仍由 Workspace Skill Trust 决定。
 - 系统预设智能体、外部智能体和隐藏子智能体返回 `AGENT_NOT_EDITABLE`。
 - 成功响应返回更新后的 agent detail。
 

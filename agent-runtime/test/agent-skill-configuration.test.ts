@@ -62,22 +62,34 @@ describe("agent skill configuration", () => {
     ])
   })
 
-  test("user agents reject workspace allowedSkills until trust exists", async () => {
+  test("user agents preserve workspace allowedSkills but injection still requires trust", async () => {
     const registry = await createRegistry()
 
-    await expect(registry.createUserAgent({
+    const agent = await registry.createUserAgent({
       id: "workspace_skill_user",
       name: "Workspace Skill User",
-      description: "Rejected for now",
+      description: "Can reference workspace Skills after Phase 4B.",
       systemPrompt: "Use approved instructions.",
       capabilities: [],
       allowedSubagents: [],
       allowedTools: [],
-      allowedSkills: ["workspace:agents:local-review"],
+      allowedSkills: [
+        "workspace:agents:local-review",
+        " workspace:agents:local-review ",
+        "global:agents:review",
+      ],
+      permissionPolicy: {
+        filesystem: "none",
+        shell: "none",
+        network: "none",
+        deploy: "none",
+      },
       enabled: true,
-    })).rejects.toMatchObject({
-      code: "AGENT_INVALID_INPUT",
-      status: 400,
     })
+
+    expect(agent.allowedSkills).toEqual([
+      "workspace:agents:local-review",
+      "global:agents:review",
+    ])
   })
 })

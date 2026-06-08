@@ -9,6 +9,7 @@ import {
   SkillContentService,
   SystemModelSettingsService,
   SystemModelSettingsStore,
+  WorkspaceSkillTrustService,
   WorkspaceRevertService,
   createDefaultRuntimeToolRegistry,
 } from './runtime'
@@ -46,6 +47,7 @@ const systemModelSettingsService = new SystemModelSettingsService(
 )
 const capabilityDiscoveryService = new CapabilityDiscoveryService({ dataDir: config.dataDir })
 const skillContentService = new SkillContentService(capabilityDiscoveryService)
+const workspaceSkillTrustService = new WorkspaceSkillTrustService({ dataDir: config.dataDir })
 const runManager = new RunManager(
   agentRegistry,
   providerService,
@@ -53,7 +55,8 @@ const runManager = new RunManager(
   toolRegistry,
   undefined,
   systemModelSettingsService,
-  skillContentService
+  skillContentService,
+  workspaceSkillTrustService
 )
 const workspaceRevertService = new WorkspaceRevertService()
 
@@ -77,6 +80,7 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('runManager', runManager)
   c.set('workspaceRevertService', workspaceRevertService)
   c.set('capabilityDiscoveryService', capabilityDiscoveryService)
+  c.set('workspaceSkillTrustService', workspaceSkillTrustService)
   c.set('toolRegistry', toolRegistry)
   c.set('systemModelSettingsService', systemModelSettingsService)
   c.set('instructAgentRegistry', instructAgentRegistry)
@@ -111,6 +115,7 @@ Promise.all([
   providerService.initialize(),
   agentRegistry.initialize(),
   systemModelSettingsService.initialize(),
+  workspaceSkillTrustService.initialize(),
 ]).then(() => {
   console.log(banner)
   console.log(`Agent Runtime listening on ${server.url}`)

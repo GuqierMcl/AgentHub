@@ -211,6 +211,7 @@ type RuntimeCapabilityDiscoveryResponse = {
 - 用户自定义 agent 选择 workspace Skill 时需要明确 trust 提示。
 - Phase 4A 先实现 Runtime-only 的 global Skill 注入闭环。
 - 用户自定义 agent 的 workspace Skill 注入等待 workspace trust contract。
+- Phase 4B 增加 Runtime-only workspace Skill trust contract：允许配置 `workspace:*` refs，但注入前必须校验 workspace root hash 与 Skill ref 的 trust record。
 - Runtime 诊断事件只返回 Skill 元数据，不返回正文。
 
 ### 阶段 5：MCP tool 受控执行
@@ -243,6 +244,7 @@ type RuntimeCapabilityDiscoveryResponse = {
 - 2026-06-07：Phase 2 进入实现收尾，目标是 Runtime 内存缓存、强制刷新 API 和 `capability-discovery` 服务状态。
 - 2026-06-07：Phase 4A 进入执行，目标是 Runtime-only global Skill 注入；workspace Skill 注入等待 trust contract 和前端确认流。
 - 2026-06-07：Phase 4A Runtime-only global Skill 注入完成；workspace Skill 注入等待 trust contract 和前端确认流。
+- 2026-06-07：Phase 4B 进入计划阶段，目标是 Runtime-only workspace Skill trust contract；不包含 Web UI 或 HubServer 代理实现。
 
 ## 已完成
 

@@ -98,6 +98,14 @@ Runtime 可以在内部 AI SDK / Orchestrator Run 的 prompt assembly 阶段读�
 
 本阶段用户自定义智能体只允许引用 global Skill。workspace Skill 仍可被 discovery API 展示，但在缺少显式 workspace trust contract 前不会被用户自定义智能体注入。Runtime 只在诊断事件中返回 Skill id/name/source/level、截断状态和 warning，不返回正文。
 
+#### Phase 4B Workspace Skill Trust 边界
+
+Runtime 可以保存 workspace Skill trust record，用于判断某个绑定 workspace 中的 `workspace:*` Skill ref 是否允许进入内部 AI SDK / Orchestrator prompt assembly。trust record 只保存 `workspaceId`、workspace root hash、Skill ref、trust 状态和时间戳；不得在 API 响应或持久化记录中保存或返回 workspace root 绝对路径。
+
+`workspace:*` Skill ref 可以出现在用户自定义智能体配置中，但在 Run 未绑定 workspace、workspace root hash 不匹配、trust record 不存在或已撤销时，Runtime 必须跳过正文注入，并仅在 `agent.skill_context.resolved` 诊断事件中返回 metadata-only warning。global Skill 注入保持 Phase 4A 行为。
+
+本阶段仍不执行 Skill、不启动 MCP server、不读取 Skill 引用文件、不把 Skill 正文返回给 HubServer 或前端，也不实现 Web 确认 UI。HubServer 后续负责把前端确认结果转发给 Runtime trust API。
+
 健康检查响应格式：
 
 ```json
