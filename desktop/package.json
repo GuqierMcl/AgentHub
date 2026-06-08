@@ -5,7 +5,10 @@
 	"scripts": {
 		"dev": "electrobun dev",
 		"dev:watch": "electrobun dev --watch",
-		"build:canary": "electrobun build --env=canary"
+		"test": "bun test src",
+		"typecheck": "bunx tsc --noEmit",
+		"build:canary": "electrobun build --env=canary",
+		"build:release": "electrobun build --env=stable"
 	},
 	"dependencies": {
 		"electrobun": "1.18.1"

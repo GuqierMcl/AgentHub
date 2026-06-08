@@ -3,13 +3,31 @@ import type {
 	BrowserWindow as ElectrobunBrowserWindow,
 	ElectrobunRPCSchema,
 } from "electrobun/bun";
+import {
+	assertDesktopResourcePaths,
+	findAvailablePort,
+	resolveDesktopResourcePaths,
+	resolveDesktopResourceRoot,
+	shutdownDesktopHubServer,
+	startDesktopHubServer,
+	type DesktopHubServerProcess,
+	type RunningDesktopHubServer,
+} from "./agenthub-service";
+import { createLoadingWindowHtml } from "./loading-window";
 
 const DEFAULT_DESKTOP_URL = "http://127.0.0.1:5173";
+const DESKTOP_BUILD_MODE = process.env.AGENTHUB_DESKTOP_BUILD_MODE ?? "development";
 const MAIN_WINDOW_FRAME = {
 	width: 1280,
 	height: 860,
 	x: 200,
 	y: 120,
+};
+const LOADING_WINDOW_FRAME = {
+	width: 420,
+	height: 240,
+	x: 320,
+	y: 220,
 };
 const INITIAL_LAYOUT_FALLBACK_DELAY_MS = 500;
 const NOTIFICATION_TITLE_MAX_LENGTH = 120;
@@ -17,7 +35,7 @@ const NOTIFICATION_SUBTITLE_MAX_LENGTH = 120;
 const NOTIFICATION_BODY_MAX_LENGTH = 500;
 const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4;
 const PROCESS_PER_MONITOR_DPI_AWARE = 2;
-const desktopUrl = process.env.AGENTHUB_DESKTOP_URL?.trim() || DEFAULT_DESKTOP_URL;
+const configuredDesktopUrl = process.env.AGENTHUB_DESKTOP_URL?.trim();
 
 type WindowState = {
 	maximized: boolean;
@@ -206,13 +224,15 @@ function normalizeNotificationOptions(
 }
 
 configureWindowsDpiAwareness();
-await checkDesktopUrl(desktopUrl);
 
 const { BrowserWindow, Utils, defineElectrobunRPC } = await import(
 	"electrobun/bun"
 );
 
 let mainWindow: ElectrobunBrowserWindow | null = null;
+let loadingWindow: ElectrobunBrowserWindow | null = null;
+let runningHubServer: RunningDesktopHubServer | null = null;
+let startingHubServerProcess: DesktopHubServerProcess | null = null;
 
 const desktopWindowRpc = defineElectrobunRPC<DesktopWindowRPCSchema>("bun", {
 	handlers: {
@@ -258,16 +278,123 @@ const desktopWindowRpc = defineElectrobunRPC<DesktopWindowRPCSchema>("bun", {
 	},
 });
 
-mainWindow = new BrowserWindow({
-	title: "AgentHub",
-	url: desktopUrl,
-	frame: MAIN_WINDOW_FRAME,
-	titleBarStyle: "hiddenInset",
-	transparent: false,
-	rpc: desktopWindowRpc,
-});
-refreshInitialLayout(mainWindow);
+function createMainWindow(url: string): ElectrobunBrowserWindow {
+	const window = new BrowserWindow({
+		title: "AgentHub",
+		url,
+		frame: MAIN_WINDOW_FRAME,
+		titleBarStyle: "hiddenInset",
+		transparent: false,
+		rpc: desktopWindowRpc,
+	});
+	refreshInitialLayout(window);
+	return window;
+}
 
-const windows = [mainWindow];
+function createLoadingWindow(): ElectrobunBrowserWindow {
+	return new BrowserWindow({
+		title: "AgentHub",
+		url: null,
+		html: createLoadingWindowHtml(),
+		frame: LOADING_WINDOW_FRAME,
+		titleBarStyle: "default",
+		transparent: false,
+	});
+}
 
-console.log(`AgentHub desktop started at ${desktopUrl} (${windows.length} window)`);
+function closeLoadingWindow(): void {
+	const window = loadingWindow
+	if (!window) {
+		return
+	}
+	window.close()
+	loadingWindow = null
+}
+
+async function startProductionDesktop(): Promise<string> {
+	const resourceRoot = resolveDesktopResourceRoot()
+	const paths = resolveDesktopResourcePaths(resourceRoot)
+	await assertDesktopResourcePaths(paths)
+	const port = await findAvailablePort()
+	const running = await startDesktopHubServer({
+		port,
+		paths,
+		logLevel: process.env.AGENTHUB_DESKTOP_LOG_LEVEL?.trim() || undefined,
+		onProcess: (process) => {
+			startingHubServerProcess = process
+		},
+	})
+
+	runningHubServer = running
+	startingHubServerProcess = null
+	return running.url
+}
+
+async function stopHubServer(signal: NodeJS.Signals = "SIGTERM"): Promise<number | null> {
+	if (runningHubServer) {
+		const running = runningHubServer
+		runningHubServer = null
+		return shutdownDesktopHubServer(running.process, signal)
+	}
+
+	if (startingHubServerProcess) {
+		const process = startingHubServerProcess
+		startingHubServerProcess = null
+		return shutdownDesktopHubServer(process, signal)
+	}
+
+	return null
+}
+
+function installShutdownHandlers(): void {
+	let shuttingDown = false
+	const shutdown = (signal: NodeJS.Signals) => {
+		if (shuttingDown) {
+			return
+		}
+		shuttingDown = true
+		stopHubServer(signal)
+			.then((exitCode) => process.exit(exitCode ?? 0))
+			.catch((error) => {
+				console.error("Failed to stop HubServer", error)
+				process.exit(1)
+			})
+	}
+
+	process.on("SIGINT", () => shutdown("SIGINT"))
+	process.on("SIGTERM", () => shutdown("SIGTERM"))
+	process.on("exit", () => {
+		runningHubServer?.process.kill("SIGTERM")
+		startingHubServerProcess?.kill("SIGTERM")
+	})
+}
+
+async function resolveDesktopUrl(): Promise<string> {
+	if (configuredDesktopUrl) {
+		await checkDesktopUrl(configuredDesktopUrl)
+		return configuredDesktopUrl
+	}
+
+	if (DESKTOP_BUILD_MODE !== "production") {
+		await checkDesktopUrl(DEFAULT_DESKTOP_URL)
+		return DEFAULT_DESKTOP_URL
+	}
+
+	loadingWindow = createLoadingWindow()
+	return startProductionDesktop()
+}
+
+installShutdownHandlers();
+
+try {
+	const desktopUrl = await resolveDesktopUrl()
+	mainWindow = createMainWindow(desktopUrl)
+	closeLoadingWindow()
+
+	const windows = [mainWindow]
+	console.log(`AgentHub desktop started at ${desktopUrl} (${windows.length} window)`);
+} catch (error) {
+	console.error("AgentHub desktop failed to start", error)
+	await stopHubServer()
+	process.exit(1)
+}

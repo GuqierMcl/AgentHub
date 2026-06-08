@@ -1,5 +1,6 @@
 {
   "name": "agenthub",
+  "version": "0.0.1",
   "private": true,
   "scripts": {
     "dev:web": "cd web && bun install && bun dev",
@@ -11,6 +12,7 @@
     "build:runtime": "cd agent-runtime && bun install && bun run build",
     "build:hub": "cd hub-server && bun install && bun run build",
     "build:cli": "cd cli && bun install && bun run build",
+    "build:desktop": "bun run build && bun run package && cd desktop && bun install && bun run build:release",
     "build": "bun run build:web && bun run build:runtime && bun run build:hub && bun run build:cli",
     "package": "bun run scripts/package.ts"
   },

@@ -74,6 +74,7 @@ AgentHub 分发分为两条线，但共享同一套生产核心资源：
 - GitHub Release 应按平台发布产物，并附带 sha256。
 - npm 不应把所有平台 runtime/native 包塞进同一个包；若发布 npm CLI，优先使用 meta package + platform package 方案。
 - CLI、HubServer、Agent Runtime、Bun runtime、native 依赖和 Web assets 必须同版本发布。
+- 版本号以根目录 `package.json#version` 为唯一项目级来源；GitHub Release tag 必须匹配 `v${version}`。
 - Desktop 复用 HubServer 的 sidecar/static 生产行为，不复用 CLI 进程。
 - AgentHub 自有二进制 launcher（如 Windows `agenthub-cli.exe`）必须使用 AgentHub 图标；发行包内置的 Bun runtime 保持上游文件资源不变。
 
@@ -129,6 +130,10 @@ Desktop
 
 规则：
 
+- Desktop release 构建通过 Electrobun 将核心资源目录复制到应用 Resources app code 下的 `app/agenthub-runtime/`。
+- Desktop 主进程在生产模式下先显示轻量加载窗口；HubServer `/health` ready 后再关闭加载窗口并打开主窗口。
+- `AGENTHUB_DESKTOP_URL` 可覆盖为开发/调试 URL；此时 Desktop 不启动 HubServer。
+- `AGENTHUB_DESKTOP_RESOURCES_DIR` 可在本地 smoke 中指向已组装的资源目录，例如根级 `dist/`。
 - Desktop 也让 HubServer 托管 Web，而不是加载 `views://` 或本地 `file://` Web。
 - Web 前端继续使用相对 API 路径，不需要 Desktop 专属 API base。
 - Desktop 负责 HubServer 进程生命周期、窗口生命周期和退出清理。
@@ -309,6 +314,7 @@ package
   "build:runtime": "cd agent-runtime && bun install && bun run build",
   "build:hub": "cd hub-server && bun install && bun run build",
   "build:cli": "cd cli && bun install && bun run build",
+  "build:desktop": "bun run build && bun run package && cd desktop && bun install && bun run build:release",
   "build": "bun run build:web && bun run build:runtime && bun run build:hub && bun run build:cli",
   "package": "bun run scripts/package.ts"
 }
@@ -321,8 +327,9 @@ package
 - `build:runtime` 生成 Agent Runtime Bun bundle。
 - `build:cli` 可继续生成轻量 launcher，也可生成 JS CLI bundle；CLI 不应承担 native-heavy 服务依赖。
 - `package` 负责组装最终 `dist/`：复制 Bun runtime、service bundles、CLI launcher、`web/dist -> public/`、以及每个服务生产运行需要的 service-local `node_modules/` 依赖闭包。
+- `build:desktop` 先复用根级 `build` + `package` 生成核心资源，再运行 Desktop release build；Electrobun 将 `dist/` 复制进应用 Resources app code 的 `app/agenthub-runtime/`。
 - 生产运行所需 native-heavy 包必须通过 bundle `--external` 保留真实目录结构。V1 可以先复制服务级生产 `node_modules/`，后续再按 smoke 结果裁剪。
-- Package V1 只组装 CLI 启动包的资源目录，不生成 Desktop installer；Desktop installer 复用同一组资源。
+- Package V1 组装 CLI 启动包的资源目录；Desktop installer 在自己的 build 阶段复用这组资源。
 
 ## 验证清单
 
@@ -355,6 +362,7 @@ cd dist
 
 Desktop smoke：
 
+- Desktop 启动后先显示加载窗口，而不是立即打开主窗口。
 - Desktop 启动 Bun runtime + HubServer bundle。
 - WebView 打开 `http://127.0.0.1:<hubPort>`。
 - 关闭窗口后 HubServer 和 Runtime 被清理。
