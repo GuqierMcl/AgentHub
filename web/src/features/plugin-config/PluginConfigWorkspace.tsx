@@ -11,14 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { AnimatedRefreshCwIcon } from "@/components/ui/refresh-controls"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { toast } from "sonner"
 import { capabilitiesApi } from "./api/capabilities"
 import { mcpTrustApi } from "./api/mcp-trust"
 import { workspaceSkillTrustApi } from "./api/workspace-skill-trust"
@@ -45,13 +38,6 @@ type WorkspaceCapabilityViewGroup = WorkspaceCapabilityGroup & {
   mcpTrustRecords: McpTrustRecord[]
 }
 
-type PendingTrustDecision = {
-  kind: "skill" | "mcp"
-  conversationId: string
-  ref: string
-  trusted: boolean
-}
-
 export function PluginConfigWorkspace() {
   const [activeTab, setActiveTab] = useState("skill")
   const [scope, setScope] = useState<CapabilityScope>("global")
@@ -68,7 +54,6 @@ export function PluginConfigWorkspace() {
   const [trustUpdatingSkillRef, setTrustUpdatingSkillRef] = useState<string | null>(null)
   const [trustUpdatingMcpRef, setTrustUpdatingMcpRef] = useState<string | null>(null)
   const [trustUpdatingConversationId, setTrustUpdatingConversationId] = useState<string | null>(null)
-  const [pendingTrustDecision, setPendingTrustDecision] = useState<PendingTrustDecision | null>(null)
 
   const queryTrustRecords = useCallback(async (
     targetConversationId: string | undefined,
@@ -241,45 +226,29 @@ export function PluginConfigWorkspace() {
       return
     }
 
-    setPendingTrustDecision({
-      kind,
-      conversationId: targetConversationId,
-      ref,
-      trusted,
-    })
-  }, [])
-
-  const confirmTrustDecision = useCallback(async () => {
-    if (!pendingTrustDecision) return
-
-    const decision = pendingTrustDecision
-    setPendingTrustDecision(null)
-    setTrustUpdatingConversationId(decision.conversationId)
-    if (decision.kind === "skill") {
-      setTrustUpdatingSkillRef(decision.ref)
-    } else {
-      setTrustUpdatingMcpRef(decision.ref)
-    }
+    if (kind === "skill") setTrustUpdatingSkillRef(ref)
+    else setTrustUpdatingMcpRef(ref)
+    setTrustUpdatingConversationId(targetConversationId)
     setError(null)
     try {
-      if (decision.kind === "skill") {
+      if (kind === "skill") {
         const result = await workspaceSkillTrustApi.decide({
-          conversationId: decision.conversationId,
-          skillRef: decision.ref,
-          trusted: decision.trusted,
-          reason: decision.trusted ? "approved in plugin config" : "revoked in plugin config",
+          conversationId: targetConversationId,
+          skillRef: ref,
+          trusted,
+          reason: trusted ? "approved in plugin config" : "revoked in plugin config",
         })
         setSkillTrustRecords((current) => [
-          ...current.filter((record) => record.skillRef !== decision.ref),
+          ...current.filter((record) => record.skillRef !== ref),
           result.record,
         ])
         setWorkspaceGroups((current) =>
           current.map((group) =>
-            group.conversationId === decision.conversationId
+            group.conversationId === targetConversationId
               ? {
                   ...group,
                   trustRecords: [
-                    ...group.trustRecords.filter((record) => record.skillRef !== decision.ref),
+                    ...group.trustRecords.filter((record) => record.skillRef !== ref),
                     result.record,
                   ],
                 }
@@ -288,18 +257,18 @@ export function PluginConfigWorkspace() {
         )
       } else {
         const result = await mcpTrustApi.decide({
-          conversationId: decision.conversationId,
-          mcpRef: decision.ref,
-          trusted: decision.trusted,
-          reason: decision.trusted ? "approved in plugin config" : "revoked in plugin config",
+          conversationId: targetConversationId,
+          mcpRef: ref,
+          trusted,
+          reason: trusted ? "approved in plugin config" : "revoked in plugin config",
         })
         setWorkspaceGroups((current) =>
           current.map((group) =>
-            group.conversationId === decision.conversationId
+            group.conversationId === targetConversationId
               ? {
                   ...group,
                   mcpTrustRecords: [
-                    ...group.mcpTrustRecords.filter((record) => record.mcpRef !== decision.ref),
+                    ...group.mcpTrustRecords.filter((record) => record.mcpRef !== ref),
                     result.record,
                   ],
                 }
@@ -307,12 +276,17 @@ export function PluginConfigWorkspace() {
           )
         )
       }
+      toast.success(trusted
+        ? `已信任该 ${kind === "skill" ? "Skill" : "MCP"}`
+        : `已撤销该 ${kind === "skill" ? "Skill" : "MCP"} 信任`)
     } catch (err) {
-      setError(err instanceof Error
+      const message = err instanceof Error
         ? err.message
-        : decision.kind === "skill"
+        : kind === "skill"
           ? "更新 Skill 信任状态失败"
-          : "更新 MCP 信任状态失败")
+          : "更新 MCP 信任状态失败"
+      setError(message)
+      toast.error(message)
     } finally {
       setTrustUpdatingSkillRef(null)
       setTrustUpdatingMcpRef(null)
@@ -463,39 +437,6 @@ export function PluginConfigWorkspace() {
         </Tabs>
       </div>
 
-      <Dialog
-        open={!!pendingTrustDecision}
-        onOpenChange={(open) => {
-          if (!open) setPendingTrustDecision(null)
-        }}
-      >
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>
-              {trustDialogTitle(pendingTrustDecision)}
-            </DialogTitle>
-            <DialogDescription>
-              {trustDialogDescription(pendingTrustDecision)}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setPendingTrustDecision(null)}
-            >
-              取消
-            </Button>
-            <Button
-              type="button"
-              variant={pendingTrustDecision?.trusted ? "secondary" : "destructive"}
-              onClick={() => { void confirmTrustDecision() }}
-            >
-              {pendingTrustDecision?.trusted ? "确认信任" : "确认撤销"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
@@ -649,22 +590,4 @@ function workspaceSubtitle(group: WorkspaceCapabilityViewGroup): string {
   return `${group.rootPath}${suffix}`
 }
 
-function trustDialogTitle(decision: PendingTrustDecision | null): string {
-  if (!decision) return "确认信任"
-  const capability = decision.kind === "mcp" ? "MCP" : "Skill"
-  return decision.trusted
-    ? `信任工作区 ${capability}`
-    : `撤销 ${capability} 信任`
-}
 
-function trustDialogDescription(decision: PendingTrustDecision | null): string {
-  if (!decision) return ""
-  if (decision.kind === "skill") {
-    return decision.trusted
-      ? "信任后，内部智能体可在绑定工作区的 Run 中注入该 Skill 正文。"
-      : "撤销后，该工作区 Skill 将不会再注入内部智能体 prompt。"
-  }
-  return decision.trusted
-    ? "信任后，该 MCP Server 可进入后续启用、连接和工具枚举候选；本阶段不会自动启动或调用。"
-    : "撤销后，该工作区 MCP Server 将不会进入后续启用、枚举或工具注入候选。"
-}
