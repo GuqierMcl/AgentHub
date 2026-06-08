@@ -383,9 +383,26 @@ export function AgentDetailsPanel({
       )
     }
 
+    const hints = [
+      "你想了解哪一个智能体？",
+      "点击左侧，探索你的智能体",
+      "选择一个智能体，开启对话",
+      "哪位智能体引起你的注意？",
+      "点击一位智能体，查看详情",
+      "探索你的智能体团队",
+      "选择一个智能体开始吧",
+      "左侧选择一位，看看它的能力",
+      "每位智能体都有独特的本领",
+      "发现适合你的智能体",
+    ]
+    const hint = hints[Math.floor(Math.random() * hints.length)]
+
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full flex-col items-center justify-center gap-6">
         <RadialIntro imageSize={48} orbitItems={orbitItems} stageSize={280} />
+        <p className="text-muted-foreground/80 text-sm tracking-wide">
+          {hint}
+        </p>
       </div>
     )
   }
