@@ -8,7 +8,7 @@ export type ServiceStatusTone = "success" | "warning" | "danger" | "muted"
 const STATUS_LABELS: Record<ServiceStatusValue, string> = {
   running: "运行中",
   starting: "启动中",
-  idle: "待命",
+  idle: "就绪",
   error: "错误",
   not_integrated: "未接入",
   refreshing: "刷新中",
@@ -21,13 +21,13 @@ export function getServiceStatusLabel(status: ServiceStatusValue): string {
 export function getServiceStatusTone(status: ServiceStatusValue): ServiceStatusTone {
   switch (status) {
     case "running":
+    case "idle":
       return "success"
     case "starting":
     case "refreshing":
       return "warning"
     case "error":
       return "danger"
-    case "idle":
     case "not_integrated":
       return "muted"
   }

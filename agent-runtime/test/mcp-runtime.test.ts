@@ -235,6 +235,126 @@ describe("McpRuntimeService", () => {
     expect(JSON.stringify(events)).not.toContain(workspace.rootPath)
   })
 
+  test("deduplicates equivalent workspace MCP servers across source-specific configs", async () => {
+    const { homeDir, dataDir, workspace } = await createTempWorkspace("agent-runtime-mcp-runtime-dedupe-")
+    await mkdir(join(workspace.rootPath, ".claude"), { recursive: true })
+    await writeFile(join(workspace.rootPath, ".mcp.json"), JSON.stringify({
+      mcpServers: {
+        docs: {
+          command: "node",
+          args: ["claude-docs-server.js"],
+        },
+      },
+    }), "utf-8")
+    await writeFile(join(workspace.rootPath, "opencode.json"), JSON.stringify({
+      mcp: {
+        docs: {
+          type: "local",
+          command: ["node", "opencode-docs-server.js"],
+        },
+      },
+    }), "utf-8")
+
+    const discovery = new CapabilityDiscoveryService({ homeDir, dataDir })
+    const trust = new McpTrustService({ dataDir })
+    await trust.initialize()
+    const calls: Array<{ config: McpServerRuntimeConfig; name: string }> = []
+    const mcpRuntime = new McpRuntimeService({
+      discoveryService: discovery,
+      trustService: trust,
+      clientFactory: createFakeClientFactory(calls).factory,
+    })
+
+    const publicConfigs = await discovery.listMcpRuntimeConfigs({ scope: "workspace", workspace })
+    expect(publicConfigs.filter((config) => config.name === "docs")).toHaveLength(2)
+
+    const status = await mcpRuntime.ensureWorkspaceStatus({ workspace })
+    expect(status.summary).toMatchObject({
+      serverCount: 1,
+      enabledCount: 1,
+      connectedCount: 1,
+      errorCount: 0,
+      toolCount: 1,
+    })
+    expect(status.servers[0]).toMatchObject({
+      name: "docs",
+      source: "claude-code",
+      status: "connected",
+      duplicateCount: 2,
+      sources: ["claude-code", "opencode"],
+    })
+    expect(calls.map((call) => call.config.source)).toEqual(["claude-code"])
+
+    const context = await mcpRuntime.resolveWorkspaceMcpContext({ workspace })
+    expect(context.servers).toHaveLength(1)
+    expect(context.tools.map((tool) => tool.toolName)).toEqual(["mcp_docs_search"])
+    expect(context.toolDefinitions).toHaveLength(1)
+  })
+
+  test("falls back to the next trusted duplicate MCP server when the preferred source fails", async () => {
+    const { homeDir, dataDir, workspace } = await createTempWorkspace("agent-runtime-mcp-runtime-dedupe-fallback-")
+    await writeFile(join(workspace.rootPath, ".mcp.json"), JSON.stringify({
+      mcpServers: {
+        docs: {
+          command: "node",
+          args: ["broken-claude-docs-server.js"],
+        },
+      },
+    }), "utf-8")
+    await writeFile(join(workspace.rootPath, "opencode.json"), JSON.stringify({
+      mcp: {
+        docs: {
+          type: "local",
+          command: ["node", "opencode-docs-server.js"],
+        },
+      },
+    }), "utf-8")
+
+    const discovery = new CapabilityDiscoveryService({ homeDir, dataDir })
+    const trust = new McpTrustService({ dataDir })
+    await trust.initialize()
+    const calls: string[] = []
+    const mcpRuntime = new McpRuntimeService({
+      discoveryService: discovery,
+      trustService: trust,
+      clientFactory: (config) => {
+        calls.push(config.source)
+        if (config.source === "claude-code") {
+          return {
+            async connect() {
+              throw new Error("preferred source failed")
+            },
+            async listTools() {
+              return { tools: [] }
+            },
+            async callTool() {
+              return {}
+            },
+          }
+        }
+        return createFakeClientFactory().factory(config)
+      },
+    })
+
+    const status = await mcpRuntime.ensureWorkspaceStatus({ workspace })
+    expect(calls).toEqual(["claude-code", "opencode"])
+    expect(status.summary).toMatchObject({
+      serverCount: 1,
+      connectedCount: 1,
+      errorCount: 0,
+      toolCount: 1,
+    })
+    expect(status.servers[0]).toMatchObject({
+      name: "docs",
+      source: "opencode",
+      status: "connected",
+      duplicateCount: 2,
+      sources: ["claude-code", "opencode"],
+    })
+    expect(mcpRuntime.getStatus().status).toBe("running")
+    expect(mcpRuntime.getStatus().details.errorServerCount).toBe(0)
+  })
+
   test("explicitly revoked workspace MCP stays disabled and is not injected", async () => {
     const { homeDir, dataDir, workspace } = await createTempWorkspace("agent-runtime-mcp-runtime-revoked-")
     await writeFile(join(workspace.rootPath, "opencode.json"), JSON.stringify({

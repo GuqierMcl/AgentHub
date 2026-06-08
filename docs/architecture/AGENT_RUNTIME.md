@@ -98,6 +98,8 @@ Runtime 可以在内部 AI SDK / Orchestrator Run 的 prompt assembly 阶段读�
 
 当前实现允许用户自定义智能体引用 global 与 workspace Skill 逻辑 ref。workspace Skill 仍必须绑定当前 Run 的 workspace，并经过 Workspace Skill Trust 的默认 trusted / 显式撤销语义过滤。Runtime 只在诊断事件中返回 Skill id/name/source/level、截断状态和 warning，不返回正文。
 
+Capability Discovery 保留每个 source-specific Skill 条目；Run 注入前会按 `scope + normalized skill name` 去重，组内优先级为 `.agents > codex > claude-code > opencode`。同一个 Skill 同时安装在 Claude Code 与 OpenCode 等来源时，内部 prompt assembly 只注入一个有效 Skill；若优先来源被显式撤销，则尝试同组下一个 trusted 来源。
+
 #### Phase 4B Workspace Skill Trust 边界
 
 Runtime 可以保存 workspace Skill trust record，用于判断某个绑定 workspace 中的 `workspace:*` Skill ref 是否允许进入内部 AI SDK / Orchestrator prompt assembly。自动发现的 workspace Skill 默认 trusted；trust record 主要用于保存显式允许 / 撤销决策，尤其是 `trusted = false` 的撤销记录。trust record 只保存 `workspaceId`、workspace root hash、Skill ref、trust 状态和时间戳；不得在 API 响应或持久化记录中保存或返回 workspace root 绝对路径。
@@ -112,11 +114,13 @@ Skill / MCP 服务的完整设计见 `docs/architecture/SKILL_MCP_SERVICES.md`�
 
 MCP trust 语义与 workspace Skill trust 对齐：自动发现的 MCP server 默认 trusted；trust record 主要用于保存显式允许 / 撤销决策，尤其是 `trusted = false` 的撤销记录。global MCP 按 MCP discovery `id` 记录；workspace MCP 按 `{ workspaceId, workspace root hash, mcpRef }` 记录。缺失记录表示默认 trusted；显式撤销会阻止连接、tool 枚举和 tool 注入。
 
+Capability Discovery 仍返回 source 级 MCP 明细；Runtime 执行态和会话 MCP 状态按 `level + normalized server name` 去重，同组优先级为 `.agents > codex > claude-code > opencode`。如果优先来源连接或枚举失败，Runtime 会 fallback 到同组下一个 trusted 候选。会话输入栏和动态 tool 注入只消费该有效 MCP server 列表，因此同一个 MCP 同时安装为 Claude Code / OpenCode 配置时只显示、注入一次。
+
 当前只为内部 `executorType = "ai-sdk"` 的可见主智能体和 `orchestrator` 注入 MCP tools；隐藏子智能体、InstructAgent、Claude Code、Codex、OpenCode 等外部 adapter 不消费 AgentHub 动态 MCP 注入，也不由 AgentHub 接管其 native MCP。
 
 本轮是临时最小实现：MCP tool 通过 Runtime Tool Registry 统一发出 `tool.started`、`tool.completed`、`tool.failed`，事件 `data.externalProvider = "mcp"`；但暂不做 per-call approval / permission gate。stdio MCP 可能启动 workspace 配置中的本地命令，HTTP/SSE 可能使用配置中的 URL、headers 或 env 建立连接。所有 MCP trust API、status details、RunEvent、日志、model-visible tool result 和持久化记录都不得保存或返回 workspace root 真实路径、env、headers、token、secret args 或原始 MCP 配置正文。后续必须补上 command/network/tool 级审批、allowlist 和更细的权限策略。
 
-`GET /runtime/services/status` 仍是只读快照，不会因为查询而启动 MCP server、读取 secret、连接网络、枚举 tool 或调用 tool；`mcp-runtime.details` 只返回缓存的 client / connected / error / tool 计数和脱敏错误。
+`GET /runtime/services/status` 仍是只读快照，不会因为查询而启动 MCP server、读取 secret、连接网络、枚举 tool 或调用 tool；`mcp-runtime.details` 只返回缓存的 client / connected / error / tool 计数和脱敏错误。当已有 connected workspace MCP client / tool cache 时，`mcp-runtime.status = "running"`；无连接且无最新错误时为 `"idle"`，Web 展示语义应按“就绪”理解，而不是“未运行”。
 
 健康检查响应格式：
 
