@@ -33,6 +33,7 @@ export type {
   AgentListOptions,
   AgentSummaryResponse,
   AgentDetailResponse,
+  RuntimeExternalAgentSettingsResponse,
   AgentResolvedModelResponse,
   AgentListResponse,
   AgentDeleteResponse,

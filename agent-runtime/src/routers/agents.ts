@@ -9,9 +9,11 @@ import {
   UserAgentUpdateRequestSchema,
   DEFAULT_USER_AGENT_PERMISSION_POLICY,
   type AgentDefinition,
+  type ExternalAgentSettings,
   type AgentAuthoringOptionsResponse,
   type AgentDetailResponse,
   type AgentSummaryResponse,
+  type RuntimeExternalAgentSettingsResponse,
 } from "../agents"
 import { resolveAgentModelSnapshot } from "../runtime/model-resolver"
 import type { RuntimeToolRegistry } from "../runtime"
@@ -88,6 +90,16 @@ function serializeAgentDetail(
       }
       : undefined,
     externalSettings: agent.externalSettings,
+  }
+}
+
+function serializeExternalAgentSettings(agent: AgentDefinition): RuntimeExternalAgentSettingsResponse {
+  const provider = agent.external!.provider
+  const settings: ExternalAgentSettings = agent.externalSettings ?? ({ provider } as ExternalAgentSettings)
+  return {
+    agentId: provider,
+    settings,
+    updatedAt: settings.updatedAt,
   }
 }
 
@@ -268,6 +280,21 @@ agents.get("/runtime/agents/authoring-options", (c: Context) => {
   return c.json(serializeAuthoringOptions(registry, c.get("toolRegistry")))
 })
 
+agents.get("/runtime/agents/:agentId/external-settings", (c: Context) => {
+  const registry = c.get("agentRegistry")
+  if (!registry.isInitialized()) {
+    return registryUnavailable(c)
+  }
+
+  const agentId = c.req.param("agentId")!
+  const agent = registry.getAgent(agentId)
+  if (!agent || agent.visibility === "hidden" || agent.origin !== "external" || !agent.external) {
+    return agentNotFound(c, agentId)
+  }
+
+  return c.json(serializeExternalAgentSettings(agent))
+})
+
 agents.get("/runtime/agents/:agentId", (c: Context) => {
   const result = AgentDetailQuerySchema.safeParse({
     includeHidden: c.req.query("includeHidden"),
@@ -294,25 +321,8 @@ agents.get("/runtime/agents/:agentId", (c: Context) => {
   return c.json(serializeAgentDetail(agent, providerService))
 })
 
-agents.get("/runtime/agents/:agentId/external-settings", (c: Context) => {
-  const registry = c.get("agentRegistry")
-  const providerService = c.get("providerService")
-  if (!registry.isInitialized()) {
-    return registryUnavailable(c)
-  }
-
-  const agentId = c.req.param("agentId")!
-  const agent = registry.getAgent(agentId)
-  if (!agent || agent.visibility === "hidden" || agent.origin !== "external" || !agent.external) {
-    return agentNotFound(c, agentId)
-  }
-
-  return c.json(serializeAgentDetail(agent, providerService))
-})
-
 agents.put("/runtime/agents/:agentId/external-settings", async (c: Context) => {
   const registry = c.get("agentRegistry")
-  const providerService = c.get("providerService")
   if (!registry.isInitialized()) {
     return registryUnavailable(c)
   }
@@ -326,7 +336,7 @@ agents.put("/runtime/agents/:agentId/external-settings", async (c: Context) => {
   const agentId = c.req.param("agentId")!
   try {
     const updatedAgent = await registry.setExternalAgentSettings(agentId, result.data)
-    return c.json(serializeAgentDetail(updatedAgent, providerService))
+    return c.json(serializeExternalAgentSettings(updatedAgent))
   } catch (error) {
     return agentMutationFailed(c, error)
   }

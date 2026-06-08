@@ -251,6 +251,12 @@ export type AgentDetailResponse = AgentSummaryResponse & {
   externalSettings?: ExternalAgentSettings
 }
 
+export type RuntimeExternalAgentSettingsResponse = {
+  agentId: ExternalAgentId
+  settings: ExternalAgentSettings
+  updatedAt?: string
+}
+
 export type AgentResolvedModelResponse = {
   providerId: string
   modelId: string

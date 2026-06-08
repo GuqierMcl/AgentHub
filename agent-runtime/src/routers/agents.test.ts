@@ -71,10 +71,14 @@ describe("agents external settings routes", () => {
 
     expect(response.status).toBe(200)
     const body = await response.json()
-    expect(body.externalSettings).toEqual({
-      provider: "claude-code",
-      model: "sonnet",
-      permissionMode: "plan",
+    expect(body).toEqual({
+      agentId: "claude-code",
+      settings: {
+        provider: "claude-code",
+        model: "sonnet",
+        permissionMode: "plan",
+        updatedAt: expect.any(String),
+      },
       updatedAt: expect.any(String),
     })
   })
@@ -115,10 +119,29 @@ describe("agents external settings routes", () => {
 
     expect(response.status).toBe(200)
     const body = await response.json()
-    expect(body.externalSettings).toEqual({
-      provider: "codex",
-      model: "gpt-5.1-codex",
+    expect(body).toEqual({
+      agentId: "codex",
+      settings: {
+        provider: "codex",
+        model: "gpt-5.1-codex",
+        updatedAt: expect.any(String),
+      },
       updatedAt: expect.any(String),
+    })
+  })
+
+  test("gets default external SDK settings when none are saved", async () => {
+    const app = await createApp()
+
+    const response = await app.request("/runtime/agents/codex/external-settings")
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toEqual({
+      agentId: "codex",
+      settings: {
+        provider: "codex",
+      },
     })
   })
 
