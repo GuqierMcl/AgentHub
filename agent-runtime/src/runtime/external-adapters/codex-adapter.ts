@@ -21,6 +21,9 @@ export class CodexAdapter implements ExternalAgentAdapter {
         (!context.task?.taskId || hint.taskId === undefined || hint.taskId === context.task.taskId)
     })
     const externalContext = this.resolveExternalContext(context)
+    const settings = context.agent.externalSettings?.provider === "codex"
+      ? context.agent.externalSettings
+      : undefined
 
     log.info(
       {
@@ -34,6 +37,7 @@ export class CodexAdapter implements ExternalAgentAdapter {
         hasSessionHint: Boolean(sessionHint),
         hintedProviderSessionId: sessionHint?.providerSessionId,
         externalContextMode: externalContext?.mode,
+        model: settings?.model,
       },
       "Codex adapter execution starting"
     )
@@ -45,6 +49,7 @@ export class CodexAdapter implements ExternalAgentAdapter {
       scope: context.scope,
       workspaceId: context.workspace.workspaceId,
       workspaceRootPath: context.workspace.rootPath,
+      model: settings?.model,
       taskId: context.task?.taskId,
       providerSessionId: sessionHint?.providerSessionId,
       handoffSummary: sessionHint?.handoffSummary,

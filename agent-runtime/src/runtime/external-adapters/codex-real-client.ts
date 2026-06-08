@@ -45,7 +45,7 @@ export class RealCodexClient implements CodexClient {
 
   async ensureSession(request: CodexSessionRequest): Promise<ExternalSessionLink> {
     const sdk = await this.getSdk()
-    const threadOptions = this.createThreadOptions(request.workspaceRootPath)
+    const threadOptions = this.createThreadOptions(request.workspaceRootPath, request.model)
     const thread = request.providerSessionId && isResumableThreadId(request.providerSessionId)
       ? await sdk.resumeThread(request.providerSessionId, threadOptions)
       : await sdk.startThread(threadOptions)
@@ -199,11 +199,12 @@ export class RealCodexClient implements CodexClient {
     return this.sdkPromise
   }
 
-  private createThreadOptions(workspaceRootPath: string): Record<string, unknown> {
+  private createThreadOptions(workspaceRootPath: string, model?: string): Record<string, unknown> {
     return {
       workingDirectory: workspaceRootPath,
       sandboxMode: "workspace-write",
       networkAccessEnabled: true,
+      ...(model ? { model } : {}),
     }
   }
 }

@@ -7,6 +7,7 @@ export type CodexSessionRequest = {
   scope: ExternalSessionScope
   workspaceId: string
   workspaceRootPath: string
+  model?: string
   taskId?: string
   providerSessionId?: string
   handoffSummary?: string
