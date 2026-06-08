@@ -6,6 +6,7 @@ import { ProviderService } from './provider'
 import {
   RunManager,
   CapabilityDiscoveryService,
+  McpTrustService,
   SkillContentService,
   SystemModelSettingsService,
   SystemModelSettingsStore,
@@ -48,6 +49,7 @@ const systemModelSettingsService = new SystemModelSettingsService(
 const capabilityDiscoveryService = new CapabilityDiscoveryService({ dataDir: config.dataDir })
 const skillContentService = new SkillContentService(capabilityDiscoveryService)
 const workspaceSkillTrustService = new WorkspaceSkillTrustService({ dataDir: config.dataDir })
+const mcpTrustService = new McpTrustService({ dataDir: config.dataDir })
 const runManager = new RunManager(
   agentRegistry,
   providerService,
@@ -81,6 +83,7 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('workspaceRevertService', workspaceRevertService)
   c.set('capabilityDiscoveryService', capabilityDiscoveryService)
   c.set('workspaceSkillTrustService', workspaceSkillTrustService)
+  c.set('mcpTrustService', mcpTrustService)
   c.set('toolRegistry', toolRegistry)
   c.set('systemModelSettingsService', systemModelSettingsService)
   c.set('instructAgentRegistry', instructAgentRegistry)
@@ -116,6 +119,7 @@ Promise.all([
   agentRegistry.initialize(),
   systemModelSettingsService.initialize(),
   workspaceSkillTrustService.initialize(),
+  mcpTrustService.initialize(),
 ]).then(() => {
   console.log(banner)
   console.log(`Agent Runtime listening on ${server.url}`)
