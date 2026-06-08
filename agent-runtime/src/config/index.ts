@@ -10,6 +10,8 @@ const configSchema = z.object({
   cors: z.array(z.string()),
   dataDir: z.string(),
   workdir: z.string(),
+  hubCallback: z.string().optional(),
+  logLevel: z.string(),
 });
 
 // 解析命令行参数
@@ -35,6 +37,12 @@ const { values } = parseArgs({
     workdir: {
       type: "string",
     },
+    "hub-callback": {
+      type: "string",
+    },
+    "log-level": {
+      type: "string",
+    },
   },
   strict: true,
   allowPositionals: false,
@@ -47,6 +55,8 @@ const rawConfig = {
   cors: values.cors ?? (process.env.CORS ? process.env.CORS.split(",") : []),
   dataDir: resolve(values["data-dir"] ?? process.env.AGENT_RUNTIME_DATA_DIR ?? "./data-tmp"),
   workdir: resolve(values.workdir ?? process.env.AGENT_RUNTIME_WORKDIR ?? join(tmpdir(), "agent-runtime-workspace")),
+  hubCallback: values["hub-callback"] ?? process.env.AGENTHUB_HUB_CALLBACK,
+  logLevel: values["log-level"] ?? process.env.LOG_LEVEL ?? "info",
 };
 
 // 验证配置

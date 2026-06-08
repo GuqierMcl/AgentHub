@@ -10,6 +10,10 @@ let prisma: PrismaClient | null = null
 
 const PROJECT_ROOT = resolve(import.meta.dir, '..', '..')
 
+interface InitDatabaseOptions {
+  allowPrismaGenerate?: boolean
+}
+
 function resolveSqliteFilePath(dbUrl: string): string | null {
   if (!dbUrl.startsWith('file:')) {
     return null
@@ -53,15 +57,22 @@ export function getPrismaClient(): PrismaClient {
   return prisma
 }
 
-export async function initDatabase(dbUrl: string): Promise<PrismaClient> {
+export async function initDatabase(dbUrl: string, options: InitDatabaseOptions = {}): Promise<PrismaClient> {
   if (prisma) {
     return prisma
   }
 
+  const allowPrismaGenerate = options.allowPrismaGenerate ?? true
   process.env.DATABASE_URL = dbUrl
   ensureSqliteFile(dbUrl)
 
   if (!isPrismaClientUpToDate()) {
+    if (!allowPrismaGenerate) {
+      throw new Error(
+        'Prisma Client is missing or older than schema. Generate Prisma Client during the build before starting Hub Server in production.',
+      )
+    }
+
     execSync('bunx --bun prisma generate', {
       cwd: PROJECT_ROOT,
       stdio: 'inherit',

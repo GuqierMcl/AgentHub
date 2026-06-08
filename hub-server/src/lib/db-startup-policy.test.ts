@@ -24,6 +24,13 @@ describe('database startup policy', () => {
     expect(dbSource).not.toContain('bunx --bun prisma migrate deploy')
   })
 
+  it('makes Prisma Client generation opt-in for application initialization', async () => {
+    const dbSource = await readFile(join(import.meta.dir, 'db.ts'), 'utf8')
+
+    expect(dbSource).toContain('allowPrismaGenerate')
+    expect(dbSource).toContain('Prisma Client is missing or older than schema')
+  })
+
   it('injects the Hub Server database URL for development migrations', async () => {
     const migrationScriptSource = await readFile(
       join(PROJECT_ROOT, 'scripts', 'migrate-dev-database.ts'),
