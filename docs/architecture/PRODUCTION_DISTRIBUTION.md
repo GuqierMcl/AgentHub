@@ -75,10 +75,10 @@ AgentHub 分发分为两条线，但共享同一套生产核心资源：
 规则：
 
 - GitHub Release 应按平台发布产物，并附带 sha256。
-- GitHub Release V1 由 `v*` tag 自动触发；tag 必须匹配根目录 `package.json#version`。
+- GitHub Release V1 由 `v*` tag 自动触发；Release 版本名来自 tag。流水线不强制校验 tag 与根目录 `package.json#version` 一致，发布前仍建议人工保持二者语义一致。
 - npm 不应把所有平台 runtime/native 包塞进同一个包；若发布 npm CLI，优先使用 meta package + platform package 方案。
 - CLI、HubServer、Agent Runtime、Bun runtime、native 依赖和 Web assets 必须同版本发布。
-- 版本号以根目录 `package.json#version` 为唯一项目级来源；GitHub Release tag 必须匹配 `v${version}`。
+- 版本号以根目录 `package.json#version` 为项目级元数据来源；GitHub Release tag 作为发布版本名来源。
 - Desktop 复用 HubServer 的 sidecar/static 生产行为，不复用 CLI 进程。
 - AgentHub 自有二进制 launcher（如 Windows `agenthub-cli.exe`）必须使用 AgentHub 图标；发行包内置的 Bun runtime 保持上游文件资源不变。
 

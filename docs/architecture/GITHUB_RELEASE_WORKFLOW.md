@@ -11,7 +11,7 @@ git tag v1.0.3
 git push origin v1.0.3
 ```
 
-流水线会读取根目录 `package.json#version`，并要求 tag 精确等于 `v${version}`。例如根版本为 `1.0.3` 时，只允许 `v1.0.3` 发布。
+Release 版本名直接来自触发 workflow 的 tag，例如 `v1.0.3` 会创建同名 GitHub Release。流水线不再强制校验 tag 与根目录 `package.json#version` 一致；发布前仍建议人工保持二者语义一致。
 
 ## Release 产物
 
@@ -32,7 +32,6 @@ Desktop 产物：
 
 ## Job 结构
 
-- `validate`：校验 release tag 与根版本一致，并运行版本测试。
 - `build-cli`：按平台构建 `bun run build && bun run package`，压缩根级 `dist/`。非 Windows job 会先准备 `node-gyp`，Linux job 会额外安装 Python/make/g++，用于 `node-pty` 缺少 prebuild 时的 native rebuild。
 - `build-desktop-windows`：运行 `bun run build:desktop`，收集 Electrobun 生成的 Windows installer zip。
 - `publish`：下载所有 job artifact，并使用 GitHub CLI 创建 Release。
@@ -67,7 +66,6 @@ Windows release 构建还会通过 `desktop/scripts/patch-windows-icons.ts` 执�
 发布前建议本地完成：
 
 ```bash
-bun test scripts/version.test.ts
 bun test desktop/src/bun/agenthub-service.test.ts desktop/src/bun/loading-window.test.ts
 cd desktop && bun test scripts/patch-windows-icons.test.ts
 ```

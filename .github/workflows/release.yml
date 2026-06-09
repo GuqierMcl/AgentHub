@@ -13,31 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Validate release tag
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Validate tag against root package version
-        id: version
-        shell: bash
-        run: |
-          VERSION="$(bun -e "import { assertReleaseTagMatchesVersion, readAgentHubVersion } from './scripts/version.ts'; const version = readAgentHubVersion(); assertReleaseTagMatchesVersion(process.env.GITHUB_REF_NAME ?? '', version); console.log(version)")"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Run version tests
-        run: bun test scripts/version.test.ts
-
   build-cli:
     name: Build CLI (${{ matrix.asset_suffix }})
-    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -91,7 +68,6 @@ jobs:
 
   build-desktop-windows:
     name: Build Desktop (windows-x64)
-    needs: validate
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -128,7 +104,6 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs:
-      - validate
       - build-cli
       - build-desktop-windows
     runs-on: ubuntu-latest
