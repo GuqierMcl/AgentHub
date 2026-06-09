@@ -75,6 +75,7 @@ export function WorkbenchWelcome({ onCreateConversation }: WorkbenchWelcomeProps
                       cursorStyle="underscore"
                       loop
                       className="text-4xl font-bold tracking-tight"
+                      pauseDelay={5000}
                   />
                   <p
                       className="max-w-md text-lg text-muted-foreground animate-fade-in-up"
