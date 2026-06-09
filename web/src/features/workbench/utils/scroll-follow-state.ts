@@ -5,6 +5,11 @@ type ScrollFollowStateArgs = {
   scrollTop: number
 }
 
+type AutoScrollAfterContentChangeArgs = {
+  hasUserScrolledUp: boolean
+  hasPendingScrollRestore: boolean
+}
+
 export function getNextHasUserScrolledUp({
   atBottom,
   hasUserScrolledUp,
@@ -20,4 +25,11 @@ export function getNextHasUserScrolledUp({
   }
 
   return hasUserScrolledUp
+}
+
+export function shouldAutoScrollAfterContentChange({
+  hasUserScrolledUp,
+  hasPendingScrollRestore,
+}: AutoScrollAfterContentChangeArgs): boolean {
+  return !hasUserScrolledUp && !hasPendingScrollRestore
 }

@@ -8,7 +8,10 @@ import type {
   WorkbenchTimelineItem,
 } from "../types"
 import { buildRegeneratedBranchTimelineItems } from "../utils/regenerated-branch"
-import { getNextHasUserScrolledUp } from "../utils/scroll-follow-state"
+import {
+  getNextHasUserScrolledUp,
+  shouldAutoScrollAfterContentChange,
+} from "../utils/scroll-follow-state"
 import { getTimelineMessagePinTargetId } from "../utils/message-pin-target"
 import { TimelineItem } from "./MessageItem"
 import type { MessageReplySnapshot } from "../api/messages"
@@ -85,7 +88,6 @@ export const TimelineList = memo(function TimelineList({
   } | null>(null)
   const hasUserScrolledUpRef = useRef(false)
   const lastScrollTopRef = useRef(0)
-  const shouldAutoScrollRef = useRef(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
 
   const virtualizer = useVirtualizer({
@@ -94,19 +96,24 @@ export const TimelineList = memo(function TimelineList({
     estimateSize: () => ITEM_ESTIMATE_SIZE,
     measureElement: (el) => el.getBoundingClientRect().height,
     overscan: 5,
-    onChange: () => {
-      if (!hasUserScrolledUpRef.current && !pendingScrollRestoreRef.current) {
-        shouldAutoScrollRef.current = true
-      }
-    },
   })
 
   useLayoutEffect(() => {
-    if (shouldAutoScrollRef.current && scrollContainerRef.current) {
-      shouldAutoScrollRef.current = false
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    const scrollElement = scrollContainerRef.current
+    if (
+      !scrollElement ||
+      !shouldAutoScrollAfterContentChange({
+        hasUserScrolledUp: hasUserScrolledUpRef.current,
+        hasPendingScrollRestore: pendingScrollRestoreRef.current !== null,
+      })
+    ) {
+      return
     }
-  })
+
+    scrollElement.scrollTop = scrollElement.scrollHeight
+    lastScrollTopRef.current = scrollElement.scrollTop
+    setIsAtBottom(true)
+  }, [displayItems])
 
   const handleScroll = useCallback(() => {
     const root = scrollContainerRef.current
@@ -128,6 +135,7 @@ export const TimelineList = memo(function TimelineList({
   useEffect(() => {
     hasUserScrolledUpRef.current = false
     lastScrollTopRef.current = 0
+    setIsAtBottom(true)
   }, [conversationId])
 
   const triggerLoadOlderHistory = useCallback(
@@ -205,6 +213,7 @@ export const TimelineList = memo(function TimelineList({
     setIsAtBottom(true)
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+      lastScrollTopRef.current = scrollContainerRef.current.scrollTop
     }
   }, [])
 
