@@ -26,19 +26,19 @@ import type {
 } from "../../types"
 
 const terminalStatusLabel: Record<DeploymentSnapshot["status"], string> = {
-  running: "running",
-  completed: "completed",
-  failed: "failed",
-  cancelled: "cancelled",
+  running: "运行中",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
 }
 
 const connectionStatusLabel: Record<DeploymentConnectionStatus, string> = {
-  connecting: "connecting",
-  connected: "connected",
-  disconnecting: "disconnecting",
-  disconnected: "disconnected",
-  failed: "failed",
-  stale: "stale",
+  connecting: "正在连接",
+  connected: "已连接",
+  disconnecting: "正在断开连接",
+  disconnected: "已断开连接",
+  failed: "连接失败",
+  stale: "连接过期",
 }
 
 function getProgressValue(snapshot: DeploymentSnapshot | null): number {

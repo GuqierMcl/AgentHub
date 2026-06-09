@@ -58,9 +58,13 @@ import type {
   ChatSubmitInput,
   Conversation,
   ConversationAgentProfile,
+  DeploymentSnapshot,
   MentionTarget,
   MessageReplySnapshot,
 } from "../types"
+import {
+  getDeploymentSshStatusBarItem,
+} from "../utils/deployment-ssh-status"
 import {
   getExternalAgentStatusBarItems,
   type ExternalAgentStatusBarItem,
@@ -190,6 +194,7 @@ type ChatComposerProps = {
   agentProfiles: ConversationAgentProfile[]
   conversationId: string
   conversationMode: Conversation["mode"]
+  deploymentSnapshot?: DeploymentSnapshot | null
   value: string
   status: ChatStatus
   canCancelRun?: boolean
@@ -247,6 +252,7 @@ function ChatComposerInner({
   canCancelRun = false,
   conversationId,
   conversationMode,
+  deploymentSnapshot,
   disabled = false,
   onCancelRun,
   onCancelReply,
@@ -468,9 +474,17 @@ function ChatComposerInner({
     () => getWorkspaceMcpStatusBarItems(mcpStatusQuery.data),
     [mcpStatusQuery.data]
   )
+  const deploymentSshStatusItem = useMemo(
+    () => getDeploymentSshStatusBarItem(deploymentSnapshot),
+    [deploymentSnapshot]
+  )
   const statusBarItems = useMemo(
-    () => [...externalStatusItems, ...mcpStatusItems],
-    [externalStatusItems, mcpStatusItems]
+    () => [
+      ...externalStatusItems,
+      ...mcpStatusItems,
+      ...(deploymentSshStatusItem ? [deploymentSshStatusItem] : []),
+    ],
+    [deploymentSshStatusItem, externalStatusItems, mcpStatusItems]
   )
 
   useEffect(() => {

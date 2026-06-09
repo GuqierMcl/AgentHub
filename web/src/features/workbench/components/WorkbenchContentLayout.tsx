@@ -454,6 +454,7 @@ export function WorkbenchContentLayout({
                 activeRunId={runtimeState?.activeRuntimeRunId ?? null}
                 conversation={activeConversation}
                 connectionStatus={runtimeState?.connectionStatus ?? "idle"}
+                deploymentSnapshot={runtimeState?.deploymentSnapshot ?? null}
                 draft={runtimeState?.draft ?? ""}
                 isWorkspaceOpen={!isWorkspaceCollapsed}
                 onCancelRun={handleCancelActiveRun}

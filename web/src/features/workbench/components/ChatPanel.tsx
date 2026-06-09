@@ -12,6 +12,7 @@ import type { SingletonTabId } from "@/store/tab-store"
 import type {
   Conversation,
   ChatSubmitInput,
+  DeploymentSnapshot,
   MessageReplySnapshot,
   WorkbenchTimelineItem,
   WorkbenchTimelineQuestionItem,
@@ -23,6 +24,7 @@ type ChatPanelProps = {
   conversation: Conversation
   activeRunId: string | null
   draft: string
+  deploymentSnapshot?: DeploymentSnapshot | null
   runStatus: RuntimeRunStatus | "idle" | "submitted"
   connectionStatus: RunConnectionStatus
   isWorkspaceOpen: boolean
@@ -41,6 +43,7 @@ export function ChatPanel({
   activeRunId,
   conversation,
   connectionStatus,
+  deploymentSnapshot,
   draft,
   isWorkspaceOpen,
   onDraftChange,
@@ -129,6 +132,7 @@ export function ChatPanel({
         <ChatComposer
           canCancelRun={Boolean(activeRunId)}
           conversationId={conversation.id}
+          deploymentSnapshot={deploymentSnapshot}
           disabled={composerDisabled}
           onCancelRun={() => onCancelRun()}
           agentProfiles={conversation.agents ?? []}
