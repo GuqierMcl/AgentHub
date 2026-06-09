@@ -99,6 +99,18 @@ permission.cancelled
 question.requested
 question.answered
 question.cancelled
+deployment.started
+deployment.connection.changed
+deployment.progress.updated
+deployment.command.started
+deployment.log.appended
+deployment.command.completed
+deployment.command.failed
+deployment.release_note.updated
+deployment.preview.requested
+deployment.completed
+deployment.failed
+deployment.cancelled
 model.stream.part
 reasoning.started
 reasoning.delta
@@ -113,6 +125,8 @@ run.cancelled
 ```
 
 `message.*`、`tool.*`、`task.*`、`permission.*`、`question.*`、`agent.*` 和 `run.*` 是 Runtime 语义事件，优先供 HubServer 持久化与 UI 状态渲染使用。
+
+`deployment.*` 是部署预览的稳定状态事件，由 Runtime deployment service 或部署工具实现发出；通用 `tool.*` 仍用于工具审计和模型工具结果，但 Web 部署预览应以 `deployment.*` 为主事实。所有 `deployment.*` payload 必须脱敏，不包含私钥内容、私钥路径、SSH agent 细节、远程 root path、密码、token、secret env 或未截断的大输出。Runtime 重启后的历史 replay 可以恢复部署事实，但连接状态必须被视为 disconnected/stale，不能声称旧 SSH 长连接仍 alive。
 
 `system_agent.completed` 是 Runtime 内部系统智能体的结果事件。首版只支持 `agentId = "system:title"`，用于把会话第一条用户输入生成的短标题作为同一条 Run SSE 流的一部分交给上游消费方。标题生成不包含第一轮智能体输出；如果首次自动标题错过而 `titleSource` 仍为 `default`，后续 Run 可以使用 `conversationState.titleSeedUserMessage` 重试。标题结果一旦 ready 且 Run 仍未结束，Runtime 会立即输出该事件；主智能体完成时仅保留一个很短的 flush 宽限时间作为兜底。若模型标题没有赶上或生成失败，Runtime 会在 `run.completed` 前输出一个基于首条用户消息的确定性 fallback 标题事件，然后取消后台标题任务；Run 被取消时仍静默跳过。该事件不表示 Runtime 已经更新业务状态，HubServer 后续接入时负责条件落库。
 
@@ -171,7 +185,127 @@ Runtime 使用 `messageId` 表示一次可聚合的智能体消息容器。`mess
 - 外部 provider tool events 的 `data` 可携带 `externalProvider`、`providerSessionId`、`providerEventId`、`providerToolCallId`、`providerToolName`、`providerExecuted`、`providerMetadata` 以及脱敏后的 `input` / `output` / `error`。Web 可以按普通 timeline 工具卡渲染，但不应把它们用于 AgentHub 内部工具授权或 Tool Catalog 配置。
 - `messageIndex` 可先落入 `Message.metadataJson.runtime.messageIndex`；若后续需要强排序字段，可以再做破坏性迁移。
 
-## 5. Generation Metadata
+### Permission Review Payloads
+
+`permission.requested.data` 是 Runtime permission request 记录。需要用户审批的工具必须在该记录的嵌套 `data` 中提供可安全展示的审批摘要，供用户判断是否允许执行；Web 和 HubServer 产品 envelope 不得把权限卡退化成只有 `toolName` 或“目标”。这些摘要仍必须脱敏，不包含凭据、headers、secret env、宿主机绝对路径、私钥路径、SSH agent 信息或完整 provider 私有 payload。
+
+当前稳定审批摘要至少覆盖：
+
+- `run_deploy_command`：`permissionType = "deployment"`、`approvalReason = "deployment_command"`，并包含 `serverDisplayName`、`user`、`command`、`cwd` 和 `reason`。
+- `bash`：`permissionType = "command_execute"`、`approvalReason = "bash_command"`，并包含 `command`、`cwd`、`shell`、`matchedRule` 和 `ruleAction`。
+- `web_fetch`：`permissionType = "network_access"`、`approvalReason = "network_request"`，并包含脱敏后的 `method`、`url` 和 `host`。
+- workspace/file access approval：包含 `logicalPath`、`accessMode`、`targetKind` 和 `approvalReason`，路径必须是 workspace-relative 或授权挂载逻辑路径。
+- 外部 adapter permission：保留 `externalProvider`、`permissionKind`、脱敏后的 `patterns` 或 provider 摘要字段，不能把外部 provider 原始权限对象直接暴露给 Web。
+
+HubServer replay 和 Web timeline projection 必须保留这些字段，以便刷新、切会话和 pending permission 恢复后仍能看到同样的审批详情。
+
+## 5. Deployment Events
+
+所有部署事件共享以下基础字段：
+
+```ts
+type DeploymentEventBase = {
+  deploymentId: string
+  conversationId: string
+  server?: {
+    id: string
+    displayName: string
+    hostLabel?: string
+    port?: number
+    user?: string
+  }
+  connectionId?: string
+}
+```
+
+稳定事件载荷：
+
+```ts
+type DeploymentStarted = DeploymentEventBase & {
+  status: "running"
+  title?: string
+  strategy?: "docker_compose" | "docker" | "static" | "custom" | "unknown"
+}
+
+type DeploymentConnectionChanged = DeploymentEventBase & {
+  connectionStatus: "connecting" | "connected" | "disconnecting" | "disconnected" | "failed" | "stale"
+  reason?: string
+}
+
+type DeploymentProgressUpdated = DeploymentEventBase & {
+  percent?: number
+  currentStep?: number
+  totalSteps?: number
+  stepId?: string
+  stepTitle?: string
+  message: string
+  health?: {
+    url: string
+    ok: boolean
+    status?: number
+    durationMs?: number
+    error?: string
+  }
+}
+
+type DeploymentCommandStarted = DeploymentEventBase & {
+  commandId: string
+  command: string
+  cwd?: string
+  reason?: string
+  startedAt: string
+}
+
+type DeploymentLogAppended = DeploymentEventBase & {
+  commandId?: string
+  stream: "stdout" | "stderr" | "system"
+  text: string
+  truncated?: boolean
+}
+
+type DeploymentCommandCompleted = DeploymentEventBase & {
+  commandId: string
+  exitCode: number
+  durationMs?: number
+}
+
+type DeploymentCommandFailed = DeploymentEventBase & {
+  commandId: string
+  exitCode?: number
+  signal?: string
+  durationMs?: number
+  error: { code: string; message: string }
+}
+
+type DeploymentReleaseNoteUpdated = DeploymentEventBase & {
+  releaseNote: string
+}
+
+type DeploymentPreviewRequested = DeploymentEventBase & {
+  url: string
+  openMode: "preview-tab" | "browser-tab"
+  label?: string
+}
+
+type DeploymentTerminal = DeploymentEventBase & {
+  status: "completed" | "failed" | "cancelled"
+  deploymentUrl?: string
+  health?: {
+    url: string
+    ok: boolean
+    status?: number
+    durationMs?: number
+    error?: string
+  }
+  summary?: string
+}
+```
+
+`deployment.preview.requested` 是 live-only action event：Web 只在 live SSE 中打开 preview/browser tab；历史 replay 只恢复 URL 和 label，不再次打开标签页。HubServer 持久化原始事件时保留该事件，产品 envelope 可带 `replayMode` 或由 Web 的 replay/live 调用点区分。
+
+SSH 连接、认证或 ready timeout 失败时，Runtime 必须输出 `deployment.connection.changed` 且 `connectionStatus = "failed"`，`reason` 为脱敏后的简短原因。连接建立后的 `ssh2` late `error` / `close` / `end` 事件不能逃逸成 Runtime 进程异常；连接管理器应将该连接标记为 failed 或 disconnected、删除内存连接，并输出对应 `deployment.connection.changed`。
+
+## 6. Generation Metadata
 
 AI SDK 和 Orchestrator 执行器会在现有 Runtime event `data` 内附加可选 `generation` 字段。该字段不替代完整 raw 事件和旧兼容字段，只作为 Web 展示模型名、tokens 与后续统计的轻量索引。
 
@@ -223,7 +357,7 @@ type RuntimeExternalModel = {
 - HubServer 可将该值投影到 assistant `Message.metadataJson.runtime.externalModel`，并在产品 Run replay 中原样保留。
 - Web 展示时优先使用 `modelName`；若缺失，可将 `modelId` 人类可读化作为 fallback。未出现 `externalModel` 时应保持未知或不展示，不能从 AgentHub 当前 agent 绑定推断。
 
-## 6. AI SDK Part Passthrough
+## 7. AI SDK Part Passthrough
 
 `model.stream.part` 是 AI SDK `streamText().fullStream` part 的薄封装。它用于调试、细粒度 UI 和未来事件投影，不替代现有高层 RunEvent。
 
@@ -273,7 +407,7 @@ type ModelStreamPartEventData = {
 
 `raw` part 仅在 `includeRawModelChunks=true` 时输出。
 
-## 7. Reasoning Events
+## 8. Reasoning Events
 
 `reasoning.*` 是从 AI SDK reasoning part 提升出的稳定 RunEvent。它只表示 provider 或 AI SDK 显式暴露的 reasoning/thinking 内容，不表示 Runtime 能访问隐藏链路。
 
@@ -304,14 +438,14 @@ model.stream.part
 reasoning.started | reasoning.delta | reasoning.completed
 ```
 
-## 8. Ordering And Compatibility
+## 9. Ordering And Compatibility
 
 - 对于 `text-start/text-delta/text-end`，Runtime 先输出 `model.stream.part`，再按文本块输出 `message.delta` 或 `message.completed`。
 - 对于 reasoning part，Runtime 先输出 `model.stream.part`，再输出对应 `reasoning.*`。
 - 工具调用仍以 `tool.*`、`permission.*`、`question.*` 和 `task.*` 作为稳定语义事件；`model.stream.part` 中的 tool part 只作为模型流追踪。
 - 后续如果需要把 `source`、`file`、`tool-input-*` 等提升为独立 RunEvent，应从 `model.stream.part` 增量投影，不改变现有高层事件语义。
 
-## 9. Redaction And Serialization
+## 10. Redaction And Serialization
 
 Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
@@ -326,7 +460,7 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
 `raw` part 可能包含 provider 原始内容，默认关闭。需要调试 provider 新特性时，调用方必须显式设置 `includeRawModelChunks=true`。
 
-## 10. Network Permission Payload
+## 11. Network Permission Payload
 
 `web_fetch` 在 `permissionPolicy.network = "limited"` 时产生标准 `permission.requested`。事件的 `data` 仍是 Runtime permission request 记录，其中 `data.data` 包含网络审批摘要：
 
@@ -347,7 +481,7 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
 批准后 Runtime 发送 `permission.approved`，并在同一 `runId + toolCallId` 上继续执行 `web_fetch`；拒绝后发送 `permission.denied` 和 `tool.failed(TOOL_EXECUTION_DENIED)`。
 
-## 10. Command Permission Payload
+## 12. Command Permission Payload
 
 `bash` 在命令规则命中 `ask` 时产生标准 `permission.requested`。事件的 `data` 仍是 Runtime permission request 记录，其中 `data.data` 包含命令审批摘要：
 
@@ -370,7 +504,30 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
 批准后 Runtime 发送 `permission.approved`，并在同一 `runId + toolCallId` 上继续执行 `bash`；拒绝后发送 `permission.denied` 和 `tool.failed(TOOL_EXECUTION_DENIED)`。命令规则命中 `deny` 时不产生权限请求，也不产生 `tool.started`，直接输出 `tool.failed(BASH_COMMAND_DENIED)`。
 
-## 11. Question Payload
+## 13. Deployment Command Permission Payload
+
+`run_deploy_command` 使用部署审批语义，不复用本机 `bash` 规则。V1 每条远程命令都产生标准 `permission.requested`，事件的 `data` 仍是 Runtime permission request 记录，其中 `data.data` 包含远程命令审批摘要。`cwd` 是本次命令的展示用工作目录或工具输入值，不能来自保存的服务器 root path secret。
+
+```json
+{
+  "requestId": "permission_xxx",
+  "toolName": "run_deploy_command",
+  "status": "pending",
+  "data": {
+    "permissionType": "deployment",
+    "approvalReason": "deployment_command",
+    "serverDisplayName": "Production VPS",
+    "user": "deploy",
+    "command": "docker compose up -d --build",
+    "cwd": ".",
+    "reason": "Start the Docker Compose deployment requested by the user"
+  }
+}
+```
+
+批准后 Runtime 发送 `permission.approved`，并在同一 `runId + toolCallId` 上继续执行远程命令。审批通过前不得输出 `deployment.command.started`，拒绝后发送 `permission.denied` 和 `tool.failed(TOOL_EXECUTION_DENIED)`，已有 SSH 连接保持不变。
+
+## 14. Question Payload
 
 `question` 是 interaction tool，不是 permission。内部 AI SDK 模型调用后 Runtime 发送 `tool.started`，随后发送 `question.requested`。外部 adapter 也可以通过 waitable external question bridge 复用同一事件组；例如 Claude Code `onUserDialog` 或 `canUseTool("AskUserQuestion")` 会生成 `question.*`，而不是伪装成 `permission.*`。
 
@@ -407,7 +564,7 @@ Runtime 在输出 `model.stream.part.data.part` 前会做 JSON 化和脱敏：
 
 用户提交答案后 Runtime 发送 `question.answered`，`data.answers` 包含 `{ questionId, optionId?, answer?, custom }`，并发送 `tool.completed(toolName="question")`。取消 Run 时 Runtime 发送 `question.cancelled` 和 `tool.failed`，错误码为 `QUESTION_CANCELLED`。当没有其他 active task 时，pending question 会使 Run 进入 `waiting_input`。
 
-## 12. Task File Lock Payload
+## 15. Task File Lock Payload
 
 `task.started`、`task.completed`、`task.failed` 的 `data.task` 是 Orchestrator delegated task 的结构化快照，其中 `data.task.lockPaths` 表示本次 `run_task` 声明的 workspace-relative 文件锁路径。未声明锁时该字段为 `[]`。
 

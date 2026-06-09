@@ -52,7 +52,7 @@ export type WorkspaceFocusRequest = {
   id: string
   tabType: SingletonTabId
   conversationId?: string
-  reason: "manual" | "plan"
+  reason: "manual" | "plan" | "deployment"
   reasonKey: string
 }
 

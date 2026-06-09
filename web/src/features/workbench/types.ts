@@ -32,6 +32,90 @@ export type Agent = {
 
 export type ArtifactKind = "code" | "preview" | "diff" | "deploy"
 
+export type DeploymentConnectionStatus =
+  | "connecting"
+  | "connected"
+  | "disconnecting"
+  | "disconnected"
+  | "failed"
+  | "stale"
+
+export type DeploymentServerSnapshot = {
+  id: string
+  displayName: string
+  hostLabel?: string
+  port?: number
+  user?: string
+}
+
+export type DeploymentProgressSnapshot = {
+  percent?: number
+  currentStep?: number
+  totalSteps?: number
+  stepId?: string
+  stepTitle?: string
+  message: string
+  updatedAt: string
+}
+
+export type DeploymentCommandSnapshot = {
+  commandId: string
+  command?: string
+  cwd?: string
+  reason?: string
+  status: "running" | "completed" | "failed"
+  exitCode?: number
+  signal?: string
+  durationMs?: number
+  error?: Record<string, unknown>
+  startedAt?: string
+  completedAt?: string
+}
+
+export type DeploymentLogSnapshot = {
+  timestamp: string
+  commandId?: string
+  stream: "stdout" | "stderr" | "system"
+  text: string
+  truncated?: boolean
+}
+
+export type DeploymentHealthSnapshot = {
+  url: string
+  ok: boolean
+  status?: number
+  durationMs?: number
+  error?: string
+}
+
+export type DeploymentSnapshot = {
+  version: 1
+  deploymentId: string
+  conversationId?: string
+  status: "running" | "completed" | "failed" | "cancelled"
+  title?: string
+  strategy?: string
+  server?: DeploymentServerSnapshot
+  connectionId?: string
+  connectionStatus?: DeploymentConnectionStatus
+  connectionReason?: string
+  progress?: DeploymentProgressSnapshot
+  commands: DeploymentCommandSnapshot[]
+  logs: DeploymentLogSnapshot[]
+  releaseNote?: string
+  deploymentUrl?: string
+  preview?: {
+    url?: string
+    openMode?: string
+    label?: string
+    requestedAt: string
+  }
+  health?: DeploymentHealthSnapshot
+  summary?: string
+  updatedAt: string
+  completedAt?: string
+}
+
 export type WorkspaceDiffArtifactDetail = {
   kind: "workspace-diff"
   workspaceDiff: Record<string, unknown>
@@ -197,6 +281,12 @@ export type WorkbenchTimelineToolItem = {
   order?: number
 }
 
+export type WorkbenchTimelinePermissionDetail = {
+  label: string
+  value: string
+  code?: boolean
+}
+
 export type WorkbenchTimelinePermissionItem = {
   kind: "permission"
   id: string
@@ -209,6 +299,7 @@ export type WorkbenchTimelinePermissionItem = {
   permissionKind?: string
   permissionType?: string
   target?: string
+  details?: WorkbenchTimelinePermissionDetail[]
   title: string
   reason?: string
   time: string

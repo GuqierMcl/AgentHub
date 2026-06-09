@@ -35,6 +35,22 @@ export interface RemoteServerDTO {
   updatedAt: string
 }
 
+export interface DeploymentServerSummaryDTO {
+  id: string
+  displayName: string
+  hostLabel: string
+  port: number
+  user: string
+  updatedAt: string
+}
+
+export interface DeploymentServerMaterialDTO extends DeploymentServerSummaryDTO {
+  host: string
+  username: string
+  privateKey?: string
+  agent?: string
+}
+
 export interface ImportResult {
   imported: number
   updated: number

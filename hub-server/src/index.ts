@@ -36,6 +36,7 @@ const banner = `
 
 interface HubAppDependencies {
   runtimeClient: RuntimeClient
+  runtimeInternalToken?: string
   conversationService: ConversationService
   runPersistenceService: RunPersistenceService
   hubEventBus: HubEventBus
@@ -75,6 +76,7 @@ function createHubApp(deps: HubAppDependencies): Hono {
   app.use('*', async (c: Context, next: Next) => {
     c.set('conversationService', deps.conversationService)
     c.set('runtimeClient', deps.runtimeClient)
+    c.set('runtimeInternalToken', deps.runtimeInternalToken)
     c.set('runPersistenceService', deps.runPersistenceService)
     c.set('hubEventBus', deps.hubEventBus)
     c.set('terminalService', deps.terminalService)
@@ -108,9 +110,9 @@ function createHubUrl(): string {
   return `http://${hostname}:${config.port}`
 }
 
-async function createRuntimeClient(): Promise<RuntimeClient> {
+async function createRuntimeClient(): Promise<{ runtimeClient: RuntimeClient; runtimeInternalToken?: string }> {
   if (!config.runtimeEntry && !config.runtimeBin) {
-    return new RuntimeClient(config.runtimeUrl)
+    return { runtimeClient: new RuntimeClient(config.runtimeUrl) }
   }
 
   const token = randomBytes(32).toString('hex')
@@ -136,7 +138,7 @@ async function createRuntimeClient(): Promise<RuntimeClient> {
     token,
   })
   runtimeClient.setBaseUrl(endpoint.url)
-  return runtimeClient
+  return { runtimeClient, runtimeInternalToken: token }
 }
 
 async function start(): Promise<void> {
@@ -144,7 +146,7 @@ async function start(): Promise<void> {
   fs.mkdirSync(config.dataDir, { recursive: true })
   await bootstrapDatabase({ config })
 
-  const runtimeClient = await createRuntimeClient()
+  const { runtimeClient, runtimeInternalToken } = await createRuntimeClient()
   const hubEventBus = new HubEventBus()
   const conversationService = new ConversationService(hubEventBus)
   const runPersistenceService = new RunPersistenceService(runtimeClient, hubEventBus)
@@ -154,6 +156,7 @@ async function start(): Promise<void> {
 
   const app = createHubApp({
     runtimeClient,
+    runtimeInternalToken,
     conversationService,
     runPersistenceService,
     hubEventBus,

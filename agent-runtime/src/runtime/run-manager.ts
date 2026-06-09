@@ -27,11 +27,13 @@ import {
   type SystemAgentCompletedData,
 } from "./system-agents"
 import { RuntimeToolRegistry, createDefaultRuntimeToolRegistry } from "./tools"
+import type { ToolExecutionResult } from "./tools"
 import { RuntimePermissionError, RuntimePermissionService } from "./permissions"
 import type { SystemModelSettingsService } from "./system-model-settings"
 import type { SkillContentResolution, SkillContentService } from "./skill-content"
 import type { WorkspaceSkillTrustService } from "./workspace-skill-trust"
 import type { McpRuntimeContext, McpRuntimeService } from "./mcp-runtime"
+import type { DeploymentService } from "./deployment"
 import { WorkspaceError, WorkspaceService } from "./workspace"
 import {
   WorkspaceDiffService,
@@ -276,7 +278,8 @@ export class RunManager {
     systemModelSettingsService?: SystemModelSettingsService,
     private skillContentService?: SkillContentService,
     private workspaceSkillTrustService?: WorkspaceSkillTrustService,
-    private mcpRuntimeService?: McpRuntimeService
+    private mcpRuntimeService?: McpRuntimeService,
+    private deploymentService?: DeploymentService
   ) {
     this.entryResolver = new EntryResolver(agentRegistry)
     this.toolRegistry = toolRegistry
@@ -629,6 +632,7 @@ export class RunManager {
     this.updateRunStatus(run, "cancelled")
     const workspaceDiff = await this.resolveWorkspaceDiffSummary(runId)
     this.fileLockManager.releaseByRun(runId)
+    this.deploymentService?.closeRunConnections?.(runId, (event) => this.emit(event))
     state?.workspaceService?.close()
     this.emit(createRunEvent(runId, "run.cancelled", undefined, {
       reason: "cancelled_by_request",
@@ -731,6 +735,7 @@ export class RunManager {
 
       this.updateRunStatus(run, "completed")
       const workspaceDiff = await this.resolveWorkspaceDiffSummary(runId)
+      this.deploymentService?.closeRunConnections?.(runId, (event) => this.emit(event))
       this.emit(createRunEvent(runId, "run.completed", undefined, {
         status: "completed",
         ...(workspaceDiff ? { workspaceDiff } : {}),
@@ -760,6 +765,7 @@ export class RunManager {
       }
       const workspaceDiff = await this.resolveWorkspaceDiffSummary(runId)
       this.updateRunStatus(run, "failed")
+      this.deploymentService?.closeRunConnections?.(runId, (event) => this.emit(event))
       this.emit(createRunEvent(runId, "run.failed", undefined, {
         ...run.error,
         ...(workspaceDiff ? { workspaceDiff } : {}),
@@ -768,9 +774,28 @@ export class RunManager {
     } finally {
       if (isTerminalStatus(run.status)) {
         this.fileLockManager.releaseByRun(runId)
+        this.deploymentService?.closeRunConnections?.(runId, (event) => this.emit(event))
         this.executionState.get(runId)?.workspaceService?.close()
       }
     }
+  }
+
+  closeDeploymentConnection(connectionId: string, reason = "manual_disconnect"): ToolExecutionResult {
+    if (!this.deploymentService?.closeConnectionById) {
+      return {
+        status: "failed",
+        summary: "Deployment service is not configured",
+        error: {
+          code: "DEPLOYMENT_SERVICE_UNAVAILABLE",
+          message: "Deployment service is not configured",
+        },
+      }
+    }
+    return this.deploymentService.closeConnectionById(
+      connectionId,
+      (event) => this.emit(event),
+      reason
+    )
   }
 
   private startTitleSystemAgent(

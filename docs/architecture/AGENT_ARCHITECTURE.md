@@ -9,7 +9,7 @@
 AgentHub 的用户体验是 IM 式聊天，但 Runtime 内部需要具备更强的执行编排能力。智能体架构需要同时满足：
 
 - 用户只需要理解和选择少量“主智能体”。
-- Runtime 可以使用隐藏“子智能体”完成探索、通用推理、文件操作、部署等专门任务。
+- Runtime 可以使用隐藏“子智能体”完成探索、通用推理、文件操作等专门任务；部署由可见系统主智能体 `deploy` 承担。
 - `orchestrator` 是默认入口和核心调度器，用户没有显式指定智能体时，由它接管运行入口。
 - 系统预设主智能体、用户自定义主智能体和外部主智能体使用统一注册、统一调用和统一事件协议。
 - 子智能体不能被用户直接调用，只能由允许的主智能体委派。
@@ -23,6 +23,7 @@ AgentHub 的用户体验是 IM 式聊天，但 Runtime 内部需要具备更强�
 ```text
 Primary Agent 主智能体
   ├─ orchestrator
+  ├─ deploy
   ├─ 系统预设主智能体
   ├─ 用户自定义主智能体
   └─ 外部智能体
@@ -31,7 +32,6 @@ Subagent 子智能体
   ├─ explore
   ├─ general
   ├─ file
-  ├─ deploy
   └─ 后续扩展能力单元
 
 System Agent 系统智能体
@@ -49,9 +49,11 @@ System Agent 系统智能体
 | 类型 | 说明 | 示例 |
 | --- | --- | --- |
 | `orchestrator` | 默认入口与核心调度器，仍然属于系统预设主智能体 | `orchestrator` |
-| 系统预设主智能体 | AgentHub 内置的专业主智能体 | `coder`、`reviewer`、`writer`、`planner` |
+| 系统预设主智能体 | AgentHub 内置的专业主智能体 | `coder`、`reviewer`、`writer`、`planner`、`deploy` |
 | 用户自定义主智能体 | 用户配置 prompt、模型、能力和可用子智能体 | `my-react-agent` |
 | 外部智能体 | 通过 Adapter 接入的外部 Agent 平台 | `opencode`、`claude-code`、`codex` |
+
+`deploy` 是系统预设主智能体，不再是隐藏子智能体。用户可以在单聊或群聊中显式选择 Deploy 来执行发布工作；Orchestrator 不会把部署作为隐藏子任务委派给 `deploy`，除非未来另行设计可见主智能体委派策略。Deploy 的部署能力必须通过 Runtime Tool Registry、部署权限和审批流进入，不能通过通用 shell 或外部 adapter 旁路获得。
 
 ### 2.2 子智能体
 
@@ -66,7 +68,6 @@ MVP 子智能体建议如下：
 | `explore` | 探索上下文、项目结构、历史消息、相关文件和 Artifact | 只读 |
 | `general` | 通用推理、解释、总结、改写、轻量规划 | 无文件权限 |
 | `file` | 文件读取、写入、Patch、Diff 生成、局部编辑 | 文件读写，需授权 |
-| `deploy` | 构建、预览、部署、发布、部署状态追踪 | 高风险，需显式授权 |
 
 后续可以扩展：
 
@@ -533,7 +534,7 @@ type AgentPermissionPolicy = {
 - `general` 不应获得文件和 shell 权限。
 - `explore` 默认只读。
 - `file` 可以声明文件写能力，但写工具开放时仍必须按工具审批策略审批。
-- `deploy` 可以声明部署能力，但部署工具开放时仍必须按工具审批策略审批。
+- `deploy` 主智能体可以声明部署能力，但部署工具开放时仍必须按工具审批策略审批。用户自定义智能体当前不得选择部署工具，`permissionPolicy.deploy` 也不会因为用户配置自动提升。
 - 外部智能体需要声明真实能力，不能隐式获得全部权限。
 
 ### 5.4 外部智能体配置

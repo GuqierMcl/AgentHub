@@ -27,6 +27,12 @@ export {
   createRuntimeServicesStatus,
 } from "./service-status"
 export {
+  DefaultDeploymentService,
+  HubDeploymentServerResolver,
+  createDeploymentEvent,
+  redactDeploymentText,
+} from "./deployment"
+export {
   CapabilityDiscoveryError,
   CapabilityDiscoveryRequestSchema,
   CapabilityDiscoveryService,
@@ -110,6 +116,13 @@ export {
   RuntimeQuestionError,
 } from "./question"
 export { LocalWorkspaceBackend, WorkspaceService } from "./workspace"
+export type {
+  DeploymentCommandApprovalContext,
+  DeploymentRuntimeEventName,
+  DeploymentServerSummary,
+  DeploymentService,
+  DeploymentToolEventContext,
+} from "./deployment"
 export type {
   ExternalAdapterContext,
   ExternalAdapterExecutorDependencies,

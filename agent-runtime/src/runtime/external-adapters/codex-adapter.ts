@@ -9,6 +9,7 @@ import {
   type ExternalAdapterPrompt,
   type ExternalAgentAdapter,
 } from "./types"
+import { resolveExternalAdapterContextPacket } from "./external-context"
 
 const log = createChildLogger("codex-adapter")
 
@@ -214,16 +215,23 @@ export class CodexAdapter implements ExternalAgentAdapter {
     externalContext?: ExternalContextPacket
   ): ExternalAdapterPrompt {
     if (context.task) {
+      const contextBlock = externalContext
+        ? this.formatExternalContext(externalContext)
+        : ""
+      const taskBlock = [
+        `Task title: ${context.task.title}`,
+        `Task instruction: ${context.task.instruction}`,
+        `Expected output: ${context.task.expectedOutput}`,
+        `Risk level: ${context.task.riskLevel}`,
+        `User request: ${context.input.userMessage.content}`,
+      ].join("\n")
       return {
         scope: context.scope,
         task: context.task,
-        content: [
-          `Task title: ${context.task.title}`,
-          `Task instruction: ${context.task.instruction}`,
-          `Expected output: ${context.task.expectedOutput}`,
-          `Risk level: ${context.task.riskLevel}`,
-          `User request: ${context.input.userMessage.content}`,
-        ].join("\n"),
+        externalContext,
+        content: contextBlock
+          ? [contextBlock, "Delegated task:", taskBlock].join("\n\n")
+          : taskBlock,
       }
     }
 
@@ -245,15 +253,7 @@ export class CodexAdapter implements ExternalAgentAdapter {
   }
 
   private resolveExternalContext(context: ExternalAdapterContext): ExternalContextPacket | undefined {
-    if (context.task) {
-      return undefined
-    }
-
-    return context.input.externalContext?.find((packet) =>
-      packet.provider === this.provider &&
-      packet.agentId === context.agent.id &&
-      packet.scope === context.scope
-    )
+    return resolveExternalAdapterContextPacket(context, this.provider)
   }
 
   private formatExternalContext(packet: ExternalContextPacket): string {

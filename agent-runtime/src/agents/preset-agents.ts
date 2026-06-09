@@ -2,7 +2,17 @@ import type { AgentDefinition } from "./types"
 import { DEFAULT_PRESET_BASH_PERMISSION_RULES } from "./bash-permission-rules"
 import { presetAgentSystemPrompts } from "./preset-agent-prompts"
 
-const orchestrationSubagents = ["explore", "general", "file", "deploy"]
+const orchestrationSubagents = ["explore", "general", "file"]
+
+const deploymentTools = [
+  "list_deploy_servers",
+  "connect_deploy_server",
+  "run_deploy_command",
+  "update_deployment_status",
+  "close_deploy_connection",
+  "upload_deploy_artifact",
+  "check_deployment_url",
+]
 
 export const presetAgents: AgentDefinition[] = [
   {
@@ -136,6 +146,38 @@ export const presetAgents: AgentDefinition[] = [
     },
     toolPermissionRules: {
       bash: DEFAULT_PRESET_BASH_PERMISSION_RULES,
+    },
+    enabled: true,
+    readonly: true,
+  },
+  {
+    id: "deploy",
+    name: "Deploy",
+    description: "分析项目部署需求，连接受控 SSH 服务器，执行经过审批的发布流程并同步部署预览状态。",
+    tier: "primary",
+    origin: "system",
+    visibility: "visible",
+    entryPolicy: "callable",
+    delegationPolicy: "terminal",
+    executorType: "ai-sdk",
+    systemPrompt: presetAgentSystemPrompts.deploy,
+    capabilities: ["deployment", "ssh", "docker", "publish-status"],
+    allowedSubagents: [],
+    allowedTools: [
+      ...deploymentTools,
+      "question",
+      "web_fetch",
+      "ls",
+      "read_file",
+      "glob",
+      "grep",
+    ],
+    allowedSkills: [],
+    permissionPolicy: {
+      filesystem: "read",
+      shell: "none",
+      network: "full",
+      deploy: "publish",
     },
     enabled: true,
     readonly: true,

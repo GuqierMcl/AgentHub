@@ -7,6 +7,7 @@ import type {
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
   WorkbenchTimelinePermissionItem,
+  WorkbenchTimelinePermissionDetail,
   WorkbenchTimelinePlanItem,
   WorkbenchTimelinePlanTask,
   WorkbenchTimelineQuestion,
@@ -616,6 +617,7 @@ function createPermissionItem(
     getString(requestData?.permissionType) ??
     current?.permissionType
   const target = resolvePermissionTarget(data, requestData, event, current)
+  const details = createPermissionDetails(data, requestData, event) ?? current?.details
   return {
     kind: "permission",
     id: `permission:${event.runId}:${requestId}`,
@@ -628,6 +630,7 @@ function createPermissionItem(
     permissionKind,
     permissionType,
     target,
+    details,
     title: formatPermissionTitle({
       externalProvider,
       permissionKind,
@@ -666,14 +669,118 @@ function resolvePermissionTarget(
 ): string | undefined {
   return (
     getString(data.target) ??
+    getString(requestData?.command) ??
+    getString(data.command) ??
     getString(requestData?.logicalPath) ??
+    getString(data.logicalPath) ??
     getString(requestData?.url) ??
+    getString(data.url) ??
     getString(requestData?.host) ??
+    getString(data.host) ??
     firstString(requestData?.patterns) ??
     firstString(data.patterns) ??
     current?.target ??
     event.toolName
   )
+}
+
+function createPermissionDetails(
+  data: Record<string, unknown>,
+  requestData: Record<string, unknown> | undefined,
+  event: RuntimeRunEvent
+): WorkbenchTimelinePermissionDetail[] | undefined {
+  const approvalReason = getPermissionString(data, requestData, "approvalReason")
+  const permissionType = getPermissionString(data, requestData, "permissionType")
+
+  if (
+    approvalReason === "deployment_command" ||
+    permissionType === "deployment" ||
+    event.toolName === "run_deploy_command"
+  ) {
+    return compactPermissionDetails([
+      permissionDetail("服务器", getPermissionString(data, requestData, "serverDisplayName")),
+      permissionDetail("用户", getPermissionString(data, requestData, "user")),
+      permissionDetail("命令", getPermissionString(data, requestData, "command"), true),
+      permissionDetail("工作目录", getPermissionString(data, requestData, "cwd"), true),
+      permissionDetail("部署原因", getPermissionString(data, requestData, "reason")),
+    ])
+  }
+
+  if (
+    approvalReason === "bash_command" ||
+    permissionType === "command_execute" ||
+    event.toolName === "bash"
+  ) {
+    const matchedRule = getPermissionString(data, requestData, "matchedRule")
+    const ruleAction = getPermissionString(data, requestData, "ruleAction")
+    return compactPermissionDetails([
+      permissionDetail("命令", getPermissionString(data, requestData, "command"), true),
+      permissionDetail("工作目录", getPermissionString(data, requestData, "cwd"), true),
+      permissionDetail("Shell", getPermissionString(data, requestData, "shell")),
+      permissionDetail(
+        "规则",
+        matchedRule ? `${matchedRule}${ruleAction ? ` -> ${ruleAction}` : ""}` : undefined
+      ),
+    ])
+  }
+
+  if (
+    approvalReason === "network_request" ||
+    permissionType === "network_access" ||
+    event.toolName === "web_fetch"
+  ) {
+    return compactPermissionDetails([
+      permissionDetail("方法", getPermissionString(data, requestData, "method")),
+      permissionDetail("URL", getPermissionString(data, requestData, "url"), true),
+      permissionDetail("Host", getPermissionString(data, requestData, "host")),
+    ])
+  }
+
+  const logicalPath = getPermissionString(data, requestData, "logicalPath")
+  const accessMode = getPermissionString(data, requestData, "accessMode")
+  const targetKind = getPermissionString(data, requestData, "targetKind")
+  if (logicalPath || accessMode || targetKind) {
+    return compactPermissionDetails([
+      permissionDetail("路径", logicalPath, true),
+      permissionDetail("访问模式", accessMode),
+      permissionDetail("目标类型", targetKind),
+      permissionDetail("审批原因", approvalReason),
+    ])
+  }
+
+  const permissionKind = getPermissionString(data, requestData, "permissionKind")
+  const patterns = firstString(requestData?.patterns) ?? firstString(data.patterns)
+  return compactPermissionDetails([
+    permissionDetail("权限类型", permissionKind ?? permissionType),
+    permissionDetail("目标", patterns, true),
+    permissionDetail("审批原因", approvalReason),
+  ])
+}
+
+function getPermissionString(
+  data: Record<string, unknown>,
+  requestData: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  return getString(requestData?.[key]) ?? getString(data[key])
+}
+
+function permissionDetail(
+  label: string,
+  value: string | undefined,
+  code = false
+): WorkbenchTimelinePermissionDetail | undefined {
+  if (!value) return undefined
+  return code ? { label, value, code: true } : { label, value }
+}
+
+function compactPermissionDetails(
+  details: Array<WorkbenchTimelinePermissionDetail | undefined>
+): WorkbenchTimelinePermissionDetail[] | undefined {
+  const compacted = details.filter(
+    (detail): detail is WorkbenchTimelinePermissionDetail => Boolean(detail)
+  )
+  return compacted.length > 0 ? compacted : undefined
 }
 
 function applyQuestionEvent(

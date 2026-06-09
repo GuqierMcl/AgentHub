@@ -285,6 +285,142 @@ describe("tool output projection", () => {
 })
 
 describe("permission projection", () => {
+  it("preserves deployment command approval details for review", () => {
+    const chat = chatMessage(project([
+      event(
+        "permission.requested",
+        {
+          requestId: "permission_deploy_command",
+          reason: "Deploy wants to run a remote deployment command.",
+          data: {
+            permissionType: "deployment",
+            approvalReason: "deployment_command",
+            serverDisplayName: "Production",
+            user: "deploy",
+            command: "docker compose up -d --build",
+            cwd: "/srv/app",
+            reason: "Publish the latest application image",
+          },
+        },
+        {
+          toolCallId: "tool_deploy_command",
+          toolName: "run_deploy_command",
+        }
+      ),
+    ]))
+
+    expect(chat.permissionItems?.[0]).toMatchObject({
+      target: "docker compose up -d --build",
+      details: [
+        { label: "服务器", value: "Production" },
+        { label: "用户", value: "deploy" },
+        { label: "命令", value: "docker compose up -d --build", code: true },
+        { label: "工作目录", value: "/srv/app", code: true },
+        { label: "部署原因", value: "Publish the latest application image" },
+      ],
+    })
+  })
+
+  it("preserves bash command approval details for review", () => {
+    const chat = chatMessage(project([
+      event(
+        "permission.requested",
+        {
+          requestId: "permission_bash_command",
+          reason: "Coder wants to run npm test.",
+          data: {
+            permissionType: "command_execute",
+            approvalReason: "bash_command",
+            command: "npm test",
+            cwd: ".",
+            matchedRule: "npm *",
+            ruleAction: "ask",
+            shell: "powershell.exe",
+          },
+        },
+        {
+          toolCallId: "tool_bash",
+          toolName: "bash",
+        }
+      ),
+    ]))
+
+    expect(chat.permissionItems?.[0]).toMatchObject({
+      target: "npm test",
+      details: [
+        { label: "命令", value: "npm test", code: true },
+        { label: "工作目录", value: ".", code: true },
+        { label: "Shell", value: "powershell.exe" },
+        { label: "规则", value: "npm * -> ask" },
+      ],
+    })
+  })
+
+  it("preserves network request approval details for review", () => {
+    const chat = chatMessage(project([
+      event(
+        "permission.requested",
+        {
+          requestId: "permission_network",
+          reason: "Coder wants to fetch external docs.",
+          data: {
+            permissionType: "network_access",
+            approvalReason: "network_request",
+            method: "GET",
+            url: "https://example.com/search?redacted",
+            host: "example.com",
+          },
+        },
+        {
+          toolCallId: "tool_fetch",
+          toolName: "web_fetch",
+        }
+      ),
+    ]))
+
+    expect(chat.permissionItems?.[0]).toMatchObject({
+      target: "https://example.com/search?redacted",
+      details: [
+        { label: "方法", value: "GET" },
+        { label: "URL", value: "https://example.com/search?redacted", code: true },
+        { label: "Host", value: "example.com" },
+      ],
+    })
+  })
+
+  it("preserves workspace approval details for review", () => {
+    const chat = chatMessage(project([
+      event(
+        "permission.requested",
+        {
+          requestId: "permission_workspace",
+          reason: "Coder needs to write a file outside the default grant.",
+          data: {
+            workspaceId: "workspace_1",
+            logicalPath: "mounts/docs/README.md",
+            targetKind: "file",
+            accessMode: "write",
+            approvalReason: "write_file",
+          },
+        },
+        {
+          toolCallId: "tool_write",
+          toolName: "write_file",
+        }
+      ),
+    ]))
+
+    expect(chat.permissionItems?.[0]).toMatchObject({
+      target: "mounts/docs/README.md",
+      details: [
+        { label: "路径", value: "mounts/docs/README.md", code: true },
+        { label: "访问模式", value: "write" },
+        { label: "目标类型", value: "file" },
+        { label: "审批原因", value: "write_file" },
+      ],
+    })
+  })
+
   it("labels OpenCode external permission requests with provider source and kind", () => {
     const items = project([
       event(

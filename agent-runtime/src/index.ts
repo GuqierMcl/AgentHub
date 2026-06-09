@@ -15,6 +15,8 @@ import {
   WorkspaceSkillTrustService,
   WorkspaceRevertService,
   createDefaultRuntimeToolRegistry,
+  DefaultDeploymentService,
+  HubDeploymentServerResolver,
 } from './runtime'
 import {
   InstructAgentExecutor,
@@ -47,7 +49,13 @@ app.use("*", createRuntimeTokenAuthMiddleware(process.env.AGENTHUB_RUNTIME_TOKEN
 
 // 初始化 ProviderService
 const providerService = new ProviderService(config.dataDir)
-const toolRegistry = createDefaultRuntimeToolRegistry()
+const deploymentService = new DefaultDeploymentService({
+  resolver: new HubDeploymentServerResolver({
+    hubCallback: config.hubCallback,
+    runtimeToken: process.env.AGENTHUB_RUNTIME_TOKEN,
+  }),
+})
+const toolRegistry = createDefaultRuntimeToolRegistry({ deploymentService })
 const agentRegistry = new AgentRegistry(config.dataDir, toolRegistry)
 const systemModelSettingsService = new SystemModelSettingsService(
   new SystemModelSettingsStore(config.dataDir),
@@ -70,7 +78,8 @@ const runManager = new RunManager(
   systemModelSettingsService,
   skillContentService,
   workspaceSkillTrustService,
-  mcpRuntimeService
+  mcpRuntimeService,
+  deploymentService
 )
 const workspaceRevertService = new WorkspaceRevertService()
 
@@ -93,6 +102,7 @@ app.use('*', async (c: Context, next: Next) => {
   c.set('agentRegistry', agentRegistry)
   c.set('runManager', runManager)
   c.set('workspaceRevertService', workspaceRevertService)
+  c.set('deploymentService', deploymentService)
   c.set('capabilityDiscoveryService', capabilityDiscoveryService)
   c.set('workspaceSkillTrustService', workspaceSkillTrustService)
   c.set('mcpTrustService', mcpTrustService)

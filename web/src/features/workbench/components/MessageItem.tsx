@@ -1243,7 +1243,7 @@ function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }
   return (
     <Confirmation
       approval={approval}
-      className="max-w-[min(720px,100%)]"
+      className="min-w-0 max-w-[min(720px,100%)]"
       state={item.status}
     >
       <ConfirmationTitle>
@@ -1259,10 +1259,31 @@ function PermissionBlockView({ item }: { item: WorkbenchTimelinePermissionItem }
         </ConfirmationRejected>
       </ConfirmationTitle>
       {sourceLabel || item.target ? (
-        <div className="text-muted-foreground text-xs">
+        <div className="min-w-0 break-words text-muted-foreground text-xs">
           {sourceLabel ? `来源：${sourceLabel}` : null}
           {sourceLabel && item.target ? " · " : null}
           {item.target ? `目标：${item.target}` : null}
+        </div>
+      ) : null}
+      {item.details?.length ? (
+        <div className="grid min-w-0 gap-1 rounded-md border bg-background/70 p-2 text-xs">
+          {item.details.map((detail) => (
+            <div
+              className="grid min-w-0 gap-1 sm:grid-cols-[5rem_minmax(0,1fr)]"
+              key={`${detail.label}:${detail.value}`}
+            >
+              <div className="shrink-0 text-muted-foreground">{detail.label}</div>
+              {detail.code ? (
+                <code className="block min-w-0 overflow-x-auto whitespace-pre-wrap break-all rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">
+                  {detail.value}
+                </code>
+              ) : (
+                <div className="min-w-0 break-words text-foreground">
+                  {detail.value}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       ) : null}
       <ConfirmationActions>

@@ -68,9 +68,9 @@ bun agent-runtime/index.js
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `--port` | number | 否 | Agent Runtime 监听端口，默认 `3001` |
-| `--hostname` | string | 否 | 监听地址，默认 `127.0.0.1`；`--host` 只能作为兼容别名 |
-| `--hub-callback` | string | 否 | HubServer 回调地址，用于 Runtime 反向通知 |
+| `--port` | number | 否 | Agent Runtime 监听端口，默认 `4096` |
+| `--hostname` | string | 否 | 监听地址，默认 `127.0.0.1` |
+| `--hub-callback` | string | 否 | HubServer 回调地址，用于 Runtime 反向通知；开发态默认 `http://127.0.0.1:3000`，生产由 HubServer sidecar 启动参数传入 |
 | `--workdir` | string | 否 | Runtime 进程级工作目录；不再作为普通 Run 文件工具的隐式 workspace |
 | `--data-dir` | string | 否 | Runtime 配置数据目录 |
 | `--log-level` | string | 否 | 日志级别：`debug` / `info` / `warn` / `error`，默认 `info` |
@@ -82,7 +82,7 @@ bun agent-runtime/index.js
 开发环境示例：
 
 ```bash
-cd agent-runtime && bun dev -- --port 3001
+cd agent-runtime && bun dev -- --port 4096
 ```
 
 生产环境由 HubServer 自动拉起，无需手动启动。
@@ -268,7 +268,7 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - `POST /runtime/agents`、`PUT /runtime/agents/:id`、`DELETE /runtime/agents/:id` 可以管理用户自定义主智能体；首版只支持 `origin = "user"`、`executorType = "ai-sdk"` 的可见主智能体。
 - `PUT /runtime/agents/:agentId/model` 可以为可见、启用的内部主智能体绑定 provider/model，外部智能体和隐藏子智能体不可绑定。
 - `POST /runtime/runs` 可以接收单聊或群聊 RunInput，并通过 `EntryResolver` 实现单聊入口、群聊默认 `orchestrator`、群聊显式 @ 单个主智能体。
-- `coder`、`reviewer`、`writer`、`planner` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和非内部 Runtime Tools。
+- `coder`、`reviewer`、`writer`、`planner` 和 `deploy` 作为内部系统预设主智能体，已经走 `AiSdkExecutor`、模型解析、系统提示词、流式 `message.*` 事件和各自允许的非内部 Runtime Tools。`deploy` 是可见、可直接调用的系统主智能体，不再作为隐藏子智能体委派。
 - `orchestrator` 已走真实 AI SDK tool calling，能够使用 `write_plan` 输出 UI 可渲染计划，并使用 `run_task` 委派当前 Run participants 中的其他主智能体或自身 `allowedSubagents` 中的子智能体；`run_task.lockPaths` 已提供 P1 声明式文件锁 V0，用于规避已知文件的并发委派写入冲突。
 - `GET /runtime/runs/:runId/events` 可以 replay 和继续推送 `run.*`、`agent.*`、`message.*`、`tool.*`、`task.*`、`model.stream.part`、`reasoning.*`、完整 `permission.*` 与 `question.*` 事件。
 - Runtime 已支持 `waiting_approval`：沙箱外读取、workspace 内敏感读取、沙箱外敏感读取、敏感写入和沙箱外写入请求审批后，通过 permission decision API 在同一个 Run 中批准、拒绝或取消，并恢复原执行分支。
@@ -285,7 +285,7 @@ AI SDK `streamText().fullStream` 的底层 part 通过 `model.stream.part` 薄�
 - 前端已能从 `tool.completed(toolName="write_plan")` 投影当前计划，并在右侧“会话状态”面板展示；`task.*`、`tool.*`、`permission.*`、`reasoning.*` 已有 live timeline UI，但持久化恢复仍主要依赖原始 RunEvent，完整产品级 parts 投影留待后续阶段。
 - HubServer 还未提供面向浏览器的自定义 Agent 管理 API 和配置 UI；当前 CRUD 仍是 Runtime 内部 API。
 - 权限审批和用户问答已具备产品级 API 代理、事件持久化和前端交互；更完整的产品级 MessagePart/Artifact 投影仍在后续阶段。
-- 隐藏子智能体 `explore`、`general`、`file`、`deploy` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。
+- 隐藏子智能体 `explore`、`general`、`file` 已切换到 AI SDK 执行器并继承调用方模型；后续仍需为不同子智能体继续细化专用系统提示词与高风险工具策略。`deploy` 已提升为可见系统主智能体，部署工具只对该主智能体开放，不进入用户自定义智能体 authoring options。
 - 外部智能体 `opencode`、`claude-code` 与 `codex` 已进入 `ExternalAdapterExecutor`，并以可见主智能体身份参与单聊、群聊显式调用和 Orchestrator delegated task。OpenCode 默认使用真实 OpenCode client，Runtime 已接入 `@opencode-ai/sdk/v2`，在 SDK 暴露安全 workspace 启动参数时可走 managed server；当前 SDK 未暴露 cwd/workdir/projectPath 时，使用 `opencode serve` 子进程以 workspace root 为 `cwd` 启动，并通过 `project.current` / `path.get` 校验 workspace。Claude Code 默认使用 `@anthropic-ai/claude-agent-sdk` 的 `query()` async generator，`cwd` 固定为绑定 workspace root，可通过 `resume` 复用 HubServer 注入的 provider session hint，并通过 `canUseTool` 与 `onUserDialog` 桥接权限和用户问答；其中 `AskUserQuestion` 即使从 `canUseTool` 进入也必须走 question bridge，不产生权限审批。Codex 默认使用 `@openai/codex-sdk` 的 `startThread()` / `resumeThread(threadId)` 与 `thread.runStreamed()` / `thread.run()`，`cwd` 固定为绑定 workspace root，首轮 thread id 可通过 `session.updated` 回传真实 provider session。HubServer 已具备 provider-aware 外部 Session 映射、direct context bridge、通用 Workspace Diff 投影，以及 OpenCode/Claude Code/Codex 的 event stream/tool timeline 映射。
 - 文件系统工具目前已开放 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep`；Shell 工具目前已开放 `bash` 给内部预设主智能体；Workspace Diff、只读 Diff Viewer、ChangeSet 归因和可靠 Diff 的完整 Run 级撤销 V0 已开放。单文件/单 hunk revert、pre-apply proposed patch、隔离 workspace 合入和 deploy 仍未开放。
 
@@ -347,6 +347,8 @@ Claude Code、Codex、OpenCode 等外部 Agent 平台差异，应该被封装在
 课题要求通过统一适配器层屏蔽 Claude Code、Codex、OpenCode 等主流 Agent 平台差异，并支持用户自建 Agent，因此 Adapter 仍然是 Agent Runtime 的关键架构点，但它只面向外部智能体。
 
 外部智能体的最新接入原则是把它们视为 AgentHub 中的可见聊天对象，而不是 AgentHub 托管的模型供应商、Skill 或 MCP 配置面板。公共外部智能体边界、Session scope、上下文 handoff、权限桥接和 Diff 投影见 `docs/external_agents/EXTERNAL_AGENT_ADAPTERS.md`；OpenCode 专属 Project/Session 映射和事件设计见 `docs/external_agents/OPENCODE_ADAPTER.md`；Claude Code 的 SDK、Session resume、权限、`AskUserQuestion` 和 Bun compiled binary 风险见 `docs/external_agents/CLAUDE_CODE_ADAPTER.md`；Codex 的 SDK-first、app-server fallback、`codex exec --json` fallback、Session/权限/事件映射见 `docs/external_agents/CODEX_ADAPTER.md`。
+
+Orchestrator 委派外部智能体时，Adapter prompt 必须同时包含当前用户可见上下文和 Orchestrator 给出的具体任务。优先使用 HubServer 传入的 `externalContext` packet；若开发态或旧 HubServer 未传入，Runtime Adapter 必须从 `RunInput.history` 构造有界 bootstrap 上下文，至少包含最近用户/可见 assistant 消息摘要。任务上下文必须包含 `context.task` 中的 title、instruction、expected output、risk level 和原始用户目标；不能只发送 task instruction 而丢失委派前 IM 对话记忆。该 fallback 只使用用户可见事实，不包含 raw RunEvent、reasoning、内部工具原始输入输出或 Orchestrator 隐藏计划。
 
 ### 3.5 上下文组装
 
@@ -503,6 +505,24 @@ Runtime 通过每个 Run 独立的 `RuntimePermissionService` 存储内存态审
 Shell 权限先由 `permissionPolicy.shell` 做粗粒度门禁：`none` 直接拒绝，`limited` / `full` 允许进入命令级规则。`bash` 使用 `AgentDefinition.toolPermissionRules.bash` 控制单条命令，规则值为 `allow | ask | deny`；`ask` 创建 `permissionType = "command_execute"`、`approvalReason = "bash_command"` 的审批请求，`deny` 在工具启动前失败。`bash` 不提供 OS/container sandbox，真实进程仍以 Runtime 所在用户权限运行；当前边界是命令规则、审批、workspace-relative `cwd`、环境变量白名单、超时和输出截断。完整设计见 `docs/architecture/BASH_TOOL.md`。
 
 用户问答不走权限审批链路。内部 AI SDK 智能体调用 `question` 时会创建 `question.requested`，并在没有其他 active task 时将 Run 标记为 `waiting_input`；用户回答后发送 `question.answered` 和 `tool.completed(toolName="question")`，再以合成 `tool-result` message 恢复同一 execution branch。同一 frame 的多个 question request 全部回答后只恢复一次。外部 adapter 可通过 waitable external question bridge 复用同一事件协议；Claude Code 的 `onUserDialog` / `AskUserQuestion` 走该桥接，SDK 当前也可能先通过 `canUseTool("AskUserQuestion")` 暴露该工具，Adapter 必须把答案回传给 SDK `updatedInput.answers`，而不是合成 AI SDK `tool-result` 或产生 `permission.*`。取消 Run 时发送 `question.cancelled` 与对应 `tool.failed`，并关闭 continuation frame 或 external waiter，不再续跑原 execution branch。
+
+### 3.6.1 SSH Deployment Runtime V1
+
+部署运行时属于 Agent Runtime 的高风险执行边界，代码集中在 `agent-runtime/src/runtime/deployment/`。该边界负责：
+
+- 从 HubServer 内部回调接口解析远程服务器连接材料，模型和 Web 只收到脱敏服务器 metadata。
+- 维护以 `{ runId, conversationId, deploymentId, serverId }` 关联的内存 SSH 连接，V1 每个部署会话最多一台服务器。
+- 执行连接、远程命令、上传/同步、URL 健康检查、关闭、取消清理和 idle disconnect。
+- 输出脱敏 `deployment.*` RunEvent，供 HubServer 持久化并投影部署预览快照。
+- 对 stdout/stderr、错误、服务器信息和上传路径做输出截断与 secret redaction。
+
+凭据边界是强约束：私钥内容、私钥路径、SSH agent socket、远程 root path、环境变量 secret、服务器密码和 token 不得进入提示词、工具结果、RunInput、RunEvent、HubServer 产品 envelope、Artifact snapshot 或 Web state。Runtime 只在连接动作内部持有这些材料；连接建立后工具结果返回 `connectionId`、server display metadata 和状态。
+
+`run_deploy_command` 使用部署审批语义，而不是本机 `bash` 审批语义。V1 所有远程命令都必须 ask；审批 payload 展示 server display name、user、command、cwd 和部署 reason。审批通过前不得建立命令执行，也不得输出 `deployment.command.started`。审批拒绝后工具失败，已有连接保持不变，除非用户或 Deploy 显式关闭。
+
+Runtime 重启后不能声称旧 SSH 连接仍然存活。历史部署状态由 HubServer replay 的 `deployment.*` 和部署 Artifact 恢复；连接状态应显示为 disconnected/stale，需要 Deploy 重新调用 `connect_deploy_server` 才能继续执行命令。
+
+SSH client 的 `error` / `close` / `end` 事件必须由 `SshDeploymentConnectionManager` 全生命周期监听。连接期认证失败、ready timeout 或网络失败应输出 `deployment.connection.changed(connectionStatus = "failed")` 并让对应工具失败；连接建立后的 late error 不得冒泡为未捕获异常或导致 Runtime 进程退出，而应删除该内存连接并输出 failed/disconnected 连接事件。错误原因进入 RunEvent 前必须经过部署脱敏。
 
 ### 3.7 事件流输出
 

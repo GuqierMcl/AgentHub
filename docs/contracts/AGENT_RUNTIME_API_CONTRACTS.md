@@ -49,8 +49,10 @@ Runtime 会在每个 Run 开始时捕获一份 `RuntimeEnvironmentSnapshot`，�
 | `--cors` | string[] | 否 | 允许的 CORS origin，可多次传入；环境变量 `CORS` 使用逗号分隔 |
 | `--data-dir` / `-d` | string | 否 | Runtime 配置数据目录，默认 `./data-tmp`；环境变量 `AGENT_RUNTIME_DATA_DIR` |
 | `--workdir` | string | 否 | Runtime 进程级工作目录，默认系统临时目录下的 `agent-runtime-workspace`；环境变量 `AGENT_RUNTIME_WORKDIR` |
+| `--hub-callback` | string | 否 | HubServer 回调地址；环境变量 `AGENTHUB_HUB_CALLBACK`；开发态默认 `http://127.0.0.1:3000`，生产由 HubServer sidecar 启动参数传入 |
+| `--log-level` | string | 否 | 日志级别，默认 `info`；环境变量 `LOG_LEVEL` |
 
-当前 Runtime CLI 尚未实现 `--host` 兼容别名、`--hub-callback` 和 `--log-level`。HubServer 当前不会自动构造这些参数启动 Runtime，而是通过 `--runtime-url` / `AGENTHUB_RUNTIME_URL` 指向 Runtime，默认 `http://127.0.0.1:4096`。
+当前 Runtime CLI 尚未实现 `--host` 兼容别名。HubServer 当前既支持通过 `--runtime-url` / `AGENTHUB_RUNTIME_URL` 指向已经运行的 Runtime，也可以在 sidecar 启动路径中构造 `--hub-callback`、`--data-dir`、`--workdir`、`--log-level` 和内部 token 传给 Runtime。
 
 ### 健康检查
 
@@ -801,6 +803,30 @@ type CustomProviderUpdateRequest = Omit<Partial<CustomProviderCreateRequest>, "i
 当前实现尚未落地该鉴权链路：HubServer `RuntimeClient.forward()` 不注入 `x-agenthub-runtime-token`，Runtime 入口也没有读取 `AGENTHUB_RUNTIME_TOKEN` 或校验 `/runtime/*` 请求的中间件。部署时必须依赖本机监听地址、进程边界和外层网络隔离，不能假设 token 已生效。
 
 后续可升级为更安全的鉴权机制，例如命名管道、Unix socket、mTLS 或本机进程认证。
+
+#### Runtime -> HubServer 部署材料回调
+
+部署 Runtime 需要从 HubServer 设置页读取远程服务器配置。该方向也必须使用同一个内部 token：Runtime 调用 HubServer internal endpoint 时携带 `x-agenthub-runtime-token: <AGENTHUB_RUNTIME_TOKEN>`；HubServer 只在 token 匹配时返回数据。
+
+目标端点：
+
+- `GET /internal/runtime/deployment/servers`：返回脱敏服务器列表，供 `list_deploy_servers` 使用。
+- `GET /internal/runtime/deployment/servers/:serverId/material`：返回 SSH 连接材料，只能由 Runtime 内部 deployment service 使用。
+
+脱敏列表示例：
+
+```ts
+type DeploymentServerSummary = {
+  id: string
+  displayName: string
+  hostLabel: string
+  port: number
+  user: string
+  updatedAt?: string
+}
+```
+
+material 响应可以包含 host、port、username、password、privateKey、passphrase、agent 等真实连接字段，但该响应不得写入 RunInput、RunEvent、工具结果、Artifact 或 Web 产品 envelope。Runtime 连接失败时只能输出脱敏错误摘要。
 
 ### 错误码约定
 
@@ -2856,6 +2882,95 @@ type BashResult = {
   "shell": "powershell.exe"
 }
 ```
+
+### Deployment Runtime Tools
+
+部署工具是 Runtime Tool Catalog 中的系统工具，只授予 `deploy` 系统主智能体，`configurableByUserAgent=false`。所有工具结果和事件都必须脱敏。
+
+```ts
+type ListDeployServersInput = {}
+
+type ConnectDeployServerInput = {
+  serverId: string
+  deploymentId?: string
+  reason?: string
+}
+
+type RunDeployCommandInput = {
+  connectionId: string
+  command: string
+  cwd?: string
+  reason: string
+  timeoutMs?: number
+  maxOutputBytes?: number
+}
+
+type UpdateDeploymentStatusInput = {
+  deploymentId?: string
+  connectionId?: string
+  percent?: number
+  currentStep?: number
+  totalSteps?: number
+  stepId?: string
+  stepTitle?: string
+  message: string
+  releaseNote?: string
+  deploymentUrl?: string
+  status?: "running" | "completed" | "failed" | "cancelled"
+}
+
+type CloseDeployConnectionInput = {
+  connectionId: string
+  reason?: string
+}
+
+type UploadDeployArtifactInput = {
+  connectionId: string
+  localPath: string
+  remotePath: string
+  mode?: "file" | "directory"
+  reason: string
+}
+
+type CheckDeploymentUrlInput = {
+  deploymentId?: string
+  connectionId?: string
+  url: string
+  timeoutMs?: number
+  expectedStatus?: number
+  openPreview?: boolean
+}
+```
+
+`run_deploy_command` V1 审批策略是每条远程命令都 ask。审批事件必须先于 `tool.started` 和任何 `deployment.command.*` 事件，且 `permission.requested.data.data` 至少包含：
+
+```json
+{
+  "permissionType": "deployment",
+  "approvalReason": "deployment_command",
+  "serverDisplayName": "Production",
+  "user": "deploy",
+  "command": "docker compose up -d",
+  "cwd": "/srv/app",
+  "reason": "Start the updated Compose stack"
+}
+```
+
+命令执行成功结果示例：
+
+```ts
+type DeployCommandResult = {
+  commandId: string
+  connectionId: string
+  exitCode: number
+  stdout: string
+  stderr: string
+  truncated: boolean
+  durationMs: number
+}
+```
+
+非零 exit code 可以作为 `tool.completed` 返回，由 `exitCode` 表达；连接丢失、超时、取消、审批拒绝或输入非法才进入 `tool.failed`。deployment service 同步输出 `deployment.command.started`、`deployment.log.appended`、`deployment.command.completed` 或 `deployment.command.failed`。
 
 ### 决定 Run 权限请求
 

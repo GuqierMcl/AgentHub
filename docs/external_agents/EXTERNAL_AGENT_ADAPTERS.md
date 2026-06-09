@@ -166,6 +166,8 @@ Orchestrator 委派外部智能体时，Adapter 应组装：
 
 该上下文面向任务执行，不等同于用户直接聊天上下文。
 
+Adapter 不得因为存在 `context.task` 就跳过可见会话上下文。HubServer 提供 `externalContext` packet 时，Adapter 使用该 packet 格式化“AgentHub visible context”；没有 packet 时，Runtime Adapter 必须从 `RunInput.history` 构造有界 bootstrap，上限内包含最近用户和可见 assistant 消息。最终 prompt 需要同时包含 visible context 与 task block，task block 至少包括 title、instruction、expected output、risk level 和 user request，保证被委派智能体知道委派前发生了什么以及本次具体要做什么。
+
 ## 7. Handoff Summary
 
 Handoff summary 是 delegated task 与后续 direct conversation 之间的桥。

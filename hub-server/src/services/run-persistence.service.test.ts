@@ -1987,6 +1987,217 @@ describe('workspace diff artifact projection', () => {
   })
 })
 
+describe('deployment artifact projection', () => {
+  it('projects deployment events into an idempotent sanitized deployment artifact', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture({
+      inputJson: {
+        participantAgentIds: ['deploy'],
+      },
+    })
+    const deploymentId = `deployment_${randomUUID()}`
+    const commandId = `cmd_${randomUUID()}`
+    const events = [
+      {
+        sequence: 1,
+        event: {
+          id: `event_deployment_started_${randomUUID()}`,
+          runId: 'runtime_deployment_projection',
+          type: 'deployment.started',
+          timestamp: '2026-06-09T00:00:00.000Z',
+          agentId: 'deploy',
+          data: {
+            deploymentId,
+            conversationId,
+            status: 'running',
+            title: 'Production deployment',
+            server: {
+              id: 'srv_1',
+              displayName: 'Production',
+              hostLabel: 'prod.example.com',
+              user: 'deploy',
+              privateKey: 'must-not-leak',
+              identityFilePath: 'C:\\Users\\me\\.ssh\\id_rsa',
+            },
+          },
+        },
+      },
+      {
+        sequence: 2,
+        event: {
+          id: `event_deployment_log_${randomUUID()}`,
+          runId: 'runtime_deployment_projection',
+          type: 'deployment.log.appended',
+          timestamp: '2026-06-09T00:00:01.000Z',
+          agentId: 'deploy',
+          data: {
+            deploymentId,
+            conversationId,
+            commandId,
+            stream: 'stdout',
+            text: 'docker ok\n',
+            token: 'must-not-leak',
+          },
+        },
+      },
+      {
+        sequence: 3,
+        event: {
+          id: `event_deployment_completed_${randomUUID()}`,
+          runId: 'runtime_deployment_projection',
+          type: 'deployment.completed',
+          timestamp: '2026-06-09T00:00:02.000Z',
+          agentId: 'deploy',
+          data: {
+            deploymentId,
+            conversationId,
+            status: 'completed',
+            deploymentUrl: 'https://app.example.com',
+            summary: 'Published',
+            health: {
+              url: 'https://app.example.com',
+              ok: true,
+              status: 200,
+              secret: 'must-not-leak',
+            },
+          },
+        },
+      },
+    ]
+
+    await (service as any).projectRuntimeEventsBatch(runId, events)
+    await (service as any).projectRuntimeEventsBatch(runId, [events[2]])
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'deployment' })
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]?.status).toBe('ready')
+    expect(artifacts[0]?.metadataJson).toMatchObject({
+      source: 'runtime.deployment',
+      deploymentId,
+      latestEventSequence: 3,
+      snapshot: {
+        deploymentId,
+        status: 'completed',
+        title: 'Production deployment',
+        server: {
+          id: 'srv_1',
+          displayName: 'Production',
+          hostLabel: 'prod.example.com',
+          user: 'deploy',
+        },
+        logs: [
+          {
+            commandId,
+            stream: 'stdout',
+            text: 'docker ok\n',
+          },
+        ],
+        deploymentUrl: 'https://app.example.com',
+        health: {
+          url: 'https://app.example.com',
+          ok: true,
+          status: 200,
+        },
+      },
+    })
+    const snapshotJson = JSON.stringify(artifacts[0]?.metadataJson)
+    expect(snapshotJson).not.toContain('must-not-leak')
+    expect(snapshotJson).not.toContain('identityFilePath')
+
+    const versions = await listArtifactVersionsByArtifact(artifacts[0]!.id as string)
+    expect(versions).toHaveLength(3)
+    expect(versions[0]?.diffJson).toMatchObject({
+      deploymentId,
+      status: 'completed',
+    })
+  })
+
+  it('sanitizes deployment payloads in product envelopes', () => {
+    const envelope = toProductHubRunEventEnvelope({
+      sequence: 1,
+      event: {
+        id: 'event_deployment_product',
+        runId: 'run_deployment_product',
+        type: 'deployment.connection.changed',
+        timestamp: '2026-06-09T00:00:00.000Z',
+        agentId: 'deploy',
+        data: {
+          deploymentId: 'dep_product',
+          privateKey: 'must-not-leak',
+          server: {
+            id: 'srv_1',
+            displayName: 'Production',
+            token: 'must-not-leak',
+          },
+        },
+      },
+    })
+
+    expect(JSON.stringify(envelope.event.data)).not.toContain('must-not-leak')
+    expect(envelope.event.data).toMatchObject({
+      deploymentId: 'dep_product',
+      server: {
+        id: 'srv_1',
+        displayName: 'Production',
+      },
+    })
+  })
+
+  it('projects deployment progress health checks into the deployment artifact snapshot', async () => {
+    const { service, conversationId, runId } = await createProjectionFixture({
+      inputJson: {
+        participantAgentIds: ['deploy'],
+      },
+    })
+    const deploymentId = `deployment_${randomUUID()}`
+
+    await (service as any).projectRuntimeEventsBatch(runId, [
+      {
+        sequence: 1,
+        event: {
+          id: `event_deployment_health_${randomUUID()}`,
+          runId: 'runtime_deployment_health',
+          type: 'deployment.progress.updated',
+          timestamp: '2026-06-09T00:00:00.000Z',
+          agentId: 'deploy',
+          data: {
+            deploymentId,
+            conversationId,
+            message: 'Deployment URL responded with 204',
+            health: {
+              url: 'https://app.example.com/health',
+              ok: true,
+              status: 204,
+              durationMs: 42,
+              token: 'must-not-leak',
+            },
+          },
+        },
+      },
+    ])
+
+    const artifacts = await listArtifacts({ conversationId, runId, type: 'deployment' })
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]?.metadataJson).toMatchObject({
+      source: 'runtime.deployment',
+      deploymentId,
+      snapshot: {
+        deploymentId,
+        status: 'running',
+        progress: {
+          message: 'Deployment URL responded with 204',
+        },
+        health: {
+          url: 'https://app.example.com/health',
+          ok: true,
+          status: 204,
+          durationMs: 42,
+        },
+      },
+    })
+    expect(JSON.stringify(artifacts[0]?.metadataJson)).not.toContain('must-not-leak')
+  })
+})
+
 describe('tool message projection', () => {
   it('backfills OpenCode tool parts and keeps diff artifacts on the assistant message', async () => {
     const { service, conversationId, runId } = await createProjectionFixture({

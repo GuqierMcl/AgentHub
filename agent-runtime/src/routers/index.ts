@@ -11,6 +11,7 @@ import workspaceSkillTrust from './workspace-skill-trust'
 import { runtimeReadiness } from '../runtime/readiness'
 import mcpTrust from './mcp-trust'
 import mcpRuntime from './mcp-runtime'
+import deployment from './deployment'
 
 const router = new Hono()
 
@@ -35,5 +36,6 @@ router.route('/', capabilities)
 router.route('/', workspaceSkillTrust)
 router.route('/', mcpTrust)
 router.route('/', mcpRuntime)
+router.route('/', deployment)
 
 export default router

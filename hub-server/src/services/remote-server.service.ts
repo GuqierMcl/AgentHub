@@ -17,6 +17,8 @@ import type {
   UpdateRemoteServerInput,
   ImportResult,
   TestConnectionResult,
+  DeploymentServerSummaryDTO,
+  DeploymentServerMaterialDTO,
 } from '../domains/remote-server/types'
 
 interface ParsedHost {
@@ -93,6 +95,37 @@ function parseSshConfig(content: string): ParsedHost[] {
 export class RemoteServerService {
   async list(): Promise<RemoteServerDTO[]> {
     return listRemoteServers()
+  }
+
+  async listForDeployment(): Promise<DeploymentServerSummaryDTO[]> {
+    const servers = await listRemoteServers()
+    return servers.map((server) => ({
+      id: server.id,
+      displayName: server.hostname,
+      hostLabel: server.host,
+      port: server.port,
+      user: server.username,
+      updatedAt: server.updatedAt,
+    }))
+  }
+
+  async getDeploymentMaterial(id: string): Promise<DeploymentServerMaterialDTO> {
+    const server = await findRemoteServerById(id)
+    if (!server) throw notFound('REMOTE_SERVER_NOT_FOUND', 'Server not found')
+    const privateKey = this.resolvePrivateKey(server.identityFilePath ?? undefined)
+    const agent = process.env.SSH_AUTH_SOCK || (platform() === 'win32' ? '\\\\.\\pipe\\openssh-ssh-agent' : undefined)
+    return {
+      id: server.id,
+      displayName: server.hostname,
+      hostLabel: server.host,
+      host: server.host,
+      port: server.port,
+      user: server.username,
+      username: server.username,
+      updatedAt: server.updatedAt,
+      ...(typeof privateKey === 'string' ? { privateKey } : {}),
+      ...(agent ? { agent } : {}),
+    }
   }
 
   async getById(id: string): Promise<RemoteServerDTO> {

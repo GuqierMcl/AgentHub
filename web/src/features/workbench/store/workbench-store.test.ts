@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "bun:test"
 
 import type { ActiveRunSnapshot, ConversationTimelineRunSnapshot, PersistedMessage } from "../api/messages"
+import { useTabStore } from "@/store/tab-store"
 import { useWorkbenchStore } from "./workbench-store"
 
 function persistedMessage(input: Partial<PersistedMessage>): PersistedMessage {
@@ -71,6 +72,15 @@ describe("workbench persisted message replay", () => {
     useWorkbenchStore.setState({
       activeConversationId: null,
       conversations: {},
+    })
+    useTabStore.setState({
+      tabs: [],
+      activeTabUid: null,
+      mountedTabUids: new Set(),
+      tabCounters: { terminal: 0, preview: 0 },
+      isWorkspaceCollapsed: true,
+      workspaceFocusRequest: null,
+      workspaceFocusRequestSeq: 0,
     })
   })
 
@@ -872,6 +882,281 @@ describe("workbench persisted message replay", () => {
       id: `chat:${runId}:runtime_msg_stale`,
       text: "Final answer.",
       status: "completed",
+    })
+  })
+
+  it("hydrates deployment preview state from replay without adding timeline tool cards", () => {
+    const conversationId = "conv_deploy_replay"
+    const runId = "run_deploy_replay"
+    const trigger = persistedMessage({
+      id: "msg_deploy_trigger",
+      conversationId,
+      runId,
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      parts: [],
+    })
+    const timelineRuns: ConversationTimelineRunSnapshot[] = [
+      {
+        run: {
+          id: runId,
+          runtimeId: "runtime_deploy_replay",
+          status: "completed",
+          triggerMessageId: trigger.id,
+          createdAt: "2026-06-09T10:00:00.000Z",
+          lastEventSequence: 5,
+        },
+        triggerMessage: trigger,
+        events: [
+          {
+            sequence: 1,
+            event: {
+              id: "evt_deploy_started",
+              runId,
+              type: "deployment.started",
+              timestamp: "2026-06-09T10:00:01.000Z",
+              agentId: "deploy",
+              data: {
+                deploymentId: "dep_1",
+                conversationId,
+                status: "running",
+                title: "Production deploy",
+                server: {
+                  id: "srv_1",
+                  displayName: "Production",
+                  hostLabel: "prod.example.com",
+                  user: "deploy",
+                },
+              },
+            },
+          },
+          {
+            sequence: 2,
+            event: {
+              id: "evt_deploy_connected",
+              runId,
+              type: "deployment.connection.changed",
+              timestamp: "2026-06-09T10:00:02.000Z",
+              agentId: "deploy",
+              data: {
+                deploymentId: "dep_1",
+                conversationId,
+                connectionId: "conn_1",
+                connectionStatus: "connected",
+              },
+            },
+          },
+          {
+            sequence: 3,
+            event: {
+              id: "evt_deploy_log",
+              runId,
+              type: "deployment.log.appended",
+              timestamp: "2026-06-09T10:00:03.000Z",
+              agentId: "deploy",
+              data: {
+                deploymentId: "dep_1",
+                conversationId,
+                commandId: "cmd_1",
+                stream: "stdout",
+                text: "docker ok\n",
+              },
+            },
+          },
+          {
+            sequence: 4,
+            event: {
+              id: "evt_deploy_release",
+              runId,
+              type: "deployment.release_note.updated",
+              timestamp: "2026-06-09T10:00:04.000Z",
+              agentId: "deploy",
+              data: {
+                deploymentId: "dep_1",
+                conversationId,
+                releaseNote: "Published with Docker Compose.",
+              },
+            },
+          },
+          {
+            sequence: 5,
+            event: {
+              id: "evt_deploy_preview",
+              runId,
+              type: "deployment.preview.requested",
+              timestamp: "2026-06-09T10:00:05.000Z",
+              agentId: "deploy",
+              data: {
+                deploymentId: "dep_1",
+                conversationId,
+                url: "https://app.example.com",
+                openMode: "preview-tab",
+              },
+            },
+          },
+        ],
+      },
+    ]
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [trigger],
+      timelineRuns,
+      null
+    )
+
+    const state = useWorkbenchStore.getState().getConversationState(conversationId)
+    expect(state.deploymentSnapshot).toMatchObject({
+      deploymentId: "dep_1",
+      title: "Production deploy",
+      server: {
+        displayName: "Production",
+      },
+      connectionId: "conn_1",
+      connectionStatus: "stale",
+      deploymentUrl: "https://app.example.com",
+      releaseNote: "Published with Docker Compose.",
+      logs: [
+        {
+          commandId: "cmd_1",
+          stream: "stdout",
+          text: "docker ok\n",
+        },
+      ],
+    })
+    expect(state.timelineItems.some((item) => item.kind === "tool")).toBe(false)
+    expect(useTabStore.getState().tabs).toHaveLength(0)
+  })
+
+  it("opens deployment preview tabs only for live preview request events", () => {
+    const conversationId = "conv_deploy_live"
+    useWorkbenchStore.getState().setActiveConversationId(conversationId)
+
+    const previewEvent = {
+      id: "evt_live_preview",
+      runId: "run_deploy_live",
+      type: "deployment.preview.requested",
+      timestamp: "2026-06-09T10:00:00.000Z",
+      agentId: "deploy",
+      data: {
+        deploymentId: "dep_live",
+        conversationId,
+        url: "https://live.example.com",
+        openMode: "preview-tab",
+        label: "Live deploy",
+      },
+    }
+
+    useWorkbenchStore.getState().applyRuntimeEventEnvelopes(
+      conversationId,
+      [{ sequence: 1, event: previewEvent }],
+      { source: "replay" }
+    )
+    expect(useTabStore.getState().tabs).toHaveLength(0)
+
+    useWorkbenchStore.getState().applyRuntimeEventEnvelopes(
+      conversationId,
+      [{ sequence: 2, event: { ...previewEvent, id: "evt_live_preview_2" } }],
+      { source: "live" }
+    )
+
+    expect(useTabStore.getState().tabs).toEqual([
+      expect.objectContaining({
+        type: "preview",
+        title: "Live deploy",
+        payload: {
+          source: "deploy",
+          initialUrl: "https://live.example.com",
+        },
+      }),
+    ])
+  })
+
+  it("requests deploy preview focus for live deployment events only", () => {
+    const conversationId = "conv_deploy_focus"
+    const deploymentEvent = {
+      id: "evt_deploy_command_started",
+      runId: "run_deploy_focus",
+      type: "deployment.command.started",
+      timestamp: "2026-06-09T10:00:00.000Z",
+      agentId: "deploy",
+      data: {
+        deploymentId: "dep_focus",
+        conversationId,
+        commandId: "cmd_focus",
+        command: "docker compose up -d",
+        startedAt: "2026-06-09T10:00:00.000Z",
+      },
+    }
+
+    useWorkbenchStore.getState().setActiveConversationId(conversationId)
+    useWorkbenchStore.getState().applyRuntimeEventEnvelopes(
+      conversationId,
+      [{ sequence: 1, event: deploymentEvent }],
+      { source: "replay" }
+    )
+
+    expect(useTabStore.getState().workspaceFocusRequest).toBeNull()
+
+    useWorkbenchStore.getState().applyRuntimeEventEnvelopes(
+      conversationId,
+      [{ sequence: 2, event: { ...deploymentEvent, id: "evt_deploy_command_started_live" } }],
+      { source: "live" }
+    )
+
+    expect(useTabStore.getState().workspaceFocusRequest).toMatchObject({
+      tabType: "deploy",
+      conversationId,
+      reason: "deployment",
+      reasonKey: "dep_focus",
+    })
+  })
+
+  it("updates deployment health from progress events", () => {
+    const conversationId = "conv_deploy_health"
+
+    useWorkbenchStore.getState().applyRuntimeEventEnvelopes(
+      conversationId,
+      [{
+        sequence: 1,
+        event: {
+          id: "evt_deploy_health",
+          runId: "run_deploy_health",
+          type: "deployment.progress.updated",
+          timestamp: "2026-06-09T10:00:00.000Z",
+          agentId: "deploy",
+          data: {
+            deploymentId: "dep_health",
+            conversationId,
+            message: "Deployment URL responded with 204",
+            health: {
+              url: "https://app.example.com/health",
+              ok: true,
+              status: 204,
+              durationMs: 42,
+            },
+          },
+        },
+      }],
+      { source: "live" }
+    )
+
+    const state = useWorkbenchStore.getState().getConversationState(conversationId)
+    expect(state.deploymentSnapshot).toMatchObject({
+      deploymentId: "dep_health",
+      progress: {
+        message: "Deployment URL responded with 204",
+      },
+      health: {
+        url: "https://app.example.com/health",
+        ok: true,
+        status: 204,
+        durationMs: 42,
+      },
     })
   })
 })

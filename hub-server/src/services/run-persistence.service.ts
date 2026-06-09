@@ -116,13 +116,17 @@ import {
 } from "../repositories/external-agent-session.repo";
 import {
   createArtifact,
+  findDeploymentArtifactByRunAndDeploymentId,
   findArtifactByRunAndSourceEvent,
   findArtifactWithVersions,
   listArtifacts,
   listArtifactsByMessageIds,
   updateArtifact,
 } from "../repositories/artifact.repo";
-import { createArtifactVersion } from "../repositories/artifact-version.repo";
+import {
+  createArtifactVersion,
+  findLatestArtifactVersion,
+} from "../repositories/artifact-version.repo";
 import {
   createWorkspaceChangeSet,
   createWorkspaceChangeSetFile,
@@ -2275,6 +2279,10 @@ export class RunPersistenceService {
       }
       return;
     }
+    if (event.type.startsWith("deployment.")) {
+      await projectDeploymentArtifact(run, event, sequence);
+      return;
+    }
     if (event.type === "orchestrator.plan.created") {
       await projectPlanEvent(run, event, sequence);
       return;
@@ -2695,6 +2703,261 @@ async function projectExternalContextSyncEvent(
     },
     "External agent context sync projected",
   );
+}
+
+const DEPLOYMENT_LOG_SNAPSHOT_LIMIT = 1000;
+const DEPLOYMENT_SENSITIVE_KEYS = new Set([
+  "privateKey",
+  "identityFilePath",
+  "password",
+  "passphrase",
+  "agent",
+  "rootPath",
+  "remoteRootPath",
+  "secret",
+  "token",
+])
+
+async function projectDeploymentArtifact(
+  run: RunOutput,
+  event: RuntimeRunEvent,
+  sequence: number,
+): Promise<void> {
+  const data = sanitizeDeploymentValue(getEventDataRecord(event)) as Record<string, unknown>;
+  const deploymentId =
+    getString(data.deploymentId) ?? `deployment_${run.id}`;
+  const existing = await findDeploymentArtifactByRunAndDeploymentId(
+    run.id,
+    deploymentId,
+  );
+  const existingMetadata = getRecord(existing?.metadataJson) ?? {};
+  const latestSequence = getNumber(existingMetadata.latestEventSequence);
+  if (latestSequence !== undefined && latestSequence >= sequence) {
+    return;
+  }
+  const currentSnapshot = getRecord(existing?.metadataJson.snapshot) ?? {};
+  const snapshot = reduceDeploymentSnapshot(
+    currentSnapshot,
+    event,
+    data,
+    sequence,
+    deploymentId,
+    run.conversationId,
+  );
+  const status = getDeploymentArtifactStatus(snapshot);
+  const title = getString(snapshot.title) ??
+    getString(getRecord(snapshot.server)?.displayName) ??
+    "Deployment";
+  const latestVersion = existing
+    ? await findLatestArtifactVersion(existing.id)
+    : null;
+
+  const artifact = existing ?? await createArtifact({
+    conversationId: run.conversationId,
+    runId: run.id,
+    messageId: run.triggerMessageId,
+    createdByAgentId: event.agentId,
+    type: "deployment",
+    title,
+    status,
+    metadataJson: {
+      source: "runtime.deployment",
+      deploymentId,
+      snapshot,
+      latestRuntimeEventId: event.id,
+      latestEventSequence: sequence,
+    },
+  });
+  if (existing) {
+    await updateArtifact(existing.id, {
+      title,
+      status,
+      metadataJson: {
+        ...existingMetadata,
+        source: "runtime.deployment",
+        deploymentId,
+        snapshot,
+        latestRuntimeEventId: event.id,
+        latestEventSequence: sequence,
+      },
+    });
+  }
+
+  const version = await createArtifactVersion({
+    artifactId: artifact.id,
+    version: (latestVersion?.version ?? 0) + 1,
+    source: "agent",
+    language: "json",
+    content: JSON.stringify(snapshot, null, 2),
+    summary: getString(snapshot.summary) ?? title,
+    diffJson: snapshot,
+    createdByAgentId: event.agentId,
+  });
+  await updateArtifactCurrentVersion(artifact.id, version.id);
+}
+
+function reduceDeploymentSnapshot(
+  current: Record<string, unknown>,
+  event: RuntimeRunEvent,
+  data: Record<string, unknown>,
+  sequence: number,
+  deploymentId: string,
+  conversationId: string,
+): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = {
+    ...current,
+    version: 1,
+    deploymentId,
+    conversationId,
+    latestEventType: event.type,
+    latestEventId: event.id,
+    latestEventSequence: sequence,
+    updatedAt: event.timestamp,
+  };
+  const server = getRecord(data.server);
+  if (server) snapshot.server = server;
+  if (getString(data.connectionId)) snapshot.connectionId = getString(data.connectionId);
+
+  if (event.type === "deployment.started") {
+    snapshot.status = "running";
+    snapshot.title = getString(data.title) ?? snapshot.title;
+    snapshot.strategy = getString(data.strategy) ?? snapshot.strategy;
+  } else if (event.type === "deployment.connection.changed") {
+    snapshot.connectionStatus = getString(data.connectionStatus) ?? "disconnected";
+    snapshot.connectionReason = getString(data.reason);
+  } else if (event.type === "deployment.progress.updated") {
+    snapshot.status = snapshot.status ?? "running";
+    snapshot.progress = {
+      percent: getNumber(data.percent),
+      currentStep: getNumber(data.currentStep),
+      totalSteps: getNumber(data.totalSteps),
+      stepId: getString(data.stepId),
+      stepTitle: getString(data.stepTitle),
+      message: getString(data.message) ?? "",
+      updatedAt: event.timestamp,
+    };
+    snapshot.health = getRecord(data.health) ?? snapshot.health;
+  } else if (event.type === "deployment.command.started") {
+    snapshot.commands = upsertDeploymentCommand(snapshot.commands, {
+      commandId: getString(data.commandId),
+      command: getString(data.command),
+      cwd: getString(data.cwd),
+      reason: getString(data.reason),
+      status: "running",
+      startedAt: getString(data.startedAt) ?? event.timestamp,
+    });
+  } else if (event.type === "deployment.log.appended") {
+    snapshot.logs = appendDeploymentLog(snapshot.logs, {
+      timestamp: event.timestamp,
+      commandId: getString(data.commandId),
+      stream: getString(data.stream) ?? "system",
+      text: getString(data.text) ?? "",
+      truncated: data.truncated === true,
+    });
+  } else if (event.type === "deployment.command.completed") {
+    snapshot.commands = upsertDeploymentCommand(snapshot.commands, {
+      commandId: getString(data.commandId),
+      status: "completed",
+      exitCode: getNumber(data.exitCode),
+      durationMs: getNumber(data.durationMs),
+      completedAt: event.timestamp,
+    });
+  } else if (event.type === "deployment.command.failed") {
+    snapshot.commands = upsertDeploymentCommand(snapshot.commands, {
+      commandId: getString(data.commandId),
+      status: "failed",
+      exitCode: getNumber(data.exitCode),
+      signal: getString(data.signal),
+      durationMs: getNumber(data.durationMs),
+      error: getRecord(data.error),
+      completedAt: event.timestamp,
+    });
+  } else if (event.type === "deployment.release_note.updated") {
+    snapshot.releaseNote = getString(data.releaseNote) ?? "";
+  } else if (event.type === "deployment.preview.requested") {
+    snapshot.deploymentUrl = getString(data.url) ?? snapshot.deploymentUrl;
+    snapshot.preview = {
+      url: getString(data.url),
+      openMode: getString(data.openMode),
+      label: getString(data.label),
+      requestedAt: event.timestamp,
+    };
+  } else if (
+    event.type === "deployment.completed" ||
+    event.type === "deployment.failed" ||
+    event.type === "deployment.cancelled"
+  ) {
+    snapshot.status =
+      event.type === "deployment.completed"
+        ? "completed"
+        : event.type === "deployment.failed"
+          ? "failed"
+          : "cancelled";
+    snapshot.summary = getString(data.summary) ?? snapshot.summary;
+    snapshot.deploymentUrl = getString(data.deploymentUrl) ?? snapshot.deploymentUrl;
+    snapshot.health = getRecord(data.health) ?? snapshot.health;
+    snapshot.completedAt = event.timestamp;
+  }
+
+  return sanitizeDeploymentValue(snapshot) as Record<string, unknown>;
+}
+
+function upsertDeploymentCommand(
+  value: unknown,
+  patch: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const commandId = getString(patch.commandId);
+  const commands = Array.isArray(value)
+    ? value.map((item) => getRecord(item)).filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
+  if (!commandId) return commands;
+  const index = commands.findIndex((command) => getString(command.commandId) === commandId);
+  if (index >= 0) {
+    commands[index] = { ...commands[index], ...patch };
+  } else {
+    commands.push(patch);
+  }
+  return commands;
+}
+
+function appendDeploymentLog(
+  value: unknown,
+  entry: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const logs = Array.isArray(value)
+    ? value.map((item) => getRecord(item)).filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
+  logs.push(entry);
+  return logs.slice(-DEPLOYMENT_LOG_SNAPSHOT_LIMIT);
+}
+
+function getDeploymentArtifactStatus(snapshot: Record<string, unknown>) {
+  switch (snapshot.status) {
+    case "completed":
+      return "ready" as const;
+    case "failed":
+    case "cancelled":
+      return "failed" as const;
+    default:
+      return "draft" as const;
+  }
+}
+
+function sanitizeDeploymentValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeDeploymentValue);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const output: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (DEPLOYMENT_SENSITIVE_KEYS.has(key) || /secret|token|password|privateKey/i.test(key)) {
+      continue;
+    }
+    output[key] = sanitizeDeploymentValue(item);
+  }
+  return output;
 }
 
 async function projectWorkspaceDiffArtifact(
@@ -6154,6 +6417,13 @@ export function toProductHubRunEventEnvelope(
 }
 
 function toProductRuntimeEvent(event: RuntimeRunEvent): RuntimeRunEvent {
+  if (event.type.startsWith("deployment.")) {
+    return {
+      ...event,
+      data: sanitizeDeploymentValue(event.data),
+    };
+  }
+
   if (event.type !== "tool.completed" && event.type !== "tool.failed") {
     return event;
   }

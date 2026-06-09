@@ -105,6 +105,12 @@ export const avatarPresets: Record<string, AgentAvatarSpec> = {
     kind: "icon",
     tone: "rose",
   },
+  deploy: {
+    icon: ServerIcon,
+    initials: "DP",
+    kind: "icon",
+    tone: "teal",
+  },
 }
 
 export const avatarToneClassNames: Record<AgentAvatarTone, string> = {

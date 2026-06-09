@@ -47,9 +47,10 @@ sequenceDiagram
 - `Run.lastProjectedSequence` 记录结构化投影进度。读取会话消息或组装 Runtime history 前，HubServer 会从 raw `RunEvent` 补齐落后的 projection。
 - `system_agent.completed(systemAgentId="title")` 会在 `Conversation.metadataJson.titleSource !== "manual"` 时更新 `Conversation.title`，并写入 `titleSource = "auto"`。
 - `GET /api/conversations/:conversationId/messages` 返回最近窗口的消息快照、active run 快照、latest plan、runItems 和 `timelineRuns`；默认读取最新 50 条消息 / 50 个 run，再按正序返回给 UI，避免刷新或重启后回到会话开头。
-- `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes；大工具结果可能已被投影为 UI 摘要，完整 raw event 留在 `RunEvent.payloadJson`。`messages` 中的 `surface="chat"` user/assistant 记录是聊天气泡的持久化兜底，Web 在 event replay 后按 `runId + runtimeMessageId` 去重合并，修复 raw event replay 窗口缺失或历史事件不完整时的 assistant 消息恢复。
-- 权限请求先作为 raw Runtime event 落库，再投影到 `PermissionRequest`；投影优先使用事件 payload 中的 `permissionType`，例如 `web_fetch` 的 `network_access` 和 `bash` 的 `command_execute`。
+- `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes；大工具结果可能已被投影为 UI 摘要，完整 raw event 留在 `RunEvent.payloadJson`。`messages` 中的 `surface="chat"` user/assistant 记录是聊天气泡的持久化兜底，Web 在 event replay 后按 `runId + runtimeMessageId` 去重合并，修复 raw event replay 窗口缺失或历史事件不完整时的 assistant 消息恢复。权限卡片、部署预览和问题回答等交互态也以 `timelineRuns` replay 为恢复主路径。
+- 权限请求先作为 raw Runtime event 落库，再投影到 `PermissionRequest`；投影优先使用事件 payload 中的 `permissionType`，例如 `web_fetch` 的 `network_access`、`bash` 的 `command_execute` 和 `run_deploy_command` 的 `deployment`。产品 envelope 必须保留 Runtime approval payload 中可安全展示的审批详情，例如远程命令、shell 命令、脱敏 URL、workspace logical path 和外部 provider 摘要；不得只保留 request id、toolName 或目标文本，否则 Web replay 后无法让用户判断是否批准。
 - 用户问答请求不新增 Prisma 表；`question.requested`、`question.answered`、`question.cancelled` 原样作为 raw event 落库，并由 Web 通过 `timelineRuns` replay 恢复 pending/answered/cancelled 状态。HubServer 在 `question.requested` 时将本地 Run 投影为 `waiting_input`，在 `question.answered` / `question.cancelled` 后按 Runtime 后续事件恢复运行态或终态。
+- 部署事件以 `deployment.*` 原样作为 raw Runtime event 落库，并投影为部署预览 snapshot / `Artifact(type="deployment")`。投影按 `deploymentId` 幂等追平，保存服务器展示信息、连接状态、进度、步骤、命令日志索引、release note、deployment URL、health check 和终态。产品 envelope 和 Artifact snapshot 不得包含 SSH 凭据、私钥路径、SSH agent 信息、服务器 root path、secret env 或未截断命令输出。
 - 产品 cancel API 会在 Runtime cancel 成功返回后立即把本地 Run 标记为终态，发布全局 `run.status.changed`，并 finalize 本地 streaming message/task/permission 投影；如果 Runtime 因重启或不可用丢失了该 run，HubServer 也会把本地 Run 收口为 `cancelled`，解除产品侧 active run 阻塞。后续 Runtime SSE 的 `question.cancelled` / `run.cancelled` 事件仍会落库和幂等投影。
 
 ## 恢复规则
@@ -59,6 +60,8 @@ sequenceDiagram
 - 若 active run 非终态，Web 用 fresh snapshot 中的 `activeRun.lastEventSequence` 续订 `/api/runs/:runId/events?afterSequence=`；HubServer 会 replay sequence 更大的已持久化事件并继续推送 live events。切换会话时 Web 必须关闭旧 EventSource，但不得 cancel Run。
 - 如果 run 在切走期间完成，`timelineRuns` 已包含最终产品 event envelopes，前端不再保持连接。
 - 结构化投影行的 `firstEventSequence` 仍用于查询和非聊天 UI 排序；聊天主 UI 恢复顺序以产品 event replay 为准。
+- 部署预览从 `timelineRuns` replay 和部署 Artifact snapshot 恢复。历史恢复时，命令日志、release note、URL 和 health check 必须可见；Runtime 内存 SSH 长连接不持久化，因此任何非终态历史连接都应显示为 disconnected/stale，需要重新连接后才能继续命令执行。
+- live `deployment.*` product event 可以触发 Web 展开右侧产物工作台并激活“部署预览”标签页，但 replay 不能触发自动聚焦。`deployment.preview.requested` 的打开浏览器/预览标签页语义也只对 live product event 生效；Web 从历史 replay 恢复时只保存 URL，不自动打开标签页。
 
 ## 兼容性
 

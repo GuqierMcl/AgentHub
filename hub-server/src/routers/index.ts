@@ -19,6 +19,7 @@ import runtimeWorkspaceSkillTrust from './runtime-workspace-skill-trust'
 import runtimeMcpTrust from './runtime-mcp-trust'
 import conversationMcpStatus from './conversation-mcp-status'
 import conversationAssets from './conversation-assets'
+import runtimeDeployment from './runtime-deployment'
 
 const router = new Hono()
 
@@ -51,5 +52,6 @@ router.route('/', runtimeWorkspaceSkillTrust)
 router.route('/', runtimeMcpTrust)
 router.route('/', conversationMcpStatus)
 router.route('/', conversationAssets)
+router.route('/', runtimeDeployment)
 
 export default router

@@ -13,11 +13,13 @@ import type {
 } from "./types"
 import type { AgentAuthoringToolOption, AgentPermissionPolicy } from "../../agents"
 import { createBashTool } from "./bash-tool"
+import { createDeploymentTools } from "./deployment-tools"
 import { createQuestionTool } from "./question-tool"
 import { createRunTaskTool } from "./run-task-tool"
 import { createWebFetchTool } from "./web-fetch-tool"
 import { createWorkspaceTools } from "./workspace-tools"
 import { createWritePlanTool } from "./write-plan-tool"
+import type { DeploymentService } from "../deployment"
 
 const PERMISSION_RANKS = {
   filesystem: { none: 0, read: 1, write: 2 },
@@ -469,7 +471,13 @@ function resolveToolEventData(
     : definition.eventData
 }
 
-export function createDefaultRuntimeToolRegistry(): RuntimeToolRegistry {
+export type DefaultRuntimeToolRegistryOptions = {
+  deploymentService?: DeploymentService
+}
+
+export function createDefaultRuntimeToolRegistry(
+  options: DefaultRuntimeToolRegistryOptions = {}
+): RuntimeToolRegistry {
   const registry = new RuntimeToolRegistry()
   registry.register(createWritePlanTool())
   registry.register(createRunTaskTool())
@@ -478,6 +486,11 @@ export function createDefaultRuntimeToolRegistry(): RuntimeToolRegistry {
   }
   registry.register(createWebFetchTool())
   registry.register(createBashTool())
+  for (const definition of createDeploymentTools({
+    deploymentService: options.deploymentService,
+  })) {
+    registry.register(definition)
+  }
   registry.register(createQuestionTool())
   return registry
 }

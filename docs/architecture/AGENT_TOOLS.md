@@ -79,6 +79,7 @@ Adapter Tools 属于外部智能体平台内部的工具模型，例如 OpenCode
 - 文件、部署、网络类工具的具体执行仍必须通过权限策略、沙箱和审批流程约束。
 - 用户自定义智能体可配置的工具由 Tool Catalog 中的 `configurableByUserAgent` 投影得到，不再维护额外白名单。
 - `question` 对所有内部 AI SDK 智能体隐式可见，包括系统预设主智能体、隐藏子智能体和用户自定义 AI SDK 智能体；它不出现在 authoring options 中，外部 adapter 不注入。
+- 部署工具只对系统预设主智能体 `deploy` 暴露，且 `configurableByUserAgent=false`。用户自定义智能体不能通过 authoring options 选择部署工具；其他系统主智能体即使能看到部署事件，也不能调用部署工具。
 - 外部智能体默认不进入 Runtime Tool Registry。
 
 ## 5. 工具契约
@@ -170,6 +171,8 @@ Runtime trace 可以和 parent run 的事件流关联，但不应作为模型输
 - `question.cancelled`
 
 当工具、审批或用户问答发生在某个模型输出上下文中，Runtime 应把当前消息容器的 `messageId/messageIndex` 写到对应 `tool.*` / `permission.*` / `question.*` RunEvent。UI 和后续 HubServer 持久化应优先把这些事件聚合到同一条 assistant message，而不是默认生成独立聊天发言；`run_task` 仍按后文规则只保留追踪，不渲染为普通工具卡片。
+
+部署工具继续产生通用 `tool.started` / `tool.completed` / `tool.failed` 和 `permission.*` 事件用于注册表、审批和审计；部署预览 UI 不消费通用工具卡作为主事实，而是消费 Runtime deployment service 额外输出的稳定 `deployment.*` 事件。`deployment.*` 事件必须是脱敏 payload，不包含私钥内容、私钥路径、SSH agent 细节、服务器 root path、环境变量 secret 或远程凭据。
 
 如果工具对应的是内部任务，还应继续产出：
 
@@ -355,7 +358,39 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 - 同一 continuation frame 内可以有多个 question request；全部回答后才恢复一次。
 - 取消 Run 时，pending question 输出 `question.cancelled` 和 `tool.failed(QUESTION_CANCELLED)`。
 
-## 11. 允许的后续扩展
+## 11. 部署工具 V1
+
+部署工具是一组 Runtime Tools，语义独立于本机 `bash`、workspace 文件工具和外部 adapter。V1 只支持每个部署会话连接一台 SSH 服务器；模型只能看到服务器 id、展示名、用户、host label、端口等展示 metadata，不能看到或持久化连接材料。
+
+| 工具 | 权限 | 审批 | 说明 |
+| --- | --- | --- | --- |
+| `list_deploy_servers` | `deploy: preview` | `never` | 读取 HubServer 设置页维护的远程服务器列表，返回脱敏展示信息。 |
+| `connect_deploy_server` | `deploy: publish` | `never` | 用 server id 解析连接材料并建立 Runtime 内存 SSH 长连接，成功后返回 connection id 和展示状态。 |
+| `run_deploy_command` | `deploy: publish` | `contextual`（V1 总是 ask） | 在已有连接中执行远程命令，审批通过前不得输出 `tool.started` 或 `deployment.command.started`。 |
+| `update_deployment_status` | `deploy: preview` | `never` | 显式更新进度、步骤、release note、部署 URL 或终态，用于部署预览 UI。 |
+| `close_deploy_connection` | `deploy: publish` | `never` | 显式关闭 Runtime 内存 SSH 连接，并输出连接状态事件。 |
+| `upload_deploy_artifact` | `deploy: publish` | `contextual` | 上传或同步部署产物到已连接服务器。V1 保持保守实现，路径和文件列表必须脱敏。 |
+| `check_deployment_url` | `deploy: preview` | `never` | 从 Runtime 发起 URL 健康检查，记录状态码、耗时、错误摘要，并通过 `deployment.progress.updated.health` 同步到部署预览。 |
+
+`run_deploy_command` 的审批 payload 使用部署语义，而不是 `bash` 语义：
+
+```ts
+type DeploymentCommandPermissionData = {
+  permissionType: "deployment"
+  approvalReason: "deployment_command"
+  serverDisplayName: string
+  user: string
+  command: string
+  cwd?: string
+  reason: string
+}
+```
+
+部署工具的 model-visible result 统一使用 `{ status, summary, data, error }`。命令结果可以返回截断后的 stdout/stderr、exitCode、durationMs 和 commandId；连接和服务器列表结果只能返回脱敏展示字段。部署事实通过 `deployment.*` 事件恢复，工具结果只帮助模型继续推理。
+
+Deploy 的提示词必须要求：先检查项目文件和文档；需求不清楚时使用 `question`；优先识别 Docker Compose 支持，但不能假设所有项目都使用 Compose；每个阶段主动调用 `update_deployment_status` 更新进度和 release note。
+
+## 12. 允许的后续扩展
 
 第一阶段只要求把工具体系架构定稳，后续可以逐步扩展：
 
@@ -384,7 +419,7 @@ MCP tool 接入必须遵守 Skill / MCP 服务设计中的 Phase 5 边界，详�
 
 具体实现步骤见 `docs/guides/ADDING_RUNTIME_TOOLS.md`。新增用户可配置工具时，应在工具定义中设置 authoring metadata 与 `configurableByUserAgent`，并同步更新 API 契约和测试；不得在 router 或 CRUD 中另建工具清单。
 
-## 12. 不纳入范围
+## 13. 不纳入范围
 
 本设计不负责：
 
@@ -394,7 +429,7 @@ MCP tool 接入必须遵守 Skill / MCP 服务设计中的 Phase 5 边界，详�
 - 复杂多轮自动修复策略
 - 全量的工具市场或插件机制
 
-## 13. 已锁定决策
+## 14. 已锁定决策
 
 - 工具是 Runtime 能力，不是纯 Prompt 技巧。
 - `write_plan` 是 Orchestrator 计划的主事实来源。
@@ -408,7 +443,7 @@ MCP tool 接入必须遵守 Skill / MCP 服务设计中的 Phase 5 边界，详�
 - 工具事件主要面向 UI 和追踪，父智能体只看最终结果。
 - `run_task` 产生的事件流可被 UI 订阅，但不会回灌给父智能体作为输入。
 
-## 14. 当前实现状态
+## 15. 当前实现状态
 
 截至本轮，Runtime 工具体系已经进入可执行状态：
 

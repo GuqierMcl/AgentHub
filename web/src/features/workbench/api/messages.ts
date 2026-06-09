@@ -501,6 +501,18 @@ export const conversationMessagesApi = {
   },
 }
 
+export const deploymentPreviewApi = {
+  disconnectConnection(connectionId: string): Promise<unknown> {
+    return request(
+      `/api/deployments/connections/${encodeURIComponent(connectionId)}/disconnect`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "manual_disconnect" }),
+      }
+    )
+  },
+}
+
 // --- Message Pin API ---
 
 export type MessagePin = {

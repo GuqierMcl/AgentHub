@@ -163,6 +163,27 @@ export async function findArtifactByRunAndSourceEvent(
   return artifact ?? null
 }
 
+export async function findDeploymentArtifactByRunAndDeploymentId(
+  runId: string,
+  deploymentId: string,
+): Promise<ArtifactOutput | null> {
+  const db = getPrismaClient()
+  const records = await db.artifact.findMany({
+    where: {
+      runId,
+      type: 'deployment',
+    },
+  })
+  const artifact = records
+    .map((record) => toOutput(record as Record<string, unknown>))
+    .find((record) => {
+      const metadata = record.metadataJson as MetadataJson
+      return metadata.source === 'runtime.deployment' &&
+        metadata.deploymentId === deploymentId
+    })
+  return artifact ?? null
+}
+
 export async function updateArtifact(id: string, input: UpdateArtifactInput): Promise<ArtifactOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()

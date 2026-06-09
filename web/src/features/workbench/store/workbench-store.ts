@@ -20,6 +20,10 @@ import {
 import type {
   Artifact,
   ArtifactKind,
+  DeploymentCommandSnapshot,
+  DeploymentConnectionStatus,
+  DeploymentLogSnapshot,
+  DeploymentSnapshot,
   WorkbenchMessageAttachment,
   WorkbenchTimelineItem,
   WorkbenchTimelineChatMessageItem,
@@ -43,6 +47,7 @@ export type RunConnectionStatus =
 type ConversationRuntimeState = {
   draft: string
   timelineItems: WorkbenchTimelineItem[]
+  deploymentSnapshot: DeploymentSnapshot | null
   activeRuntimeRunId: string | null
   runStatus: RuntimeRunStatus | "idle" | "submitted"
   connectionStatus: RunConnectionStatus
@@ -132,6 +137,7 @@ function createEmptyConversationState(): ConversationRuntimeState {
   return {
     draft: "",
     timelineItems: [],
+    deploymentSnapshot: null,
     activeRuntimeRunId: null,
     runStatus: "idle",
     connectionStatus: "idle",
@@ -304,6 +310,9 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             timelineItems: replayIsBehindCurrentRun
               ? current.timelineItems
               : replayed.timelineItems,
+            deploymentSnapshot: replayIsBehindCurrentRun
+              ? current.deploymentSnapshot
+              : replayed.deploymentSnapshot,
             receivedEventIds: replayIsBehindCurrentRun
               ? current.receivedEventIds
               : replayed.receivedEventIds,
@@ -331,6 +340,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
     const source = options?.source ?? "live"
     let planFocusReasonKey: string | null = null
+    let deploymentFocusReasonKey: string | null = null
+    let deploymentPreviewRequest: { url: string; label?: string } | null = null
 
     set((state) => {
       const current = getOrCreateState(state.conversations, conversationId)
@@ -341,6 +352,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         source
       )
       planFocusReasonKey = next.planFocusReasonKey
+      deploymentFocusReasonKey = next.deploymentFocusReasonKey
+      deploymentPreviewRequest = next.deploymentPreviewRequest
 
       if (!next.changed) {
         return state
@@ -355,6 +368,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             runStatus: next.runStatus,
             connectionStatus: next.connectionStatus,
             timelineItems: next.timelineItems,
+            deploymentSnapshot: next.deploymentSnapshot,
             receivedEventIds: next.receivedEventIds,
             events: next.events,
           },
@@ -373,6 +387,38 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
         reason: "plan",
         reasonKey: planFocusReasonKey,
       })
+    }
+
+    if (
+      source === "live" &&
+      deploymentFocusReasonKey &&
+      get().activeConversationId === conversationId
+    ) {
+      const tabState = useTabStore.getState()
+      if (!tabState.isSingletonOpen("deploy") || tabState.isWorkspaceCollapsed) {
+        tabState.requestWorkspaceFocus({
+          tabType: "deploy",
+          conversationId,
+          reason: "deployment",
+          reasonKey: deploymentFocusReasonKey,
+        })
+      }
+    }
+
+    const previewRequest = deploymentPreviewRequest as { url: string; label?: string } | null
+    if (
+      source === "live" &&
+      previewRequest &&
+      get().activeConversationId === conversationId
+    ) {
+      useTabStore.getState().openTab(
+        "preview",
+        previewRequest.label ?? "部署预览",
+        {
+          source: "deploy",
+          initialUrl: previewRequest.url,
+        }
+      )
     }
   },
 
@@ -432,9 +478,12 @@ type EnvelopeApplicationResult = {
   runStatus: RuntimeRunStatus | "idle" | "submitted"
   connectionStatus: RunConnectionStatus
   timelineItems: WorkbenchTimelineItem[]
+  deploymentSnapshot: DeploymentSnapshot | null
   receivedEventIds: Set<string>
   events: RuntimeRunEvent[]
   planFocusReasonKey: string | null
+  deploymentFocusReasonKey: string | null
+  deploymentPreviewRequest: { url: string; label?: string } | null
   changed: boolean
 }
 
@@ -442,8 +491,9 @@ function replayTimelineRuns(
   timelineRuns: ConversationTimelineRunSnapshot[],
   messages: PersistedMessage[],
   chatSpeakerIds: Record<string, true>
-): Pick<ConversationRuntimeState, "timelineItems" | "receivedEventIds" | "events"> {
+): Pick<ConversationRuntimeState, "timelineItems" | "deploymentSnapshot" | "receivedEventIds" | "events"> {
   let timelineItems: WorkbenchTimelineItem[] = []
+  let deploymentSnapshot: DeploymentSnapshot | null = null
   let receivedEventIds = new Set<string>()
   let events: RuntimeRunEvent[] = []
   const persistedMessagesByRunId = groupPersistedChatMessagesByRun(messages)
@@ -461,6 +511,7 @@ function replayTimelineRuns(
     const replayState: ConversationRuntimeState = {
       draft: "",
       timelineItems,
+      deploymentSnapshot,
       activeRuntimeRunId: null,
       runStatus: "idle",
       connectionStatus: "idle",
@@ -475,6 +526,7 @@ function replayTimelineRuns(
       "replay"
     )
     timelineItems = next.timelineItems
+    deploymentSnapshot = next.deploymentSnapshot
     receivedEventIds = next.receivedEventIds
     events = next.events
     timelineItems = mergePersistedChatMessages(
@@ -488,7 +540,7 @@ function replayTimelineRuns(
   )
   timelineItems = mergePersistedChatMessages(timelineItems, messagesOutsideReplay)
 
-  return { timelineItems, receivedEventIds, events }
+  return { timelineItems, deploymentSnapshot, receivedEventIds, events }
 }
 
 function hasUnreplayedCurrentRunEvents(
@@ -545,8 +597,11 @@ function applyEnvelopesToRuntimeState(
   let runStatus = current.runStatus
   let connectionStatus = current.connectionStatus
   let timelineItems = current.timelineItems
+  let deploymentSnapshot = current.deploymentSnapshot
   let eventLog = current.events
   let planFocusReasonKey: string | null = null
+  let deploymentFocusReasonKey: string | null = null
+  let deploymentPreviewRequest: { url: string; label?: string } | null = null
   let changed = false
   const receivedEventIds = new Set(current.receivedEventIds)
 
@@ -565,6 +620,33 @@ function applyEnvelopesToRuntimeState(
       runStatus = nextRunStatus
       if (isTerminalRunStatus(nextRunStatus)) {
         connectionStatus = "disconnected"
+      }
+    }
+
+    if (event.type.startsWith("deployment.")) {
+      if (source === "live" && !deploymentFocusReasonKey) {
+        const data = getRecord(event.data)
+        deploymentFocusReasonKey = getString(data?.deploymentId) ?? event.id
+      }
+      const nextDeploymentSnapshot = reduceDeploymentSnapshot(
+        deploymentSnapshot,
+        event
+      )
+      if (nextDeploymentSnapshot !== deploymentSnapshot) {
+        deploymentSnapshot = nextDeploymentSnapshot
+      }
+      if (
+        source === "live" &&
+        event.type === "deployment.preview.requested"
+      ) {
+        const data = getRecord(event.data)
+        const url = getString(data?.url)
+        if (url) {
+          deploymentPreviewRequest = {
+            url,
+            ...(getString(data?.label) ? { label: getString(data?.label) } : {}),
+          }
+        }
       }
     }
 
@@ -598,15 +680,261 @@ function applyEnvelopesToRuntimeState(
     }
   }
 
+  if (source === "replay") {
+    deploymentSnapshot = markReplayDeploymentConnectionStale(deploymentSnapshot)
+  }
+
   return {
     activeRuntimeRunId,
     runStatus,
     connectionStatus,
     timelineItems,
+    deploymentSnapshot,
     receivedEventIds,
     events: eventLog,
     planFocusReasonKey,
+    deploymentFocusReasonKey,
+    deploymentPreviewRequest,
     changed,
+  }
+}
+
+function reduceDeploymentSnapshot(
+  current: DeploymentSnapshot | null,
+  event: RuntimeRunEvent
+): DeploymentSnapshot {
+  const data = getRecord(event.data) ?? {}
+  const deploymentId = getString(data.deploymentId) ??
+    current?.deploymentId ??
+    `deployment_${event.runId}`
+  const base: DeploymentSnapshot = {
+    version: 1,
+    deploymentId,
+    conversationId: getString(data.conversationId) ?? current?.conversationId,
+    status: current?.status ?? "running",
+    title: current?.title,
+    strategy: current?.strategy,
+    server: mergeDeploymentServer(current?.server, data.server),
+    connectionId: getString(data.connectionId) ?? current?.connectionId,
+    connectionStatus: current?.connectionStatus,
+    connectionReason: current?.connectionReason,
+    progress: current?.progress,
+    commands: current?.commands ?? [],
+    logs: current?.logs ?? [],
+    releaseNote: current?.releaseNote,
+    deploymentUrl: current?.deploymentUrl,
+    preview: current?.preview,
+    health: current?.health,
+    summary: current?.summary,
+    updatedAt: event.timestamp,
+    completedAt: current?.completedAt,
+  }
+
+  switch (event.type) {
+    case "deployment.started":
+      return {
+        ...base,
+        status: "running",
+        title: getString(data.title) ?? base.title,
+        strategy: getString(data.strategy) ?? base.strategy,
+      }
+    case "deployment.connection.changed":
+      return {
+        ...base,
+        connectionStatus: toDeploymentConnectionStatus(data.connectionStatus) ?? "disconnected",
+        connectionReason: getString(data.reason),
+      }
+    case "deployment.progress.updated":
+      return {
+        ...base,
+        status: base.status ?? "running",
+        progress: {
+          percent: getNumber(data.percent),
+          currentStep: getNumber(data.currentStep),
+          totalSteps: getNumber(data.totalSteps),
+          stepId: getString(data.stepId),
+          stepTitle: getString(data.stepTitle),
+          message: getString(data.message) ?? "",
+          updatedAt: event.timestamp,
+        },
+        health: normalizeDeploymentHealth(data.health) ?? base.health,
+      }
+    case "deployment.command.started":
+      return {
+        ...base,
+        commands: upsertDeploymentCommand(base.commands, {
+          commandId: getString(data.commandId),
+          command: getString(data.command),
+          cwd: getString(data.cwd),
+          reason: getString(data.reason),
+          status: "running",
+          startedAt: getString(data.startedAt) ?? event.timestamp,
+        }),
+      }
+    case "deployment.log.appended":
+      return {
+        ...base,
+        logs: appendDeploymentLog(base.logs, {
+          timestamp: event.timestamp,
+          commandId: getString(data.commandId),
+          stream: toDeploymentLogStream(data.stream),
+          text: getString(data.text) ?? "",
+          truncated: data.truncated === true,
+        }),
+      }
+    case "deployment.command.completed":
+      return {
+        ...base,
+        commands: upsertDeploymentCommand(base.commands, {
+          commandId: getString(data.commandId),
+          status: "completed",
+          exitCode: getNumber(data.exitCode),
+          durationMs: getNumber(data.durationMs),
+          completedAt: event.timestamp,
+        }),
+      }
+    case "deployment.command.failed":
+      return {
+        ...base,
+        commands: upsertDeploymentCommand(base.commands, {
+          commandId: getString(data.commandId),
+          status: "failed",
+          exitCode: getNumber(data.exitCode),
+          signal: getString(data.signal),
+          durationMs: getNumber(data.durationMs),
+          error: getRecord(data.error),
+          completedAt: event.timestamp,
+        }),
+      }
+    case "deployment.release_note.updated":
+      return {
+        ...base,
+        releaseNote: getString(data.releaseNote) ?? "",
+      }
+    case "deployment.preview.requested":
+      return {
+        ...base,
+        deploymentUrl: getString(data.url) ?? base.deploymentUrl,
+        preview: {
+          url: getString(data.url),
+          openMode: getString(data.openMode),
+          label: getString(data.label),
+          requestedAt: event.timestamp,
+        },
+      }
+    case "deployment.completed":
+    case "deployment.failed":
+    case "deployment.cancelled":
+      return {
+        ...base,
+        status: event.type === "deployment.completed"
+          ? "completed"
+          : event.type === "deployment.failed"
+            ? "failed"
+            : "cancelled",
+        summary: getString(data.summary) ?? base.summary,
+        deploymentUrl: getString(data.deploymentUrl) ?? base.deploymentUrl,
+        health: normalizeDeploymentHealth(data.health) ?? base.health,
+        completedAt: event.timestamp,
+      }
+    default:
+      return base
+  }
+}
+
+function mergeDeploymentServer(
+  current: DeploymentSnapshot["server"] | undefined,
+  value: unknown
+): DeploymentSnapshot["server"] | undefined {
+  const server = getRecord(value)
+  if (!server) return current
+  const id = getString(server.id) ?? current?.id
+  const displayName = getString(server.displayName) ?? current?.displayName
+  if (!id || !displayName) return current
+  return {
+    id,
+    displayName,
+    hostLabel: getString(server.hostLabel) ?? current?.hostLabel,
+    port: getNumber(server.port) ?? current?.port,
+    user: getString(server.user) ?? current?.user,
+  }
+}
+
+function toDeploymentConnectionStatus(value: unknown): DeploymentConnectionStatus | undefined {
+  if (
+    value === "connecting" ||
+    value === "connected" ||
+    value === "disconnecting" ||
+    value === "disconnected" ||
+    value === "failed" ||
+    value === "stale"
+  ) {
+    return value
+  }
+  return undefined
+}
+
+function upsertDeploymentCommand(
+  commands: DeploymentCommandSnapshot[],
+  patch: Partial<DeploymentCommandSnapshot> & { commandId?: string }
+): DeploymentCommandSnapshot[] {
+  if (!patch.commandId) return commands
+  const next = [...commands]
+  const index = next.findIndex((command) => command.commandId === patch.commandId)
+  const command = {
+    ...(index >= 0 ? next[index] : { commandId: patch.commandId, status: "running" as const }),
+    ...patch,
+  } as DeploymentCommandSnapshot
+  if (index >= 0) {
+    next[index] = command
+  } else {
+    next.push(command)
+  }
+  return next
+}
+
+function appendDeploymentLog(
+  logs: DeploymentLogSnapshot[],
+  entry: DeploymentLogSnapshot
+): DeploymentLogSnapshot[] {
+  return [...logs, entry].slice(-1000)
+}
+
+function toDeploymentLogStream(value: unknown): DeploymentLogSnapshot["stream"] {
+  return value === "stdout" || value === "stderr" || value === "system"
+    ? value
+    : "system"
+}
+
+function normalizeDeploymentHealth(value: unknown): DeploymentSnapshot["health"] | undefined {
+  const health = getRecord(value)
+  if (!health) return undefined
+  const url = getString(health.url)
+  if (!url || typeof health.ok !== "boolean") return undefined
+  return {
+    url,
+    ok: health.ok,
+    status: getNumber(health.status),
+    durationMs: getNumber(health.durationMs),
+    error: getString(health.error),
+  }
+}
+
+function markReplayDeploymentConnectionStale(
+  snapshot: DeploymentSnapshot | null
+): DeploymentSnapshot | null {
+  if (
+    !snapshot ||
+    (snapshot.connectionStatus !== "connected" &&
+      snapshot.connectionStatus !== "connecting" &&
+      snapshot.connectionStatus !== "disconnecting")
+  ) {
+    return snapshot
+  }
+  return {
+    ...snapshot,
+    connectionStatus: "stale",
+    connectionReason: snapshot.connectionReason ?? "runtime_replay",
   }
 }
 
