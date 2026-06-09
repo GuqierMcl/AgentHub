@@ -140,7 +140,7 @@ export function DeployPreviewPanelContent({
 }: DeployPreviewPanelContentProps) {
   if (!snapshot) {
     return (
-      <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background">
+      <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 basis-0 flex-col overflow-hidden bg-background">
         <div className="flex flex-1 items-center justify-center p-6 text-center">
           <div className="min-w-0 max-w-full">
             <div className="mx-auto flex size-11 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -157,7 +157,7 @@ export function DeployPreviewPanelContent({
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background">
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 basis-0 flex-col overflow-hidden bg-background">
       <div className="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto">
         <div className="flex w-full min-w-0 max-w-full flex-col gap-4 p-4">
           <section className="w-full min-w-0 max-w-full overflow-hidden rounded-md border bg-background">
@@ -165,10 +165,10 @@ export function DeployPreviewPanelContent({
               <div className="flex min-w-0 max-w-full flex-1 items-center gap-2 overflow-hidden">
                 <ServerIcon className="size-4 shrink-0 text-primary" />
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <h3 className="max-w-full truncate font-medium text-sm">
+                  <h3 className="w-full min-w-0 max-w-full truncate font-medium text-sm">
                     {snapshot.title ?? "Deployment"}
                   </h3>
-                  <p className="max-w-full truncate text-muted-foreground text-xs">
+                  <p className="w-full min-w-0 max-w-full truncate text-muted-foreground text-xs">
                     {snapshot.server?.displayName ?? "未选择服务器"}
                     {snapshot.server?.hostLabel ? ` · ${snapshot.server.hostLabel}` : ""}
                   </p>
@@ -253,7 +253,7 @@ export function DeployPreviewPanelContent({
           <section className="flex min-w-0 max-w-full flex-col gap-2">
             <h3 className="font-medium text-sm">发布说明</h3>
             <Textarea
-              className="min-h-24 max-w-full resize-none break-words text-xs"
+              className="min-h-24 min-w-0 max-w-full resize-none overflow-hidden break-words text-xs"
               readOnly
               value={snapshot.releaseNote ?? ""}
             />
@@ -261,7 +261,7 @@ export function DeployPreviewPanelContent({
         </div>
       </div>
 
-      <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 border-border border-t p-3">
+      <div className="flex w-full min-w-0 max-w-full shrink-0 flex-wrap items-center justify-end gap-2 overflow-hidden border-border border-t p-3">
         <Button
           disabled={!snapshot.releaseNote}
           onClick={() => void copyText(snapshot.releaseNote, "发布说明")}

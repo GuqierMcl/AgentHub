@@ -44,10 +44,15 @@ describe("DeployPreviewPanel layout", () => {
 
     expect(html).toContain(longTitle)
     expect(html).toContain(
+      'class="flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 basis-0 flex-col overflow-hidden bg-background"'
+    )
+    expect(html).toContain(
       'class="flex min-w-0 max-w-full flex-1 items-center gap-2 overflow-hidden"'
     )
     expect(html).toContain('class="min-w-0 flex-1 overflow-hidden"')
-    expect(html).toContain('class="max-w-full truncate font-medium text-sm"')
+    expect(html).toContain(
+      'class="w-full min-w-0 max-w-full truncate font-medium text-sm"'
+    )
     expect(html).toContain(
       'class="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto"'
     )

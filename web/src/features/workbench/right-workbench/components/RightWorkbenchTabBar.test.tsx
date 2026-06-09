@@ -30,6 +30,9 @@ describe("RightWorkbenchTabBar layout", () => {
 
     expect(html).toContain("max-w-48")
     expect(html).toContain("min-w-0")
-    expect(html).toContain('class="min-w-0 truncate"')
+    expect(html).toContain(
+      'class="flex w-full min-w-0 max-w-full shrink-0 items-center gap-1 overflow-hidden border-border border-b px-2 py-1.5"'
+    )
+    expect(html).toContain('class="min-w-0 max-w-36 truncate"')
   })
 })

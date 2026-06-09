@@ -42,8 +42,8 @@ export function RightWorkbenchTabBar({
   const isSingletonOpen = useTabStore((s) => s.isSingletonOpen)
 
   return (
-    <div className="flex min-w-0 shrink-0 items-center gap-1 border-border border-b px-2 py-1.5">
-      <div className="right-workbench-tab-scroll min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+    <div className="flex w-full min-w-0 max-w-full shrink-0 items-center gap-1 overflow-hidden border-border border-b px-2 py-1.5">
+      <div className="right-workbench-tab-scroll min-w-0 max-w-full flex-1 overflow-x-auto overflow-y-hidden">
         <div className="flex h-8 w-max items-center gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon
@@ -62,7 +62,7 @@ export function RightWorkbenchTabBar({
                 type="button"
               >
                 <Icon className="size-4 shrink-0" />
-                <span className="min-w-0 truncate">{tab.title}</span>
+                <span className="min-w-0 max-w-36 truncate">{tab.title}</span>
                 <span
                   className={cn(
                     "-mr-1 flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity",

@@ -138,7 +138,7 @@ export function RightWorkbench({
   }, [conversation?.id, conversation?.workspace, openTab, workspaceId, workspaceLabel])
 
   return (
-    <aside className="flex h-full min-h-0 min-w-0 flex-col border-border border-l bg-background">
+    <aside className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden border-border border-l bg-background">
       <div className="flex min-h-16 shrink-0 items-center justify-between gap-3 border-border border-b px-4">
         <div className="min-w-0">
           <h2 className="truncate font-semibold text-sm!">产物工作台</h2>
@@ -148,7 +148,7 @@ export function RightWorkbench({
         </div>
       </div>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden">
         <RightWorkbenchTabBar
           activeTabUid={activeTabUid}
           onCloseTab={handleCloseTab}

@@ -102,7 +102,7 @@ export function RightWorkbenchTabView({
   runStatus,
 }: RightWorkbenchTabViewProps) {
   return (
-    <div className="relative min-h-0 w-full min-w-0 flex-1 overflow-hidden">
+    <div className="relative min-h-0 w-full min-w-0 max-w-full flex-1 overflow-hidden">
       {tabs.map((tab) => {
         const isActive = tab.uid === activeTabUid
         const shouldMount = mountedTabUids.has(tab.uid) || isActive
@@ -120,7 +120,7 @@ export function RightWorkbenchTabView({
             <div
               aria-hidden={!isActive}
               className={cn(
-                "absolute inset-0 min-h-0 w-full min-w-0 overflow-hidden",
+                "absolute inset-0 min-h-0 w-full min-w-0 max-w-full overflow-hidden",
                 isActive ? "flex" : "hidden"
               )}
               data-tab-uid={tab.uid}
