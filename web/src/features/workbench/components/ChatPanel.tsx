@@ -1,5 +1,5 @@
 import type { ChatStatus } from "ai"
-import { useCallback, useMemo, useState } from "react"
+import { memo, useCallback, useMemo, useState } from "react"
 import { Loader2Icon } from "lucide-react"
 
 import { ChatComposer } from "./ChatComposer"
@@ -24,6 +24,8 @@ import {
   useWorkbenchStore,
   type RunConnectionStatus,
 } from "../store/workbench-store"
+
+const EMPTY_TIMELINE_ITEMS: WorkbenchTimelineItem[] = []
 
 type ChatPanelProps = {
   conversation: Conversation
@@ -66,16 +68,6 @@ export function ChatPanel({
       ? replyTargetState.target
       : null
   const submitStatus = getSubmitStatus(runStatus, connectionStatus)
-  const { pins, pinnedMessageIds, togglePin } = usePinnedMessages(conversation.id)
-  const pendingQuestions = useMemo(
-    () => getPendingQuestionItems(conversation.timelineItems),
-    [conversation.timelineItems]
-  )
-  const hasPendingQuestions = pendingQuestions.length > 0
-  const showEmptyConversationState =
-    conversation.timelineItems.length === 0 &&
-    !hasPendingQuestions &&
-    runStatus === "idle"
   const composerDisabled =
     runStatus === "submitted" ||
     runStatus === "queued" ||
@@ -105,6 +97,79 @@ export function ChatPanel({
         onToggleWorkspace={onToggleWorkspace}
         runStatus={runStatus}
       />
+      <ConversationRuntimeBody
+        activeRunId={activeRunId}
+        composerDisabled={composerDisabled}
+        conversation={conversation}
+        deploymentSnapshot={deploymentSnapshot}
+        onCancelReply={() => setReplyTargetState(null)}
+        onCancelRun={onCancelRun}
+        onRegenerate={onRegenerate}
+        onReply={handleReply}
+        onSubmit={handleSubmit}
+        replyTarget={replyTarget}
+        runStatus={runStatus}
+        submitStatus={submitStatus}
+      />
+      {loadingMessages ? <ChatLoadingOverlay /> : null}
+    </section>
+  )
+}
+
+type ConversationRuntimeBodyProps = {
+  activeRunId: string | null
+  composerDisabled: boolean
+  conversation: Conversation
+  deploymentSnapshot?: DeploymentSnapshot | null
+  onCancelReply: () => void
+  onCancelRun: (
+    runId?: string,
+    options?: { fallbackToChat?: boolean }
+  ) => Promise<void> | void
+  onRegenerate: (messageId: string) => Promise<void> | void
+  onReply: (target: MessageReplySnapshot) => void
+  onSubmit: (input: ChatSubmitInput) => Promise<void> | void
+  replyTarget: MessageReplySnapshot | null
+  runStatus: RuntimeRunStatus | "idle" | "submitted"
+  submitStatus: ChatStatus
+}
+
+function ConversationRuntimeBody({
+  activeRunId,
+  composerDisabled,
+  conversation,
+  deploymentSnapshot,
+  onCancelReply,
+  onCancelRun,
+  onRegenerate,
+  onReply,
+  onSubmit,
+  replyTarget,
+  runStatus,
+  submitStatus,
+}: ConversationRuntimeBodyProps) {
+  const timelineItems = useWorkbenchStore((s) =>
+    s.conversations[conversation.id]?.timelineItems ?? EMPTY_TIMELINE_ITEMS
+  )
+  const { pins, pinnedMessageIds, togglePin } = usePinnedMessages(conversation.id)
+  const pendingQuestions = useMemo(
+    () => getPendingQuestionItems(timelineItems),
+    [timelineItems]
+  )
+  const hasPendingQuestions = pendingQuestions.length > 0
+  const showEmptyConversationState =
+    timelineItems.length === 0 &&
+    !hasPendingQuestions &&
+    runStatus === "idle"
+  const handleCancelCurrentRun = useCallback(() => {
+    return onCancelRun()
+  }, [onCancelRun])
+  const handleSkipRun = useCallback((runId: string) => {
+    return onCancelRun(runId, { fallbackToChat: true })
+  }, [onCancelRun])
+
+  return (
+    <>
       {showEmptyConversationState ? (
         <EmptyConversationState
           conversation={conversation}
@@ -117,10 +182,10 @@ export function ChatPanel({
           ) : null}
           <TimelineList
             agentProfiles={conversation.agents ?? []}
-            timelineItems={conversation.timelineItems}
+            timelineItems={timelineItems}
             pinnedMessageIds={pinnedMessageIds}
             onPinToggle={togglePin}
-            onReply={handleReply}
+            onReply={onReply}
             onRegenerate={onRegenerate}
           />
         </>
@@ -128,7 +193,7 @@ export function ChatPanel({
       {hasPendingQuestions ? (
         <QuestionAnswerComposer
           agentProfiles={conversation.agents ?? []}
-          onSkipRun={(runId) => onCancelRun(runId, { fallbackToChat: true })}
+          onSkipRun={handleSkipRun}
           requests={pendingQuestions}
         />
       ) : (
@@ -137,17 +202,16 @@ export function ChatPanel({
           conversationId={conversation.id}
           deploymentSnapshot={deploymentSnapshot}
           disabled={composerDisabled}
-          onCancelRun={() => onCancelRun()}
+          onCancelRun={handleCancelCurrentRun}
           agentProfiles={conversation.agents ?? []}
           conversationMode={conversation.mode}
-          onCancelReply={() => setReplyTargetState(null)}
-          onSubmit={handleSubmit}
+          onCancelReply={onCancelReply}
+          onSubmit={onSubmit}
           replyTo={replyTarget}
           status={submitStatus}
         />
       )}
-      {loadingMessages ? <ChatLoadingOverlay /> : null}
-    </section>
+    </>
   )
 }
 
@@ -165,7 +229,7 @@ type ConversationDraftComposerProps = {
   status: ChatStatus
 }
 
-function ConversationDraftComposer({
+const ConversationDraftComposer = memo(function ConversationDraftComposer({
   agentProfiles,
   canCancelRun,
   conversationId,
@@ -203,7 +267,7 @@ function ConversationDraftComposer({
       value={draft}
     />
   )
-}
+})
 
 function ChatLoadingOverlay() {
   return (

@@ -23,10 +23,11 @@ import { workbenchQueryKeys } from "../api/query-keys"
 import type { RuntimeRunEvent, RuntimeRunStatus } from "../api/runtime-runs"
 import { RightWorkbench } from "../right-workbench/RightWorkbench"
 import { runStreamManager } from "../runtime/run-stream-manager"
+import { cacheConversationMessagesResult } from "../runtime/message-result-cache"
 import { submitWorkbenchMessage } from "../runtime/submit-message"
 import {
   isTerminalRunStatus,
-  selectConversationRuntimeRenderState,
+  selectConversationRuntimeChromeState,
   useWorkbenchStore,
 } from "../store/workbench-store"
 import { ChatPanel } from "./ChatPanel"
@@ -38,10 +39,10 @@ import type {
   ConversationDetail,
   ConversationListItem,
   ChatSubmitInput,
-  WorkbenchTimelineItem,
 } from "../types"
 
 const EMPTY_AGENT_SUMMARIES: AgentSummary[] = []
+const EMPTY_TIMELINE_ITEMS: Conversation["timelineItems"] = []
 
 type WorkbenchContentLayoutProps = {
   activeConversationId: string | null
@@ -64,7 +65,7 @@ export function WorkbenchContentLayout({
     (s) => s.consumeWorkspaceFocusRequest
   )
   const runtimeState = useWorkbenchStore(useShallow((s) =>
-    selectConversationRuntimeRenderState(s, activeConversationId)
+    selectConversationRuntimeChromeState(s, activeConversationId)
   ))
   const setDraft = useWorkbenchStore((s) => s.setDraft)
   const hydrateTimelineFromReplay = useWorkbenchStore((s) => s.hydrateTimelineFromReplay)
@@ -181,16 +182,14 @@ export function WorkbenchContentLayout({
 
   const activeConversation = useMemo((): Conversation | null => {
     if (!conversationDetail) return null
-    const timelineItems = runtimeState?.timelineItems ?? []
     const workspace = getWorkspacePath(conversationDetail.metadata)
-    const latestMessage = getLatestChatMessage(timelineItems)
     return {
       id: conversationDetail.id,
       title: conversationDetail.title,
       mode: conversationDetail.mode,
       agentIds: resolvedAgents.map((agent) => agent.id),
       agents: resolvedAgents,
-      preview: latestMessage?.text ?? "",
+      preview: "",
       activeAt: conversationDetail.lastMessageAt ?? conversationDetail.updatedAt,
       workspace,
       pinned: !!conversationDetail.pinnedAt,
@@ -199,7 +198,7 @@ export function WorkbenchContentLayout({
         ? !isTerminalRunStatus(runtimeState.runStatus) &&
           runtimeState.runStatus !== "idle"
         : false,
-      timelineItems,
+      timelineItems: EMPTY_TIMELINE_ITEMS,
     }
   }, [conversationDetail, resolvedAgents, runtimeState])
 
@@ -225,16 +224,16 @@ export function WorkbenchContentLayout({
       uploadImage: conversationMessagesApi.uploadImage,
       sendMessage: conversationMessagesApi.send,
       onSuccess: async (result) => {
-        queryClient.setQueryData(
-          workbenchQueryKeys.conversations.messages(activeConversationId),
-          result
-        )
-        hydrateTimelineFromReplay(
-          activeConversationId,
-          result.messages,
-          result.timelineRuns,
-          result.activeRun
-        )
+        lastHydratedAtRef.current[activeConversationId] =
+          cacheConversationMessagesResult(queryClient, activeConversationId, result)
+        startTransition(() => {
+          hydrateTimelineFromReplay(
+            activeConversationId,
+            result.messages,
+            result.timelineRuns,
+            result.activeRun
+          )
+        })
         if (result.activeRun && !isTerminalRunStatus(result.activeRun.status)) {
           runStreamManager.connect(
             activeConversationId,
@@ -276,16 +275,16 @@ export function WorkbenchContentLayout({
         activeConversationId,
         messageId
       )
-      queryClient.setQueryData(
-        workbenchQueryKeys.conversations.messages(activeConversationId),
-        result
-      )
-      hydrateTimelineFromReplay(
-        activeConversationId,
-        result.messages,
-        result.timelineRuns,
-        result.activeRun
-      )
+      lastHydratedAtRef.current[activeConversationId] =
+        cacheConversationMessagesResult(queryClient, activeConversationId, result)
+      startTransition(() => {
+        hydrateTimelineFromReplay(
+          activeConversationId,
+          result.messages,
+          result.timelineRuns,
+          result.activeRun
+        )
+      })
       if (result.activeRun && !isTerminalRunStatus(result.activeRun.status)) {
         runStreamManager.connect(
           activeConversationId,
@@ -502,12 +501,6 @@ function getWorkspacePath(metadata: Record<string, unknown> | null): string {
   if (typeof workspace !== "object" || workspace === null) return ""
   const snapshot = workspace as Record<string, unknown>
   return typeof snapshot.rootPath === "string" ? snapshot.rootPath : ""
-}
-
-function getLatestChatMessage(
-  timelineItems: WorkbenchTimelineItem[]
-): Extract<WorkbenchTimelineItem, { kind: "chat_message" }> | undefined {
-  return timelineItems.findLast((item) => item.kind === "chat_message")
 }
 
 function resolveConversationAgents(

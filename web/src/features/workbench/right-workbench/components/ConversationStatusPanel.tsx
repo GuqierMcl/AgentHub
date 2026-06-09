@@ -24,13 +24,19 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import type { RuntimeRunStatus } from "@/features/workbench/api/runtime-runs"
-import type { RunConnectionStatus } from "@/features/workbench/store/workbench-store"
+import {
+  useWorkbenchStore,
+  type RunConnectionStatus,
+} from "@/features/workbench/store/workbench-store"
 import type {
   Conversation,
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelinePlanItem,
+  WorkbenchTimelineItem,
 } from "@/features/workbench/types"
 import { cn } from "@/lib/utils"
+
+const EMPTY_TIMELINE_ITEMS: WorkbenchTimelineItem[] = []
 
 type ConversationStatusPanelProps = {
   conversation: Conversation | null
@@ -43,18 +49,22 @@ export function ConversationStatusPanel({
   connectionStatus,
   runStatus,
 }: ConversationStatusPanelProps) {
-  const latestPlan = conversation?.timelineItems.findLast(
+  const timelineItems = useWorkbenchStore((s) =>
+    conversation
+      ? s.conversations[conversation.id]?.timelineItems ?? EMPTY_TIMELINE_ITEMS
+      : EMPTY_TIMELINE_ITEMS
+  )
+  const latestPlan = timelineItems.findLast(
     (item): item is WorkbenchTimelinePlanItem => item.kind === "plan"
   )
   const chatMessageCount =
-    conversation?.timelineItems.filter((item) => item.kind === "chat_message")
-      .length ?? 0
+    timelineItems.filter((item) => item.kind === "chat_message").length
   const taskCount = latestPlan?.tasks.length ?? 0
   const completedTaskCount =
     latestPlan?.tasks.filter((task) => task.status === "completed").length ?? 0
-  const latestWorkspaceDiff = getLatestWorkspaceDiff(conversation)
+  const latestWorkspaceDiff = getLatestWorkspaceDiff(timelineItems)
   const gitSummary = getGitSummary(latestWorkspaceDiff)
-  const tokenSummary = getTokenSummary(conversation)
+  const tokenSummary = getTokenSummary(timelineItems)
 
   const planAggregateStatus = latestPlan
     ? getPlanAggregateStatus(latestPlan.tasks)
@@ -397,9 +407,8 @@ function SectionTitle({
 }
 
 function getLatestWorkspaceDiff(
-  conversation: Conversation | null
+  items: WorkbenchTimelineItem[]
 ): Record<string, unknown> | undefined {
-  const items = conversation?.timelineItems ?? []
   for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
     const item = items[itemIndex]
     if (item.kind !== "chat_message") continue
@@ -454,11 +463,11 @@ function getGitSummary(workspaceDiff: Record<string, unknown> | undefined): {
   return { rows, badges }
 }
 
-function getTokenSummary(conversation: Conversation | null): {
+function getTokenSummary(timelineItems: WorkbenchTimelineItem[]): {
   rows: Array<{ label: string; value: string }>
   badges: string[]
 } {
-  const messages = (conversation?.timelineItems ?? []).filter(
+  const messages = timelineItems.filter(
     (item): item is WorkbenchTimelineChatMessageItem =>
       item.kind === "chat_message" && item.role === "assistant"
   )

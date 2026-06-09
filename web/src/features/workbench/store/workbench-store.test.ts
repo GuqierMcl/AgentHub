@@ -3,6 +3,7 @@ import { describe, expect, it, beforeEach } from "bun:test"
 import type { ActiveRunSnapshot, ConversationTimelineRunSnapshot, PersistedMessage } from "../api/messages"
 import { useTabStore } from "@/store/tab-store"
 import {
+  selectConversationRuntimeChromeState,
   selectConversationRuntimeRenderState,
   useWorkbenchStore,
 } from "./workbench-store"
@@ -1181,6 +1182,51 @@ describe("workbench persisted message replay", () => {
     expect(after).toBeDefined()
     expect("draft" in (after as Record<string, unknown>)).toBe(false)
     expect(after?.timelineItems).toBe(before?.timelineItems)
+    expect(after?.deploymentSnapshot).toBe(before?.deploymentSnapshot)
+    expect(after?.activeRuntimeRunId).toBe(before?.activeRuntimeRunId)
+    expect(after?.runStatus).toBe(before?.runStatus)
+    expect(after?.connectionStatus).toBe(before?.connectionStatus)
+  })
+
+  it("keeps streaming timeline deltas out of the parent chrome selector", () => {
+    const conversationId = "conv_chrome_selector"
+    useWorkbenchStore.getState().setConversationChatSpeakers(conversationId, ["coder"])
+    useWorkbenchStore.getState().applyRuntimeEvents(conversationId, [{
+      id: "event_chrome_delta_1",
+      runId: "run_chrome_selector",
+      runtimeRunId: "runtime_chrome_selector",
+      type: "message.delta",
+      timestamp: "2026-06-09T10:00:00.000Z",
+      agentId: "coder",
+      messageId: "runtime_msg_chrome",
+      messageIndex: 0,
+      data: { delta: "Hel" },
+    }])
+    const before = selectConversationRuntimeChromeState(
+      useWorkbenchStore.getState(),
+      conversationId
+    )
+
+    useWorkbenchStore.getState().applyRuntimeEvents(conversationId, [{
+      id: "event_chrome_delta_2",
+      runId: "run_chrome_selector",
+      runtimeRunId: "runtime_chrome_selector",
+      type: "message.delta",
+      timestamp: "2026-06-09T10:00:00.100Z",
+      agentId: "coder",
+      messageId: "runtime_msg_chrome",
+      messageIndex: 0,
+      data: { delta: "lo" },
+    }])
+    const after = selectConversationRuntimeChromeState(
+      useWorkbenchStore.getState(),
+      conversationId
+    )
+
+    expect(before).toBeDefined()
+    expect(after).toBeDefined()
+    expect("timelineItems" in (after as Record<string, unknown>)).toBe(false)
+    expect("draft" in (after as Record<string, unknown>)).toBe(false)
     expect(after?.deploymentSnapshot).toBe(before?.deploymentSnapshot)
     expect(after?.activeRuntimeRunId).toBe(before?.activeRuntimeRunId)
     expect(after?.runStatus).toBe(before?.runStatus)

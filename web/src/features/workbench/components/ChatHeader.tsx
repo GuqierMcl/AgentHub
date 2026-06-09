@@ -2,6 +2,7 @@ import {
   CircleAlertIcon,
   FolderIcon,
 } from "lucide-react"
+import { memo } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,7 +39,7 @@ type ChatHeaderProps = {
   onToggleWorkspace: () => void
 }
 
-export function ChatHeader({
+export const ChatHeader = memo(function ChatHeader({
   connectionStatus,
   conversation,
   isWorkspaceOpen,
@@ -134,7 +135,7 @@ export function ChatHeader({
       ) : null}
     </header>
   )
-}
+})
 
 function getWorkspaceLabel(workspace: string): string {
   if (!workspace) return ""

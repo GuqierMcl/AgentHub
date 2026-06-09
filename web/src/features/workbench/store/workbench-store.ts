@@ -65,6 +65,14 @@ export type ConversationRuntimeRenderState = Pick<
   | "connectionStatus"
 >
 
+export type ConversationRuntimeChromeState = Pick<
+  ConversationRuntimeState,
+  | "deploymentSnapshot"
+  | "activeRuntimeRunId"
+  | "runStatus"
+  | "connectionStatus"
+>
+
 export type WorkbenchStore = {
   activeConversationId: string | null
   conversations: Record<string, ConversationRuntimeState>
@@ -177,6 +185,22 @@ export function selectConversationRuntimeRenderState(
 
   return {
     timelineItems: current.timelineItems,
+    deploymentSnapshot: current.deploymentSnapshot,
+    activeRuntimeRunId: current.activeRuntimeRunId,
+    runStatus: current.runStatus,
+    connectionStatus: current.connectionStatus,
+  }
+}
+
+export function selectConversationRuntimeChromeState(
+  state: WorkbenchStore,
+  conversationId: string | null
+): ConversationRuntimeChromeState | undefined {
+  if (!conversationId) return undefined
+  const current = state.conversations[conversationId]
+  if (!current) return undefined
+
+  return {
     deploymentSnapshot: current.deploymentSnapshot,
     activeRuntimeRunId: current.activeRuntimeRunId,
     runStatus: current.runStatus,
