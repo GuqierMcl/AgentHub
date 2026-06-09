@@ -19,11 +19,24 @@ declare module 'hono' {
 
 const messages = new Hono()
 
+const SendMessageAttachmentSchema = z.object({
+  kind: z.literal('image'),
+  assetId: z.string().trim().min(1),
+}).strict()
+
 const SendMessageBodySchema = z.object({
-  content: z.string().trim().min(1),
+  content: z.string().trim().optional().default(''),
   addressedAgentIds: z.array(z.string().trim().min(1)).optional().default([]),
   replyToMessageId: z.string().trim().min(1).optional(),
-}).strict()
+  attachments: z.array(SendMessageAttachmentSchema).optional().default([]),
+}).strict().superRefine((body, ctx) => {
+  if (body.content.trim() || body.attachments.length > 0) return
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['content'],
+    message: 'Message requires non-empty content or at least one attachment',
+  })
+})
 
 const CreatePinBodySchema = z.object({
   messageId: z.string().trim().min(1),
@@ -66,6 +79,9 @@ messages.post('/api/conversations/:conversationId/messages/send', async (c: Cont
   const result = await service.sendMessage(conversationId, parsed.data.content, {
     addressedAgentIds: parsed.data.addressedAgentIds,
     replyToMessageId: parsed.data.replyToMessageId,
+    ...(parsed.data.attachments.length > 0
+      ? { attachments: parsed.data.attachments }
+      : {}),
   })
   return c.json(result, 201)
 })

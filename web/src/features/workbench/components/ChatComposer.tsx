@@ -7,9 +7,10 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from "react"
-import type { ChatStatus } from "ai"
+import type { ChatStatus, FileUIPart } from "ai"
 import { useQuery } from "@tanstack/react-query"
 import { CircleIcon, SquareIcon, XIcon } from "lucide-react"
+import { toast } from "sonner"
 
 import {
   Attachment,
@@ -56,6 +57,7 @@ import { cn } from "@/lib/utils"
 import { workspaceMcpStatusApi } from "../api/workspace-mcp-status"
 import { workbenchQueryKeys } from "../api/query-keys"
 import type {
+  ChatImageAttachmentInput,
   ChatSubmitInput,
   Conversation,
   ConversationAgentProfile,
@@ -124,6 +126,19 @@ function PromptInputAttachmentsDisplay() {
   )
 }
 
+export const CHAT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+export const CHAT_IMAGE_UPLOAD_ACCEPT = "image/png,image/jpeg,image/webp,image/gif"
+
+const SUPPORTED_CHAT_IMAGE_MEDIA_TYPES = new Set(
+  CHAT_IMAGE_UPLOAD_ACCEPT.split(",")
+)
+
+export function isSupportedChatImageFilePart(
+  filePart: Pick<FileUIPart, "mediaType">
+): filePart is ChatImageAttachmentInput {
+  return SUPPORTED_CHAT_IMAGE_MEDIA_TYPES.has(filePart.mediaType.toLowerCase())
+}
+
 type MentionTrigger = {
   start: number
   end: number
@@ -182,6 +197,45 @@ type ChatComposerProps = {
 
 type ChatComposerInnerProps = ChatComposerProps
 
+type ComposerSubmitButtonProps = {
+  canCancelRun: boolean
+  disabled: boolean
+  isGenerating: boolean
+  onCancelRun: () => void
+  status: ChatStatus
+  value: string
+}
+
+function ComposerSubmitButton({
+  canCancelRun,
+  disabled,
+  isGenerating,
+  onCancelRun,
+  status,
+  value,
+}: ComposerSubmitButtonProps) {
+  const attachments = usePromptInputAttachments()
+  const hasImages = attachments.files.some(isSupportedChatImageFilePart)
+  const submitDisabled = isGenerating
+    ? !canCancelRun
+    : disabled || (!value.trim() && !hasImages)
+
+  return (
+    <PromptInputSubmit
+      disabled={submitDisabled}
+      onStop={onCancelRun}
+      size="icon-sm"
+      status={status}
+    >
+      {isGenerating ? (
+        <SquareIcon />
+      ) : (
+        <ArrowUpIcon className="![&_svg]:size-4" size={16} />
+      )}
+    </PromptInputSubmit>
+  )
+}
+
 function ChatComposerInner({
   agentProfiles,
   canCancelRun = false,
@@ -233,9 +287,6 @@ function ChatComposerInner({
       : "暂无可 @ 的智能体"
     : "当前会话暂无智能体候选"
   const isGenerating = status === "submitted" || status === "streaming"
-  const submitDisabled = isGenerating
-    ? !canCancelRun
-    : disabled || !value.trim()
 
   const queryRef = useRef(mentionQuery)
 
@@ -282,8 +333,14 @@ function ChatComposerInner({
   }, [closeMentionMenu, mentionTrigger, onValueChange, value])
 
   const handleSubmit = useCallback(async (message: PromptInputMessage) => {
+    const images = message.files.filter(isSupportedChatImageFilePart)
+    if (!message.text.trim() && images.length === 0) {
+      return
+    }
+
     await onSubmit({
       content: message.text,
+      ...(images.length ? { images } : {}),
       ...(mentionTarget ? { addressedAgentIds: [mentionTarget.id] } : {}),
     })
     setMentionTarget(null)
@@ -358,6 +415,23 @@ function ChatComposerInner({
     setMentionTarget(null)
   }, [])
 
+  const handleAttachmentError = useCallback((error: {
+    code: "max_files" | "max_file_size" | "accept"
+    message: string
+  }) => {
+    switch (error.code) {
+      case "accept":
+        toast.error("仅支持 PNG、JPEG、WebP 或 GIF 图片")
+        return
+      case "max_file_size":
+        toast.error("单张图片不能超过 10 MB")
+        return
+      case "max_files":
+        toast.error("单条消息最多发送 8 张图片")
+        return
+    }
+  }, [])
+
   const serviceStatusSnapshot = useServiceStatusStore((state) => state.snapshot)
   const initializeServiceStatus = useServiceStatusStore((state) => state.initialize)
   const avatarOverrides = useAvatarOverrides().data?.agents ?? {}
@@ -405,7 +479,11 @@ function ChatComposerInner({
             "[&_[data-slot=input-group]]:rounded-b-none"
         )}
         globalDrop
+        accept={CHAT_IMAGE_UPLOAD_ACCEPT}
+        maxFiles={8}
+        maxFileSize={CHAT_IMAGE_MAX_BYTES}
         multiple
+        onError={handleAttachmentError}
         onSubmit={handleSubmit}
       >
         <PromptInputHeader>
@@ -547,18 +625,14 @@ function ChatComposerInner({
               variant="ghost"
             />
           </PromptInputTools>
-          <PromptInputSubmit
-            disabled={submitDisabled}
-            onStop={handleCancelRun}
-            size="icon-sm"
+          <ComposerSubmitButton
+            canCancelRun={canCancelRun}
+            disabled={disabled}
+            isGenerating={isGenerating}
+            onCancelRun={handleCancelRun}
             status={status}
-          >
-            {isGenerating ? (
-              <SquareIcon />
-            ) : (
-              <ArrowUpIcon className="![&_svg]:size-4" size={16} />
-            )}
-          </PromptInputSubmit>
+            value={value}
+          />
         </PromptInputFooter>
       </PromptInput>
       <ExternalAgentStatusBar items={statusBarItems} />

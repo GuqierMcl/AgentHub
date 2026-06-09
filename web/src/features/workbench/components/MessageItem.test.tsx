@@ -45,6 +45,175 @@ describe("MessageItem reply preview", () => {
   })
 })
 
+describe("MessageItem attachments", () => {
+  it("renders image attachment thumbnails inside the message bubble", () => {
+    const item: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: "msg_image_only",
+      persistedMessageId: "msg_image_only",
+      role: "user",
+      text: "",
+      time: "10:00",
+      attachments: [
+        {
+          kind: "image",
+          id: "part_image",
+          assetId: "asset_1",
+          filename: "diagram.png",
+          mediaType: "image/png",
+          size: 12345,
+          width: 640,
+          height: 480,
+          url: "/api/conversations/conv/assets/images/asset_1/file",
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <TimelineItem
+          agentProfiles={[]}
+          item={item}
+          pinTargetMessageId="msg_image_only"
+        />
+      </TooltipProvider>
+    )
+
+    expect(html).toContain("alt=\"diagram.png\"")
+    expect(html).toContain("/api/conversations/conv/assets/images/asset_1/file")
+    expect(html).not.toContain("mt-2")
+  })
+
+  it("does not render unsafe image URLs when no sanitized attachments are present", () => {
+    const item: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: "msg_unsafe_ignored",
+      persistedMessageId: "msg_unsafe_ignored",
+      role: "user",
+      text: "Unsafe image payloads should be ignored.",
+      time: "10:00",
+    }
+
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <TimelineItem
+          agentProfiles={[]}
+          item={item}
+          pinTargetMessageId="msg_unsafe_ignored"
+        />
+      </TooltipProvider>
+    )
+
+    expect(html).not.toContain("https://example.test/asset.png")
+    expect(html).not.toContain("data:image/png")
+    expect(html).not.toContain("blob:")
+    expect(html).not.toContain("file:///")
+  })
+
+  it("renders attachments for the active message version", () => {
+    const item: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: "msg_versioned_images",
+      persistedMessageId: "msg_original",
+      role: "user",
+      text: "Original prompt.",
+      time: "10:00",
+      versions: [
+        {
+          id: "msg_original",
+          messageId: "msg_original",
+          content: "Original prompt.",
+          time: "10:00",
+          attachments: [
+            {
+              kind: "image",
+              id: "part_original_image",
+              assetId: "asset_original",
+              filename: "original.png",
+              mediaType: "image/png",
+              size: 111,
+              url: "/api/conversations/conv/assets/images/asset_original/file",
+            },
+          ],
+        },
+        {
+          id: "msg_alternative",
+          messageId: "msg_alternative",
+          content: "Alternative prompt.",
+          time: "10:05",
+          attachments: [
+            {
+              kind: "image",
+              id: "part_alternative_image",
+              assetId: "asset_alternative",
+              filename: "alternative.webp",
+              mediaType: "image/webp",
+              size: 222,
+              url: "/api/conversations/conv/assets/images/asset_alternative/file",
+            },
+          ],
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <TimelineItem
+          agentProfiles={[]}
+          item={item}
+          pinTargetMessageId="msg_original"
+        />
+      </TooltipProvider>
+    )
+
+    expect(html).toContain("alt=\"original.png\"")
+    expect(html).toContain("alt=\"alternative.webp\"")
+    expect(html).not.toContain("mt-2")
+  })
+
+  it("preserves source attachments when a version object omits them", () => {
+    const item: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: "msg_source_with_image",
+      persistedMessageId: "msg_source_with_image",
+      role: "user",
+      text: "Original prompt.",
+      time: "10:00",
+      attachments: [
+        {
+          kind: "image",
+          id: "part_source_image",
+          assetId: "asset_source",
+          filename: "source.png",
+          mediaType: "image/png",
+          size: 333,
+          url: "/api/conversations/conv/assets/images/asset_source/file",
+        },
+      ],
+      versions: [
+        {
+          id: "msg_source_with_image",
+          messageId: "msg_source_with_image",
+          content: "Original prompt.",
+          time: "10:00",
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <TimelineItem
+          agentProfiles={[]}
+          item={item}
+          pinTargetMessageId="msg_source_with_image"
+        />
+      </TooltipProvider>
+    )
+
+    expect(html).toContain("alt=\"source.png\"")
+  })
+})
+
 describe("MessageItem regenerate marker", () => {
   it("renders regenerate request summaries on the source user message", () => {
     const item: WorkbenchTimelineChatMessageItem = {

@@ -9,6 +9,7 @@ import type {
 import { createDefaultClaudeCodeClient } from "./claude-code-real-client"
 import {
   ExternalAdapterError,
+  assertNoImagePartsForExternalAdapter,
   type ExternalAdapterContext,
   type ExternalAdapterPrompt,
   type ExternalAgentAdapter,
@@ -23,6 +24,8 @@ export class ClaudeCodeAdapter implements ExternalAgentAdapter {
   constructor(private client: ClaudeCodeClient = createDefaultClaudeCodeClient()) {}
 
   async *execute(context: ExternalAdapterContext): AsyncIterable<RunEvent> {
+    assertNoImagePartsForExternalAdapter(context, this.provider)
+
     const sessionHint = context.input.externalSessionHints?.find((hint) => {
       return hint.provider === this.provider &&
         hint.agentId === context.agent.id &&

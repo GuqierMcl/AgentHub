@@ -67,6 +67,7 @@ export type ExternalAdapterErrorCode =
   | "ADAPTER_PERMISSION_FAILED"
   | "ADAPTER_PERMISSION_REPLY_FAILED"
   | "ADAPTER_PERMISSION_CANCELLED"
+  | "MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER"
 
 export class ExternalAdapterError extends Error {
   constructor(
@@ -77,4 +78,26 @@ export class ExternalAdapterError extends Error {
     super(message)
     this.name = "ExternalAdapterError"
   }
+}
+
+export function assertNoImagePartsForExternalAdapter(
+  context: ExternalAdapterContext,
+  provider: string
+): void {
+  const imageCount = context.input.userMessage.parts
+    ?.filter((part) => part.type === "image")
+    .length ?? 0
+
+  if (imageCount === 0) {
+    return
+  }
+
+  throw new ExternalAdapterError(
+    "MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER",
+    `External adapter ${provider} does not support image message parts`,
+    {
+      provider,
+      imageCount,
+    }
+  )
 }

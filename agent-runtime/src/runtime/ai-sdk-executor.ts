@@ -21,7 +21,13 @@ import {
   type ModelAttempt,
 } from "./pre-visible-model-fallback"
 import type { SystemModelSettingsService } from "./system-model-settings"
-import type { AgentExecutionContext, AgentExecutor, RunEvent } from "./types"
+import {
+  toModelMessageContent,
+  type AgentExecutionContext,
+  type AgentExecutor,
+  type RuntimeMessage,
+  type RunEvent,
+} from "./types"
 import type { RuntimeToolRegistry } from "./tools"
 import type { ProviderService } from "../provider"
 
@@ -103,16 +109,35 @@ export function buildSystemPrompt(context: AgentExecutionContext): string {
 }
 
 function normalizeHistoryMessages(context: AgentExecutionContext): ModelMessage[] {
-  return context.input.history
-    .filter((message) => message.role !== "system")
-    .map((message) => ({
-      role: message.role,
-      content: message.content,
-    }) satisfies ModelMessage)
-    .concat({
+  const historyMessages = context.input.history.flatMap((message) => {
+    const modelMessage = runtimeMessageToModelMessage(message)
+    return modelMessage ? [modelMessage] : []
+  })
+
+  return [
+    ...historyMessages,
+    {
       role: "user",
-      content: context.input.userMessage.content,
-    })
+      content: toModelMessageContent(context.input.userMessage),
+    } satisfies ModelMessage,
+  ]
+}
+
+function runtimeMessageToModelMessage(message: RuntimeMessage): ModelMessage | null {
+  switch (message.role) {
+    case "system":
+      return null
+    case "user":
+      return {
+        role: "user",
+        content: toModelMessageContent({ ...message, role: "user" }),
+      } satisfies ModelMessage
+    case "assistant":
+      return {
+        role: "assistant",
+        content: toModelMessageContent({ ...message, role: "assistant" }),
+      } satisfies ModelMessage
+  }
 }
 
 function buildExecutionSettings(

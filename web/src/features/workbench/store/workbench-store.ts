@@ -20,6 +20,7 @@ import {
 import type {
   Artifact,
   ArtifactKind,
+  WorkbenchMessageAttachment,
   WorkbenchTimelineItem,
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelinePlanItem,
@@ -84,6 +85,12 @@ type WorkbenchStore = {
 
 const terminalRunStatuses = new Set(["completed", "failed", "cancelled"])
 const maxEventLogSize = 200
+const persistedImageMediaTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+])
 
 const timelineEventTypes = new Set([
   "message.delta",
@@ -661,11 +668,13 @@ function toTimelineItemFromPersistedMessage(
     .join("\n")
   const artifacts = mapPersistedArtifacts(message)
   const toolItems = mapPersistedToolItems(message)
+  const attachments = mapPersistedMessageAttachments(message)
 
   if (
     !text &&
     artifacts.length === 0 &&
     toolItems.length === 0 &&
+    attachments.length === 0 &&
     message.role === "assistant" &&
     message.status !== "streaming"
   ) {
@@ -690,6 +699,7 @@ function toTimelineItemFromPersistedMessage(
     status: toTimelineStatus(message.status, message.role),
     ...(replyTo ? { replyTo } : {}),
     ...(regenerate ? { regenerate } : {}),
+    ...(attachments.length ? { attachments } : {}),
     ...(artifacts.length ? { artifacts } : {}),
     ...(toolItems.length ? { toolItems } : {}),
   }
@@ -770,6 +780,7 @@ function mergePersistedChatMessage(
     externalModel: current.externalModel ?? persisted.externalModel,
     replyTo: current.replyTo ?? persisted.replyTo,
     regenerate: current.regenerate ?? persisted.regenerate,
+    attachments: mergeMessageAttachments(current.attachments, persisted.attachments),
     artifacts: mergeArtifacts(current.artifacts, persisted.artifacts),
     toolItems: mergeToolItems(current.toolItems, persisted.toolItems),
   }
@@ -981,6 +992,57 @@ function mapPersistedToolItems(message: PersistedMessage): WorkbenchTimelineTool
   })
 }
 
+function mapPersistedMessageAttachments(
+  message: PersistedMessage
+): WorkbenchMessageAttachment[] {
+  return message.parts.flatMap((part) => {
+    if (part.type !== "image") return []
+
+    const payload = part.payloadJson ?? {}
+    if (getString(payload.kind) !== "image") return []
+
+    const assetId = getString(payload.assetId)
+    const filename = getString(payload.filename)
+    const mediaType = getString(payload.mediaType)
+    const size = getNumber(payload.size)
+    const url = getString(payload.url)
+    if (
+      !assetId ||
+      !filename ||
+      !isPersistedImageMediaType(mediaType) ||
+      size === undefined ||
+      !isPersistedConversationImageUrl(url)
+    ) {
+      return []
+    }
+
+    const width = getNumber(payload.width)
+    const height = getNumber(payload.height)
+    return [{
+      kind: "image" as const,
+      id: part.id || assetId,
+      assetId,
+      filename,
+      mediaType,
+      size,
+      ...(width !== undefined ? { width } : {}),
+      ...(height !== undefined ? { height } : {}),
+      url,
+    }]
+  })
+}
+
+function isPersistedImageMediaType(value: string | undefined): value is string {
+  return value !== undefined && persistedImageMediaTypes.has(value)
+}
+
+function isPersistedConversationImageUrl(value: string | undefined): value is string {
+  return value !== undefined &&
+    value.startsWith("/api/conversations/") &&
+    value.includes("/assets/images/") &&
+    value.endsWith("/file")
+}
+
 function getPersistedToolCallId(part: PersistedMessage["parts"][number]): string {
   const payload = part.payloadJson ?? {}
   return getString(part.entityId) ??
@@ -1120,6 +1182,31 @@ function mergeArtifacts(
   return merged
 }
 
+function mergeMessageAttachments(
+  current: WorkbenchMessageAttachment[] | undefined,
+  persisted: WorkbenchMessageAttachment[] | undefined
+): WorkbenchMessageAttachment[] | undefined {
+  if (!current?.length) return persisted
+  if (!persisted?.length) return current
+
+  const byAssetId = new Map(current.map((attachment) => [
+    attachment.assetId,
+    attachment,
+  ]))
+  for (const attachment of persisted) {
+    byAssetId.set(attachment.assetId, attachment)
+  }
+
+  const merged = [...byAssetId.values()]
+  if (
+    merged.length === current.length &&
+    merged.every((attachment, index) => attachment === current[index])
+  ) {
+    return current
+  }
+  return merged
+}
+
 function mergeToolItems(
   current: WorkbenchTimelineToolItem[] | undefined,
   persisted: WorkbenchTimelineToolItem[] | undefined
@@ -1214,6 +1301,7 @@ function isSameChatMessage(
     left.externalModel === right.externalModel &&
     left.replyTo === right.replyTo &&
     left.regenerate === right.regenerate &&
+    left.attachments === right.attachments &&
     left.toolItems === right.toolItems &&
     left.artifacts === right.artifacts
 }

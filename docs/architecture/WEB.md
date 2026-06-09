@@ -55,6 +55,12 @@
 - Windows 桌面壳必须在加载 Electrobun 窗口 API 之前设置 per-monitor DPI awareness，避免系统在 125%/150% 等缩放屏幕上对整个窗口做位图拉伸，导致 Web 内容模糊。该行为属于 `desktop` 壳层职责，Web CSS 不应为此做额外缩放补偿。
 - 创建智能体、绑定模型和删除确认维持模态操作；已有用户智能体配置在智能体模块右侧内容区内联编辑。用户自定义智能体表单可以保存 `allowedSkills` 逻辑 ref；全局 Skill 可从只读发现结果中点选，`workspace:*` ref 可回显和移除，但实际注入仍由当前 Run 的 workspace 绑定和 Workspace Skill Trust 默认 trusted / 显式撤销结果决定。
 
+### 聊天图片发送与渲染
+
+- Composer 选择图片后，Web 必须先把文件上传到 HubServer 的会话图片资产 API，收到持久化资产 metadata 后才允许调用 `POST /api/conversations/:conversationId/messages/send`；发送消息只携带返回的 `assetId`，不携带 `File` 对象、浏览器 blob URL、data URL 或原始客户端路径。
+- 初始图片类型只接受 `image/png`、`image/jpeg`、`image/webp` 和 `image/gif`；`image/svg+xml` 先拒绝。单条消息最多 8 张图片，单图最大 10 MB。图片-only 用户消息可以发送，正文可为空字符串。
+- 上传前的本地预览只属于 composer 临时状态。消息发送、刷新恢复和 persisted message 渲染必须使用 HubServer 返回并持久化在 image part payload 中的资产 URL；如果任一图片上传失败，Web 不应继续创建聊天消息。
+
 ## 状态管理
 
 - TanStack Query 管理服务端事实：active conversation list、conversation detail、runtime agents、conversation timeline replay snapshot、active run snapshot，以及后续 permissions/artifacts。

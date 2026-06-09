@@ -158,6 +158,21 @@ class PromptCapturingOpenCodeClient extends FakeOpenCodeClient {
   }
 }
 
+class InvocationCountingOpenCodeClient extends FakeOpenCodeClient {
+  ensureSessionCalls = 0
+  streamPromptCalls = 0
+
+  async ensureSession(request: OpenCodeSessionRequest): Promise<ExternalSessionLink> {
+    this.ensureSessionCalls += 1
+    return super.ensureSession(request)
+  }
+
+  async *streamPrompt(request: OpenCodePromptRequest) {
+    this.streamPromptCalls += 1
+    yield* super.streamPrompt(request)
+  }
+}
+
 class ToolStreamingOpenCodeClient extends FakeOpenCodeClient {
   async *streamPrompt(_request: OpenCodePromptRequest) {
     yield {
@@ -306,6 +321,21 @@ class QuestionAskingClaudeCodeClient extends FakeClaudeCodeClient {
   }
 }
 
+class InvocationCountingClaudeCodeClient extends FakeClaudeCodeClient {
+  ensureSessionCalls = 0
+  streamPromptCalls = 0
+
+  async ensureSession(request: Parameters<FakeClaudeCodeClient["ensureSession"]>[0]): Promise<ExternalSessionLink> {
+    this.ensureSessionCalls += 1
+    return super.ensureSession(request)
+  }
+
+  async *streamPrompt(request: ClaudeCodePromptRequest) {
+    this.streamPromptCalls += 1
+    yield* super.streamPrompt(request)
+  }
+}
+
 class PromptCapturingCodexClient extends FakeCodexClient {
   prompts: CodexPromptRequest[] = []
 
@@ -314,6 +344,23 @@ class PromptCapturingCodexClient extends FakeCodexClient {
     yield* super.streamPrompt(request)
   }
 }
+
+class InvocationCountingCodexClient extends FakeCodexClient {
+  ensureSessionCalls = 0
+  streamPromptCalls = 0
+
+  async ensureSession(request: CodexSessionRequest): Promise<ExternalSessionLink> {
+    this.ensureSessionCalls += 1
+    return super.ensureSession(request)
+  }
+
+  async *streamPrompt(request: CodexPromptRequest) {
+    this.streamPromptCalls += 1
+    yield* super.streamPrompt(request)
+  }
+}
+
+const IMAGE_DATA_SENTINEL = "SECRET_BASE64_IMAGE_DATA_SHOULD_NOT_LEAK"
 
 describe("external adapter executor", () => {
   test("direct OpenCode run uses the external adapter instead of the mock executor", async () => {
@@ -361,6 +408,61 @@ describe("external adapter executor", () => {
       modelId: "fake-model",
     })
     expect(message?.messageIndex).toBe(0)
+  })
+
+  test("direct OpenCode image message fails before invoking the external client", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    const client = new InvocationCountingOpenCodeClient()
+    attachOpenCodeClient(runManager, client)
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_opencode_image_rejected",
+      mode: "single",
+      participantAgentIds: ["opencode"],
+      addressedAgentIds: ["opencode"],
+      userMessage: {
+        role: "user",
+        content: "Inspect this image.",
+        parts: [{
+          type: "image",
+          mediaType: "image/png",
+          filename: "screenshot.png",
+          data: IMAGE_DATA_SENTINEL,
+          encoding: "base64",
+        }],
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_opencode_image_rejected",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const failedRun = runManager.getRun(run.id)
+    const failedEvent = (runManager.getEvents(run.id) ?? [])
+      .find((event) => event.type === "run.failed")
+
+    expect(failedRun?.status).toBe("failed")
+    expect(failedRun?.error?.code).toBe("MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER")
+    expect(failedRun?.error?.details).toEqual({
+      provider: "opencode",
+      imageCount: 1,
+    })
+    expect((failedEvent?.data as { code?: string; details?: unknown }).code)
+      .toBe("MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER")
+    expect((failedEvent?.data as { details?: unknown }).details).toEqual({
+      provider: "opencode",
+      imageCount: 1,
+    })
+    expect(JSON.stringify(failedRun?.error)).not.toContain(IMAGE_DATA_SENTINEL)
+    expect(JSON.stringify(failedEvent?.data)).not.toContain(IMAGE_DATA_SENTINEL)
+    expect(client.ensureSessionCalls).toBe(0)
+    expect(client.streamPromptCalls).toBe(0)
   })
 
   test("direct OpenCode group run prepends AgentHub external context", async () => {
@@ -853,6 +955,61 @@ describe("external adapter executor", () => {
     expect(message?.messageIndex).toBe(0)
   })
 
+  test("direct Claude Code image message fails before invoking the external client", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    const client = new InvocationCountingClaudeCodeClient()
+    attachClaudeCodeClient(runManager, client)
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_claude_code_image_rejected",
+      mode: "single",
+      participantAgentIds: ["claude-code"],
+      addressedAgentIds: ["claude-code"],
+      userMessage: {
+        role: "user",
+        content: "Inspect this image.",
+        parts: [{
+          type: "image",
+          mediaType: "image/png",
+          filename: "screenshot.png",
+          data: IMAGE_DATA_SENTINEL,
+          encoding: "base64",
+        }],
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_claude_code_image_rejected",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const failedRun = runManager.getRun(run.id)
+    const failedEvent = (runManager.getEvents(run.id) ?? [])
+      .find((event) => event.type === "run.failed")
+
+    expect(failedRun?.status).toBe("failed")
+    expect(failedRun?.error?.code).toBe("MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER")
+    expect(failedRun?.error?.details).toEqual({
+      provider: "claude-code",
+      imageCount: 1,
+    })
+    expect((failedEvent?.data as { code?: string; details?: unknown }).code)
+      .toBe("MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER")
+    expect((failedEvent?.data as { details?: unknown }).details).toEqual({
+      provider: "claude-code",
+      imageCount: 1,
+    })
+    expect(JSON.stringify(failedRun?.error)).not.toContain(IMAGE_DATA_SENTINEL)
+    expect(JSON.stringify(failedEvent?.data)).not.toContain(IMAGE_DATA_SENTINEL)
+    expect(client.ensureSessionCalls).toBe(0)
+    expect(client.streamPromptCalls).toBe(0)
+  })
+
   test("direct Claude Code run reuses a conversation-visible session hint", async () => {
     const registry = await createInitializedRegistry()
     const runManager = new RunManager(registry, {} as ProviderService)
@@ -1074,6 +1231,61 @@ describe("external adapter executor", () => {
       modelId: "fake-codex-model",
     })
     expect(message?.messageIndex).toBe(0)
+  })
+
+  test("direct Codex image message fails before invoking the external client", async () => {
+    const registry = await createInitializedRegistry()
+    const runManager = new RunManager(registry, {} as ProviderService)
+    const client = new InvocationCountingCodexClient()
+    attachCodexClient(runManager, client)
+    const rootPath = await createWorkspace()
+
+    const run = runManager.createRun({
+      conversationId: "conv_codex_image_rejected",
+      mode: "single",
+      participantAgentIds: ["codex"],
+      addressedAgentIds: ["codex"],
+      userMessage: {
+        role: "user",
+        content: "Inspect this image.",
+        parts: [{
+          type: "image",
+          mediaType: "image/png",
+          filename: "screenshot.png",
+          data: IMAGE_DATA_SENTINEL,
+          encoding: "base64",
+        }],
+      },
+      history: [],
+      workspace: {
+        workspaceId: "workspace_codex_image_rejected",
+        backendType: "local",
+        rootPath,
+      },
+    })
+
+    await waitForTerminalRun(runManager, run.id)
+
+    const failedRun = runManager.getRun(run.id)
+    const failedEvent = (runManager.getEvents(run.id) ?? [])
+      .find((event) => event.type === "run.failed")
+
+    expect(failedRun?.status).toBe("failed")
+    expect(failedRun?.error?.code).toBe("MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER")
+    expect(failedRun?.error?.details).toEqual({
+      provider: "codex",
+      imageCount: 1,
+    })
+    expect((failedEvent?.data as { code?: string; details?: unknown }).code)
+      .toBe("MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER")
+    expect((failedEvent?.data as { details?: unknown }).details).toEqual({
+      provider: "codex",
+      imageCount: 1,
+    })
+    expect(JSON.stringify(failedRun?.error)).not.toContain(IMAGE_DATA_SENTINEL)
+    expect(JSON.stringify(failedEvent?.data)).not.toContain(IMAGE_DATA_SENTINEL)
+    expect(client.ensureSessionCalls).toBe(0)
+    expect(client.streamPromptCalls).toBe(0)
   })
 
   test("direct Codex group run prepends AgentHub external context", async () => {

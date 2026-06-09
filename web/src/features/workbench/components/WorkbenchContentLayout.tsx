@@ -22,6 +22,7 @@ import { workbenchQueryKeys } from "../api/query-keys"
 import type { RuntimeRunEvent, RuntimeRunStatus } from "../api/runtime-runs"
 import { RightWorkbench } from "../right-workbench/RightWorkbench"
 import { runStreamManager } from "../runtime/run-stream-manager"
+import { submitWorkbenchMessage } from "../runtime/submit-message"
 import {
   isTerminalRunStatus,
   useWorkbenchStore,
@@ -195,57 +196,48 @@ export function WorkbenchContentLayout({
 
   const handleSubmit = useCallback(async (input: ChatSubmitInput) => {
     if (!activeConversationId || !conversationDetail) return
-    const trimmedContent = input.content.trim()
-    if (!trimmedContent) return
 
-    if (
-      runtimeState?.activeRuntimeRunId &&
-      !isTerminalRunStatus(runtimeState.runStatus)
-    ) {
-      toast.info("当前会话已有正在运行的回复")
-      return
-    }
-
-    setDraft(activeConversationId, "")
-    markRunSubmitted(activeConversationId)
-
-    try {
-      const addressedAgentIds = input.addressedAgentIds?.filter(Boolean) ?? []
-      const sendOptions = {
-        ...(addressedAgentIds.length ? { addressedAgentIds } : {}),
-        ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
-      }
-      const result = await conversationMessagesApi.send(
-        activeConversationId,
-        trimmedContent,
-        Object.keys(sendOptions).length ? sendOptions : undefined
-      )
-      queryClient.setQueryData(
-        workbenchQueryKeys.conversations.messages(activeConversationId),
-        result
-      )
-      hydrateTimelineFromReplay(
-        activeConversationId,
-        result.messages,
-        result.timelineRuns,
-        result.activeRun
-      )
-      if (result.activeRun && !isTerminalRunStatus(result.activeRun.status)) {
-        runStreamManager.connect(
-          activeConversationId,
-          result.activeRun.id,
-          result.activeRun.lastEventSequence
+    await submitWorkbenchMessage({
+      activeConversationId,
+      input,
+      hasActiveRun: Boolean(
+        runtimeState?.activeRuntimeRunId &&
+          !isTerminalRunStatus(runtimeState.runStatus)
+      ),
+      setDraft,
+      markRunSubmitted,
+      failRunStart,
+      notifyActiveRun: () => {
+        toast.info("当前会话已有正在运行的回复")
+      },
+      notifyError: (message, code) => {
+        toast.error(code ? `${code}: ${message}` : message)
+      },
+      uploadImage: conversationMessagesApi.uploadImage,
+      sendMessage: conversationMessagesApi.send,
+      onSuccess: async (result) => {
+        queryClient.setQueryData(
+          workbenchQueryKeys.conversations.messages(activeConversationId),
+          result
         )
-      }
-      await queryClient.invalidateQueries({
-        queryKey: workbenchQueryKeys.conversations.all,
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Run 创建失败"
-      const code = err instanceof ConversationMessageRequestError ? err.code : undefined
-      failRunStart(activeConversationId, message, code)
-      toast.error(code ? `${code}: ${message}` : message)
-    }
+        hydrateTimelineFromReplay(
+          activeConversationId,
+          result.messages,
+          result.timelineRuns,
+          result.activeRun
+        )
+        if (result.activeRun && !isTerminalRunStatus(result.activeRun.status)) {
+          runStreamManager.connect(
+            activeConversationId,
+            result.activeRun.id,
+            result.activeRun.lastEventSequence
+          )
+        }
+        await queryClient.invalidateQueries({
+          queryKey: workbenchQueryKeys.conversations.all,
+        })
+      },
+    })
   }, [
     activeConversationId,
     conversationDetail,

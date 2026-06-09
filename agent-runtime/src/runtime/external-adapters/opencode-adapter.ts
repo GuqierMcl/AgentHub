@@ -3,7 +3,13 @@ import { createRunEvent } from "../run-events"
 import type { ExternalContextPacket, RunEvent } from "../types"
 import type { OpenCodeClient, OpenCodeExecutionAgent, OpenCodePermissionRequest } from "./opencode-client"
 import { createDefaultOpenCodeClient } from "./opencode-real-client"
-import { ExternalAdapterError, type ExternalAdapterContext, type ExternalAdapterPrompt, type ExternalAgentAdapter } from "./types"
+import {
+  ExternalAdapterError,
+  assertNoImagePartsForExternalAdapter,
+  type ExternalAdapterContext,
+  type ExternalAdapterPrompt,
+  type ExternalAgentAdapter,
+} from "./types"
 
 const log = createChildLogger("opencode-adapter")
 const DEFAULT_OPENCODE_EXECUTION_AGENT: OpenCodeExecutionAgent = "build"
@@ -14,6 +20,8 @@ export class OpenCodeAdapter implements ExternalAgentAdapter {
   constructor(private client: OpenCodeClient = createDefaultOpenCodeClient()) {}
 
   async *execute(context: ExternalAdapterContext): AsyncIterable<RunEvent> {
+    assertNoImagePartsForExternalAdapter(context, this.provider)
+
     const sessionHint = context.input.externalSessionHints?.find((hint) => {
       return hint.provider === this.provider &&
         hint.agentId === context.agent.id &&

@@ -1,4 +1,4 @@
-import type { ToolUIPart } from "ai"
+import type { FileUIPart, ToolUIPart } from "ai"
 import type {
   AgentExecutorType,
   AgentOrigin,
@@ -49,11 +49,24 @@ export type Artifact = {
   detail?: WorkspaceDiffArtifactDetail
 }
 
+export type WorkbenchMessageAttachment = {
+  kind: "image"
+  id: string
+  assetId: string
+  filename: string
+  mediaType: string
+  size: number
+  width?: number
+  height?: number
+  url: string
+}
+
 export type MessageVersion = {
   id: string
   messageId?: string
   regeneratedFromId?: string
   content: string
+  attachments?: WorkbenchMessageAttachment[]
   agentId?: string
   time?: string
   status?: WorkbenchTimelineStatus
@@ -123,6 +136,7 @@ export type WorkbenchTimelineChatMessageItem = {
   messageIndex?: number
   agentId?: string
   text: string
+  attachments?: WorkbenchMessageAttachment[]
   time: string
   status?: WorkbenchTimelineStatus
   error?: string
@@ -307,8 +321,25 @@ export type MentionTarget = {
   agent: ConversationAgentProfile
 }
 
+export type ChatImageAttachmentInput = Pick<
+  FileUIPart,
+  "type" | "mediaType" | "filename" | "url"
+>
+
+export type ChatImageAttachment = {
+  kind: "image"
+  assetId: string
+  filename: string
+  mediaType: string
+  size: number
+  width?: number
+  height?: number
+  url: string
+}
+
 export type ChatSubmitInput = {
   content: string
+  images?: ChatImageAttachmentInput[]
   addressedAgentIds?: string[]
   replyToMessageId?: string
 }

@@ -331,5 +331,16 @@ function buildMessagePreview(parts: { type: string; text: string | null }[]): st
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim()
-  return Array.from(content).slice(0, 50).join('')
+  if (content) {
+    return Array.from(content).slice(0, 50).join('')
+  }
+
+  const imageCount = parts.filter((part) => part.type === 'image').length
+  if (imageCount === 1) {
+    return '[图片]'
+  }
+  if (imageCount > 1) {
+    return `[${imageCount} 张图片]`
+  }
+  return ''
 }

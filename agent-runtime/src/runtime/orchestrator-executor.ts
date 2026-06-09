@@ -25,8 +25,10 @@ import type { SystemModelSettingsService } from "./system-model-settings"
 import type {
   AgentExecutionContext,
   AgentExecutor,
+  RuntimeMessage,
   RunEvent,
 } from "./types"
+import { toModelMessageContent } from "./types"
 import type { RuntimeToolRegistry } from "./tools"
 
 const log = createChildLogger("orchestrator-executor")
@@ -43,18 +45,38 @@ function normalizeHistoryMessages(context: AgentExecutionContext): ModelMessage[
   if (context.resumeMessages) {
     return context.resumeMessages
   }
-  return context.input.history
-    .filter((message) => message.role !== "system")
-    .map((message) => ({
-      role: message.role,
-      content: message.agentId
-        ? `[${message.agentId}] ${message.content}`
-        : message.content,
-    }) satisfies ModelMessage)
-    .concat({
+  const historyMessages = context.input.history.flatMap((message) => {
+    const modelMessage = runtimeMessageToModelMessage(message, { prefixAgentId: true })
+    return modelMessage ? [modelMessage] : []
+  })
+
+  return [
+    ...historyMessages,
+    {
       role: "user",
-      content: context.input.userMessage.content,
-    })
+      content: toModelMessageContent(context.input.userMessage),
+    } satisfies ModelMessage,
+  ]
+}
+
+function runtimeMessageToModelMessage(
+  message: RuntimeMessage,
+  options: { prefixAgentId?: boolean } = {}
+): ModelMessage | null {
+  switch (message.role) {
+    case "system":
+      return null
+    case "user":
+      return {
+        role: "user",
+        content: toModelMessageContent({ ...message, role: "user" }, options),
+      } satisfies ModelMessage
+    case "assistant":
+      return {
+        role: "assistant",
+        content: toModelMessageContent({ ...message, role: "assistant" }, options),
+      } satisfies ModelMessage
+  }
 }
 
 function formatCapabilities(agent: AgentDefinition): string {

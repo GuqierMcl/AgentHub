@@ -3,11 +3,13 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import sharp from 'sharp'
+import { config } from '../config'
 import { closeDatabase, initDatabase } from '../lib/db'
 import { prepareTestDatabase } from '../test-utils/database'
 import { createConversationAgent } from '../repositories/conversation-agent.repo'
 import { createConversation } from '../repositories/conversation.repo'
-import { createMessage, findMessageByRunAndRuntimeMessageId } from '../repositories/message.repo'
+import { createMessage, findMessageByRunAndRuntimeMessageId, listMessagesWithParts } from '../repositories/message.repo'
 import { createMessagePart } from '../repositories/message-part.repo'
 import { createMessagePin } from '../repositories/message-pin.repo'
 import { createRun } from '../repositories/run.repo'
@@ -29,11 +31,18 @@ import {
   resolveAddressedAgentIds,
   toProductHubRunEventEnvelope,
 } from './run-persistence.service'
+import {
+  CONVERSATION_IMAGE_MAX_PER_MESSAGE,
+  saveConversationImageAsset,
+  type ConversationImageAssetMetadata,
+} from './conversation-image-assets.service'
 
 let tempDir: string
+const originalDataDir = config.dataDir
 
 beforeAll(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'hub-server-run-persistence-'))
+  config.dataDir = tempDir
   const dbPath = join(tempDir, 'hub.db').replace(/\\/g, '/')
   const dbUrl = `file:${dbPath}`
   prepareTestDatabase(dbUrl)
@@ -42,6 +51,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await closeDatabase()
+  config.dataDir = originalDataDir
   if (tempDir) {
     try {
       await rm(tempDir, { recursive: true, force: true })
@@ -770,6 +780,397 @@ describe('external direct session bridge', () => {
         includedHandoffSessionIds: [],
       },
     })
+  })
+})
+
+describe('image message persistence and runtime input', () => {
+  function createRuntimeCapture(runtimeStatus: 'queued' | 'completed' = 'completed') {
+    const calls: Array<{ method: string; path: string; body: any }> = []
+    const events: Array<{ type: string; payload: any }> = []
+    const runtimeClient = {
+      forward: async (method: string, path: string, body: unknown) => {
+        calls.push({ method, path, body })
+        return {
+          status: 201,
+          data: {
+            runId: `runtime_image_${randomUUID()}`,
+            status: runtimeStatus,
+            eventsUrl: '/runtime/runs/runtime_image/events',
+          },
+        }
+      },
+    }
+    const service = new RunPersistenceService(
+      runtimeClient as never,
+      {
+        publish: (type: string, payload: unknown) => {
+          events.push({ type, payload })
+        },
+      } as never,
+    )
+    ;(service as any).startRuntimeConsumer = () => {}
+    return { calls, events, service }
+  }
+
+  async function createSingleAgentConversation(title: string, agentId = 'coder') {
+    const conversation = await createConversation({
+      title,
+      mode: 'single',
+      metadataJson: agentId === 'claude-code'
+        ? {
+            workspace: {
+              workspaceId: 'workspace_image_context',
+              backendType: 'local',
+              rootPath: 'D:\\dev\\image-context',
+            },
+          }
+        : undefined,
+    })
+    await createConversationAgent({
+      conversationId: conversation.id,
+      agentId,
+      sortOrder: 0,
+    })
+    return conversation
+  }
+
+  async function createImageAsset(
+    conversationId: string,
+    fileName: string,
+  ): Promise<{ metadata: ConversationImageAssetMetadata; bytes: Buffer }> {
+    const bytes = await createPngBytes()
+    const metadata = await saveConversationImageAsset({
+      conversationId,
+      fileName,
+      mediaType: 'image/png',
+      bytes,
+    })
+    return { metadata, bytes }
+  }
+
+  function toPublicImagePayload(metadata: ConversationImageAssetMetadata) {
+    return {
+      kind: metadata.kind,
+      assetId: metadata.assetId,
+      filename: metadata.filename,
+      mediaType: metadata.mediaType,
+      size: metadata.size,
+      ...(typeof metadata.width === 'number' ? { width: metadata.width } : {}),
+      ...(typeof metadata.height === 'number' ? { height: metadata.height } : {}),
+      url: metadata.url,
+    }
+  }
+
+  async function createImageOnlyMessage(input: {
+    conversationId: string
+    metadata: ConversationImageAssetMetadata
+    role?: 'user' | 'assistant'
+    runId?: string | null
+    agentId?: string | null
+    metadataJson?: Record<string, unknown>
+  }) {
+    const role = input.role ?? 'user'
+    const message = await createMessage({
+      conversationId: input.conversationId,
+      runId: input.runId ?? null,
+      surface: 'chat',
+      role,
+      senderType: role === 'user' ? 'user' : 'agent',
+      senderId: role === 'user' ? 'user' : input.agentId ?? null,
+      agentId: input.agentId ?? null,
+      status: 'completed',
+      metadataJson: input.metadataJson,
+      completedAt: '2026-06-08T08:00:00.000Z',
+    })
+    await createMessagePart({
+      messageId: message.id,
+      conversationId: input.conversationId,
+      runId: input.runId ?? undefined,
+      partKey: `image:${input.metadata.assetId}`,
+      partIndex: 0,
+      type: 'image',
+      state: 'done',
+      payloadJson: toPublicImagePayload(input.metadata),
+    })
+    return message
+  }
+
+  async function createPngBytes(): Promise<Buffer> {
+    return sharp({
+      create: {
+        width: 2,
+        height: 2,
+        channels: 4,
+        background: { r: 32, g: 128, b: 220, alpha: 1 },
+      },
+    }).png().toBuffer()
+  }
+
+  it('persists an image-only message with no text part and sends a base64 image runtime part', async () => {
+    const { calls, events, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Image-only send')
+    const image = await createImageAsset(conversation.id, 'image-only.png')
+
+    const result = await service.sendMessage(conversation.id, '', {
+      attachments: [
+        { kind: 'image', assetId: image.metadata.assetId },
+      ],
+    })
+
+    const userMessage = result.messages.find((message) =>
+      message.role === 'user' &&
+      message.parts.some((part) => part.partKey === `image:${image.metadata.assetId}`)
+    )
+    expect(userMessage).toBeTruthy()
+    expect(userMessage?.parts.map((part) => part.type)).toEqual(['image'])
+    expect(userMessage?.parts[0]).toMatchObject({
+      partIndex: 0,
+      partKey: `image:${image.metadata.assetId}`,
+      type: 'image',
+      text: null,
+    })
+    expect(userMessage?.parts[0]?.payloadJson).toEqual(toPublicImagePayload(image.metadata))
+
+    expect(calls[0]?.body.userMessage).toMatchObject({
+      id: userMessage?.id,
+      role: 'user',
+      content: '',
+      parts: [
+        {
+          type: 'image',
+          mediaType: 'image/png',
+          filename: 'image-only.png',
+          data: Buffer.from(image.bytes).toString('base64'),
+          encoding: 'base64',
+        },
+      ],
+    })
+    expect(events.find((event) => event.type === 'conversation.last_message.updated')?.payload)
+      .toMatchObject({ lastMessageContent: '[图片]' })
+  })
+
+  it('persists text before images and sends runtime parts in the same order', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Text and image send')
+    const image = await createImageAsset(conversation.id, 'diagram.png')
+
+    const result = await service.sendMessage(conversation.id, 'Describe this image.', {
+      attachments: [
+        { kind: 'image', assetId: image.metadata.assetId },
+      ],
+    })
+
+    const userMessage = result.messages.find((message) =>
+      message.role === 'user' &&
+      message.parts.some((part) => part.partKey === `image:${image.metadata.assetId}`)
+    )
+    expect(userMessage?.parts.map((part) => [part.partIndex, part.type, part.partKey])).toEqual([
+      [0, 'text', 'text'],
+      [1, 'image', `image:${image.metadata.assetId}`],
+    ])
+    expect(userMessage?.parts[0]?.text).toBe('Describe this image.')
+    expect(calls[0]?.body.userMessage.parts.map((part: { type: string }) => part.type)).toEqual([
+      'text',
+      'image',
+    ])
+    expect(calls[0]?.body.userMessage.parts[0]).toEqual({
+      type: 'text',
+      text: 'Describe this image.',
+    })
+  })
+
+  it('includes image parts when replaying prior user messages into runtime history', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Image history')
+    const image = await createImageAsset(conversation.id, 'history.png')
+
+    const firstResult = await service.sendMessage(conversation.id, '', {
+      attachments: [
+        { kind: 'image', assetId: image.metadata.assetId },
+      ],
+    })
+    const previousUserMessage = firstResult.messages.find((message) =>
+      message.role === 'user' &&
+      message.parts.some((part) => part.type === 'image')
+    )
+
+    await service.sendMessage(conversation.id, 'Use the previous image.')
+
+    const historyMessage = calls[1]?.body.history.find((message: { id?: string }) =>
+      message.id === previousUserMessage?.id
+    )
+    expect(historyMessage).toMatchObject({
+      id: previousUserMessage?.id,
+      role: 'user',
+      content: '',
+      parts: [
+        {
+          type: 'image',
+          mediaType: 'image/png',
+          filename: 'history.png',
+          data: Buffer.from(image.bytes).toString('base64'),
+          encoding: 'base64',
+        },
+      ],
+    })
+  })
+
+  it('uses image fallback text for reply snapshots and reply runtime context', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Image reply')
+    const image = await createImageAsset(conversation.id, 'reply-parent.png')
+    const parent = await createImageOnlyMessage({
+      conversationId: conversation.id,
+      metadata: image.metadata,
+      role: 'assistant',
+      agentId: 'coder',
+    })
+
+    const result = await service.sendMessage(conversation.id, 'What should I change?', {
+      replyToMessageId: parent.id,
+    })
+
+    const runtimeInput = calls[0]?.body
+    expect(runtimeInput.userMessage.content).toContain(`[Replying to assistant coder (${parent.id})]`)
+    expect(runtimeInput.userMessage.content).toContain('> [图片]')
+
+    const replyMessage = result.messages.find((message) => message.parentMessageId === parent.id)
+    expect(replyMessage?.metadataJson).toMatchObject({
+      replyTo: {
+        messageId: parent.id,
+        excerpt: '[图片]',
+      },
+    })
+  })
+
+  it('replays image-only regenerate sources instead of rejecting them', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Image regenerate')
+    const image = await createImageAsset(conversation.id, 'regenerate-source.png')
+    const trigger = await createImageOnlyMessage({
+      conversationId: conversation.id,
+      metadata: image.metadata,
+      role: 'user',
+    })
+    const sourceRun = await createRun({
+      conversationId: conversation.id,
+      triggerMessageId: trigger.id,
+      mode: 'single',
+      status: 'completed',
+      runtimeId: 'runtime_source_image_regenerate',
+    })
+    const sourceAssistant = await createMessage({
+      conversationId: conversation.id,
+      runId: sourceRun.id,
+      surface: 'chat',
+      role: 'assistant',
+      senderType: 'agent',
+      senderId: 'coder',
+      agentId: 'coder',
+      status: 'completed',
+      completedAt: '2026-06-08T08:01:00.000Z',
+    })
+    await createMessagePart({
+      messageId: sourceAssistant.id,
+      conversationId: conversation.id,
+      runId: sourceRun.id,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: 'Original visual answer.',
+    })
+
+    const result = await service.regenerateAssistantMessage(conversation.id, sourceAssistant.id)
+
+    expect(calls[0]?.body.userMessage.content).toContain(`[Regenerating assistant message ${sourceAssistant.id}]`)
+    expect(calls[0]?.body.userMessage.parts).toEqual([
+      expect.objectContaining({ type: 'text' }),
+      expect.objectContaining({
+        type: 'image',
+        filename: 'regenerate-source.png',
+      }),
+    ])
+    const regeneratedTrigger = result.messages.find((message) =>
+      message.role === 'user' &&
+      message.id !== trigger.id &&
+      message.metadataJson?.regenerate
+    )
+    expect(regeneratedTrigger?.parts.map((part) => part.type)).toEqual(['image'])
+  })
+
+  it('uses image fallback for image-only pinned context', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Pinned image')
+    const image = await createImageAsset(conversation.id, 'pinned.png')
+    const pinnedMessage = await createImageOnlyMessage({
+      conversationId: conversation.id,
+      metadata: image.metadata,
+    })
+    await createMessagePin({
+      conversationId: conversation.id,
+      messageId: pinnedMessage.id,
+      sortOrder: 0,
+    })
+
+    await service.sendMessage(conversation.id, 'Use pinned visual context.')
+
+    expect(calls[0]?.body.pinnedMessages[0]).toMatchObject({
+      messageId: pinnedMessage.id,
+      content: '[图片]',
+    })
+  })
+
+  it('uses a multiple-image fallback for last message preview events', async () => {
+    const { events, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Multiple image preview')
+    const firstImage = await createImageAsset(conversation.id, 'first.png')
+    const secondImage = await createImageAsset(conversation.id, 'second.png')
+
+    await service.sendMessage(conversation.id, '', {
+      attachments: [
+        { kind: 'image', assetId: firstImage.metadata.assetId },
+        { kind: 'image', assetId: secondImage.metadata.assetId },
+      ],
+    })
+
+    expect(events.find((event) => event.type === 'conversation.last_message.updated')?.payload)
+      .toMatchObject({ lastMessageContent: '[2 张图片]' })
+  })
+
+  it('rejects too many image attachments with a stable error code', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Too many images')
+
+    await expect(
+      service.sendMessage(conversation.id, 'Too many images', {
+        attachments: Array.from({ length: CONVERSATION_IMAGE_MAX_PER_MESSAGE + 1 }, (_, index) => ({
+          kind: 'image' as const,
+          assetId: `asset_${index}`,
+        })),
+      }),
+    ).rejects.toMatchObject({
+      code: 'IMAGE_ATTACHMENT_LIMIT_EXCEEDED',
+    })
+    expect(calls).toEqual([])
+  })
+
+  it('rejects missing image assets before creating a user message', async () => {
+    const { calls, service } = createRuntimeCapture()
+    const conversation = await createSingleAgentConversation('Missing image asset')
+
+    await expect(
+      service.sendMessage(conversation.id, '', {
+        attachments: [
+          { kind: 'image', assetId: 'missing_image_asset' },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: 'IMAGE_ASSET_NOT_FOUND',
+    })
+
+    expect(calls).toEqual([])
+    expect(await listMessagesWithParts(conversation.id)).toEqual([])
   })
 })
 
