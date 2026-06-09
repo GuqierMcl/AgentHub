@@ -10,6 +10,7 @@ import type {
 import { buildRegeneratedBranchTimelineItems } from "../utils/regenerated-branch"
 import {
   getNextHasUserScrolledUp,
+  getVirtualTimelineItemSpacingStyle,
   shouldAutoScrollAfterContentChange,
 } from "../utils/scroll-follow-state"
 import { getTimelineMessagePinTargetId } from "../utils/message-pin-target"
@@ -279,6 +280,10 @@ export const TimelineList = memo(function TimelineList({
                     left: 0,
                     width: "100%",
                     transform: `translateY(${virtualItem.start}px)`,
+                    ...getVirtualTimelineItemSpacingStyle({
+                      index: virtualItem.index,
+                      itemCount: displayItems.length,
+                    }),
                   }}
                 >
                   <TimelineItem

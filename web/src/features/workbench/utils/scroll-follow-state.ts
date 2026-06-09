@@ -10,6 +10,13 @@ type AutoScrollAfterContentChangeArgs = {
   hasPendingScrollRestore: boolean
 }
 
+type VirtualTimelineItemSpacingArgs = {
+  index: number
+  itemCount: number
+}
+
+const TIMELINE_ITEM_SPACING_PX = 16
+
 export function getNextHasUserScrolledUp({
   atBottom,
   hasUserScrolledUp,
@@ -32,4 +39,14 @@ export function shouldAutoScrollAfterContentChange({
   hasPendingScrollRestore,
 }: AutoScrollAfterContentChangeArgs): boolean {
   return !hasUserScrolledUp && !hasPendingScrollRestore
+}
+
+export function getVirtualTimelineItemSpacingStyle({
+  index,
+  itemCount,
+}: VirtualTimelineItemSpacingArgs): { paddingBottom: string } {
+  return {
+    paddingBottom:
+      index < itemCount - 1 ? `${TIMELINE_ITEM_SPACING_PX}px` : "0px",
+  }
 }
