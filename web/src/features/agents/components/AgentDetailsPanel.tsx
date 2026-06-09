@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { RadialIntro } from "@/components/animate-ui/components/community/radial-intro"
+import { Ripple } from "@/components/ui/ripple"
 import type { AgentDetail, AgentSummary, AvatarOverridesManifest } from "../types"
 import { AgentModelControl } from "./AgentModelControl"
 import { ExternalAgentSettingsPanel } from "./ExternalAgentSettingsPanel"
@@ -370,15 +371,18 @@ export function AgentDetailsPanel({
 
     if (orbitItems.length === 0) {
       return (
-        <Empty className="h-full rounded-none border-0">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <BotIcon />
-            </EmptyMedia>
-            <EmptyTitle>选择一个智能体</EmptyTitle>
-            <EmptyDescription>查看配置详情，或编辑你的自定义智能体。</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <div className="relative h-full">
+          <Ripple className="text-foreground/10" />
+          <Empty className="h-full rounded-none border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <BotIcon />
+              </EmptyMedia>
+              <EmptyTitle>选择一个智能体</EmptyTitle>
+              <EmptyDescription>查看配置详情，或编辑你的自定义智能体。</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </div>
       )
     }
 
@@ -397,7 +401,8 @@ export function AgentDetailsPanel({
     const hint = hints[Math.floor(Math.random() * hints.length)]
 
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-6">
+      <div className="relative flex h-full flex-col items-center justify-center gap-6">
+        <Ripple className="text-foreground/10" />
         <RadialIntro imageSize={48} orbitItems={orbitItems} stageSize={280} />
         <p className="text-muted-foreground/80 text-sm tracking-wide">
           {hint}
