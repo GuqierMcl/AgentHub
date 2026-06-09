@@ -355,7 +355,13 @@ function ChatMessageItem({
                   {versionItem.regeneratedFromId ? <RegeneratedMarker /> : null}
                   {versionItem.replyTo ? <ReplyPreview replyTo={versionItem.replyTo} /> : null}
                   {displayContent ? (
-                    <MessageResponse>{displayContent}</MessageResponse>
+                    <ChatMessageContent
+                      content={displayContent}
+                      lightweight={
+                        versionItem.role === "assistant" &&
+                        versionItem.status === "streaming"
+                      }
+                    />
                   ) : null}
                   {versionItem.attachments?.length ? (
                     <MessageAttachments attachments={versionItem.attachments} />
@@ -445,6 +451,27 @@ function ChatMessageItem({
       ) : null}
     </MessageBranch>
   )
+}
+
+function ChatMessageContent({
+  content,
+  lightweight,
+}: {
+  content: string
+  lightweight: boolean
+}) {
+  if (lightweight) {
+    return (
+      <div
+        className="size-full whitespace-pre-wrap break-words"
+        data-streaming-text="true"
+      >
+        {content}
+      </div>
+    )
+  }
+
+  return <MessageResponse>{content}</MessageResponse>
 }
 
 function MessageAttachments({

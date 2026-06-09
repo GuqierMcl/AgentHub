@@ -9,6 +9,20 @@ import type {
 } from "../types"
 import { TimelineItem } from "./MessageItem"
 
+function renderTimelineItem(item: WorkbenchTimelineChatMessageItem): string {
+  const queryClient = new QueryClient()
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <TimelineItem
+          agentProfiles={[]}
+          item={item}
+        />
+      </TooltipProvider>
+    </QueryClientProvider>
+  )
+}
+
 describe("MessageItem reply preview", () => {
   it("renders a compact quote preview for replied messages", () => {
     const item: WorkbenchTimelineChatMessageItem = {
@@ -211,6 +225,45 @@ describe("MessageItem attachments", () => {
     )
 
     expect(html).toContain("alt=\"source.png\"")
+  })
+})
+
+describe("MessageItem streaming rendering", () => {
+  it("renders streaming assistant text without markdown parsing", () => {
+    const item: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: "chat_streaming",
+      role: "assistant",
+      agentId: "coder",
+      text: "**partial** `markdown`",
+      time: "10:00",
+      status: "streaming",
+    }
+
+    const html = renderTimelineItem(item)
+
+    expect(html).toContain("data-streaming-text=\"true\"")
+    expect(html).toContain("**partial** `markdown`")
+    expect(html).not.toContain("<strong>")
+    expect(html).not.toContain("<code>")
+  })
+
+  it("renders completed assistant text with markdown parsing", () => {
+    const item: WorkbenchTimelineChatMessageItem = {
+      kind: "chat_message",
+      id: "chat_completed",
+      role: "assistant",
+      agentId: "coder",
+      text: "**complete** `markdown`",
+      time: "10:00",
+      status: "completed",
+    }
+
+    const html = renderTimelineItem(item)
+
+    expect(html).not.toContain("data-streaming-text=\"true\"")
+    expect(html).toContain("data-streamdown=\"strong\"")
+    expect(html).toContain("data-streamdown=\"inline-code\"")
   })
 })
 
