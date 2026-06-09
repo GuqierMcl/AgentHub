@@ -37,7 +37,7 @@ type AutoLoadOlderHistoryArgs = {
   hasLoadHandler: boolean
 }
 
-export function shouldAutoLoadOlderHistory({
+function shouldAutoLoadOlderHistory({
   hasOlderHistory,
   isLoadingOlderHistory,
   olderHistoryError,

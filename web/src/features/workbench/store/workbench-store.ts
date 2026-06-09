@@ -48,6 +48,7 @@ type ConversationRuntimeState = {
   draft: string
   timelineItems: WorkbenchTimelineItem[]
   deploymentSnapshot: DeploymentSnapshot | null
+  latestPreview: string | null
   activeRuntimeRunId: string | null
   runStatus: RuntimeRunStatus | "idle" | "submitted"
   connectionStatus: RunConnectionStatus
@@ -148,6 +149,7 @@ function createEmptyConversationState(): ConversationRuntimeState {
     draft: "",
     timelineItems: [],
     deploymentSnapshot: null,
+    latestPreview: null,
     activeRuntimeRunId: null,
     runStatus: "idle",
     connectionStatus: "idle",
@@ -582,6 +584,7 @@ function replayTimelineRuns(
       draft: "",
       timelineItems,
       deploymentSnapshot,
+      latestPreview: null,
       activeRuntimeRunId: null,
       runStatus: "idle",
       connectionStatus: "idle",
@@ -619,6 +622,7 @@ function replayHistoryPage(
   chatSpeakerIds: Record<string, true>
 ): Pick<ConversationRuntimeState, "timelineItems" | "receivedEventIds" | "events"> {
   let timelineItems: WorkbenchTimelineItem[] = []
+  let deploymentSnapshot: DeploymentSnapshot | null = null
   let receivedEventIds = new Set<string>()
   let events: RuntimeRunEvent[] = []
   const persistedMessagesByRunId = groupPersistedChatMessagesByRun(messages)
@@ -669,6 +673,7 @@ function replayHistoryPage(
       draft: "",
       timelineItems,
       deploymentSnapshot,
+      latestPreview: null,
       activeRuntimeRunId: null,
       runStatus: "idle",
       connectionStatus: "idle",
@@ -683,6 +688,7 @@ function replayHistoryPage(
       "replay"
     )
     timelineItems = next.timelineItems
+    deploymentSnapshot = next.deploymentSnapshot
     receivedEventIds = next.receivedEventIds
     events = next.events
     timelineItems = mergePersistedChatMessages(

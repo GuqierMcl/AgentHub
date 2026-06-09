@@ -194,6 +194,7 @@ export function WorkbenchContentLayout({
 
   useEffect(() => {
     if (!activeConversationId || !messagesQuery.data) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting pagination state on conversation change is intentional
       setHistoryState({
         hasOlder: false,
         nextCursor: null,
@@ -215,6 +216,7 @@ export function WorkbenchContentLayout({
     activeConversationId,
     messagesQuery.data?.history.hasOlder,
     messagesQuery.data?.history.nextCursor,
+    messagesQuery.data,
   ])
 
   const activeConversation = useMemo((): Conversation | null => {

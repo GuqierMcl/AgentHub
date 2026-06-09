@@ -336,6 +336,7 @@ export function ExternalAgentSettingsPanel({
       provider,
       agent.externalSettings
     )
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting state before async fetch is intentional
     setLoading(true)
     setError(null)
     resetSettingsForm(
@@ -410,6 +411,7 @@ export function ExternalAgentSettingsPanel({
     if (provider !== "opencode") {
       openCodeCatalogRequestIdRef.current += 1
       openCodeCatalogAutoLoadConversationIdRef.current = null
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting catalog state when switching from opencode is intentional
       setConversations([])
       setSelectedConversationId("")
       setCatalogModels([])

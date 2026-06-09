@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from "react"
-import type { ChatStatus, FileUIPart } from "ai"
+import type { ChatStatus } from "ai"
 import { useQuery } from "@tanstack/react-query"
 import { CircleIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -54,7 +54,6 @@ import { cn } from "@/lib/utils"
 import { workspaceMcpStatusApi } from "../api/workspace-mcp-status"
 import { workbenchQueryKeys } from "../api/query-keys"
 import type {
-  ChatImageAttachmentInput,
   ChatSubmitInput,
   Conversation,
   ConversationAgentProfile,
@@ -62,6 +61,11 @@ import type {
   MentionTarget,
   MessageReplySnapshot,
 } from "../types"
+import {
+  CHAT_IMAGE_MAX_BYTES,
+  CHAT_IMAGE_UPLOAD_ACCEPT,
+  isSupportedChatImageFilePart,
+} from "./chat-image-utils"
 import {
   getDeploymentSshStatusBarItem,
 } from "../utils/deployment-ssh-status"
@@ -134,19 +138,6 @@ function AttachmentButton() {
       <PlusIcon className="size-4" />
     </PromptInputButton>
   )
-}
-
-export const CHAT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
-export const CHAT_IMAGE_UPLOAD_ACCEPT = "image/png,image/jpeg,image/webp,image/gif"
-
-const SUPPORTED_CHAT_IMAGE_MEDIA_TYPES = new Set(
-  CHAT_IMAGE_UPLOAD_ACCEPT.split(",")
-)
-
-export function isSupportedChatImageFilePart(
-  filePart: Pick<FileUIPart, "mediaType">
-): filePart is ChatImageAttachmentInput {
-  return SUPPORTED_CHAT_IMAGE_MEDIA_TYPES.has(filePart.mediaType.toLowerCase())
 }
 
 type MentionTrigger = {
@@ -468,7 +459,7 @@ function ChatComposerInner({
       void mcpStatusQuery.refetch()
     }
     wasGeneratingRef.current = isGenerating
-  }, [isGenerating, mcpStatusQuery.refetch])
+  }, [isGenerating, mcpStatusQuery, mcpStatusQuery.refetch])
 
   const mcpStatusItems = useMemo(
     () => getWorkspaceMcpStatusBarItems(mcpStatusQuery.data),

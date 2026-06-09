@@ -68,12 +68,12 @@ function RadialIntro({
 
     // build sequence for orbit placement
     const orbitPlacementSequence: AnimationSequence = [
-      ...arms.map((el): [Element, Record<string, any>, any] => [
+      ...arms.map((el): [Element, Record<string, unknown>, Record<string, unknown>] => [
         el,
         { rotate: angleOf(el) },
         { ...transition, at: 0 },
       ]),
-      ...imgs.map((img): [Element, Record<string, any>, any] => [
+      ...imgs.map((img): [Element, Record<string, unknown>, Record<string, unknown>] => [
         img,
         { rotate: -angleOf(armOfImg(img)!), opacity: 1 },
         { ...transition, at: 0 },
@@ -106,7 +106,7 @@ function RadialIntro({
     }, 1300);
 
     return () => stops.forEach((stop) => stop());
-  }, []);
+  }, [animate, scope]);
 
   return (
     <LayoutGroup>
