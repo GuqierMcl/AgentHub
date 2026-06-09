@@ -19,8 +19,12 @@ import {
   createMessage,
   findMessageWithParts,
   findMessageByRunAndRuntimeMessageId,
+  listMessagesByIds,
   listMessagesByRun,
+  listMessagesWithPartsByIds,
+  listMessagesWithPartsByRunIds,
   listMessagesWithParts,
+  listStandaloneChatMessages,
   updateMessage,
   type MessageOutput,
 } from "../repositories/message.repo";
@@ -38,6 +42,7 @@ import {
   createRun,
   findRunById,
   findRunByRuntimeId,
+  listRunsByConversation,
   listRuns,
   updateRun,
   type RunOutput,
@@ -417,12 +422,58 @@ export type ConversationTimelineRunSnapshot = {
   events: HubRunEventEnvelope[];
 };
 
+export type ConversationHistoryInfo = {
+  hasOlder: boolean;
+  nextCursor: string | null;
+};
+
 export type ConversationMessagesResponse = {
   messages: PersistedMessage[];
   activeRun: ActiveRunSnapshot | null;
   latestPlan: RunPlanSnapshot | null;
   runItems: ConversationRunItemsSnapshot;
   timelineRuns: ConversationTimelineRunSnapshot[];
+  history: ConversationHistoryInfo;
+};
+
+export type ConversationHistoryPageResponse = {
+  messages: PersistedMessage[];
+  timelineRuns: ConversationTimelineRunSnapshot[];
+  page: {
+    limit: number;
+    hasOlder: boolean;
+    nextCursor: string | null;
+  };
+};
+
+export type ConversationSendAckResponse = {
+  conversationId: string;
+  triggerMessage: PersistedMessage;
+  activeRun: ActiveRunSnapshot;
+};
+
+type ConversationHistoryRunRoot = {
+  kind: "run";
+  id: string;
+  createdAt: string;
+  run: RunOutput;
+};
+
+type ConversationHistoryStandaloneMessageRoot = {
+  kind: "message";
+  id: string;
+  createdAt: string;
+  messageId: string;
+};
+
+type ConversationHistoryRoot =
+  | ConversationHistoryRunRoot
+  | ConversationHistoryStandaloneMessageRoot;
+
+type ConversationHistoryPageSlice = {
+  roots: ConversationHistoryRoot[];
+  hasOlder: boolean;
+  nextCursor: string | null;
 };
 
 export type DiffFileSummary = {
@@ -696,7 +747,7 @@ export class RunPersistenceService {
     conversationId: string,
     content: string,
     options: SendMessageOptions = {},
-  ): Promise<ConversationMessagesResponse> {
+  ): Promise<ConversationSendAckResponse> {
     const trimmed = content.trim();
     const attachmentInputs = options.attachments ?? [];
     if (!trimmed && attachmentInputs.length === 0) {
@@ -772,7 +823,7 @@ export class RunPersistenceService {
   async regenerateAssistantMessage(
     conversationId: string,
     messageId: string,
-  ): Promise<ConversationMessagesResponse> {
+  ): Promise<ConversationSendAckResponse> {
     const conversation = await findConversationWithAgents(conversationId);
     if (!conversation) {
       throw notFound("CONVERSATION_NOT_FOUND", "会话不存在");
@@ -871,7 +922,7 @@ export class RunPersistenceService {
     parentMessageId?: string | null;
     metadataJson?: MetadataJson;
     regenerate?: RegenerateMetadata;
-  }): Promise<ConversationMessagesResponse> {
+  }): Promise<ConversationSendAckResponse> {
     const {
       conversation,
       persistedUserContent,
@@ -1129,7 +1180,23 @@ export class RunPersistenceService {
     }
     this.startRuntimeConsumer(run.id, runtimeRun.runId);
 
-    return this.listConversationMessages(conversationId);
+    const triggerMessageRecord = await findMessageWithParts(userMessage.id);
+    const persistedRun = await findRunById(run.id);
+    if (!triggerMessageRecord || !persistedRun) {
+      throw new AppError(
+        500 as ContentfulStatusCode,
+        "RUN_CREATE_ACK_FAILED",
+        "Failed to build send acknowledgement",
+      );
+    }
+
+    return {
+      conversationId,
+      triggerMessage: toPersistedMessage(
+        triggerMessageRecord as Record<string, unknown>,
+      ),
+      activeRun: await this.toActiveRunSnapshot(persistedRun),
+    };
   }
 
   async listConversationMessages(
@@ -1143,7 +1210,7 @@ export class RunPersistenceService {
     await this.ensureConversationProjectionCaughtUp(conversationId);
 
     const page = {
-      limit: opts?.limit ?? 50,
+      limit: opts?.limit ?? 10,
       offset: opts?.offset ?? 0,
     };
     const messages = await listMessagesWithParts(conversationId, {
@@ -1162,6 +1229,10 @@ export class RunPersistenceService {
     const timelineRuns = await this.listConversationTimelineRuns(
       conversationId,
       page,
+    );
+    const history = await this.getConversationHistoryInfo(
+      conversationId,
+      page.limit,
     );
 
     const persistedMessages = await attachArtifactsToMessages(
@@ -1183,6 +1254,179 @@ export class RunPersistenceService {
         : null,
       runItems,
       timelineRuns,
+      history,
+    };
+  }
+
+  async listConversationHistoryPage(
+    conversationId: string,
+    opts?: { cursor?: string; limit?: number },
+  ): Promise<ConversationHistoryPageResponse> {
+    const conversation = await findConversationWithAgents(conversationId);
+    if (!conversation) {
+      throw notFound("CONVERSATION_NOT_FOUND", "会话不存在");
+    }
+    await this.ensureConversationProjectionCaughtUp(conversationId);
+
+    const limit = opts?.limit ?? 5;
+    const page = await this.getConversationHistoryPageSlice(conversationId, {
+      cursor: opts?.cursor,
+      limit,
+    });
+    const payload = await this.buildConversationHistoryPayload(
+      conversationId,
+      page.roots,
+    );
+
+    return {
+      ...payload,
+      page: {
+        limit,
+        hasOlder: page.hasOlder,
+        nextCursor: page.nextCursor,
+      },
+    };
+  }
+
+  private async getConversationHistoryInfo(
+    conversationId: string,
+    limit: number,
+  ): Promise<ConversationHistoryInfo> {
+    const page = await this.getConversationHistoryPageSlice(conversationId, {
+      limit,
+    });
+    return {
+      hasOlder: page.hasOlder,
+      nextCursor: page.nextCursor,
+    };
+  }
+
+  private async getConversationHistoryPageSlice(
+    conversationId: string,
+    opts: { cursor?: string; limit: number },
+  ): Promise<ConversationHistoryPageSlice> {
+    const roots = await this.listConversationHistoryRoots(conversationId);
+    if (roots.length === 0) {
+      return {
+        roots: [],
+        hasOlder: false,
+        nextCursor: null,
+      };
+    }
+
+    const startIndex = this.resolveHistoryCursorIndex(roots, opts.cursor);
+    const pageRoots = roots.slice(startIndex, startIndex + opts.limit);
+    const hasOlder = startIndex + opts.limit < roots.length;
+
+    return {
+      roots: [...pageRoots].reverse(),
+      hasOlder,
+      nextCursor: hasOlder
+        ? encodeConversationHistoryCursor(pageRoots[pageRoots.length - 1]!)
+        : null,
+    };
+  }
+
+  private resolveHistoryCursorIndex(
+    roots: ConversationHistoryRoot[],
+    cursor: string | undefined,
+  ): number {
+    if (!cursor) return 0;
+    const decoded = decodeConversationHistoryCursor(cursor);
+    if (!decoded) {
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "HISTORY_CURSOR_INVALID",
+        "历史分页游标无效",
+      );
+    }
+
+    const index = roots.findIndex(
+      (root) =>
+        root.kind === decoded.kind &&
+        root.id === decoded.id &&
+        root.createdAt === decoded.createdAt,
+    );
+    if (index < 0) {
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "HISTORY_CURSOR_INVALID",
+        "历史分页游标无效",
+      );
+    }
+
+    return index + 1;
+  }
+
+  private async listConversationHistoryRoots(
+    conversationId: string,
+  ): Promise<ConversationHistoryRoot[]> {
+    const [runs, standaloneMessages] = await Promise.all([
+      listRunsByConversation(conversationId, "desc"),
+      listStandaloneChatMessages(conversationId, "desc"),
+    ]);
+
+    const triggerMessages = await listMessagesByIds(
+      runs.map((run) => run.triggerMessageId),
+    );
+    const triggerMessagesById = new Map(
+      triggerMessages.map((message) => [message.id, message]),
+    );
+
+    return [
+      ...runs.flatMap((run) => {
+        const triggerMessage = triggerMessagesById.get(run.triggerMessageId);
+        if (!triggerMessage) return [];
+        return [{
+          kind: "run" as const,
+          id: run.id,
+          createdAt: triggerMessage.createdAt,
+          run,
+        }];
+      }),
+      ...standaloneMessages.map((message) => ({
+        kind: "message" as const,
+        id: message.id,
+        createdAt: message.createdAt,
+        messageId: message.id,
+      })),
+    ].sort(compareConversationHistoryRootsDesc);
+  }
+
+  private async buildConversationHistoryPayload(
+    conversationId: string,
+    roots: ConversationHistoryRoot[],
+  ): Promise<Pick<ConversationHistoryPageResponse, "messages" | "timelineRuns">> {
+    const runRoots = roots.filter(
+      (root): root is ConversationHistoryRunRoot => root.kind === "run",
+    );
+    const standaloneRoots = roots.filter(
+      (root): root is ConversationHistoryStandaloneMessageRoot =>
+        root.kind === "message",
+    );
+
+    const [timelineRuns, runMessages, standaloneMessages] = await Promise.all([
+      Promise.all(
+        runRoots.map((root) => this.buildTimelineRunSnapshot(root.run)),
+      ),
+      listMessagesWithPartsByRunIds(
+        conversationId,
+        runRoots.map((root) => root.run.id),
+      ),
+      listMessagesWithPartsByIds(
+        standaloneRoots.map((root) => root.messageId),
+      ),
+    ]);
+
+    const messages = await attachArtifactsToMessages(
+      [...runMessages, ...standaloneMessages]
+        .map(toPersistedMessage)
+        .sort(comparePersistedMessages),
+    );
+
+    return {
+      messages,
+      timelineRuns: timelineRuns.sort(compareTimelineRuns),
     };
   }
 
@@ -1731,41 +1975,43 @@ export class RunPersistenceService {
   ): Promise<ConversationTimelineRunSnapshot[]> {
     const runs = await listRuns({
       conversationId,
-      limit: opts?.limit ?? 50,
+      limit: opts?.limit ?? 10,
       offset: opts?.offset ?? 0,
       order: "desc",
     });
 
     const snapshots = await Promise.all(
-      runs.map(async (run): Promise<ConversationTimelineRunSnapshot> => {
-        const [triggerMessageRecord, events] = await Promise.all([
-          findMessageWithParts(run.triggerMessageId),
-          listRunEventsByRun(run.id),
-        ]);
-
-        return {
-          run: {
-            id: run.id,
-            runtimeId: run.runtimeId,
-            status: run.status,
-            triggerMessageId: run.triggerMessageId,
-            createdAt: run.createdAt,
-            lastEventSequence: Math.max(
-              run.lastEventSequence ?? 0,
-              events[events.length - 1]?.sequence ?? 0,
-            ),
-          },
-          triggerMessage: triggerMessageRecord
-            ? toPersistedMessage(
-                triggerMessageRecord as Record<string, unknown>,
-              )
-            : null,
-          events: events.flatMap(toProductHubEnvelope),
-        };
-      }),
+      runs.map((run) => this.buildTimelineRunSnapshot(run)),
     );
 
     return snapshots.sort(compareTimelineRuns);
+  }
+
+  private async buildTimelineRunSnapshot(
+    run: RunOutput,
+  ): Promise<ConversationTimelineRunSnapshot> {
+    const [triggerMessageRecord, events] = await Promise.all([
+      findMessageWithParts(run.triggerMessageId),
+      listRunEventsByRun(run.id),
+    ]);
+
+    return {
+      run: {
+        id: run.id,
+        runtimeId: run.runtimeId,
+        status: run.status,
+        triggerMessageId: run.triggerMessageId,
+        createdAt: run.createdAt,
+        lastEventSequence: Math.max(
+          run.lastEventSequence ?? 0,
+          events[events.length - 1]?.sequence ?? 0,
+        ),
+      },
+      triggerMessage: triggerMessageRecord
+        ? toPersistedMessage(triggerMessageRecord as Record<string, unknown>)
+        : null,
+      events: events.flatMap(toProductHubEnvelope),
+    };
   }
 
   private startRuntimeConsumer(runId: string, runtimeRunId: string): void {
@@ -5448,6 +5694,63 @@ function compareTimelineRuns(
   return left.run.id.localeCompare(right.run.id);
 }
 
+function compareConversationHistoryRootsDesc(
+  left: ConversationHistoryRoot,
+  right: ConversationHistoryRoot,
+): number {
+  const leftTime = Date.parse(left.createdAt);
+  const rightTime = Date.parse(right.createdAt);
+  if (
+    Number.isFinite(leftTime) &&
+    Number.isFinite(rightTime) &&
+    leftTime !== rightTime
+  ) {
+    return rightTime - leftTime;
+  }
+
+  if (left.kind !== right.kind) {
+    return left.kind === "run" ? -1 : 1;
+  }
+
+  return right.id.localeCompare(left.id);
+}
+
+function encodeConversationHistoryCursor(
+  root: ConversationHistoryRoot,
+): string {
+  return Buffer.from(
+    JSON.stringify({
+      kind: root.kind,
+      id: root.id,
+      createdAt: root.createdAt,
+    }),
+    "utf8",
+  ).toString("base64url");
+}
+
+function decodeConversationHistoryCursor(
+  cursor: string,
+): Pick<ConversationHistoryRoot, "kind" | "id" | "createdAt"> | null {
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(cursor, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    const kind = getString(parsed.kind);
+    const id = getString(parsed.id);
+    const createdAt = getString(parsed.createdAt);
+    if (
+      (kind !== "run" && kind !== "message") ||
+      !id ||
+      !createdAt
+    ) {
+      return null;
+    }
+    return { kind, id, createdAt };
+  } catch {
+    return null;
+  }
+}
+
 function getPersistedMessageOrderSequence(
   message: Pick<MessageOutput, "role" | "firstEventSequence">,
 ): number {
@@ -6389,8 +6692,29 @@ async function attachArtifactsToMessages(
 }
 
 function toHubEnvelope(event: RunEventOutput): HubRunEventEnvelope[] {
-  const runtimeEvent = (event.payloadJson as { event?: RuntimeRunEvent }).event;
-  if (!runtimeEvent) return [];
+  const payload = getRecord(event.payloadJson);
+  const wrappedEvent = getRecord(payload?.event) as RuntimeRunEvent | undefined;
+  const wrappedEventData = (
+    wrappedEvent as { data?: unknown } | undefined
+  )?.data;
+  const runtimeEvent = wrappedEvent ?? {
+    id: event.id,
+    runId: event.runtimeRunId ?? event.runId,
+    type: event.type,
+    timestamp: event.occurredAt ?? event.createdAt,
+    ...(event.agentId ? { agentId: event.agentId } : {}),
+    ...(event.parentAgentId ? { parentAgentId: event.parentAgentId } : {}),
+    ...(event.parentTaskId ? { parentTaskId: event.parentTaskId } : {}),
+    ...(event.taskId ? { taskId: event.taskId } : {}),
+    ...(event.groupId ? { groupId: event.groupId } : {}),
+    ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+    ...(event.toolName ? { toolName: event.toolName } : {}),
+    ...(event.messageId ? { messageId: event.messageId } : {}),
+    ...(typeof event.messageIndex === "number"
+      ? { messageIndex: event.messageIndex }
+      : {}),
+    ...(payload ? { data: wrappedEventData ?? payload } : {}),
+  };
   return [
     {
       sequence: event.sequence,

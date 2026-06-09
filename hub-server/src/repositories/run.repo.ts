@@ -119,6 +119,18 @@ export async function listRuns(filter: ListRunsFilter = {}): Promise<RunOutput[]
   return records.map(r => toOutput(r as Record<string, unknown>))
 }
 
+export async function listRunsByConversation(
+  conversationId: string,
+  order: SortOrder = 'desc',
+): Promise<RunOutput[]> {
+  const db = getPrismaClient()
+  const records = await db.run.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: order },
+  })
+  return records.map(r => toOutput(r as Record<string, unknown>))
+}
+
 export async function updateRun(id: string, input: UpdateRunInput): Promise<RunOutput> {
   const now = new Date().toISOString()
   const db = getPrismaClient()

@@ -37,6 +37,11 @@ type ChatPanelProps = {
   onSubmit: (input: ChatSubmitInput) => Promise<void> | void
   onRegenerate: (messageId: string) => Promise<void> | void
   onToggleWorkspace: () => void
+  hasOlderHistory?: boolean
+  isLoadingOlderHistory?: boolean
+  olderHistoryError?: string | null
+  historyPrependVersion?: number
+  onLoadOlderHistory?: () => Promise<void> | void
 }
 
 export function ChatPanel({
@@ -53,6 +58,11 @@ export function ChatPanel({
   onSubmit,
   onToggleWorkspace,
   runStatus,
+  hasOlderHistory = false,
+  isLoadingOlderHistory = false,
+  olderHistoryError = null,
+  historyPrependVersion = 0,
+  onLoadOlderHistory,
 }: ChatPanelProps) {
   const [replyTargetState, setReplyTargetState] = useState<{
     conversationId: string
@@ -114,6 +124,12 @@ export function ChatPanel({
           ) : null}
           <TimelineList
             agentProfiles={conversation.agents ?? []}
+            conversationId={conversation.id}
+            hasOlderHistory={hasOlderHistory}
+            historyPrependVersion={historyPrependVersion}
+            isLoadingOlderHistory={isLoadingOlderHistory}
+            olderHistoryError={olderHistoryError}
+            onLoadOlderHistory={onLoadOlderHistory}
             timelineItems={conversation.timelineItems}
             pinnedMessageIds={pinnedMessageIds}
             onPinToggle={togglePin}

@@ -1701,11 +1701,39 @@ type SendConversationMessageRequest = {
 - HubServer 创建本地 `Run(status="queued")`，并将 `triggerMessageId` 指向 user message。
 - HubServer 从持久化 messages 投影 Runtime `history`，组装包含 `addressedAgentIds` 的 Runtime `RunInput` 后调用 `POST /runtime/runs`。
 - Runtime 返回的 `runId` 写入本地 `Run.runtimeId`。
-- HubServer 启动后台 Runtime SSE consumer，并返回最新消息快照与 `timelineRuns` 产品 event replay 数据。
+- HubServer 启动后台 Runtime SSE consumer，并返回轻量 fast ack；该 ack 不包含最新消息快照、`timelineRuns`、`runItems` 或 `latestPlan`。
 - 同一 conversation 已存在非终态 Run 时返回 `RUN_ALREADY_ACTIVE`。
 - `addressedAgentIds` 非成员、重复或超过一个时返回 `RUN_INVALID_ENTRY_AGENT`，且不创建新 Run。
 
 成功响应：
+
+```ts
+type ConversationSendAckResponse = {
+  conversationId: string
+  triggerMessage: PersistedMessage
+  activeRun: ActiveRunSnapshot
+}
+```
+
+### 重新生成 assistant 消息
+
+**端点**：`POST /api/conversations/:conversationId/messages/:messageId/regenerate`
+
+行为：
+
+- 只允许对已完成 assistant chat 消息重新生成。
+- HubServer 会复制一条新的 user trigger message 作为本轮 Run 触发事实，并在 `triggerMessage.metadataJson.regenerate` 中保留来源 assistant / run 元数据。
+- HubServer 创建本地 `Run(status="queued")`、启动后台 Runtime SSE consumer，并返回与发送接口相同的轻量 fast ack。
+
+成功响应同 `ConversationSendAckResponse`。
+
+### 查询会话消息快照
+
+**端点**：`GET /api/conversations/:conversationId/messages?limit=&offset=`
+
+成功响应同 `ConversationMessagesResponse`。
+该接口属于恢复路径：用于首次进入会话、切回会话、页面刷新和 SSE 漏事件补偿，不属于发送热路径。
+默认读取最近 50 条消息和最近 50 个 run，再按聊天展示顺序正序返回；带 `limit/offset` 时按最近窗口分页，`offset=0` 表示最新一页。
 
 ```ts
 type ConversationMessagesResponse = {
@@ -1716,13 +1744,6 @@ type ConversationMessagesResponse = {
   timelineRuns: ConversationTimelineRunSnapshot[]
 }
 ```
-
-### 查询会话消息快照
-
-**端点**：`GET /api/conversations/:conversationId/messages?limit=&offset=`
-
-成功响应同 `ConversationMessagesResponse`。
-默认读取最近 50 条消息和最近 50 个 run，再按聊天展示顺序正序返回；带 `limit/offset` 时按最近窗口分页，`offset=0` 表示最新一页。
 
 ```ts
 type PersistedMessage = {

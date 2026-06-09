@@ -7,6 +7,8 @@ export const workbenchQueryKeys = {
       ["conversation", conversationId] as const,
     messages: (conversationId: string) =>
       ["conversation", conversationId, "messages"] as const,
+    messageHistory: (conversationId: string) =>
+      ["conversation", conversationId, "messages", "history"] as const,
     mcpStatus: (conversationId: string) =>
       ["conversation", conversationId, "mcp-status"] as const,
   },

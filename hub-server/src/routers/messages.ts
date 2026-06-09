@@ -63,6 +63,18 @@ messages.get('/api/conversations/:conversationId/messages', async (c: Context) =
   return c.json(result)
 })
 
+messages.get('/api/conversations/:conversationId/messages/history', async (c: Context) => {
+  const service = c.get('runPersistenceService')
+  const conversationId = c.req.param('conversationId')!
+  const cursor = c.req.query('cursor')?.trim() || undefined
+  const limit = parsePositiveInt(c.req.query('limit'))
+  const result = await service.listConversationHistoryPage(conversationId, {
+    ...(cursor ? { cursor } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  })
+  return c.json(result)
+})
+
 messages.post('/api/conversations/:conversationId/messages/send', async (c: Context) => {
   const service = c.get('runPersistenceService')
   const conversationId = c.req.param('conversationId')!

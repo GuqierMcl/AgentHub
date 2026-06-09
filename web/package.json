@@ -20,6 +20,7 @@
     "@streamdown/mermaid": "^1.0.2",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/react-query": "^5.100.14",
+    "@tanstack/react-virtual": "^3.14.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xyflow/react": "^12.10.2",
     "ai": "^6.0.188",

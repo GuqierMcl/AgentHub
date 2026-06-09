@@ -9,7 +9,11 @@ import { createConversation } from '../repositories/conversation.repo'
 import { createMessage } from '../repositories/message.repo'
 import { createMessagePart } from '../repositories/message-part.repo'
 import { createMessagePin } from '../repositories/message-pin.repo'
-import type { RunPersistenceService } from '../services/run-persistence.service'
+import type {
+  ConversationHistoryPageResponse,
+  ConversationSendAckResponse,
+  RunPersistenceService,
+} from '../services/run-persistence.service'
 import { prepareTestDatabase } from '../test-utils/database'
 
 let tempDir: string
@@ -43,27 +47,71 @@ function createApp(service: Partial<RunPersistenceService>): Hono {
   return app
 }
 
+function createSendAckResponse(
+  overrides?: Partial<ConversationSendAckResponse>,
+): ConversationSendAckResponse {
+  return {
+    conversationId: 'conv_1',
+    triggerMessage: {
+      id: 'msg_send',
+      conversationId: 'conv_1',
+      runId: 'run_send',
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      surface: 'chat',
+      role: 'user',
+      senderType: 'user',
+      senderId: 'user',
+      agentId: null,
+      taskId: null,
+      groupId: null,
+      parentMessageId: null,
+      regeneratedFromId: null,
+      status: 'completed',
+      finishReason: null,
+      firstEventSequence: 0,
+      lastEventSequence: 0,
+      metadataJson: {},
+      uiMessageJson: null,
+      createdAt: '2026-06-09T00:00:00.000Z',
+      updatedAt: '2026-06-09T00:00:00.000Z',
+      completedAt: '2026-06-09T00:00:00.000Z',
+      parts: [],
+    },
+    activeRun: {
+      id: 'run_send',
+      runtimeId: 'runtime_send',
+      status: 'queued',
+      lastEventSequence: 0,
+      plan: null,
+    },
+    ...overrides,
+  }
+}
+
+function createHistoryResponse(
+  overrides?: Partial<ConversationHistoryPageResponse>,
+): ConversationHistoryPageResponse {
+  return {
+    messages: [],
+    timelineRuns: [],
+    page: {
+      limit: 20,
+      hasOlder: false,
+      nextCursor: null,
+    },
+    ...overrides,
+  }
+}
+
 describe('messages router', () => {
   it('forwards addressed agent ids to RunPersistenceService', async () => {
     const calls: unknown[] = []
     const app = createApp({
       sendMessage: async (...args: unknown[]) => {
         calls.push(args)
-        return {
-          messages: [],
-          activeRun: null,
-          latestPlan: null,
-          runItems: {
-            toolCalls: [],
-            reasoningBlocks: [],
-            taskGroups: [],
-            tasks: [],
-            plans: [],
-            planTasks: [],
-            permissionRequests: [],
-          },
-          timelineRuns: [],
-        }
+        return createSendAckResponse()
       },
     })
 
@@ -89,21 +137,7 @@ describe('messages router', () => {
     const app = createApp({
       sendMessage: async (...args: unknown[]) => {
         calls.push(args)
-        return {
-          messages: [],
-          activeRun: null,
-          latestPlan: null,
-          runItems: {
-            toolCalls: [],
-            reasoningBlocks: [],
-            taskGroups: [],
-            tasks: [],
-            plans: [],
-            planTasks: [],
-            permissionRequests: [],
-          },
-          timelineRuns: [],
-        }
+        return createSendAckResponse()
       },
     })
 
@@ -132,21 +166,7 @@ describe('messages router', () => {
     const app = createApp({
       sendMessage: async (...args: unknown[]) => {
         calls.push(args)
-        return {
-          messages: [],
-          activeRun: null,
-          latestPlan: null,
-          runItems: {
-            toolCalls: [],
-            reasoningBlocks: [],
-            taskGroups: [],
-            tasks: [],
-            plans: [],
-            planTasks: [],
-            permissionRequests: [],
-          },
-          timelineRuns: [],
-        }
+        return createSendAckResponse()
       },
     })
 
@@ -169,21 +189,7 @@ describe('messages router', () => {
     const app = createApp({
       sendMessage: async (...args: unknown[]) => {
         calls.push(args)
-        return {
-          messages: [],
-          activeRun: null,
-          latestPlan: null,
-          runItems: {
-            toolCalls: [],
-            reasoningBlocks: [],
-            taskGroups: [],
-            tasks: [],
-            plans: [],
-            planTasks: [],
-            permissionRequests: [],
-          },
-          timelineRuns: [],
-        }
+        return createSendAckResponse()
       },
     })
 
@@ -215,21 +221,7 @@ describe('messages router', () => {
     const app = createApp({
       sendMessage: async (...args: unknown[]) => {
         calls.push(args)
-        return {
-          messages: [],
-          activeRun: null,
-          latestPlan: null,
-          runItems: {
-            toolCalls: [],
-            reasoningBlocks: [],
-            taskGroups: [],
-            tasks: [],
-            plans: [],
-            planTasks: [],
-            permissionRequests: [],
-          },
-          timelineRuns: [],
-        }
+        return createSendAckResponse()
       },
     })
 
@@ -250,21 +242,7 @@ describe('messages router', () => {
     const app = createApp({
       regenerateAssistantMessage: async (...args: unknown[]) => {
         calls.push(args)
-        return {
-          messages: [],
-          activeRun: null,
-          latestPlan: null,
-          runItems: {
-            toolCalls: [],
-            reasoningBlocks: [],
-            taskGroups: [],
-            tasks: [],
-            plans: [],
-            planTasks: [],
-            permissionRequests: [],
-          },
-          timelineRuns: [],
-        }
+        return createSendAckResponse()
       },
     })
 
@@ -274,6 +252,39 @@ describe('messages router', () => {
 
     expect(response.status).toBe(201)
     expect(calls).toEqual([['conv_1', 'msg_assistant']])
+  })
+
+  it('forwards history pagination params to RunPersistenceService', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      listConversationHistoryPage: async (...args: unknown[]) => {
+        calls.push(args)
+        return createHistoryResponse({
+          page: {
+            limit: 10,
+            hasOlder: true,
+            nextCursor: 'run:run_older',
+          },
+        })
+      },
+    })
+
+    const response = await app.request('/api/conversations/conv_1/messages/history?cursor=run%3Arun_latest&limit=10')
+    const body = await response.json() as ConversationHistoryPageResponse
+
+    expect(response.status).toBe(200)
+    expect(body.page).toEqual({
+      limit: 10,
+      hasOlder: true,
+      nextCursor: 'run:run_older',
+    })
+    expect(calls).toEqual([[
+      'conv_1',
+      {
+        cursor: 'run:run_latest',
+        limit: 10,
+      },
+    ]])
   })
 
   it('returns pinned message content for the conversation pin list', async () => {

@@ -1159,4 +1159,193 @@ describe("workbench persisted message replay", () => {
       },
     })
   })
+
+  it("prepends an older history page without resetting the current live run state", () => {
+    const conversationId = "conv_history_prepend"
+    const currentTrigger = persistedMessage({
+      id: "msg_current_trigger",
+      conversationId,
+      runId: "run_current",
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      lastEventSequence: 0,
+      parts: [
+        persistedPart({
+          id: "part_current_trigger",
+          messageId: "msg_current_trigger",
+          conversationId,
+          runId: "run_current",
+          text: "Current trigger",
+        }),
+      ],
+    })
+
+    useWorkbenchStore.getState().setConversationChatSpeakers(conversationId, ["coder"])
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [currentTrigger],
+      [],
+      {
+        id: "run_live",
+        runtimeId: "runtime_live",
+        status: "running",
+        lastEventSequence: 3,
+        plan: null,
+      }
+    )
+    useWorkbenchStore.getState().applyRuntimeEvents(conversationId, [
+      {
+        id: "evt_live_delta",
+        runId: "run_live",
+        runtimeRunId: "runtime_live",
+        type: "message.delta",
+        timestamp: "2026-06-09T10:10:00.000Z",
+        agentId: "coder",
+        messageId: "runtime_live_msg",
+        messageIndex: 0,
+        data: { delta: "Live reply" },
+      },
+    ])
+
+    const olderStandalone = persistedMessage({
+      id: "msg_older_standalone",
+      conversationId,
+      runId: null,
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      parts: [
+        persistedPart({
+          id: "part_older_standalone",
+          messageId: "msg_older_standalone",
+          conversationId,
+          runId: null,
+          text: "Oldest standalone",
+        }),
+      ],
+    })
+    const olderTrigger = persistedMessage({
+      id: "msg_older_trigger",
+      conversationId,
+      runId: "run_older",
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      firstEventSequence: 0,
+      lastEventSequence: 0,
+      parts: [
+        persistedPart({
+          id: "part_older_trigger",
+          messageId: "msg_older_trigger",
+          conversationId,
+          runId: "run_older",
+          text: "Older trigger",
+        }),
+      ],
+    })
+
+    useWorkbenchStore.getState().prependHistoryPage(
+      conversationId,
+      [olderStandalone, olderTrigger],
+      [
+        {
+          run: {
+            id: "run_older",
+            runtimeId: "runtime_older",
+            status: "completed",
+            triggerMessageId: "msg_older_trigger",
+            createdAt: "2026-06-09T09:50:00.000Z",
+            lastEventSequence: 2,
+          },
+          triggerMessage: olderTrigger,
+          events: [
+            {
+              sequence: 1,
+              event: {
+                id: "evt_older_delta",
+                runId: "run_older",
+                runtimeRunId: "runtime_older",
+                type: "message.delta",
+                timestamp: "2026-06-09T09:50:01.000Z",
+                agentId: "coder",
+                messageId: "runtime_older_msg",
+                messageIndex: 0,
+                data: { delta: "Older assistant" },
+              },
+            },
+            {
+              sequence: 2,
+              event: {
+                id: "evt_older_completed",
+                runId: "run_older",
+                runtimeRunId: "runtime_older",
+                type: "message.completed",
+                timestamp: "2026-06-09T09:50:02.000Z",
+                agentId: "coder",
+                messageId: "runtime_older_msg",
+                messageIndex: 0,
+                data: { content: "Older assistant" },
+              },
+            },
+          ],
+        },
+      ]
+    )
+
+    const state = useWorkbenchStore.getState().getConversationState(conversationId)
+
+    expect(state.activeRuntimeRunId).toBe("run_live")
+    expect(state.runStatus).toBe("running")
+    expect(state.connectionStatus).toBe("idle")
+    expect(Array.from(state.receivedEventIds)).toEqual(["evt_live_delta"])
+    expect(state.events.map((event) => event.id)).toEqual(["evt_live_delta"])
+    expect(
+      state.timelineItems
+        .filter((item) => item.kind === "chat_message")
+        .map((item) => ({
+          id: item.id,
+          role: item.role,
+          text: item.text,
+        }))
+    ).toEqual([
+      {
+        id: "msg_older_standalone",
+        role: "user",
+        text: "Oldest standalone",
+      },
+      {
+        id: "msg_older_trigger",
+        role: "user",
+        text: "Older trigger",
+      },
+      {
+        id: "chat:run_older:runtime_older_msg",
+        role: "assistant",
+        text: "Older assistant",
+      },
+      {
+        id: "msg_current_trigger",
+        role: "user",
+        text: "Current trigger",
+      },
+      {
+        id: "chat:run_live:runtime_live_msg",
+        role: "assistant",
+        text: "Live reply",
+      },
+    ])
+  })
 })

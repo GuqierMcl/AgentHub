@@ -9,10 +9,16 @@ import { closeDatabase, initDatabase } from '../lib/db'
 import { prepareTestDatabase } from '../test-utils/database'
 import { createConversationAgent } from '../repositories/conversation-agent.repo'
 import { createConversation } from '../repositories/conversation.repo'
-import { createMessage, findMessageByRunAndRuntimeMessageId, listMessagesWithParts } from '../repositories/message.repo'
+import {
+  createMessage,
+  findMessageByRunAndRuntimeMessageId,
+  listMessagesWithParts,
+  updateMessage,
+} from '../repositories/message.repo'
 import { createMessagePart } from '../repositories/message-part.repo'
 import { createMessagePin } from '../repositories/message-pin.repo'
-import { createRun } from '../repositories/run.repo'
+import { createRun, updateRun } from '../repositories/run.repo'
+import { createRunEvents } from '../repositories/run-event.repo'
 import { createArtifact, listArtifacts, updateArtifact } from '../repositories/artifact.repo'
 import { createArtifactVersion, listArtifactVersionsByArtifact } from '../repositories/artifact-version.repo'
 import { listPermissionRequests } from '../repositories/permission-request.repo'
@@ -917,10 +923,7 @@ describe('image message persistence and runtime input', () => {
       ],
     })
 
-    const userMessage = result.messages.find((message) =>
-      message.role === 'user' &&
-      message.parts.some((part) => part.partKey === `image:${image.metadata.assetId}`)
-    )
+    const userMessage = result.triggerMessage
     expect(userMessage).toBeTruthy()
     expect(userMessage?.parts.map((part) => part.type)).toEqual(['image'])
     expect(userMessage?.parts[0]).toMatchObject({
@@ -960,10 +963,7 @@ describe('image message persistence and runtime input', () => {
       ],
     })
 
-    const userMessage = result.messages.find((message) =>
-      message.role === 'user' &&
-      message.parts.some((part) => part.partKey === `image:${image.metadata.assetId}`)
-    )
+    const userMessage = result.triggerMessage
     expect(userMessage?.parts.map((part) => [part.partIndex, part.type, part.partKey])).toEqual([
       [0, 'text', 'text'],
       [1, 'image', `image:${image.metadata.assetId}`],
@@ -989,10 +989,7 @@ describe('image message persistence and runtime input', () => {
         { kind: 'image', assetId: image.metadata.assetId },
       ],
     })
-    const previousUserMessage = firstResult.messages.find((message) =>
-      message.role === 'user' &&
-      message.parts.some((part) => part.type === 'image')
-    )
+    const previousUserMessage = firstResult.triggerMessage
 
     await service.sendMessage(conversation.id, 'Use the previous image.')
 
@@ -1034,7 +1031,7 @@ describe('image message persistence and runtime input', () => {
     expect(runtimeInput.userMessage.content).toContain(`[Replying to assistant coder (${parent.id})]`)
     expect(runtimeInput.userMessage.content).toContain('> [图片]')
 
-    const replyMessage = result.messages.find((message) => message.parentMessageId === parent.id)
+    const replyMessage = result.triggerMessage
     expect(replyMessage?.metadataJson).toMatchObject({
       replyTo: {
         messageId: parent.id,
@@ -1091,11 +1088,7 @@ describe('image message persistence and runtime input', () => {
         filename: 'regenerate-source.png',
       }),
     ])
-    const regeneratedTrigger = result.messages.find((message) =>
-      message.role === 'user' &&
-      message.id !== trigger.id &&
-      message.metadataJson?.regenerate
-    )
+    const regeneratedTrigger = result.triggerMessage
     expect(regeneratedTrigger?.parts.map((part) => part.type)).toEqual(['image'])
   })
 
@@ -1283,7 +1276,7 @@ describe('reply message context', () => {
     expect(runtimeInput.userMessage.content).toContain('> Use the shared formatter for all replay paths.')
     expect(runtimeInput.userMessage.content).toContain('Can you expand that?')
 
-    const replyMessage = result.messages.find((message) => message.parentMessageId === parent.id)
+    const replyMessage = result.triggerMessage
     expect(replyMessage?.metadataJson).toMatchObject({
       replyTo: {
         messageId: parent.id,
@@ -1459,11 +1452,7 @@ describe('regenerate assistant message', () => {
     expect(runtimeInput.userMessage.content).toContain('Please generate an alternative response')
     expect(runtimeInput.history.map((message: { id?: string }) => message.id)).toContain(sourceAssistant.id)
 
-    const regeneratedTrigger = result.messages.find((message) =>
-      message.role === 'user' &&
-      message.id !== trigger.id &&
-      message.metadataJson?.regenerate
-    )
+    const regeneratedTrigger = result.triggerMessage
     expect(regeneratedTrigger?.parts[0]?.text).toBe('Original user request.')
     expect(regeneratedTrigger?.metadataJson).toMatchObject({
       regenerate: {
@@ -1472,6 +1461,333 @@ describe('regenerate assistant message', () => {
         sourceTriggerMessageId: trigger.id,
       },
     })
+  })
+
+  it('returns recovery history metadata from the snapshot response', async () => {
+    const service = new RunPersistenceService(
+      { forward: async () => ({ status: 200, data: {} }) } as never,
+      { publish: () => {} } as never,
+    )
+    const conversation = await createConversation({
+      title: 'History snapshot',
+      mode: 'single',
+    })
+    await createConversationAgent({
+      conversationId: conversation.id,
+      agentId: 'coder',
+      sortOrder: 0,
+    })
+
+    const olderStandalone = await createMessage({
+      conversationId: conversation.id,
+      surface: 'chat',
+      role: 'user',
+      senderType: 'user',
+      senderId: 'user',
+      status: 'completed',
+      completedAt: '2026-06-09T08:00:00.000Z',
+    })
+    await createMessagePart({
+      messageId: olderStandalone.id,
+      conversationId: conversation.id,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: 'Older standalone message.',
+    })
+
+    await Bun.sleep(2)
+
+    const runOneTrigger = await createMessage({
+      conversationId: conversation.id,
+      surface: 'chat',
+      role: 'user',
+      senderType: 'user',
+      senderId: 'user',
+      status: 'completed',
+      completedAt: '2026-06-09T08:00:01.000Z',
+    })
+    await createMessagePart({
+      messageId: runOneTrigger.id,
+      conversationId: conversation.id,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: 'Run one trigger.',
+    })
+    const runOne = await createRun({
+      conversationId: conversation.id,
+      triggerMessageId: runOneTrigger.id,
+      mode: 'single',
+      status: 'completed',
+      runtimeId: 'runtime_history_one',
+    })
+    await updateMessage(runOneTrigger.id, { runId: runOne.id })
+    await createRunEvents([
+      {
+        runId: runOne.id,
+        runtimeRunId: 'runtime_history_one',
+        conversationId: conversation.id,
+        type: 'message.delta',
+        sequence: 1,
+        messageId: 'runtime_msg_history_one',
+        payloadJson: { type: 'message.delta', delta: 'one' },
+      },
+      {
+        runId: runOne.id,
+        runtimeRunId: 'runtime_history_one',
+        conversationId: conversation.id,
+        type: 'run.completed',
+        sequence: 2,
+        payloadJson: { type: 'run.completed' },
+      },
+    ])
+    await updateRun(runOne.id, {
+      lastEventSequence: 2,
+      completedAt: '2026-06-09T08:00:02.000Z',
+    })
+
+    await Bun.sleep(2)
+
+    const runTwoTrigger = await createMessage({
+      conversationId: conversation.id,
+      surface: 'chat',
+      role: 'user',
+      senderType: 'user',
+      senderId: 'user',
+      status: 'completed',
+      completedAt: '2026-06-09T08:00:03.000Z',
+    })
+    await createMessagePart({
+      messageId: runTwoTrigger.id,
+      conversationId: conversation.id,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: 'Run two trigger.',
+    })
+    const runTwo = await createRun({
+      conversationId: conversation.id,
+      triggerMessageId: runTwoTrigger.id,
+      mode: 'single',
+      status: 'completed',
+      runtimeId: 'runtime_history_two',
+    })
+    await updateMessage(runTwoTrigger.id, { runId: runTwo.id })
+    await createRunEvents([
+      {
+        runId: runTwo.id,
+        runtimeRunId: 'runtime_history_two',
+        conversationId: conversation.id,
+        type: 'message.delta',
+        sequence: 1,
+        messageId: 'runtime_msg_history_two',
+        payloadJson: { type: 'message.delta', delta: 'two' },
+      },
+      {
+        runId: runTwo.id,
+        runtimeRunId: 'runtime_history_two',
+        conversationId: conversation.id,
+        type: 'run.completed',
+        sequence: 2,
+        payloadJson: { type: 'run.completed' },
+      },
+    ])
+    await updateRun(runTwo.id, {
+      lastEventSequence: 2,
+      completedAt: '2026-06-09T08:00:04.000Z',
+    })
+
+    const snapshot = await service.listConversationMessages(conversation.id, {
+      limit: 2,
+    })
+
+    expect(snapshot.history.hasOlder).toBe(true)
+    expect(typeof snapshot.history.nextCursor).toBe('string')
+    expect(snapshot.timelineRuns.map((item) => item.run.id)).toEqual([runOne.id, runTwo.id])
+  })
+
+  it('paginates older history by complete roots without splitting run events', async () => {
+    const service = new RunPersistenceService(
+      { forward: async () => ({ status: 200, data: {} }) } as never,
+      { publish: () => {} } as never,
+    )
+    const conversation = await createConversation({
+      title: 'History paging',
+      mode: 'single',
+    })
+    await createConversationAgent({
+      conversationId: conversation.id,
+      agentId: 'coder',
+      sortOrder: 0,
+    })
+
+    const olderStandalone = await createMessage({
+      conversationId: conversation.id,
+      surface: 'chat',
+      role: 'user',
+      senderType: 'user',
+      senderId: 'user',
+      status: 'completed',
+      completedAt: '2026-06-09T09:00:00.000Z',
+    })
+    await createMessagePart({
+      messageId: olderStandalone.id,
+      conversationId: conversation.id,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: 'Standalone oldest root.',
+    })
+
+    await Bun.sleep(2)
+
+    const runOneTrigger = await createMessage({
+      conversationId: conversation.id,
+      surface: 'chat',
+      role: 'user',
+      senderType: 'user',
+      senderId: 'user',
+      status: 'completed',
+      completedAt: '2026-06-09T09:00:01.000Z',
+    })
+    await createMessagePart({
+      messageId: runOneTrigger.id,
+      conversationId: conversation.id,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: 'Run one trigger.',
+    })
+    const runOne = await createRun({
+      conversationId: conversation.id,
+      triggerMessageId: runOneTrigger.id,
+      mode: 'single',
+      status: 'completed',
+      runtimeId: 'runtime_page_one',
+    })
+    await updateMessage(runOneTrigger.id, { runId: runOne.id })
+    await createRunEvents([
+      {
+        runId: runOne.id,
+        runtimeRunId: 'runtime_page_one',
+        conversationId: conversation.id,
+        type: 'tool.started',
+        toolCallId: 'tool_call_one',
+        toolName: 'write_file',
+        sequence: 1,
+        payloadJson: { type: 'tool.started' },
+      },
+      {
+        runId: runOne.id,
+        runtimeRunId: 'runtime_page_one',
+        conversationId: conversation.id,
+        type: 'tool.completed',
+        toolCallId: 'tool_call_one',
+        toolName: 'write_file',
+        sequence: 2,
+        payloadJson: { type: 'tool.completed' },
+      },
+    ])
+    await updateRun(runOne.id, {
+      lastEventSequence: 2,
+      completedAt: '2026-06-09T09:00:02.000Z',
+    })
+
+    await Bun.sleep(2)
+
+    const runTwoTrigger = await createMessage({
+      conversationId: conversation.id,
+      surface: 'chat',
+      role: 'user',
+      senderType: 'user',
+      senderId: 'user',
+      status: 'completed',
+      completedAt: '2026-06-09T09:00:03.000Z',
+    })
+    await createMessagePart({
+      messageId: runTwoTrigger.id,
+      conversationId: conversation.id,
+      partKey: 'text',
+      partIndex: 0,
+      type: 'text',
+      state: 'done',
+      text: 'Run two trigger.',
+    })
+    const runTwo = await createRun({
+      conversationId: conversation.id,
+      triggerMessageId: runTwoTrigger.id,
+      mode: 'single',
+      status: 'completed',
+      runtimeId: 'runtime_page_two',
+    })
+    await updateMessage(runTwoTrigger.id, { runId: runTwo.id })
+    await createRunEvents([
+      {
+        runId: runTwo.id,
+        runtimeRunId: 'runtime_page_two',
+        conversationId: conversation.id,
+        type: 'message.delta',
+        messageId: 'runtime_msg_page_two',
+        sequence: 1,
+        payloadJson: { type: 'message.delta', delta: 'hello' },
+      },
+      {
+        runId: runTwo.id,
+        runtimeRunId: 'runtime_page_two',
+        conversationId: conversation.id,
+        type: 'run.completed',
+        sequence: 2,
+        payloadJson: { type: 'run.completed' },
+      },
+    ])
+    await updateRun(runTwo.id, {
+      lastEventSequence: 2,
+      completedAt: '2026-06-09T09:00:04.000Z',
+    })
+
+    const latestPage = await service.listConversationHistoryPage(conversation.id, {
+      limit: 1,
+    })
+
+    expect(latestPage.timelineRuns).toHaveLength(1)
+    expect(latestPage.timelineRuns[0]?.run.id).toBe(runTwo.id)
+    expect(latestPage.timelineRuns[0]?.events.map((event) => event.sequence)).toEqual([1, 2])
+    expect(latestPage.page.hasOlder).toBe(true)
+    expect(latestPage.page.nextCursor).toBeTruthy()
+    expect((latestPage as Record<string, unknown>).activeRun).toBeUndefined()
+    expect((latestPage as Record<string, unknown>).latestPlan).toBeUndefined()
+    expect((latestPage as Record<string, unknown>).runItems).toBeUndefined()
+
+    const olderRunPage = await service.listConversationHistoryPage(conversation.id, {
+      cursor: latestPage.page.nextCursor ?? undefined,
+      limit: 1,
+    })
+
+    expect(olderRunPage.timelineRuns).toHaveLength(1)
+    expect(olderRunPage.timelineRuns[0]?.run.id).toBe(runOne.id)
+    expect(olderRunPage.timelineRuns[0]?.events.map((event) => event.event.type)).toEqual([
+      'tool.started',
+      'tool.completed',
+    ])
+    expect(olderRunPage.page.hasOlder).toBe(true)
+    expect(olderRunPage.page.nextCursor).toBeTruthy()
+
+    const standalonePage = await service.listConversationHistoryPage(conversation.id, {
+      cursor: olderRunPage.page.nextCursor ?? undefined,
+      limit: 1,
+    })
+
+    expect(standalonePage.timelineRuns).toEqual([])
+    expect(standalonePage.messages).toHaveLength(1)
+    expect(standalonePage.messages[0]?.id).toBe(olderStandalone.id)
+    expect(standalonePage.page.hasOlder).toBe(false)
+    expect(standalonePage.page.nextCursor).toBeNull()
   })
 
   it('rejects regenerate targets that are not completed assistant chat messages', async () => {

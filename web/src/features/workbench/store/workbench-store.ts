@@ -68,6 +68,16 @@ type WorkbenchStore = {
     timelineRuns: ConversationTimelineRunSnapshot[],
     activeRun: ActiveRunSnapshot | null
   ) => void
+  applySendAck: (
+    conversationId: string,
+    triggerMessage: PersistedMessage,
+    activeRun: ActiveRunSnapshot
+  ) => void
+  prependHistoryPage: (
+    conversationId: string,
+    messages: PersistedMessage[],
+    timelineRuns: ConversationTimelineRunSnapshot[]
+  ) => void
   addUserMessage: (conversationId: string, content: string) => WorkbenchTimelineItem[]
   markRunSubmitted: (conversationId: string) => void
   startRuntimeRun: (conversationId: string, runId: string, status: RuntimeRunStatus) => void
@@ -203,13 +213,14 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
 
     set((state) => {
       const current = getOrCreateState(state.conversations, conversationId)
+      const nextTimelineItems = [...current.timelineItems, message]
       return {
         conversations: {
           ...state.conversations,
           [conversationId]: {
             ...current,
             draft: "",
-            timelineItems: [...current.timelineItems, message],
+            timelineItems: nextTimelineItems,
           },
         },
       }
@@ -323,6 +334,63 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
     })
   },
 
+  applySendAck: (conversationId, triggerMessage, activeRun) => {
+    set((state) => {
+      const current = getOrCreateState(state.conversations, conversationId)
+      const nextTimelineItems = mergePersistedChatMessages(
+        current.timelineItems,
+        [triggerMessage]
+      )
+      const nextConnectionStatus: RunConnectionStatus = isTerminalRunStatus(activeRun.status)
+        ? "disconnected"
+        : "connecting"
+
+      return {
+        conversations: {
+          ...state.conversations,
+          [conversationId]: {
+            ...current,
+            activeRuntimeRunId: activeRun.id,
+            runStatus: activeRun.status,
+            connectionStatus: nextConnectionStatus,
+            timelineItems: nextTimelineItems,
+            receivedEventIds: new Set(),
+            events: [],
+          },
+        },
+      }
+    })
+  },
+
+  prependHistoryPage: (conversationId, messages, timelineRuns) => {
+    set((state) => {
+      const current = getOrCreateState(state.conversations, conversationId)
+      const replayed = replayHistoryPage(
+        timelineRuns,
+        messages,
+        current.chatSpeakerIds
+      )
+      const timelineItems = prependOlderTimelineItems(
+        current.timelineItems,
+        replayed.timelineItems
+      )
+
+      if (timelineItems === current.timelineItems) {
+        return state
+      }
+
+      return {
+        conversations: {
+          ...state.conversations,
+          [conversationId]: {
+            ...current,
+            timelineItems,
+          },
+        },
+      }
+    })
+  },
+
   applyRuntimeEvent: (conversationId, event) => {
     get().applyRuntimeEvents(conversationId, [event])
   },
@@ -427,6 +495,8 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
       const current = getOrCreateState(state.conversations, conversationId)
       const errorMessage = createLocalRunStatusItem(message, code)
 
+      const nextTimelineItems = [...current.timelineItems, errorMessage]
+
       return {
         conversations: {
           ...state.conversations,
@@ -434,7 +504,7 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             ...current,
             runStatus: "failed",
             connectionStatus: "error",
-            timelineItems: [...current.timelineItems, errorMessage],
+            timelineItems: nextTimelineItems,
           },
         },
       }
@@ -543,6 +613,87 @@ function replayTimelineRuns(
   return { timelineItems, deploymentSnapshot, receivedEventIds, events }
 }
 
+function replayHistoryPage(
+  timelineRuns: ConversationTimelineRunSnapshot[],
+  messages: PersistedMessage[],
+  chatSpeakerIds: Record<string, true>
+): Pick<ConversationRuntimeState, "timelineItems" | "receivedEventIds" | "events"> {
+  let timelineItems: WorkbenchTimelineItem[] = []
+  let receivedEventIds = new Set<string>()
+  let events: RuntimeRunEvent[] = []
+  const persistedMessagesByRunId = groupPersistedChatMessagesByRun(messages)
+  const replayedRunIds = new Set(timelineRuns.map((timelineRun) => timelineRun.run.id))
+  const standaloneMessages = sortPersistedChatMessages(messages).filter((message) =>
+    !message.runId || !replayedRunIds.has(message.runId)
+  )
+
+  const roots = [
+    ...sortTimelineRuns(timelineRuns).map((timelineRun) => ({
+      kind: "run" as const,
+      createdAt: timelineRun.triggerMessage?.createdAt ?? timelineRun.run.createdAt,
+      id: timelineRun.run.id,
+      timelineRun,
+    })),
+    ...standaloneMessages.map((message) => ({
+      kind: "message" as const,
+      createdAt: message.createdAt,
+      id: message.id,
+      message,
+    })),
+  ].sort((left, right) => {
+    const leftTime = Date.parse(left.createdAt)
+    const rightTime = Date.parse(right.createdAt)
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+      return leftTime - rightTime
+    }
+    if (left.kind !== right.kind) {
+      return left.kind === "message" ? -1 : 1
+    }
+    return left.id.localeCompare(right.id)
+  })
+
+  for (const root of roots) {
+    if (root.kind === "message") {
+      timelineItems = mergePersistedChatMessages(timelineItems, [root.message])
+      continue
+    }
+
+    if (root.timelineRun.triggerMessage) {
+      timelineItems = mergePersistedChatMessages(
+        timelineItems,
+        [root.timelineRun.triggerMessage]
+      )
+    }
+
+    const replayState: ConversationRuntimeState = {
+      draft: "",
+      timelineItems,
+      deploymentSnapshot,
+      activeRuntimeRunId: null,
+      runStatus: "idle",
+      connectionStatus: "idle",
+      chatSpeakerIds,
+      receivedEventIds,
+      events,
+    }
+    const next = applyEnvelopesToRuntimeState(
+      replayState,
+      withSyntheticTerminalRunEvent(root.timelineRun),
+      chatSpeakerIds,
+      "replay"
+    )
+    timelineItems = next.timelineItems
+    receivedEventIds = next.receivedEventIds
+    events = next.events
+    timelineItems = mergePersistedChatMessages(
+      timelineItems,
+      persistedMessagesByRunId.get(root.timelineRun.run.id) ?? []
+    )
+  }
+
+  return { timelineItems, receivedEventIds, events }
+}
+
 function hasUnreplayedCurrentRunEvents(
   current: ConversationRuntimeState,
   replayed: Pick<ConversationRuntimeState, "receivedEventIds">
@@ -552,6 +703,55 @@ function hasUnreplayedCurrentRunEvents(
   return current.events.some((event) =>
     event.runId === currentRunId && !replayed.receivedEventIds.has(event.id)
   )
+}
+
+function prependOlderTimelineItems(
+  currentItems: WorkbenchTimelineItem[],
+  olderItems: WorkbenchTimelineItem[]
+): WorkbenchTimelineItem[] {
+  if (olderItems.length === 0) return currentItems
+
+  const dedupedOlderItems = olderItems.filter((olderItem) =>
+    !currentItems.some((currentItem) =>
+      hasSameTimelineIdentity(currentItem, olderItem)
+    )
+  )
+
+  if (dedupedOlderItems.length === 0) {
+    return currentItems
+  }
+
+  return [...dedupedOlderItems, ...currentItems]
+}
+
+function hasSameTimelineIdentity(
+  left: WorkbenchTimelineItem,
+  right: WorkbenchTimelineItem
+): boolean {
+  if (left.id === right.id) return true
+
+  if (left.kind === "chat_message" && right.kind === "chat_message") {
+    if (
+      left.runId &&
+      right.runId &&
+      left.runtimeMessageId &&
+      right.runtimeMessageId &&
+      left.runId === right.runId &&
+      left.runtimeMessageId === right.runtimeMessageId
+    ) {
+      return true
+    }
+
+    if (
+      left.persistedMessageId &&
+      right.persistedMessageId &&
+      left.persistedMessageId === right.persistedMessageId
+    ) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function withSyntheticTerminalRunEvent(

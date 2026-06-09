@@ -55,6 +55,13 @@ export type ReasoningProps = ComponentProps<typeof Collapsible> & {
 const AUTO_CLOSE_DELAY = 1000;
 const MS_IN_S = 1000;
 
+export function resolveReasoningDuration(
+  durationProp: number | undefined,
+  internalDuration: number | undefined
+): number | undefined {
+  return durationProp ?? internalDuration;
+}
+
 export const Reasoning = memo(
   ({
     className,
@@ -75,27 +82,36 @@ export const Reasoning = memo(
       onChange: onOpenChange,
       prop: open,
     });
-    const [duration, setDuration] = useControllableState<number | undefined>({
-      defaultProp: undefined,
-      prop: durationProp,
-    });
+    const [internalDuration, setInternalDuration] = useState<number | undefined>(
+      durationProp
+    );
 
     const hasEverStreamedRef = useRef(isStreaming);
     const [hasAutoClosed, setHasAutoClosed] = useState(false);
     const startTimeRef = useRef<number | null>(null);
+    const duration = resolveReasoningDuration(durationProp, internalDuration);
+
+    useEffect(() => {
+      if (durationProp !== undefined) {
+        setInternalDuration(durationProp);
+      }
+    }, [durationProp]);
 
     // Track when streaming starts and compute duration
     useEffect(() => {
       if (isStreaming) {
         hasEverStreamedRef.current = true;
+        setInternalDuration(undefined);
         if (startTimeRef.current === null) {
           startTimeRef.current = Date.now();
         }
       } else if (startTimeRef.current !== null) {
-        setDuration(Math.ceil((Date.now() - startTimeRef.current) / MS_IN_S));
+        setInternalDuration(
+          Math.ceil((Date.now() - startTimeRef.current) / MS_IN_S)
+        );
         startTimeRef.current = null;
       }
-    }, [isStreaming, setDuration]);
+    }, [isStreaming]);
 
     // Auto-open when streaming starts (unless explicitly closed)
     useEffect(() => {

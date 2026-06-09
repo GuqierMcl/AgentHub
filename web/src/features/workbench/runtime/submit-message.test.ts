@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 
 import {
   ConversationMessageRequestError,
-  type ConversationMessagesResponse,
+  type ConversationSendAckResponse,
 } from "../api/messages"
 import type { ChatImageAttachment, ChatSubmitInput } from "../types"
 import { submitWorkbenchMessage } from "./submit-message"
@@ -14,21 +14,43 @@ const imageInput: NonNullable<ChatSubmitInput["images"]>[number] = {
   url: "data:image/png;base64,abc",
 }
 
-function emptyResponse(): ConversationMessagesResponse {
+function emptyResponse(): ConversationSendAckResponse {
   return {
-    messages: [],
-    activeRun: null,
-    latestPlan: null,
-    runItems: {
-      toolCalls: [],
-      reasoningBlocks: [],
-      taskGroups: [],
-      tasks: [],
-      plans: [],
-      planTasks: [],
-      permissionRequests: [],
+    conversationId: "conv_test",
+    triggerMessage: {
+      id: "msg_trigger",
+      conversationId: "conv_test",
+      runId: "run_test",
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      surface: "chat",
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      taskId: null,
+      groupId: null,
+      parentMessageId: null,
+      regeneratedFromId: null,
+      status: "completed",
+      finishReason: null,
+      firstEventSequence: 0,
+      lastEventSequence: 0,
+      metadataJson: {},
+      uiMessageJson: null,
+      createdAt: "2026-06-09T00:00:00.000Z",
+      updatedAt: "2026-06-09T00:00:00.000Z",
+      completedAt: "2026-06-09T00:00:00.000Z",
+      parts: [],
     },
-    timelineRuns: [],
+    activeRun: {
+      id: "run_test",
+      runtimeId: "runtime_test",
+      status: "queued",
+      lastEventSequence: 0,
+      plan: null,
+    },
   }
 }
 

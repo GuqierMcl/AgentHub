@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, startTransition } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition } from "react"
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { usePanelRef } from "react-resizable-panels"
 import { toast } from "sonner"
@@ -40,6 +40,7 @@ import type {
 } from "../types"
 
 const EMPTY_AGENT_SUMMARIES: AgentSummary[] = []
+const EMPTY_TIMELINE_ITEMS: WorkbenchTimelineItem[] = []
 
 type WorkbenchContentLayoutProps = {
   activeConversationId: string | null
@@ -64,14 +65,38 @@ export function WorkbenchContentLayout({
   const runtimeState = useWorkbenchStore((s) =>
     activeConversationId ? s.conversations[activeConversationId] : undefined
   )
+  const activeTimelineItems = useWorkbenchStore((s) =>
+    activeConversationId ? (s.conversations[activeConversationId]?.timelineItems ?? EMPTY_TIMELINE_ITEMS) : EMPTY_TIMELINE_ITEMS
+  )
+  const activeLatestPreview = useWorkbenchStore((s) =>
+    activeConversationId ? (s.conversations[activeConversationId]?.latestPreview ?? null) : null
+  )
+  const activeRunning = useWorkbenchStore((s) => {
+    if (!activeConversationId) return false
+    const rs = s.conversations[activeConversationId]?.runStatus
+    return rs ? !isTerminalRunStatus(rs) && rs !== "idle" : false
+  })
   const setDraft = useWorkbenchStore((s) => s.setDraft)
   const hydrateTimelineFromReplay = useWorkbenchStore((s) => s.hydrateTimelineFromReplay)
+  const applySendAck = useWorkbenchStore((s) => s.applySendAck)
+  const prependHistoryPage = useWorkbenchStore((s) => s.prependHistoryPage)
   const markRunSubmitted = useWorkbenchStore((s) => s.markRunSubmitted)
   const applyRuntimeEvents = useWorkbenchStore((s) => s.applyRuntimeEvents)
   const failRunStart = useWorkbenchStore((s) => s.failRunStart)
   const setConversationChatSpeakers = useWorkbenchStore((s) => s.setConversationChatSpeakers)
   const hasTabsRef = useRef(false)
-  const lastHydratedAtRef = useRef<Record<string, number>>({})
+  const [historyState, setHistoryState] = useState({
+    hasOlder: false,
+    nextCursor: null as string | null,
+    isLoading: false,
+    error: null as string | null,
+    prependVersion: 0,
+  })
+
+  const runtimeStateRef = useRef(runtimeState)
+  useLayoutEffect(() => {
+    runtimeStateRef.current = runtimeState
+  })
 
   const conversationQuery = useQuery({
     queryKey: activeConversationId
@@ -140,19 +165,14 @@ export function WorkbenchContentLayout({
       conversationDetail.agents.map((agent) => agent.agentId)
     )
 
-    const dataUpdatedAt = messagesQuery.dataUpdatedAt
-    const lastHydratedAt = lastHydratedAtRef.current[activeConversationId]
-    if (lastHydratedAt !== dataUpdatedAt) {
-      lastHydratedAtRef.current[activeConversationId] = dataUpdatedAt
-      startTransition(() => {
-        hydrateTimelineFromReplay(
-          activeConversationId,
-          messagesQuery.data!.messages,
-          messagesQuery.data!.timelineRuns,
-          messagesQuery.data!.activeRun
-        )
-      })
-    }
+    startTransition(() => {
+      hydrateTimelineFromReplay(
+        activeConversationId,
+        messagesQuery.data!.messages,
+        messagesQuery.data!.timelineRuns,
+        messagesQuery.data!.activeRun
+      )
+    })
 
     if (
       messagesQuery.data.activeRun &&
@@ -169,48 +189,117 @@ export function WorkbenchContentLayout({
     conversationDetail,
     hydrateTimelineFromReplay,
     messagesQuery.data,
-    messagesQuery.dataUpdatedAt,
     setConversationChatSpeakers,
+  ])
+
+  useEffect(() => {
+    if (!activeConversationId || !messagesQuery.data) {
+      setHistoryState({
+        hasOlder: false,
+        nextCursor: null,
+        isLoading: false,
+        error: null,
+        prependVersion: 0,
+      })
+      return
+    }
+
+    setHistoryState({
+      hasOlder: messagesQuery.data.history.hasOlder,
+      nextCursor: messagesQuery.data.history.nextCursor,
+      isLoading: false,
+      error: null,
+      prependVersion: 0,
+    })
+  }, [
+    activeConversationId,
+    messagesQuery.data?.history.hasOlder,
+    messagesQuery.data?.history.nextCursor,
   ])
 
   const activeConversation = useMemo((): Conversation | null => {
     if (!conversationDetail) return null
-    const timelineItems = runtimeState?.timelineItems ?? []
     const workspace = getWorkspacePath(conversationDetail.metadata)
-    const latestMessage = getLatestChatMessage(timelineItems)
     return {
       id: conversationDetail.id,
       title: conversationDetail.title,
       mode: conversationDetail.mode,
       agentIds: resolvedAgents.map((agent) => agent.id),
       agents: resolvedAgents,
-      preview: latestMessage?.text ?? "",
+      preview: activeLatestPreview ?? "",
       activeAt: conversationDetail.lastMessageAt ?? conversationDetail.updatedAt,
       workspace,
       pinned: !!conversationDetail.pinnedAt,
       archived: conversationDetail.status === "archived",
-      running: runtimeState?.runStatus
-        ? !isTerminalRunStatus(runtimeState.runStatus) &&
-          runtimeState.runStatus !== "idle"
-        : false,
-      timelineItems,
+      running: activeRunning,
+      timelineItems: activeTimelineItems,
     }
-  }, [conversationDetail, resolvedAgents, runtimeState])
+  }, [conversationDetail, resolvedAgents, activeTimelineItems, activeLatestPreview, activeRunning])
 
   const handleDraftChange = useCallback((draft: string) => {
     if (!activeConversationId) return
     setDraft(activeConversationId, draft)
   }, [activeConversationId, setDraft])
 
+  const handleLoadOlderHistory = useCallback(async () => {
+    if (!activeConversationId || historyState.isLoading || !historyState.hasOlder) {
+      return
+    }
+
+    const cursor = historyState.nextCursor
+    if (!cursor) return
+
+    setHistoryState((current) => ({
+      ...current,
+      isLoading: true,
+      error: null,
+    }))
+
+    try {
+      const page = await conversationMessagesApi.listHistory(
+        activeConversationId,
+        cursor,
+        5
+      )
+      prependHistoryPage(
+        activeConversationId,
+        page.messages,
+        page.timelineRuns
+      )
+      setHistoryState((current) => ({
+        ...current,
+        hasOlder: page.page.hasOlder,
+        nextCursor: page.page.nextCursor,
+        isLoading: false,
+        error: null,
+        prependVersion: current.prependVersion + 1,
+      }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "加载更早消息失败"
+      setHistoryState((current) => ({
+        ...current,
+        isLoading: false,
+        error: message,
+      }))
+    }
+  }, [
+    activeConversationId,
+    historyState.hasOlder,
+    historyState.isLoading,
+    historyState.nextCursor,
+    prependHistoryPage,
+  ])
+
   const handleSubmit = useCallback(async (input: ChatSubmitInput) => {
     if (!activeConversationId || !conversationDetail) return
 
+    const currentRuntimeState = runtimeStateRef.current
     await submitWorkbenchMessage({
       activeConversationId,
       input,
       hasActiveRun: Boolean(
-        runtimeState?.activeRuntimeRunId &&
-          !isTerminalRunStatus(runtimeState.runStatus)
+        currentRuntimeState?.activeRuntimeRunId &&
+          !isTerminalRunStatus(currentRuntimeState.runStatus)
       ),
       setDraft,
       markRunSubmitted,
@@ -224,45 +313,38 @@ export function WorkbenchContentLayout({
       uploadImage: conversationMessagesApi.uploadImage,
       sendMessage: conversationMessagesApi.send,
       onSuccess: async (result) => {
-        queryClient.setQueryData(
-          workbenchQueryKeys.conversations.messages(activeConversationId),
-          result
-        )
-        hydrateTimelineFromReplay(
-          activeConversationId,
-          result.messages,
-          result.timelineRuns,
-          result.activeRun
-        )
-        if (result.activeRun && !isTerminalRunStatus(result.activeRun.status)) {
+        applySendAck(activeConversationId, result.triggerMessage, result.activeRun)
+        if (!isTerminalRunStatus(result.activeRun.status)) {
           runStreamManager.connect(
             activeConversationId,
             result.activeRun.id,
             result.activeRun.lastEventSequence
           )
         }
-        await queryClient.invalidateQueries({
-          queryKey: workbenchQueryKeys.conversations.all,
+        requestAnimationFrame(() => {
+          queryClient.invalidateQueries({
+            queryKey: workbenchQueryKeys.conversations.all,
+          })
         })
       },
     })
   }, [
     activeConversationId,
+    applySendAck,
     conversationDetail,
     failRunStart,
-    hydrateTimelineFromReplay,
     markRunSubmitted,
     queryClient,
-    runtimeState,
     setDraft,
   ])
 
   const handleRegenerate = useCallback(async (messageId: string) => {
     if (!activeConversationId || !conversationDetail) return
 
+    const currentRuntimeState = runtimeStateRef.current
     if (
-      runtimeState?.activeRuntimeRunId &&
-      !isTerminalRunStatus(runtimeState.runStatus)
+      currentRuntimeState?.activeRuntimeRunId &&
+      !isTerminalRunStatus(currentRuntimeState.runStatus)
     ) {
       toast.info("当前会话已有正在运行的回复")
       return
@@ -275,26 +357,14 @@ export function WorkbenchContentLayout({
         activeConversationId,
         messageId
       )
-      queryClient.setQueryData(
-        workbenchQueryKeys.conversations.messages(activeConversationId),
-        result
-      )
-      hydrateTimelineFromReplay(
-        activeConversationId,
-        result.messages,
-        result.timelineRuns,
-        result.activeRun
-      )
-      if (result.activeRun && !isTerminalRunStatus(result.activeRun.status)) {
+      applySendAck(activeConversationId, result.triggerMessage, result.activeRun)
+      if (!isTerminalRunStatus(result.activeRun.status)) {
         runStreamManager.connect(
           activeConversationId,
           result.activeRun.id,
           result.activeRun.lastEventSequence
         )
       }
-      await queryClient.invalidateQueries({
-        queryKey: workbenchQueryKeys.conversations.all,
-      })
     } catch (err) {
       const message = err instanceof Error ? err.message : "重新生成失败"
       const code = err instanceof ConversationMessageRequestError ? err.code : undefined
@@ -303,12 +373,10 @@ export function WorkbenchContentLayout({
     }
   }, [
     activeConversationId,
+    applySendAck,
     conversationDetail,
     failRunStart,
-    hydrateTimelineFromReplay,
     markRunSubmitted,
-    queryClient,
-    runtimeState,
   ])
 
   const handleCancelActiveRun = useCallback(async (
@@ -456,13 +524,18 @@ export function WorkbenchContentLayout({
                 connectionStatus={runtimeState?.connectionStatus ?? "idle"}
                 deploymentSnapshot={runtimeState?.deploymentSnapshot ?? null}
                 draft={runtimeState?.draft ?? ""}
+                hasOlderHistory={historyState.hasOlder}
+                historyPrependVersion={historyState.prependVersion}
+                isLoadingOlderHistory={historyState.isLoading}
                 isWorkspaceOpen={!isWorkspaceCollapsed}
                 onCancelRun={handleCancelActiveRun}
                 onDraftChange={handleDraftChange}
+                onLoadOlderHistory={handleLoadOlderHistory}
                 onOpenWorkspaceTab={handleOpenWorkspaceTab}
                 onRegenerate={handleRegenerate}
                 onSubmit={handleSubmit}
                 onToggleWorkspace={handleToggleWorkspaceCollapsed}
+                olderHistoryError={historyState.error}
                 runStatus={runtimeState?.runStatus ?? "idle"}
               />
             ) : conversationQuery.isLoading ? (
@@ -502,12 +575,6 @@ function getWorkspacePath(metadata: Record<string, unknown> | null): string {
   if (typeof workspace !== "object" || workspace === null) return ""
   const snapshot = workspace as Record<string, unknown>
   return typeof snapshot.rootPath === "string" ? snapshot.rootPath : ""
-}
-
-function getLatestChatMessage(
-  timelineItems: WorkbenchTimelineItem[]
-): Extract<WorkbenchTimelineItem, { kind: "chat_message" }> | undefined {
-  return timelineItems.findLast((item) => item.kind === "chat_message")
 }
 
 function resolveConversationAgents(

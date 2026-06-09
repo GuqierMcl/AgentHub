@@ -14,11 +14,12 @@ sequenceDiagram
   Hub->>Hub: create user Message + Run
   Hub->>Run: POST /runtime/runs
   Run-->>Hub: runtime runId
+  Hub-->>Web: fast ack (triggerMessage + activeRun)
+  Web->>Hub: GET /api/runs/:runId/events?afterSequence=
   Hub->>Run: GET /runtime/runs/:runtimeId/events
   Run-->>Hub: raw SSE events
   Hub->>Hub: micro-batch persist RunEvent + coalesced projection rows
-  Hub-->>Web: GET /api/runs/:runId/events?afterSequence=
-  Web->>Hub: hydrate timelineRuns product event replay
+  Web->>Hub: hydrate timelineRuns product event replay (recovery only)
   Web->>Hub: resume live replay from lastEventSequence
 ```
 
@@ -28,6 +29,7 @@ sequenceDiagram
 - `POST /api/conversations/:conversationId/assets/images`
 - `GET /api/conversations/:conversationId/assets/images/:assetId/file`
 - `GET /api/conversations/:conversationId/messages`
+- `GET /api/conversations/:conversationId/messages/history?cursor=&limit=`
 - `GET /api/runs/:runId/events?afterSequence=`
 - `POST /api/runs/:runId/cancel`
 - `POST /api/runs/:runId/permissions/:requestId/decision`
@@ -38,6 +40,7 @@ sequenceDiagram
 - HubServer 创建 user `Message`；仅当 `content.trim()` 非空时创建 `MessagePart(type="text", partKey="text")`，并为已校验的图片资产引用创建 `MessagePart(type="image", partKey="image:{assetId}")`。图片-only 用户消息是合法消息。
 - HubServer 创建本地 `Run`，并写入 `Run.runtimeId`。
 - HubServer 从已持久化消息投影 Runtime `history`，再调用 Runtime 创建 run。
+- `POST /api/conversations/:conversationId/messages/send` 与 regenerate 在 Runtime run 创建成功后返回 fast ack：`conversationId + triggerMessage + activeRun`。该响应只服务发送热路径，不携带 `timelineRuns`、`runItems`、`latestPlan` 或历史 `messages` 窗口。
 - 后台 consumer 消费 Runtime SSE。
 - 每条 Runtime event 先写 `RunEvent.payloadJson`，再尝试结构化投影。
 - HubServer 对每个 run 使用 raw event micro-batch，默认最多约 50ms 或 50 条事件落库一次；terminal event 强制 flush。
@@ -46,8 +49,10 @@ sequenceDiagram
 - 高频 `message.delta` / `reasoning.delta` 的结构化投影合并写入，默认约 150ms flush 一次；`message.completed`、`reasoning.completed` 和 terminal event 会强制追平。
 - `Run.lastProjectedSequence` 记录结构化投影进度。读取会话消息或组装 Runtime history 前，HubServer 会从 raw `RunEvent` 补齐落后的 projection。
 - `system_agent.completed(systemAgentId="title")` 会在 `Conversation.metadataJson.titleSource !== "manual"` 时更新 `Conversation.title`，并写入 `titleSource = "auto"`。
-- `GET /api/conversations/:conversationId/messages` 返回最近窗口的消息快照、active run 快照、latest plan、runItems 和 `timelineRuns`；默认读取最新 50 条消息 / 50 个 run，再按正序返回给 UI，避免刷新或重启后回到会话开头。
+- `GET /api/conversations/:conversationId/messages` 返回最近恢复窗口的消息快照、active run 快照、latest plan、runItems、`timelineRuns` 和 `history` 元信息；默认读取最近 50 条消息和最近 50 个 run，并按正序返回给 UI，避免刷新或重启后回到会话开头。`history.hasOlder / history.nextCursor` 只用于告诉 Web 是否还能继续上翻更早历史。
+- `GET /api/conversations/:conversationId/messages/history?cursor=&limit=` 只服务历史上翻路径，返回 `messages + timelineRuns + page`，不返回 `activeRun`、`latestPlan` 或 `runItems`。前端当前按每页 5 个历史根节点请求。分页单位是"历史根节点"而不是单条 message 或单个 event：run 根节点按 trigger user message 时间排序并返回该 run 的完整产品 event replay；没有 `runId` 的 persisted chat message 作为 standalone root 独立分页。这样旧 run 的 tool / reasoning / permission / task / message 不会被拆到两页。Web 首屏进入会话时只请求恢复快照；只有用户真实向上滚动并接近顶部时，才允许自动补拉 history。
 - `timelineRuns` 是聊天 UI 恢复的主数据：每个 run 带 trigger user message 和按 `RunEvent.sequence` 排序的产品 event envelopes；大工具结果可能已被投影为 UI 摘要，完整 raw event 留在 `RunEvent.payloadJson`。`messages` 中的 `surface="chat"` user/assistant 记录是聊天气泡的持久化兜底，Web 在 event replay 后按 `runId + runtimeMessageId` 去重合并，修复 raw event replay 窗口缺失或历史事件不完整时的 assistant 消息恢复。权限卡片、部署预览和问题回答等交互态也以 `timelineRuns` replay 为恢复主路径。
+- 完整快照接口只用于恢复路径：首次进入会话、切回会话、页面刷新和 SSE 漏事件补偿。发送成功后的主路径不再等待或写入这份完整快照。历史页 prepend 只向当前内存态前插旧内容，不会重置 active run 或中断 live SSE；刷新或切换会话后，已加载的旧页首版允许丢失并重新从最近恢复窗口开始。
 - 权限请求先作为 raw Runtime event 落库，再投影到 `PermissionRequest`；投影优先使用事件 payload 中的 `permissionType`，例如 `web_fetch` 的 `network_access`、`bash` 的 `command_execute` 和 `run_deploy_command` 的 `deployment`。产品 envelope 必须保留 Runtime approval payload 中可安全展示的审批详情，例如远程命令、shell 命令、脱敏 URL、workspace logical path 和外部 provider 摘要；不得只保留 request id、toolName 或目标文本，否则 Web replay 后无法让用户判断是否批准。
 - 用户问答请求不新增 Prisma 表；`question.requested`、`question.answered`、`question.cancelled` 原样作为 raw event 落库，并由 Web 通过 `timelineRuns` replay 恢复 pending/answered/cancelled 状态。HubServer 在 `question.requested` 时将本地 Run 投影为 `waiting_input`，在 `question.answered` / `question.cancelled` 后按 Runtime 后续事件恢复运行态或终态。
 - 部署事件以 `deployment.*` 原样作为 raw Runtime event 落库，并投影为部署预览 snapshot / `Artifact(type="deployment")`。投影按 `deploymentId` 幂等追平，保存服务器展示信息、连接状态、进度、步骤、命令日志索引、release note、deployment URL、health check 和终态。产品 envelope 和 Artifact snapshot 不得包含 SSH 凭据、私钥路径、SSH agent 信息、服务器 root path、secret env 或未截断命令输出。

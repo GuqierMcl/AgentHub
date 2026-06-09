@@ -24,7 +24,6 @@ import type {
   ConversationListDisplayItem,
   ConversationListItem,
   CreateConversationBody,
-  WorkbenchTimelineItem,
 } from "./types"
 import type { RuntimeRunStatus } from "./api/runtime-runs"
 
@@ -50,7 +49,7 @@ export function ChatWorkspace() {
       Object.entries(s.conversations).map(([conversationId, state]) => [
         conversationId,
         state.runStatus,
-        getLatestTimelinePreview(state.timelineItems) ?? null,
+        state.latestPreview ?? null,
       ] satisfies ConversationRuntimeListOverlayTuple)
     )
   )
@@ -266,22 +265,6 @@ export function ChatWorkspace() {
       </Dialog>
     </section>
   )
-}
-
-function getLatestTimelinePreview(
-  items: WorkbenchTimelineItem[]
-): string | undefined {
-  for (let index = items.length - 1; index >= 0; index--) {
-    const item = items[index]
-    if (item.kind !== "chat_message") continue
-    const preview = normalizePreviewText(item.text)
-    if (preview) return preview
-  }
-  return undefined
-}
-
-function normalizePreviewText(text: string): string {
-  return Array.from(text.replace(/\s+/g, " ").trim()).slice(0, 50).join("")
 }
 
 function parseRuntimeListOverlaySnapshot(

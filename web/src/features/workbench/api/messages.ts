@@ -251,6 +251,26 @@ export type ConversationMessagesResponse = {
   latestPlan: RunPlanSnapshot | null
   runItems: ConversationRunItemsSnapshot
   timelineRuns: ConversationTimelineRunSnapshot[]
+  history: {
+    hasOlder: boolean
+    nextCursor: string | null
+  }
+}
+
+export type ConversationSendAckResponse = {
+  conversationId: string
+  triggerMessage: PersistedMessage
+  activeRun: ActiveRunSnapshot
+}
+
+export type ConversationHistoryPageResponse = {
+  messages: PersistedMessage[]
+  timelineRuns: ConversationTimelineRunSnapshot[]
+  page: {
+    limit: number
+    hasOlder: boolean
+    nextCursor: string | null
+  }
 }
 
 export type PermissionDecisionBody = {
@@ -382,6 +402,19 @@ export const conversationMessagesApi = {
     return request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`)
   },
 
+  listHistory(
+    conversationId: string,
+    cursor?: string,
+    limit?: number
+  ): Promise<ConversationHistoryPageResponse> {
+    const search = new URLSearchParams()
+    if (cursor) search.set("cursor", cursor)
+    if (typeof limit === "number") search.set("limit", String(limit))
+    const query = search.toString()
+    const path = `/api/conversations/${encodeURIComponent(conversationId)}/messages/history${query ? `?${query}` : ""}`
+    return request(path)
+  },
+
   artifactDetail(
     conversationId: string,
     artifactId: string
@@ -434,7 +467,7 @@ export const conversationMessagesApi = {
     conversationId: string,
     content: string,
     options?: SendConversationMessageOptions
-  ): Promise<ConversationMessagesResponse> {
+  ): Promise<ConversationSendAckResponse> {
     const addressedAgentIds = options?.addressedAgentIds?.filter(Boolean) ?? []
     const body = {
       content,
@@ -452,7 +485,7 @@ export const conversationMessagesApi = {
   regenerate(
     conversationId: string,
     messageId: string
-  ): Promise<ConversationMessagesResponse> {
+  ): Promise<ConversationSendAckResponse> {
     return request(
       `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/regenerate`,
       { method: "POST" }

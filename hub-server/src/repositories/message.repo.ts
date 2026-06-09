@@ -234,6 +234,66 @@ export async function listMessagesWithParts(
   )
 }
 
+export async function listMessagesByIds(ids: string[]): Promise<MessageOutput[]> {
+  if (!ids.length) return []
+  const db = getPrismaClient()
+  const records = await db.message.findMany({
+    where: { id: { in: ids } },
+  })
+  return sortMessages(records.map((record) => toOutput(record as Record<string, unknown>)))
+}
+
+export async function listMessagesWithPartsByIds(ids: string[]) {
+  if (!ids.length) return []
+  const db = getPrismaClient()
+  const records = await db.message.findMany({
+    where: { id: { in: ids } },
+    include: { parts: { orderBy: { partIndex: 'asc' } } },
+  })
+  return sortMessages(
+    records.map((record) => toOutputWithParts(record as Record<string, unknown>)),
+  )
+}
+
+export async function listMessagesWithPartsByRunIds(
+  conversationId: string,
+  runIds: string[],
+) {
+  if (!runIds.length) return []
+  const db = getPrismaClient()
+  const records = await db.message.findMany({
+    where: {
+      conversationId,
+      runId: { in: runIds },
+    },
+    include: { parts: { orderBy: { partIndex: 'asc' } } },
+    orderBy: { createdAt: 'asc' },
+  })
+  return sortMessages(
+    records.map((record) => toOutputWithParts(record as Record<string, unknown>)),
+  )
+}
+
+export async function listStandaloneChatMessages(
+  conversationId: string,
+  order: SortOrder = 'desc',
+): Promise<MessageOutput[]> {
+  const db = getPrismaClient()
+  const records = await db.message.findMany({
+    where: {
+      conversationId,
+      runId: null,
+      surface: 'chat',
+      role: { in: ['user', 'assistant'] },
+    },
+    orderBy: { createdAt: order },
+  })
+  return sortMessages(
+    records.map((record) => toOutput(record as Record<string, unknown>)),
+    order,
+  )
+}
+
 export async function findMessageByRunAndRuntimeMessageId(
   runId: string,
   runtimeMessageId: string,

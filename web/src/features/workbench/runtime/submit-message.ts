@@ -1,6 +1,6 @@
 import {
   ConversationMessageRequestError,
-  type ConversationMessagesResponse,
+  type ConversationSendAckResponse,
   type SendConversationMessageOptions,
 } from "../api/messages"
 import type {
@@ -26,8 +26,8 @@ type SubmitWorkbenchMessageOptions = {
     conversationId: string,
     content: string,
     options?: SendConversationMessageOptions
-  ) => Promise<ConversationMessagesResponse>
-  onSuccess: (result: ConversationMessagesResponse) => void | Promise<void>
+  ) => Promise<ConversationSendAckResponse>
+  onSuccess: (result: ConversationSendAckResponse) => void | Promise<void>
 }
 
 export async function submitWorkbenchMessage({
