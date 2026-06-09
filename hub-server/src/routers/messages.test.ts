@@ -164,6 +164,87 @@ describe('messages router', () => {
     ]])
   })
 
+  it('forwards image attachments and accepts image-only requests', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      sendMessage: async (...args: unknown[]) => {
+        calls.push(args)
+        return {
+          messages: [],
+          activeRun: null,
+          latestPlan: null,
+          runItems: {
+            toolCalls: [],
+            reasoningBlocks: [],
+            taskGroups: [],
+            tasks: [],
+            plans: [],
+            planTasks: [],
+            permissionRequests: [],
+          },
+          timelineRuns: [],
+        }
+      },
+    })
+
+    const response = await app.request('/api/conversations/conv_1/messages/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        attachments: [
+          { kind: 'image', assetId: 'asset_image_1' },
+        ],
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    expect(calls).toEqual([[
+      'conv_1',
+      '',
+      {
+        addressedAgentIds: [],
+        attachments: [
+          { kind: 'image', assetId: 'asset_image_1' },
+        ],
+      },
+    ]])
+  })
+
+  it('rejects empty text when no attachments are provided', async () => {
+    const calls: unknown[] = []
+    const app = createApp({
+      sendMessage: async (...args: unknown[]) => {
+        calls.push(args)
+        return {
+          messages: [],
+          activeRun: null,
+          latestPlan: null,
+          runItems: {
+            toolCalls: [],
+            reasoningBlocks: [],
+            taskGroups: [],
+            tasks: [],
+            plans: [],
+            planTasks: [],
+            permissionRequests: [],
+          },
+          timelineRuns: [],
+        }
+      },
+    })
+
+    const response = await app.request('/api/conversations/conv_1/messages/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: '   ' }),
+    })
+    const body = await response.json() as { error: { code: string } }
+
+    expect(response.status).toBe(400)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(calls).toEqual([])
+  })
+
   it('forwards regenerate requests to RunPersistenceService', async () => {
     const calls: unknown[] = []
     const app = createApp({

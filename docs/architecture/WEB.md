@@ -56,6 +56,12 @@
 - 创建智能体、绑定模型和删除确认维持模态操作；已有用户智能体配置在智能体模块右侧内容区内联编辑。用户自定义智能体表单可以保存 `allowedSkills` 逻辑 ref；全局 Skill 可从只读发现结果中点选，`workspace:*` ref 可回显和移除，但实际注入仍由当前 Run 的 workspace 绑定和 Workspace Skill Trust 默认 trusted / 显式撤销结果决定。
 - “智能体”页的外部 SDK 设置只调用 HubServer 代理 API：`GET /api/runtime/agents/:agentId/external-settings`、`PUT /api/runtime/agents/:agentId/external-settings` 和 `POST /api/runtime/agents/opencode/model-catalog`。OpenCode 模型目录由 OpenCode SDK/catalog 提供，并由 Runtime 过滤为 OpenCode 已连接 provider 的模型；浏览器请求体只允许 `{ conversationId }`，不得发送或编辑 `rootPath`；页面在选中或自动选择活动会话后自动加载一次目录，按钮仅作为刷新/重试入口；保存 OpenCode 模型覆盖时，Web 也只随设置提交当前 `conversationId`，由 HubServer 使用会话工作区做 catalog validation，SDK 默认模型保存不需要会话上下文。Claude Code 只暴露 allowlisted `permissionMode` 和可选 `model`，Codex 当前只暴露可选 `model`。
 
+### 聊天图片发送与渲染
+
+- Composer 选择图片后，Web 必须先把文件上传到 HubServer 的会话图片资产 API，收到持久化资产 metadata 后才允许调用 `POST /api/conversations/:conversationId/messages/send`；发送消息只携带返回的 `assetId`，不携带 `File` 对象、浏览器 blob URL、data URL 或原始客户端路径。
+- 初始图片类型只接受 `image/png`、`image/jpeg`、`image/webp` 和 `image/gif`；`image/svg+xml` 先拒绝。单条消息最多 8 张图片，单图最大 10 MB。图片-only 用户消息可以发送，正文可为空字符串。
+- 上传前的本地预览只属于 composer 临时状态。消息发送、刷新恢复和 persisted message 渲染必须使用 HubServer 返回并持久化在 image part payload 中的资产 URL；如果任一图片上传失败，Web 不应继续创建聊天消息。
+
 ## 状态管理
 
 - TanStack Query 管理服务端事实：active conversation list、conversation detail、runtime agents、conversation timeline replay snapshot、active run snapshot，以及后续 permissions/artifacts。
@@ -70,11 +76,11 @@
 - Run-level raw SSE 中的 `system_agent.completed(systemAgentId="title")` 不投影为聊天 timeline item。HubServer 消费该事件并条件落库后，通过全局 `conversation.title.updated` 事件通知 Web 刷新 conversation list/detail 查询；当前活动会话的 run-level SSE 也会把该事件作为刷新兜底，避免 best-effort 全局事件漏送时标题不更新。
 - Reasoning UI 的耗时显示由 Web timeline projection 使用 `reasoning.started` / `reasoning.completed` 的 event timestamp 推导并写入 timeline item，再传给 ai-elements `Reasoning` 组件；不要依赖组件挂载期间的本地计时作为 replay 后的事实来源。
 - `message.delta` / `message.completed` 只在 `event.agentId` 属于 conversation chat speakers 时投影为 `chat_message`；非 chat speaker 的子智能体输出进入关联 `task` item，不创建普通聊天气泡。子智能体的 reasoning/tool/permission 同样优先进入关联 task item；无法归属到消息或 task 的老事件才作为独立 reasoning/tool/permission timeline item 渲染。`orchestrator.plan.created` 和 `write_plan` 成功结果投影为 plan timeline item，供右侧“会话状态”标签页展示。`run.failed` / `run.cancelled` 投影为 run status item。
-- `toolName = "run_task"` 的 `tool.*` 事件保留在原始 event log 中，但不投影为 `ToolTimelineItem`，避免与 `task.*`、子智能体输出和 task summary 重复展示。普通工具仍渲染为 tool 卡片；Tool 卡片只渲染适合 UI 展示的轻量输出，`web_fetch` 等大响应体由 HubServer 产品 envelope 投影为摘要，完整事实保留在 HubServer `RunEvent.payloadJson`。
-- 外部智能体原生工具继续复用 AgentHub 的普通 Tool UI，不建立 OpenCode 专属渲染链路。会话恢复时，持久化 `MessagePart(type="tool")` 必须恢复为 assistant 消息内的 `toolItems`；否则 live 时闪现过的外部工具会在刷新或 snapshot merge 后消失。外部工具的 `data.externalProvider` 是渲染边界：即使 OpenCode 原生工具名为 `bash`，也不得进入内部 AgentHub `bash` tool 的 Terminal 专用视图，除非该 tool 没有外部 provider 标记。
+- `toolName = "run_task"` 的 `tool.*` 事件保留在原始 event log 中，但不投影为 `ToolTimelineItem`，避免与 `task.*`、子智能体输出和 task summary 重复展示。普通工具仍渲染为 tool 卡片；内部 `edit_file` 工具若输出 `data.diff.format = "unified"`，消息流使用 ai-elements `CodeBlock(language="diff")` 直接展示代码 diff，而不是通用 Tool 卡片。Tool 卡片只渲染适合 UI 展示的轻量输出，`web_fetch` 等大响应体由 HubServer 产品 envelope 投影为摘要，完整事实保留在 HubServer `RunEvent.payloadJson`。
+- 外部智能体原生工具继续复用 AgentHub 的普通 Tool UI，不建立 OpenCode 专属渲染链路。会话恢复时，持久化 `MessagePart(type="tool")` 必须恢复为 assistant 消息内的 `toolItems`；否则 live 时闪现过的外部工具会在刷新或 snapshot merge 后消失。外部工具的 `data.externalProvider` 是渲染边界：即使 OpenCode 原生工具名为 `bash` 或 `edit_file`，也不得进入内部 AgentHub `bash` Terminal 或 `edit_file` CodeBlock 专用视图，除非该 tool 没有外部 provider 标记。
 - Task 卡片标题只来自任务 title / instruction 的短摘要兜底，不得使用 `task.completed.data.summary` 作为标题；`summary` 可能包含子智能体完整输出，应保留为运行结果/上下文数据，而不是 UI 标题。
 - SSE 事件进入 Web 后按 animation frame 批量写入 Zustand；`receivedEventIds` 使用 per-conversation `Set` 去重，轻量 event log 只保留最近一段 UI 相关事件，避免子智能体和工具调用产生大量诊断事件时触发每事件一次的全量重渲染。
-- Timeline 渲染层复用本仓库 `ai-elements` 组件：chat message 使用 `Message`，普通 tool 使用 `Tool`，`bash` tool 直接使用 `Terminal` 展示命令状态和 stdout/stderr 结果，task 使用 `Task`，permission 使用 `Confirmation`，reasoning 使用 `Reasoning`。Plan 不作为聊天流 item 渲染，而是在产物工作台“会话状态”标签页使用 `Queue` 展示。Timeline 渲染不得再依赖 workbench mock agent 数据，智能体头像与名称来自 conversation detail + runtime agents 查询结果。
+- Timeline 渲染层复用本仓库 `ai-elements` 组件：chat message 使用 `Message`，普通 tool 使用 `Tool`，内部 `edit_file` 使用 `CodeBlock` 展示 unified diff，`bash` tool 直接使用 `Terminal` 展示命令状态和 stdout/stderr 结果，task 使用 `Task`，permission 使用 `Confirmation`，reasoning 使用 `Reasoning`。Plan 不作为聊天流 item 渲染，而是在产物工作台“会话状态”标签页使用 `Queue` 展示。Timeline 渲染不得再依赖 workbench mock agent 数据，智能体头像与名称来自 conversation detail + runtime agents 查询结果。
 
 ## Activity 生命周期约束
 

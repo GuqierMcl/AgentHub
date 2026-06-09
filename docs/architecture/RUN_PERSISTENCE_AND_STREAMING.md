@@ -25,6 +25,8 @@ sequenceDiagram
 ## 关键 API
 
 - `POST /api/conversations/:conversationId/messages/send`
+- `POST /api/conversations/:conversationId/assets/images`
+- `GET /api/conversations/:conversationId/assets/images/:assetId/file`
 - `GET /api/conversations/:conversationId/messages`
 - `GET /api/runs/:runId/events?afterSequence=`
 - `POST /api/runs/:runId/cancel`
@@ -33,7 +35,7 @@ sequenceDiagram
 
 ## 运行时持久化
 
-- HubServer 创建 user `Message` 和 text `MessagePart`。
+- HubServer 创建 user `Message`；仅当 `content.trim()` 非空时创建 `MessagePart(type="text", partKey="text")`，并为已校验的图片资产引用创建 `MessagePart(type="image", partKey="image:{assetId}")`。图片-only 用户消息是合法消息。
 - HubServer 创建本地 `Run`，并写入 `Run.runtimeId`。
 - HubServer 从已持久化消息投影 Runtime `history`，再调用 Runtime 创建 run。
 - 后台 consumer 消费 Runtime SSE。

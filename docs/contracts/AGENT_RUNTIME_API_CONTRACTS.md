@@ -836,6 +836,11 @@ type CustomProviderUpdateRequest = Omit<Partial<CustomProviderCreateRequest>, "i
 | `ADAPTER_PERMISSION_REPLY_FAILED` | 502 | 外部 agent 权限决定回写失败 |
 | `ADAPTER_PERMISSION_CANCELLED` | 499 | 外部 agent pending 权限请求被 Run 取消 |
 | `ADAPTER_EXECUTION_FAILED` | 502 | 外部 adapter 未分类执行失败 |
+| `MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER` | 400 | 外部 adapter 当前不能接收 image parts，必须结构化失败且不得静默丢弃图片，错误详情不得包含 base64 图片数据 |
+| `MISSING_FILE` | 400 | 会话图片上传请求缺少 multipart `file` 字段 |
+| `FILE_TOO_LARGE` | 413 | 会话图片上传文件超过当前大小上限 |
+| `INVALID_FILE_TYPE` | 400 / 415 | 会话图片上传 media type 不在允许列表内，当前阶段包括 SVG |
+| `IMAGE_ASSET_NOT_FOUND` | 404 | 会话图片资产不存在，或不属于当前 conversation |
 | `AGENT_NOT_FOUND` | 404 | 指定的 Agent 不存在，或隐藏 Agent 未授权查看 |
 | `AGENT_INVALID_FILTER` | 400 | Agent 查询参数无效 |
 | `AGENT_INVALID_INPUT` | 400 | Agent 创建或更新请求参数无效 |
@@ -924,11 +929,22 @@ type CustomProviderUpdateRequest = Omit<Partial<CustomProviderCreateRequest>, "i
 HubServer 创建 Run 时，向 Agent Runtime 发送 `RunInput`。当前实现的请求体字段如下；Zod schema 中带 default 的字段可由调用方省略，由 Runtime 归一化后进入执行态。
 
 ```ts
+type RuntimeMessagePart =
+  | { type: "text"; text: string }
+  | {
+      type: "image"
+      mediaType: string
+      filename?: string
+      data: string
+      encoding: "base64"
+    }
+
 type RuntimeMessage = {
   id?: string
   role: "user" | "assistant" | "system"
   agentId?: string
   content: string
+  parts?: RuntimeMessagePart[]
 }
 
 type PinnedMessage = {
@@ -975,6 +991,9 @@ type RunInput = {
 - 注入格式使用 XML 标记 `<📌 置顶消息 (Pinned Messages)>` 包裹
 - 单条内容超过 2000 字符时由 HubServer 截断
 - `history` 省略时默认为空数组；Runtime 不从 HubServer 数据库自行读取历史。
+- `RuntimeMessage.content` 保持必填字符串以兼容纯文本执行路径；`parts` 为可选 typed content parts。没有图片时调用方可以只传 `content`；存在图片时，HubServer 应从用户数据目录中的已复制资产读取图片并编码为 `parts` 中的 base64 image part。图片-only 用户消息合法，此时 `content` 可以是空字符串，但必须包含至少一个 image part。
+- Runtime AI SDK 执行不在发送前检查 `resolvedModel.capabilities.supports_vision`。只要 `parts` 中存在 image part，Runtime 就把 text/image parts 打包进 AI SDK model messages；如果 provider 或 model 拒绝图片输入，错误沿用现有 terminal Run error 路径向外暴露。
+- 无法接收 image parts 的外部 adapter 必须在调用外部进程前返回清晰的结构化错误，稳定错误码必须为 `MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER`，不得静默丢弃图片，也不得在错误详情中包含 base64 图片数据。
 - `workspace.rootPath` 只在请求体内由 HubServer 传给 Runtime 建立 workspace session；Run 查询响应只回显 `workspaceId`、`backendType` 与 `rootLabel`。
 - 真实聊天主路径中，HubServer 从 `/api/settings/diagnostics` 保存的“输出设置”读取当前值，并在每次创建 Runtime Run 时写入 `diagnostics`。浏览器的 `/api/conversations/:conversationId/messages/send` 与 regenerate 请求不直接携带 `diagnostics`。
 - `diagnostics.includeSkillDiagnostics = true` 时，Runtime 可以输出 metadata-only `agent.skill_context.resolved` 事件，说明本次执行解析到哪些 Skill。该事件不得包含 Skill 正文、真实文件路径、workspace root、env、headers 或 secret。
@@ -1537,7 +1556,7 @@ type ConversationListItem = {
 
 规则：
 
-- `lastMessageContent` 来自 `lastMessageId` 对应消息的 text parts，HubServer 返回前最多截取 50 个字符。
+- `lastMessageContent` 优先来自 `lastMessageId` 对应消息的 text parts，HubServer 返回前最多截取 50 个字符；若无文本但有 image parts，则返回 `[图片]` 或 `[N 张图片]` 作为预览。
 - 会话列表按置顶优先排序；置顶会话按 `pinnedAt desc`，未置顶会话按活跃时间 `lastMessageAt ?? createdAt desc` 排序，因此新建空会话会默认出现在置顶会话之后、其他未置顶会话之前。
 - 会话列表 API 不返回 Run 运行状态。Web 只对已经打开过、Zustand 中有本地 Run 状态的 conversation 显示卡片 spinner 和底部进度条。
 
@@ -1592,25 +1611,67 @@ type HubGlobalEventEnvelope = {
 
 Product Messages and Runs API 是 Web 聊天主路径。Web 不再直接用 `/api/runtime/runs*` 创建聊天回复，而是通过 HubServer 持久化消息、Run 和 RunEvent 后再调用 Agent Runtime。完整机制见 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。
 
+### 上传会话图片资产
+
+**端点**：`POST /api/conversations/:conversationId/assets/images`
+
+请求体为 `multipart/form-data`，文件字段固定为 `file`。
+
+成功响应：
+
+```ts
+type ConversationImageAsset = {
+  kind: "image"
+  assetId: string
+  filename: string
+  mediaType: "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+  size: number
+  width?: number
+  height?: number
+  url: string
+}
+```
+
+行为：
+
+- HubServer 必须先把上传文件复制到 `config.dataDir/conversation-assets/{conversationId}/images/{assetId}/`，再返回资产 metadata。浏览器 blob URL、data URL 或原始客户端路径都不是持久化资产来源。
+- 当前阶段只接受 `image/png`、`image/jpeg`、`image/webp` 和 `image/gif`，明确拒绝 `image/svg+xml`。单个图片最大 10 MB。
+- `url` 指向 HubServer conversation-scoped 资产文件端点，供 persisted message 渲染、刷新恢复和后续历史 replay 使用。
+- 缺少 `file` 字段返回结构化错误 `MISSING_FILE`；文件过大返回 `FILE_TOO_LARGE`；media type 不允许返回 `INVALID_FILE_TYPE`。
+
+**端点**：`GET /api/conversations/:conversationId/assets/images/:assetId/file`
+
+行为：
+
+- 从 HubServer 已复制的会话资产目录读取并流式返回图片文件，响应 `Content-Type` 使用 manifest 中记录的 media type。
+- 资产不存在、manifest 缺失、文件缺失或资产不属于当前 conversation 时，返回结构化错误 `IMAGE_ASSET_NOT_FOUND`。
+
 ### 发送会话消息
 
 **端点**：`POST /api/conversations/:conversationId/messages/send`
 
 请求体：
 
-```json
-{
-  "content": "请帮我改一下这个组件。",
-  "addressedAgentIds": ["coder"],
-  "replyToMessageId": "msg_xxx"
+```ts
+type SendConversationMessageRequest = {
+  content?: string
+  addressedAgentIds?: string[]
+  replyToMessageId?: string
+  attachments?: Array<{
+    kind: "image"
+    assetId: string
+  }>
 }
 ```
 
 行为：
 
+- `content` 和 `attachments` 至少需要一个有效输入：`content.trim()` 非空，或 `attachments` 中至少有一个 image 资产引用。图片-only 用户消息合法，此时 `content` 可省略或为空字符串。
 - `addressedAgentIds` 可省略；省略或为空数组时保持当前会话默认入口规则。当前阶段最多只能包含一个智能体 ID，且必须来自当前 conversation 成员。纯文本中的 `@Agent` 不会被 HubServer 自动解析为路由目标。
 - `replyToMessageId` 可省略；当前用于记录回复关系，Runtime RunInput 仍以 HubServer 组装的 history 和 user message 为准。
-- HubServer 创建 user `Message` 和 text `MessagePart`，并使用 run-local `firstEventSequence = 0` 固定它排在该 run 的 Runtime 输出之前。
+- `attachments` 当前只支持 `{ kind: "image", assetId }`。单条消息最多 8 张图片；每个 `assetId` 必须是当前 conversation 下已经上传成功的图片资产，缺失或跨 conversation 引用返回 `IMAGE_ASSET_NOT_FOUND`。
+- HubServer 创建 user `Message`，并使用 run-local `firstEventSequence = 0` 固定它排在该 run 的 Runtime 输出之前。
+- HubServer 仅在 `content.trim()` 非空时创建 `MessagePart(type="text", partKey="text")`；每个 image attachment 按请求顺序创建 `MessagePart(type="image", partKey="image:{assetId}")`，payload 只持久化公开图片字段 `{ kind, assetId, filename, mediaType, size, width?, height?, url }`，不得包含内部 `relativePath`。
 - HubServer 创建本地 `Run(status="queued")`，并将 `triggerMessageId` 指向 user message。
 - HubServer 从持久化 messages 投影 Runtime `history`，组装包含 `addressedAgentIds` 的 Runtime `RunInput` 后调用 `POST /runtime/runs`。
 - Runtime 返回的 `runId` 写入本地 `Run.runtimeId`。
@@ -1891,11 +1952,22 @@ RunInput 必须携带会话模式和当前会话智能体成员：
 type RuntimeConversationMode = "single" | "group"
 type ExternalSessionScope = "conversation-visible" | "delegated-task"
 
+type RuntimeMessagePart =
+  | { type: "text"; text: string }
+  | {
+      type: "image"
+      mediaType: string
+      filename?: string
+      data: string
+      encoding: "base64"
+    }
+
 type RuntimeMessage = {
   id?: string
   role: "user" | "assistant" | "system"
   agentId?: string
   content: string
+  parts?: RuntimeMessagePart[]
 }
 
 type PinnedMessage = {
@@ -1995,6 +2067,10 @@ type RunInput = {
 | `externalSessionHints` | HubServer 提供的外部智能体 session 复用 hint；当前用于 OpenCode、Claude Code 与 Codex direct `conversation-visible` session 续接，缺失时 Runtime Adapter 可创建 provider session 并在 `agent.started.data.externalSession` 回传 link |
 | `externalContext` | HubServer 为外部智能体组装的用户可见上下文包；当前用于 OpenCode、Claude Code 与 Codex direct `conversation-visible` prompt 前缀，包含公共 chat 消息、delegated handoff summary、同步 cursor candidate 和预算省略信息 |
 | `pinnedMessages` | HubServer 注入的置顶消息快照；Runtime 只把它作为 prompt 上下文，不修改 pin 数据 |
+
+`RuntimeMessage.content` 继续是必填字符串；多模态输入通过可选 `parts` 表达。`parts` 支持 text part 和 base64 image part，图片数据必须来自 HubServer 已复制到用户数据目录的会话资产。图片-only 用户消息合法，此时 `content` 可以为空字符串。
+
+Runtime 的 AI SDK 执行路径不对 `supports_vision` 做 preflight 分支；存在 image part 时始终生成包含图片的 model message content，由 provider/model 自身决定是否接受。拒绝图片输入的 provider/model 错误应作为 terminal Run error 暴露。OpenCode、Claude Code、Codex 等不能接收 image parts 的外部 adapter 必须以结构化错误失败，稳定错误码为 `MULTIMODAL_NOT_SUPPORTED_BY_ADAPTER`，不得静默丢弃图片，且错误详情不得包含 base64 图片数据。
 
 入口解析规则：
 
@@ -2590,11 +2666,21 @@ type WorkspaceRevertApplyResponse =
       "path": "docs/README.md",
       "size": 1204,
       "replacements": 1,
-      "changed": true
+      "changed": true,
+      "diff": {
+        "format": "unified",
+        "text": "diff --git a/docs/README.md b/docs/README.md\n--- a/docs/README.md\n+++ b/docs/README.md\n@@ -1,3 +1,3 @@\n # AgentHub\n-Old line\n+New line",
+        "truncated": false,
+        "additions": 1,
+        "deletions": 1,
+        "contextLines": 3
+      }
     }
   }
 }
 ```
+
+`edit_file` 的 `diff` 是每次工具调用成功结果中的轻量展示数据：路径必须是 workspace-relative 或 grant logical path，`text` 使用 unified diff，Runtime 会限制文本长度并用 `truncated` 标记预览截断。它不表示可应用的产品级 Diff Artifact，也不改变 Run 级 diff、撤销或代码审查 API。
 
 ### 查询 Run 权限请求
 

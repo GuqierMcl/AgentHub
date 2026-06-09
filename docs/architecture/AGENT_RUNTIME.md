@@ -435,7 +435,7 @@ type RuntimeEnvironmentSnapshot = {
 
 Git 状态只注入摘要。Runtime 使用非 shell 方式执行 `git -C <workspace> status --porcelain=v1 --branch`，超时为 800ms；失败不会阻塞 Run，而是写入 `repository: false` 或 `repository: "unknown"` 与 `unavailableReason`。摘要只包含 branch、dirty、ahead/behind 与变更计数，不包含文件列表、diff 或完整 `git status` 输出。
 
-Prompt 中会明确 `bash` 工具名固定为 `bash`，但命令语法应按 `shell.commandSyntax` 编写；workspace cwd 固定写作 `"."`。快照会包含 workspace 绝对路径，便于模型在用户询问或任务确实需要时给出准确上下文；同时提示模型不要主动复述本机绝对路径。
+Prompt 中会明确 `bash` 工具名固定为 `bash`，但命令语法应按 `shell.commandSyntax` 编写；workspace cwd 固定写作 `"."`。当内部智能体在已绑定 workspace 的 Run 中具备 workspace tools（`ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`）时，Prompt 还会加入一条软约束：文件发现、读取、搜索和编辑应优先使用这些 workspace tools；只有当这些工具不能完成需求时，才考虑 `bash` 等 shell 类工具，例如运行脚本、包管理器、测试或构建命令。快照会包含 workspace 绝对路径，便于模型在用户询问或任务确实需要时给出准确上下文；同时提示模型不要主动复述本机绝对路径。
 
 ### 3.6 产物生成与执行环境管理
 

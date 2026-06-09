@@ -114,6 +114,15 @@ AI SDK 文档把 `UIMessage` 定义为应用状态的事实来源，适合承载
 
 完整恢复规则见 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。
 
+### MessagePart 文本与图片顺序
+
+用户上传的聊天图片和文本正文共同作为同一条 `Message` 的有序 `MessagePart` 保存：
+
+- 文本存在时，HubServer 创建一个 `MessagePart(type="text", partKey="text")`，并将它放在该消息 parts 的最前面。
+- 每张图片创建一个 `MessagePart(type="image", partKey="image:{assetId}")`，`payloadJson` 保存 HubServer 返回的资产元数据，包括 `assetId`、`filename`、`mediaType`、`size`、可选 `width` / `height` 和用于展示的 `url`。
+- 图片 parts 按用户在 composer 中提交的图片顺序跟随文本 part；后续排序应使用持久化 part 顺序，而不是重新按 `partKey` 字符串排序。
+- 图片-only 用户消息是合法消息：此时可以没有 `text` part，模型可见的 `RuntimeMessage.content` 可为空字符串，但必须存在至少一个 `image` part。
+
 ## 和 AgentHub 的关系
 
 - `hub-server` 负责保存和转发 `UIMessage` 相关状态。

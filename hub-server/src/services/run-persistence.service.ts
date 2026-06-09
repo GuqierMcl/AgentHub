@@ -1,5 +1,6 @@
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { AppError, notFound } from "../lib/errors";
 import type { RuntimeClient } from "../lib/runtime";
 import { logger } from "../lib/logger";
@@ -134,6 +135,12 @@ import {
 } from "../repositories/workspace-change-set.repo";
 import type { HubEventBus } from "./hub-event-bus.service";
 import { loadSettings } from "../routers/settings";
+import {
+  CONVERSATION_IMAGE_MAX_PER_MESSAGE,
+  getConversationImageAsset,
+  type ConversationImageAssetFile,
+  type ConversationImageAssetMetadata,
+} from "./conversation-image-assets.service";
 
 export type RuntimeRunEvent = {
   id: string;
@@ -153,11 +160,22 @@ export type RuntimeRunEvent = {
   data?: unknown;
 };
 
+type RuntimeMessagePart =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      mediaType: string;
+      filename?: string;
+      data: string;
+      encoding: "base64";
+    };
+
 type RuntimeMessage = {
   id?: string;
   role: "user" | "assistant" | "system";
   agentId?: string;
   content: string;
+  parts?: RuntimeMessagePart[];
 };
 
 type RuntimeExternalProvider = "opencode" | "claude-code" | "codex";
@@ -264,7 +282,22 @@ type RuntimeRunCreateResponse = {
 export type SendMessageOptions = {
   addressedAgentIds?: string[];
   replyToMessageId?: string;
+  attachments?: SendMessageAttachmentInput[];
 };
+
+export type SendMessageAttachmentInput = {
+  kind: "image";
+  assetId: string;
+};
+
+type PersistedImageAttachment = ConversationImageAssetFile & {
+  metadata: ConversationImageAssetMetadata;
+};
+
+type PublicImagePartPayload = Omit<
+  ConversationImageAssetMetadata,
+  "relativePath"
+>;
 
 type RegenerateMetadata = {
   sourceAssistantMessageId: string;
@@ -661,7 +694,8 @@ export class RunPersistenceService {
     options: SendMessageOptions = {},
   ): Promise<ConversationMessagesResponse> {
     const trimmed = content.trim();
-    if (!trimmed) {
+    const attachmentInputs = options.attachments ?? [];
+    if (!trimmed && attachmentInputs.length === 0) {
       throw new AppError(
         400 as ContentfulStatusCode,
         "MESSAGE_EMPTY",
@@ -680,6 +714,10 @@ export class RunPersistenceService {
     const directExternalProvider = resolveDirectSupportedExternalProvider(
       conversation,
       addressedAgentIds,
+    );
+    const imageAttachments = await resolveImageAttachments(
+      conversationId,
+      attachmentInputs,
     );
     if (directExternalProvider) {
       runPersistenceLogger.info(
@@ -720,6 +758,7 @@ export class RunPersistenceService {
       conversation,
       persistedUserContent: trimmed,
       runtimeUserContent,
+      imageAttachments,
       addressedAgentIds,
       parentMessageId: replySnapshot?.messageId ?? null,
       metadataJson: replySnapshot ? { replyTo: replySnapshot } : undefined,
@@ -782,7 +821,9 @@ export class RunPersistenceService {
       throw invalidRegenerateSource();
     }
     const sourceContent = extractMessageTextContent(sourceTrigger).trim();
-    if (!sourceContent) {
+    const sourceImageAttachments =
+      await resolvePersistedImageAttachments(sourceTrigger);
+    if (!sourceContent && sourceImageAttachments.length === 0) {
       throw invalidRegenerateSource();
     }
 
@@ -809,6 +850,7 @@ export class RunPersistenceService {
       conversation,
       persistedUserContent: sourceContent,
       runtimeUserContent,
+      imageAttachments: sourceImageAttachments,
       addressedAgentIds,
       parentMessageId: sourceTrigger.parentMessageId,
       metadataJson,
@@ -820,6 +862,7 @@ export class RunPersistenceService {
     conversation: ConversationDetailOutput;
     persistedUserContent: string;
     runtimeUserContent: string;
+    imageAttachments?: PersistedImageAttachment[];
     addressedAgentIds: string[];
     parentMessageId?: string | null;
     metadataJson?: MetadataJson;
@@ -829,6 +872,7 @@ export class RunPersistenceService {
       conversation,
       persistedUserContent,
       runtimeUserContent,
+      imageAttachments = [],
       addressedAgentIds,
       parentMessageId,
       metadataJson,
@@ -843,21 +887,23 @@ export class RunPersistenceService {
     const historyMessages = (
       await listMessagesWithParts(conversationId, { limit: 100, order: "desc" })
     ).reverse();
-    const history = projectMessagesToRuntimeHistory(historyMessages);
+    const history = await projectMessagesToRuntimeHistory(historyMessages);
 
     // Load pinned messages for system prompt injection
     const pinnedRecords = await listMessagePinsWithContent(conversationId);
-    const pinnedMessages = pinnedRecords.flatMap((pin) => {
-      const formattedContent = formatPinnedMessageContentForModel(pin);
+    const pinnedMessages = (
+      await Promise.all(pinnedRecords.map(formatPinnedMessageContentForModel))
+    ).flatMap((pin) => {
+      const formattedContent = pin.content;
       if (!formattedContent) return [];
       return [
         {
-          id: pin.id,
-          messageId: pin.messageId,
+          id: pin.record.id,
+          messageId: pin.record.messageId,
           content: truncatePinContent(formattedContent),
-          note: pin.note,
-          pinnedAt: pin.createdAt,
-          sortOrder: pin.sortOrder,
+          note: pin.record.note,
+          pinnedAt: pin.record.createdAt,
+          sortOrder: pin.record.sortOrder,
         },
       ];
     });
@@ -875,25 +921,53 @@ export class RunPersistenceService {
       metadataJson,
       completedAt: new Date().toISOString(),
     });
-    const userMessagePart = await createMessagePart({
-      messageId: userMessage.id,
-      conversationId,
-      partKey: "text",
-      partIndex: 0,
-      type: "text",
-      state: "done",
-      text: persistedUserContent,
-      firstEventSequence: 0,
-      lastEventSequence: 0,
-    });
+    const userMessageParts: PersistedMessagePart[] = [];
+    let nextPartIndex = 0;
+    if (persistedUserContent.trim()) {
+      userMessageParts.push(
+        await createMessagePart({
+          messageId: userMessage.id,
+          conversationId,
+          partKey: "text",
+          partIndex: nextPartIndex,
+          type: "text",
+          state: "done",
+          text: persistedUserContent,
+          firstEventSequence: 0,
+          lastEventSequence: 0,
+        }),
+      );
+      nextPartIndex += 1;
+    }
+    for (const image of imageAttachments) {
+      userMessageParts.push(
+        await createMessagePart({
+          messageId: userMessage.id,
+          conversationId,
+          partKey: `image:${image.metadata.assetId}`,
+          partIndex: nextPartIndex,
+          type: "image",
+          state: "done",
+          payloadJson: toPublicImagePartPayload(image.metadata),
+          firstEventSequence: 0,
+          lastEventSequence: 0,
+        }),
+      );
+      nextPartIndex += 1;
+    }
+    const userMessageDisplayContent = buildUserMessageDisplayContent(
+      persistedUserContent,
+      imageAttachments,
+    );
     if (directExternalProvider) {
       runPersistenceLogger.info(
         {
           externalProvider: directExternalProvider,
           conversationId,
           userMessageId: userMessage.id,
-          userMessagePartId: userMessagePart.id,
+          userMessagePartIds: userMessageParts.map((part) => part.id),
           contentLength: persistedUserContent.length,
+          imageAttachmentCount: imageAttachments.length,
         },
         "External agent user message persisted",
       );
@@ -907,7 +981,7 @@ export class RunPersistenceService {
       runId: null,
       lastMessageId: userMessage.id,
       lastMessageAt: userMessage.createdAt,
-      lastMessageContent: persistedUserContent,
+      lastMessageContent: userMessageDisplayContent,
     });
 
     const run = await createRun({
@@ -919,7 +993,11 @@ export class RunPersistenceService {
     });
     this.publishRunStatusChanged(run, "queued");
     await updateMessage(userMessage.id, { runId: run.id });
-    await updateMessagePart(userMessagePart.id, { runId: run.id });
+    await Promise.all(
+      userMessageParts.map((part) =>
+        updateMessagePart(part.id, { runId: run.id }),
+      ),
+    );
     if (directExternalProvider) {
       runPersistenceLogger.info(
         {
@@ -969,6 +1047,10 @@ export class RunPersistenceService {
         "External agent session hints resolved",
       );
     }
+    const runtimeUserParts = await toRuntimeMessageParts(
+      runtimeUserContent,
+      imageAttachments,
+    );
     const runtimeInput = buildRuntimeRunInput(
       conversation,
       runtimeUserContent,
@@ -979,6 +1061,8 @@ export class RunPersistenceService {
       externalContext,
       userMessage.id,
       pinnedMessages,
+      runtimeUserParts,
+      userMessageDisplayContent,
     );
     await updateRun(run.id, {
       inputJson: regenerate ? { ...runtimeInput, regenerate } : runtimeInput,
@@ -5122,6 +5206,73 @@ function getRecord(value: unknown): Record<string, unknown> | undefined {
 const MAX_PIN_CONTENT_LENGTH = 2000;
 const MAX_REPLY_EXCERPT_LENGTH = 300;
 
+async function resolveImageAttachments(
+  conversationId: string,
+  attachments: SendMessageAttachmentInput[] = [],
+): Promise<PersistedImageAttachment[]> {
+  if (attachments.length > CONVERSATION_IMAGE_MAX_PER_MESSAGE) {
+    throw new AppError(
+      400 as ContentfulStatusCode,
+      "IMAGE_ATTACHMENT_LIMIT_EXCEEDED",
+      `单条消息最多包含 ${CONVERSATION_IMAGE_MAX_PER_MESSAGE} 张图片`,
+    );
+  }
+
+  const seenAssetIds = new Set<string>();
+  const resolved: PersistedImageAttachment[] = [];
+  for (const attachment of attachments) {
+    const assetId = attachment.assetId.trim();
+    if (seenAssetIds.has(assetId)) {
+      throw new AppError(
+        400 as ContentfulStatusCode,
+        "IMAGE_ATTACHMENT_DUPLICATE",
+        "图片附件不能重复",
+      );
+    }
+    seenAssetIds.add(assetId);
+    resolved.push(await getConversationImageAsset(conversationId, assetId));
+  }
+  return resolved;
+}
+
+async function resolvePersistedImageAttachments(
+  message: Pick<PersistedMessage, "conversationId" | "parts">,
+): Promise<PersistedImageAttachment[]> {
+  const attachments: PersistedImageAttachment[] = [];
+  for (const part of message.parts) {
+    if (part.type !== "image") continue;
+    const assetId = getPersistedImageAssetId(part);
+    if (!assetId) continue;
+    attachments.push(
+      await getConversationImageAsset(message.conversationId, assetId),
+    );
+  }
+  return attachments;
+}
+
+function getPersistedImageAssetId(part: PersistedMessagePart): string | null {
+  const payloadAssetId = getString(getRecord(part.payloadJson)?.assetId);
+  if (payloadAssetId) return payloadAssetId;
+  return part.partKey.startsWith("image:")
+    ? part.partKey.slice("image:".length)
+    : null;
+}
+
+function toPublicImagePartPayload(
+  metadata: ConversationImageAssetMetadata,
+): PublicImagePartPayload {
+  return {
+    kind: metadata.kind,
+    assetId: metadata.assetId,
+    filename: metadata.filename,
+    mediaType: metadata.mediaType,
+    size: metadata.size,
+    ...(typeof metadata.width === "number" ? { width: metadata.width } : {}),
+    ...(typeof metadata.height === "number" ? { height: metadata.height } : {}),
+    url: metadata.url,
+  };
+}
+
 function truncatePinContent(content: string): string {
   if (content.length <= MAX_PIN_CONTENT_LENGTH) return content;
   return content.slice(0, MAX_PIN_CONTENT_LENGTH) + "\n...[截断]";
@@ -5137,12 +5288,69 @@ function extractMessageTextContent(
     .trim();
 }
 
+function extractMessageDisplayContent(
+  message: Pick<PersistedMessage, "parts">,
+): string {
+  const text = extractMessageTextContent(message);
+  return text || buildImageFallback(message.parts);
+}
+
+function buildUserMessageDisplayContent(
+  content: string,
+  images: PersistedImageAttachment[],
+): string {
+  const trimmed = content.trim();
+  return trimmed || buildImageFallbackFromCount(images.length);
+}
+
+function buildImageFallback(
+  parts: Array<{ type?: string }> | undefined,
+): string {
+  const imageCount =
+    parts?.filter((part) => part.type === "image").length ?? 0;
+  return buildImageFallbackFromCount(imageCount);
+}
+
+function buildImageFallbackFromCount(imageCount: number): string {
+  if (imageCount <= 0) return "";
+  return imageCount === 1 ? "[图片]" : `[${imageCount} 张图片]`;
+}
+
+async function toRuntimeMessageParts(
+  text: string,
+  images: PersistedImageAttachment[],
+): Promise<RuntimeMessagePart[]> {
+  const parts: RuntimeMessagePart[] = [];
+  if (text.trim()) {
+    parts.push({ type: "text", text });
+  }
+
+  for (const image of images) {
+    parts.push(await toRuntimeImagePart(image));
+  }
+
+  return parts;
+}
+
+async function toRuntimeImagePart(
+  image: PersistedImageAttachment,
+): Promise<RuntimeMessagePart> {
+  const bytes = await readFile(image.filePath);
+  return {
+    type: "image",
+    mediaType: image.mediaType,
+    ...(image.filename ? { filename: image.filename } : {}),
+    data: bytes.toString("base64"),
+    encoding: "base64",
+  };
+}
+
 function compactReplyExcerpt(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
 function buildReplySnapshot(target: PersistedMessage): MessageReplySnapshot {
-  const content = compactReplyExcerpt(extractMessageTextContent(target));
+  const content = compactReplyExcerpt(extractMessageDisplayContent(target));
   const fallback =
     target.role === "assistant" ? "Assistant message" : "User message";
   return {
@@ -5264,26 +5472,50 @@ function formatContentWithRegenerateContext(
   return [...block, "", trimmed].join("\n");
 }
 
-function formatMessageContentForModel(message: PersistedMessage): string {
-  const content = extractMessageTextContent(message);
-  if (!content) return "";
+function formatMessageContentForModel(
+  message: PersistedMessage,
+  options: { includeImageFallback?: boolean } = {},
+): string {
+  const includeImageFallback = options.includeImageFallback ?? true;
+  const content = includeImageFallback
+    ? extractMessageDisplayContent(message)
+    : extractMessageTextContent(message);
+  const replySnapshot = getReplySnapshot(message.metadataJson);
+  const regenerateSnapshot = getRegenerateSnapshot(message.metadataJson);
+  if (!content && !replySnapshot && !regenerateSnapshot) return "";
   const withReplyContext = formatContentWithReplyContext(
     content,
-    getReplySnapshot(message.metadataJson),
+    replySnapshot,
   );
   return formatContentWithRegenerateContext(
     withReplyContext,
-    getRegenerateSnapshot(message.metadataJson),
+    regenerateSnapshot,
   );
 }
 
-function formatPinnedMessageContentForModel(
+async function formatPinnedMessageContentForModel(
   pin: MessagePinWithContent,
-): string | null {
+): Promise<{ record: MessagePinWithContent; content: string | null }> {
   const content = pin.messageContent?.trim() ?? "";
-  if (!content) return null;
-  const metadata = safeJsonParse(pin.messageMetadataJson, {}) as MetadataJson;
-  return formatContentWithReplyContext(content, getReplySnapshot(metadata));
+  if (content) {
+    const metadata = safeJsonParse(pin.messageMetadataJson, {}) as MetadataJson;
+    return {
+      record: pin,
+      content: formatContentWithReplyContext(content, getReplySnapshot(metadata)),
+    };
+  }
+
+  const messageRecord = await findMessageWithParts(pin.messageId);
+  const message = messageRecord
+    ? toPersistedMessage(messageRecord as Record<string, unknown>)
+    : null;
+  const formattedContent = message
+    ? formatMessageContentForModel(message, { includeImageFallback: true })
+    : "";
+  return {
+    record: pin,
+    content: formattedContent || null,
+  };
 }
 
 async function resolveReplySnapshot(
@@ -5346,7 +5578,7 @@ function buildRegenerateMetadata(
     sourceAssistantAgentId: sourceAssistant.agentId,
     sourceAssistantCreatedAt: sourceAssistant.createdAt,
     sourceAssistantExcerpt: truncateText(
-      compactReplyExcerpt(extractMessageTextContent(sourceAssistant)),
+      compactReplyExcerpt(extractMessageDisplayContent(sourceAssistant)),
       MAX_REPLY_EXCERPT_LENGTH,
     ),
   };
@@ -5382,12 +5614,15 @@ function buildRuntimeRunInput(
     pinnedAt: string;
     sortOrder: number;
   }>,
+  userMessageParts?: RuntimeMessagePart[],
+  currentUserDisplayContent?: string,
 ): RuntimeRunInput {
   const workspace = getRuntimeWorkspace(conversation.metadataJson);
   const titleSource = getTitleSource(conversation.metadataJson);
   const titleSeedUserMessage = resolveTitleSeedUserMessage(
     history,
     userContent,
+    currentUserDisplayContent,
   );
 
   return {
@@ -5399,6 +5634,9 @@ function buildRuntimeRunInput(
       ...(userMessageId ? { id: userMessageId } : {}),
       role: "user",
       content: userContent,
+      ...(userMessageParts && userMessageParts.length > 0
+        ? { parts: userMessageParts }
+        : {}),
     },
     history,
     conversationState: {
@@ -5788,39 +6026,51 @@ function invalidEntryAgent(message: string): AppError {
   );
 }
 
-function projectMessagesToRuntimeHistory(records: unknown[]): RuntimeMessage[] {
-  return records.flatMap((record) => {
+async function projectMessagesToRuntimeHistory(
+  records: unknown[],
+): Promise<RuntimeMessage[]> {
+  const history: RuntimeMessage[] = [];
+  for (const record of records) {
     const message = toPersistedMessage(record as Record<string, unknown>);
-    if (message.surface !== "chat") return [];
-    if (message.role !== "user" && message.role !== "assistant") return [];
-    const content = formatMessageContentForModel(message);
-    if (!content) return [];
-    return [
-      {
-        id: message.id,
-        role: message.role as RuntimeMessage["role"],
-        agentId: message.agentId ?? undefined,
-        content,
-      },
-    ];
-  });
+    if (message.surface !== "chat") continue;
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const content = formatMessageContentForModel(message, {
+      includeImageFallback: false,
+    });
+    const imageAttachments = await resolvePersistedImageAttachments(message);
+    const parts = await toRuntimeMessageParts(content, imageAttachments);
+    if (!content && parts.length === 0) continue;
+    history.push({
+      id: message.id,
+      role: message.role as RuntimeMessage["role"],
+      agentId: message.agentId ?? undefined,
+      content,
+      ...(parts.length > 0 ? { parts } : {}),
+    });
+  }
+  return history;
 }
 
 function resolveTitleSeedUserMessage(
   history: RuntimeMessage[],
   currentUserContent: string,
+  currentUserDisplayContent?: string,
 ): string | undefined {
-  const firstHistoryUserMessage = history
-    .find(
-      (message) => message.role === "user" && message.content.trim().length > 0,
-    )
-    ?.content.trim();
-  if (firstHistoryUserMessage) {
-    return firstHistoryUserMessage;
+  const firstHistoryUserMessage = history.find(
+    (message) =>
+      message.role === "user" &&
+      (message.content.trim().length > 0 ||
+        buildImageFallback(message.parts ?? [])),
+  );
+  const firstHistoryContent =
+    firstHistoryUserMessage?.content.trim() ||
+    buildImageFallback(firstHistoryUserMessage?.parts ?? []);
+  if (firstHistoryContent) {
+    return firstHistoryContent;
   }
 
   const current = currentUserContent.trim();
-  return current || undefined;
+  return current || currentUserDisplayContent?.trim() || undefined;
 }
 
 function safeJsonParse(value: unknown, fallback: unknown = {}): unknown {

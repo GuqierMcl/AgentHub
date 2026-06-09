@@ -108,9 +108,24 @@ type EditFileInput = {
   replace: string
   expectedReplacements?: number
 }
+
+type EditFileResult = {
+  path: string
+  size: number
+  replacements: number
+  changed: boolean
+  diff?: {
+    format: "unified"
+    text: string
+    truncated: boolean
+    additions: number
+    deletions: number
+    contextLines: number
+  }
+}
 ```
 
-默认 `expectedReplacements = 1`。匹配数量不符时工具失败且不修改文件。第一版不支持 unified diff、二进制编辑或自动创建父目录。
+默认 `expectedReplacements = 1`。匹配数量不符时工具失败且不修改文件。成功编辑 UTF-8 文本时，`edit_file` 会在成功结果中返回 workspace-relative 路径和一个 bounded unified diff，用于消息流内的轻量代码 diff 展示；diff 文本最多保留 32k 字符，超出时设置 `truncated = true`。该 per-tool diff 不替代 Run 级 Diff Artifact、撤销、apply 或代码审查流程。第一版仍不支持二进制编辑或自动创建父目录。
 
 ### 3.4 `grep` 与 `glob`
 
@@ -369,4 +384,4 @@ type ExternalAccessGrant = {
 - 文件工具 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep` 已接入 Runtime Tool Registry。
 - `read_file` 已支持图片多模态返回。
 - 沙箱外只读路径访问、workspace 内敏感文件显式读取、沙箱外敏感文件显式读取均已由 `RuntimePermissionService` 闭环：产生 `permission.requested`，进入 `waiting_approval`，经批准创建 read grant 后在同一 Run 恢复原执行分支，拒绝或取消产生对应权限终态事件。
-- `write_file` / `edit_file` 已支持 UTF-8 文本写入和 search/replace 编辑；workspace 内普通文件修改无需审批，敏感写入和沙箱外写入通过 write grant 审批续跑闭环。
+- `write_file` / `edit_file` 已支持 UTF-8 文本写入和 search/replace 编辑；`edit_file` 成功结果会携带 bounded unified diff 供消息流展示。workspace 内普通文件修改无需审批，敏感写入和沙箱外写入通过 write grant 审批续跑闭环。

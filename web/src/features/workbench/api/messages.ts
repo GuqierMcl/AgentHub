@@ -1,4 +1,8 @@
 import type { RuntimeRunEvent, RuntimeRunStatus } from "./runtime-runs"
+import type {
+  ChatImageAttachment,
+  ChatImageAttachmentInput,
+} from "../types"
 
 export type PersistedMessagePart = {
   id: string
@@ -266,6 +270,7 @@ export type QuestionAnswerBody = {
 export type SendConversationMessageOptions = {
   addressedAgentIds?: string[]
   replyToMessageId?: string
+  attachments?: Array<Pick<ChatImageAttachment, "kind" | "assetId">>
 }
 
 type ErrorBody = {
@@ -275,6 +280,8 @@ type ErrorBody = {
     details?: unknown
   }
 }
+
+const IMAGE_ATTACHMENT_READ_FAILED = "IMAGE_ATTACHMENT_READ_FAILED"
 
 export class ConversationMessageRequestError extends Error {
   code?: string
@@ -288,16 +295,13 @@ export class ConversationMessageRequestError extends Error {
   }
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    headers: {
-      "Content-Type": "application/json",
-    },
-    ...options,
-  })
+async function readErrorBody(res: Response): Promise<ErrorBody> {
+  return res.json().catch(() => ({})) as Promise<ErrorBody>
+}
 
+async function readJsonResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as ErrorBody
+    const body = await readErrorBody(res)
     const message = body.error?.message ?? `请求失败 (${res.status})`
     throw new ConversationMessageRequestError(
       message,
@@ -307,6 +311,70 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return res.json()
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    headers: {
+      "Content-Type": "application/json",
+    },
+    ...options,
+  })
+
+  return readJsonResponse(res)
+}
+
+async function filePartUrlToBlob(
+  filePart: ChatImageAttachmentInput
+): Promise<Blob> {
+  try {
+    const response = await fetch(filePart.url)
+    if (!response.ok) {
+      throw new ConversationMessageRequestError(
+        `无法读取待上传图片 (${response.status})`,
+        IMAGE_ATTACHMENT_READ_FAILED
+      )
+    }
+
+    const blob = await response.blob()
+    if (!filePart.mediaType || blob.type === filePart.mediaType) {
+      return blob
+    }
+
+    return new Blob([blob], { type: filePart.mediaType })
+  } catch (err) {
+    if (err instanceof ConversationMessageRequestError) {
+      throw err
+    }
+    throw new ConversationMessageRequestError(
+      "无法读取待上传图片",
+      IMAGE_ATTACHMENT_READ_FAILED,
+      err
+    )
+  }
+}
+
+function getUploadFilename(filePart: ChatImageAttachmentInput): string {
+  const filename = filePart.filename?.trim()
+  if (filename) return filename
+
+  const extension = getImageExtension(filePart.mediaType)
+  return `image.${extension}`
+}
+
+function getImageExtension(mediaType: string): string {
+  switch (mediaType.toLowerCase()) {
+    case "image/jpeg":
+      return "jpg"
+    case "image/png":
+      return "png"
+    case "image/webp":
+      return "webp"
+    case "image/gif":
+      return "gif"
+    default:
+      return "bin"
+  }
 }
 
 export const conversationMessagesApi = {
@@ -343,6 +411,25 @@ export const conversationMessagesApi = {
     )
   },
 
+  async uploadImage(
+    conversationId: string,
+    filePart: ChatImageAttachmentInput
+  ): Promise<ChatImageAttachment> {
+    const blob = await filePartUrlToBlob(filePart)
+    const formData = new FormData()
+    formData.append("file", blob, getUploadFilename(filePart))
+
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/assets/images`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    )
+
+    return readJsonResponse<ChatImageAttachment>(res)
+  },
+
   send(
     conversationId: string,
     content: string,
@@ -353,6 +440,7 @@ export const conversationMessagesApi = {
       content,
       ...(addressedAgentIds.length ? { addressedAgentIds } : {}),
       ...(options?.replyToMessageId ? { replyToMessageId: options.replyToMessageId } : {}),
+      ...(options?.attachments?.length ? { attachments: options.attachments } : {}),
     }
 
     return request(`/api/conversations/${encodeURIComponent(conversationId)}/messages/send`, {

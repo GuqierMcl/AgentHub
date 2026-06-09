@@ -3,7 +3,12 @@ import { createRunEvent } from "../run-events"
 import type { ExternalContextPacket, RunEvent } from "../types"
 import type { CodexClient } from "./codex-client"
 import { createDefaultCodexClient } from "./codex-real-client"
-import type { ExternalAdapterContext, ExternalAdapterPrompt, ExternalAgentAdapter } from "./types"
+import {
+  assertNoImagePartsForExternalAdapter,
+  type ExternalAdapterContext,
+  type ExternalAdapterPrompt,
+  type ExternalAgentAdapter,
+} from "./types"
 
 const log = createChildLogger("codex-adapter")
 
@@ -13,6 +18,8 @@ export class CodexAdapter implements ExternalAgentAdapter {
   constructor(private client: CodexClient = createDefaultCodexClient()) {}
 
   async *execute(context: ExternalAdapterContext): AsyncIterable<RunEvent> {
+    assertNoImagePartsForExternalAdapter(context, this.provider)
+
     const sessionHint = context.input.externalSessionHints?.find((hint) => {
       return hint.provider === this.provider &&
         hint.agentId === context.agent.id &&

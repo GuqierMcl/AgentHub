@@ -332,6 +332,8 @@ Runtime 需要把“裸任务执行”和“工具包装”拆开：`RunManager.
 `question` 不需要权限审批，`requiredPermissions = {}`，`approvalPolicy = "never"`。它是 deferred interaction tool：AI SDK tool set 中只暴露 schema，不提供 `execute`；模型发起调用后 Runtime 记录问题请求、暂停对应执行分支，并等待用户通过 question answer API 提交答案。
 文件系统类工具应通过 `docs/architecture/AGENT_RUNTIME_BACKEND.md` 定义的 Workspace Backend 访问真实存储；本地文件系统只是第一版后端实现。
 
+对于已绑定 workspace 且具备文件系统工具的内部智能体，Prompt 会提供工具选择软约束：文件发现、读取、搜索和精确写入/编辑优先使用 `ls`、`read_file`、`glob`、`grep`、`write_file`、`edit_file`；只有这些 workspace tools 不能完成需求时，才考虑 `bash` 等 shell 类工具。该规则只影响模型倾向，不改变 `allowedTools` 可见性、`permissionPolicy` 能力上限或审批语义。
+
 ### 10.1 审批续跑
 
 - 需要审批时先发出 `permission.requested`；审批前不发出该次调用的 `tool.started`。

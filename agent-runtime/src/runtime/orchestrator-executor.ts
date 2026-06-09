@@ -11,6 +11,7 @@ import { formatRuntimeEnvironmentSnapshotForPrompt } from "./environment-snapsho
 import { formatPinnedMessagesForPrompt } from "./pinned-messages-prompt"
 import { formatInjectedSkillsForPrompt } from "./skill-prompt"
 import { formatMcpContextForPrompt } from "./mcp-runtime"
+import { formatWorkspaceToolPreferenceForPrompt } from "./tool-use-preference-prompt"
 import { createRuntimeGeneration, normalizeLanguageModelUsage } from "./generation"
 import { MessageBlockEventBuilder, MessageBlockIdentityTracker } from "./message-stream-events"
 import { ModelStreamEventBuilder, resolveRunDiagnostics } from "./model-stream-events"
@@ -24,8 +25,10 @@ import type { SystemModelSettingsService } from "./system-model-settings"
 import type {
   AgentExecutionContext,
   AgentExecutor,
+  RuntimeMessage,
   RunEvent,
 } from "./types"
+import { toModelMessageContent } from "./types"
 import type { RuntimeToolRegistry } from "./tools"
 
 const log = createChildLogger("orchestrator-executor")
@@ -42,18 +45,38 @@ function normalizeHistoryMessages(context: AgentExecutionContext): ModelMessage[
   if (context.resumeMessages) {
     return context.resumeMessages
   }
-  return context.input.history
-    .filter((message) => message.role !== "system")
-    .map((message) => ({
-      role: message.role,
-      content: message.agentId
-        ? `[${message.agentId}] ${message.content}`
-        : message.content,
-    }) satisfies ModelMessage)
-    .concat({
+  const historyMessages = context.input.history.flatMap((message) => {
+    const modelMessage = runtimeMessageToModelMessage(message, { prefixAgentId: true })
+    return modelMessage ? [modelMessage] : []
+  })
+
+  return [
+    ...historyMessages,
+    {
       role: "user",
-      content: context.input.userMessage.content,
-    })
+      content: toModelMessageContent(context.input.userMessage),
+    } satisfies ModelMessage,
+  ]
+}
+
+function runtimeMessageToModelMessage(
+  message: RuntimeMessage,
+  options: { prefixAgentId?: boolean } = {}
+): ModelMessage | null {
+  switch (message.role) {
+    case "system":
+      return null
+    case "user":
+      return {
+        role: "user",
+        content: toModelMessageContent({ ...message, role: "user" }, options),
+      } satisfies ModelMessage
+    case "assistant":
+      return {
+        role: "assistant",
+        content: toModelMessageContent({ ...message, role: "assistant" }, options),
+      } satisfies ModelMessage
+  }
 }
 
 function formatCapabilities(agent: AgentDefinition): string {
@@ -405,6 +428,10 @@ export class OrchestratorExecutor implements AgentExecutor {
     const pinnedBlock = formatPinnedMessagesForPrompt(context.input.pinnedMessages)
     const skillBlock = formatInjectedSkillsForPrompt(context.injectedSkills)
     const mcpBlock = formatMcpContextForPrompt(context.mcpContext)
+    const toolPreferenceBlock = formatWorkspaceToolPreferenceForPrompt({
+      allowedTools: agent.allowedTools,
+      workspaceBound: context.environmentSnapshot?.workspace.bound ?? Boolean(context.input.workspace),
+    })
 
     return [
       agent.systemPrompt ?? [
@@ -419,6 +446,7 @@ export class OrchestratorExecutor implements AgentExecutor {
       context.environmentSnapshot
         ? formatRuntimeEnvironmentSnapshotForPrompt(context.environmentSnapshot)
         : "",
+      toolPreferenceBlock,
       pinnedBlock ?? "",
       skillBlock ?? "",
       mcpBlock,

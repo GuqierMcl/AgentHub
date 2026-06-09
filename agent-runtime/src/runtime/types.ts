@@ -15,13 +15,159 @@ import type {
 export const RuntimeConversationModeSchema = z.enum(["single", "group"])
 export type RuntimeConversationMode = z.infer<typeof RuntimeConversationModeSchema>
 
+export const RuntimeMessagePartSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    text: z.string().min(1),
+  }).strict(),
+  z.object({
+    type: z.literal("image"),
+    mediaType: z.string().min(1).max(255),
+    filename: z.string().min(1).max(255).optional(),
+    data: z.string().min(1),
+    encoding: z.literal("base64"),
+  }).strict(),
+])
+export type RuntimeMessagePart = z.infer<typeof RuntimeMessagePartSchema>
+
 export const RuntimeMessageSchema = z.object({
   id: z.string().optional(),
   role: z.enum(["user", "assistant", "system"]),
   agentId: z.string().optional(),
   content: z.string(),
+  parts: z.array(RuntimeMessagePartSchema).optional(),
 })
 export type RuntimeMessage = z.infer<typeof RuntimeMessageSchema>
+
+export type RuntimeModelMessageContent =
+  | string
+  | Array<
+    | { type: "text"; text: string }
+    | { type: "image"; image: string; mediaType?: string }
+  >
+
+export type ToModelMessageContentOptions = {
+  prefixAgentId?: boolean
+}
+
+export function toModelMessageContent(
+  message: RuntimeMessage & { role: "user" },
+  options?: ToModelMessageContentOptions
+): RuntimeModelMessageContent
+export function toModelMessageContent(
+  message: RuntimeMessage & { role: "assistant" | "system" },
+  options?: ToModelMessageContentOptions
+): string
+export function toModelMessageContent(
+  message: RuntimeMessage,
+  options?: ToModelMessageContentOptions
+): RuntimeModelMessageContent
+export function toModelMessageContent(
+  message: RuntimeMessage,
+  options: ToModelMessageContentOptions = {}
+): RuntimeModelMessageContent {
+  const prefix = options.prefixAgentId && message.agentId ? `[${message.agentId}] ` : ""
+
+  const imageParts = message.parts?.filter((part) => part.type === "image") ?? []
+  if (message.role !== "user") {
+    return toTextOnlyModelMessageContent(message, prefix, imageParts.length)
+  }
+
+  if (imageParts.length === 0) {
+    return `${prefix}${message.content}`
+  }
+
+  const content: Exclude<RuntimeModelMessageContent, string> = []
+  const seenText = new Set<string>()
+  const textParts = message.parts?.filter((part) => part.type === "text") ?? []
+  const hasExplicitTextPart = textParts.length > 0
+  let prefixApplied = prefix.length === 0
+  const addTextPart = (text: string, options: { allowPrefixOnly?: boolean } = {}): void => {
+    const shouldUsePrefixOnly = options.allowPrefixOnly && !prefixApplied
+    if ((!shouldUsePrefixOnly && text.trim().length === 0) || seenText.has(text)) {
+      return
+    }
+
+    seenText.add(text)
+    const textWithPrefix = !prefixApplied
+      ? `${prefix}${text}`.trimEnd()
+      : text
+    prefixApplied = true
+    content.push({
+      type: "text",
+      text: textWithPrefix,
+    })
+  }
+
+  if (!hasExplicitTextPart && message.content.trim().length > 0) {
+    addTextPart(message.content)
+  }
+
+  for (const part of message.parts ?? []) {
+    if (part.type === "text") {
+      addTextPart(part.text)
+      continue
+    }
+
+    if (part.type === "image") {
+      if (!hasExplicitTextPart && !prefixApplied) {
+        addTextPart("", { allowPrefixOnly: true })
+      }
+
+      content.push({
+        type: "image",
+        image: part.data,
+        mediaType: part.mediaType,
+      })
+    }
+  }
+
+  return content
+}
+
+function toTextOnlyModelMessageContent(
+  message: RuntimeMessage,
+  prefix: string,
+  imageCount: number
+): string {
+  if (imageCount === 0) {
+    return `${prefix}${message.content}`
+  }
+
+  const text = message.content.trim().length > 0
+    ? `${message.content} ${formatImagePlaceholder(imageCount)}`
+    : formatPartsAsText(message.parts ?? [])
+
+  return `${prefix}${text}`.trimEnd()
+}
+
+function formatPartsAsText(parts: RuntimeMessagePart[]): string {
+  const segments: string[] = []
+  let pendingImageCount = 0
+  const flushImages = (): void => {
+    if (pendingImageCount > 0) {
+      segments.push(formatImagePlaceholder(pendingImageCount))
+      pendingImageCount = 0
+    }
+  }
+
+  for (const part of parts) {
+    if (part.type === "image") {
+      pendingImageCount += 1
+      continue
+    }
+
+    flushImages()
+    segments.push(part.text)
+  }
+
+  flushImages()
+  return segments.join(" ")
+}
+
+function formatImagePlaceholder(count: number): string {
+  return count === 1 ? "[image]" : `[${count} images]`
+}
 
 export const RunWorkspaceSnapshotSchema = z.object({
   workspaceId: z.string().min(1),

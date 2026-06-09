@@ -35,6 +35,37 @@ function persistedMessage(input: Partial<PersistedMessage>): PersistedMessage {
   }
 }
 
+function persistedPart(
+  input: Partial<PersistedMessage["parts"][number]>
+): PersistedMessage["parts"][number] {
+  return {
+    id: "part_text",
+    messageId: "msg_assistant",
+    conversationId: "conv_tools",
+    runId: "run_tools",
+    runtimeEventId: null,
+    partKey: "text",
+    partIndex: 0,
+    entityType: null,
+    entityId: null,
+    type: "text",
+    state: "done",
+    text: null,
+    payloadJson: {},
+    firstEventSequence: 0,
+    lastEventSequence: 0,
+    createdAt: "2026-06-03T10:00:00.000Z",
+    updatedAt: "2026-06-03T10:00:00.000Z",
+    ...input,
+  }
+}
+
+function expectNoPrivateAttachmentFields(value: unknown): void {
+  const attachment = value as Record<string, unknown>
+  expect("relativePath" in attachment).toBe(false)
+  expect("filePath" in attachment).toBe(false)
+}
+
 describe("workbench persisted message replay", () => {
   beforeEach(() => {
     useWorkbenchStore.setState({
@@ -247,6 +278,328 @@ describe("workbench persisted message replay", () => {
         excerpt: "Original assistant answer.",
       },
       text: "Can you expand?",
+    })
+  })
+
+  it("restores image-only user messages with persisted attachments", () => {
+    const conversationId = "conv_image_only"
+    const message = persistedMessage({
+      id: "msg_image_only",
+      conversationId,
+      runId: "run_image_only",
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      parts: [
+        persistedPart({
+          id: "part_image_only",
+          messageId: "msg_image_only",
+          conversationId,
+          runId: "run_image_only",
+          partKey: "image:asset_1",
+          partIndex: 0,
+          type: "image",
+          payloadJson: {
+            kind: "image",
+            assetId: "asset_1",
+            filename: "diagram.png",
+            mediaType: "image/png",
+            size: 12345,
+            width: 640,
+            height: 480,
+            url: "/api/conversations/conv_image_only/assets/images/asset_1/file",
+            relativePath: "conversation-assets/conv_image_only/images/asset_1/original.png",
+          },
+        }),
+      ],
+    })
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [message],
+      [],
+      null
+    )
+
+    const [item] = useWorkbenchStore.getState().getConversationState(conversationId).timelineItems
+    expect(item).toMatchObject({
+      kind: "chat_message",
+      persistedMessageId: "msg_image_only",
+      role: "user",
+      text: "",
+      attachments: [
+        {
+          kind: "image",
+          id: "part_image_only",
+          assetId: "asset_1",
+          filename: "diagram.png",
+          mediaType: "image/png",
+          size: 12345,
+          width: 640,
+          height: 480,
+          url: "/api/conversations/conv_image_only/assets/images/asset_1/file",
+        },
+      ],
+    })
+    expectNoPrivateAttachmentFields(
+      item.kind === "chat_message" ? item.attachments?.[0] : undefined
+    )
+  })
+
+  it("restores text and image parts into one user timeline message", () => {
+    const conversationId = "conv_text_image"
+    const message = persistedMessage({
+      id: "msg_text_image",
+      conversationId,
+      runId: "run_text_image",
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      parts: [
+        persistedPart({
+          id: "part_text_image_text",
+          messageId: "msg_text_image",
+          conversationId,
+          runId: "run_text_image",
+          partKey: "text",
+          partIndex: 0,
+          type: "text",
+          text: "Please inspect this image.",
+          payloadJson: { content: "Please inspect this image." },
+        }),
+        persistedPart({
+          id: "part_text_image_image",
+          messageId: "msg_text_image",
+          conversationId,
+          runId: "run_text_image",
+          partKey: "image:asset_2",
+          partIndex: 1,
+          type: "image",
+          payloadJson: {
+            kind: "image",
+            assetId: "asset_2",
+            filename: "screenshot.webp",
+            mediaType: "image/webp",
+            size: 54321,
+            url: "/api/conversations/conv_text_image/assets/images/asset_2/file",
+          },
+        }),
+      ],
+    })
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [message],
+      [],
+      null
+    )
+
+    const [item] = useWorkbenchStore.getState().getConversationState(conversationId).timelineItems
+    expect(item).toMatchObject({
+      kind: "chat_message",
+      text: "Please inspect this image.",
+      attachments: [
+        {
+          kind: "image",
+          id: "part_text_image_image",
+          assetId: "asset_2",
+          filename: "screenshot.webp",
+          mediaType: "image/webp",
+          size: 54321,
+          url: "/api/conversations/conv_text_image/assets/images/asset_2/file",
+        },
+      ],
+    })
+    expectNoPrivateAttachmentFields(
+      item.kind === "chat_message" ? item.attachments?.[0] : undefined
+    )
+  })
+
+  it("ignores unsafe persisted image payloads", () => {
+    const conversationId = "conv_unsafe_images"
+    const unsafeParts = [
+      {
+        id: "part_unsafe_media",
+        mediaType: "image/svg+xml",
+        url: "/api/conversations/conv_unsafe_images/assets/images/asset_svg/file",
+      },
+      {
+        id: "part_unsafe_external",
+        mediaType: "image/png",
+        url: "https://example.test/asset.png",
+      },
+      {
+        id: "part_unsafe_data",
+        mediaType: "image/png",
+        url: "data:image/png;base64,abc",
+      },
+      {
+        id: "part_unsafe_blob",
+        mediaType: "image/png",
+        url: "blob:https://example.test/asset",
+      },
+      {
+        id: "part_unsafe_file",
+        mediaType: "image/png",
+        url: "file:///tmp/asset.png",
+      },
+      {
+        id: "part_unsafe_raw_path",
+        mediaType: "image/png",
+        url: "conversation-assets/conv_unsafe_images/images/asset_raw/original.png",
+      },
+      {
+        id: "part_unsafe_missing_file_suffix",
+        mediaType: "image/png",
+        url: "/api/conversations/conv_unsafe_images/assets/images/asset_no_suffix",
+      },
+    ].map(({ id, mediaType, url }, index) =>
+      persistedPart({
+        id,
+        messageId: "msg_unsafe_images",
+        conversationId,
+        runId: "run_unsafe_images",
+        partKey: `image:asset_${index}`,
+        partIndex: index + 1,
+        type: "image",
+        payloadJson: {
+          kind: "image",
+          assetId: `asset_${index}`,
+          filename: `${id}.png`,
+          mediaType,
+          size: 100,
+          url,
+        },
+      })
+    )
+    const message = persistedMessage({
+      id: "msg_unsafe_images",
+      conversationId,
+      runId: "run_unsafe_images",
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      parts: [
+        persistedPart({
+          id: "part_unsafe_text",
+          messageId: "msg_unsafe_images",
+          conversationId,
+          runId: "run_unsafe_images",
+          text: "Unsafe image payloads should be ignored.",
+          payloadJson: { content: "Unsafe image payloads should be ignored." },
+        }),
+        ...unsafeParts,
+      ],
+    })
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [message],
+      [],
+      null
+    )
+
+    const [item] = useWorkbenchStore.getState().getConversationState(conversationId).timelineItems
+    expect(item).toMatchObject({
+      kind: "chat_message",
+      text: "Unsafe image payloads should be ignored.",
+    })
+    expect(item.kind === "chat_message" ? item.attachments : undefined).toBeUndefined()
+  })
+
+  it("preserves attachments when matching persisted replay messages merge", () => {
+    const conversationId = "conv_image_merge"
+    const triggerWithoutImage = persistedMessage({
+      id: "msg_image_merge",
+      conversationId,
+      runId: "run_image_merge",
+      runtimeMessageId: null,
+      runtimeRunId: null,
+      messageIndex: null,
+      role: "user",
+      senderType: "user",
+      senderId: "user",
+      agentId: null,
+      parts: [
+        persistedPart({
+          id: "part_image_merge_text",
+          messageId: "msg_image_merge",
+          conversationId,
+          runId: "run_image_merge",
+          text: "Analyze this.",
+          payloadJson: { content: "Analyze this." },
+        }),
+      ],
+    })
+    const messageWithImage = persistedMessage({
+      ...triggerWithoutImage,
+      parts: [
+        ...triggerWithoutImage.parts,
+        persistedPart({
+          id: "part_image_merge_image",
+          messageId: "msg_image_merge",
+          conversationId,
+          runId: "run_image_merge",
+          partKey: "image:asset_merge",
+          partIndex: 1,
+          type: "image",
+          payloadJson: {
+            kind: "image",
+            assetId: "asset_merge",
+            filename: "merge.png",
+            mediaType: "image/png",
+            size: 999,
+            url: "/api/conversations/conv_image_merge/assets/images/asset_merge/file",
+          },
+        }),
+      ],
+    })
+    const timelineRuns: ConversationTimelineRunSnapshot[] = [
+      {
+        run: {
+          id: "run_image_merge",
+          runtimeId: "runtime_image_merge",
+          status: "completed",
+          triggerMessageId: "msg_image_merge",
+          createdAt: "2026-06-03T10:00:00.000Z",
+          lastEventSequence: 0,
+        },
+        triggerMessage: triggerWithoutImage,
+        events: [],
+      },
+    ]
+
+    useWorkbenchStore.getState().hydrateTimelineFromReplay(
+      conversationId,
+      [messageWithImage],
+      timelineRuns,
+      null
+    )
+
+    const [item] = useWorkbenchStore.getState().getConversationState(conversationId).timelineItems
+    expect(item).toMatchObject({
+      kind: "chat_message",
+      id: "msg_image_merge",
+      text: "Analyze this.",
+      attachments: [
+        {
+          id: "part_image_merge_image",
+          assetId: "asset_merge",
+          filename: "merge.png",
+        },
+      ],
     })
   })
 

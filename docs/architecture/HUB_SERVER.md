@@ -115,6 +115,8 @@ HubServer 进程内还运行 `ServiceStatusMonitor`，默认每 7 秒复用同�
 阶段 2 起，HubServer 是聊天产品事实源。Web 聊天主路径不再直接创建 Runtime Run，而是调用 HubServer 产品 API：
 
 - `POST /api/conversations/:conversationId/messages/send`
+- `POST /api/conversations/:conversationId/assets/images`
+- `GET /api/conversations/:conversationId/assets/images/:assetId/file`
 - `POST /api/conversations/:conversationId/messages/:messageId/regenerate`
 - `GET /api/conversations/:conversationId/messages`
 - `GET /api/conversations/:conversationId/artifacts/:artifactId`
@@ -126,8 +128,8 @@ HubServer 进程内还运行 `ServiceStatusMonitor`，默认每 7 秒复用同�
 HubServer 的职责：
 
 - 会话列表 API 返回最近一条消息的 `lastMessageContent`，内容来自 `lastMessageId` 对应消息 text parts，最多 50 个字符；列表 API 不承担 Run 运行状态初始化，卡片运行状态由 Web 已打开 conversation 的本地 Zustand 状态展示。
-- 创建 user `Message` 和 text `MessagePart`。
-- `POST /api/conversations/:conversationId/messages/send` 支持可选 `replyToMessageId`。HubServer 校验回复目标属于同一会话、是可见 chat user/assistant 消息，然后在新 user `Message` 上写入 `parentMessageId` 和 `metadataJson.replyTo` 快照；原始 text `MessagePart` 仍只保存用户正文。
+- 创建 user `Message`；仅当 `content.trim()` 非空时创建 `MessagePart(type="text", partKey="text")`，并为已校验的图片资产引用创建 `MessagePart(type="image", partKey="image:{assetId}")`。图片-only 用户消息是合法消息。
+- `POST /api/conversations/:conversationId/messages/send` 支持可选 `replyToMessageId` 和图片附件引用。HubServer 校验回复目标属于同一会话、是可见 chat user/assistant 消息，然后在新 user `Message` 上写入 `parentMessageId` 和 `metadataJson.replyTo` 快照；非空 text part 保存用户正文，image parts 保存已校验的 HubServer 图片资产 metadata。
 - `POST /api/conversations/:conversationId/messages/:messageId/regenerate` 支持对已完成 assistant chat 消息重新生成。HubServer 校验目标消息后，从源 Run 的 trigger user message 复制原始文本创建新 user trigger，写入 `metadataJson.regenerate`，并创建新 Run；Runtime 协议不扩展，重新生成语义由 HubServer 格式化进当前 user content 和后续 replay context。
 - 创建本地 `Run`，并将 Runtime 返回的 `runId` 写入 `Run.runtimeId`。
 - 从持久化 messages 组装 Runtime `history` 和 `RunInput`，并在创建真实聊天 Run 时读取 HubServer “输出设置”快照，将 `includeModelStream`、`includeReasoning` 和 `includeRawModelChunks` 注入 Runtime `diagnostics`。
@@ -153,6 +155,15 @@ HubServer 的职责：
 完整机制见 `docs/architecture/RUN_EVENT_SCHEMA_AND_PROJECTION.md` 与 `docs/architecture/RUN_PERSISTENCE_AND_STREAMING.md`。
 
 全局状态通知机制见 `docs/architecture/HUB_GLOBAL_EVENTS.md`。
+
+### 会话图片资产
+
+HubServer 拥有用户上传聊天图片的持久化副本。Web 上传成功后，图片必须先复制到 HubServer 用户数据目录，再进入消息发送和 Runtime 输入组装流程。
+
+- 用户上传的聊天图片唯一持久化来源是 `config.dataDir/conversation-assets/{conversationId}/images/{assetId}/`。后续显示、历史 replay、Runtime input assembly 和模型消息打包都引用该副本，不引用浏览器 blob URL、data URL 或原始客户端路径。
+- 每个资产目录保存原始图片文件和 metadata manifest；manifest 至少记录 `assetId`、原始文件名、media type、size、可选宽高和 HubServer 提供的 conversation-scoped asset URL。
+- 初始只接受 `image/png`、`image/jpeg`、`image/webp` 和 `image/gif`，明确拒绝 SVG。单条消息最多 8 张图片，单图最大 10 MB。
+- `POST /api/conversations/:conversationId/messages/send` 只接受已上传资产的 `assetId` 引用。HubServer 在创建消息前必须校验资产属于当前 conversation，再持久化 `MessagePart(type="image", partKey="image:{assetId}")`。
 
 ## Hono 使用约定
 
@@ -291,7 +302,7 @@ const dbPath = path.join(getAppDataDir(), 'hub.db')
 - 不得硬编码任何平台特定的绝对路径。
 - 数据目录不存在时应自动创建。
 - 数据库文件应位于数据目录根下，命名为 `hub.db`。
-- 后续如需存储附件、产物文件等非数据库数据，统一放在数据目录下的子目录中（如 `artifacts/`、`uploads/`），子目录按需创建。
+- 后续如需存储附件、产物文件等非数据库数据，统一放在数据目录下的子目录中（如 `artifacts/`、`uploads/`），子目录按需创建；用户上传聊天图片固定存放在 `conversation-assets/{conversationId}/images/{assetId}/`。
 
 ## 日志
 

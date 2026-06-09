@@ -26,6 +26,13 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import {
+  Attachment,
+  AttachmentInfo,
+  AttachmentPreview,
+  Attachments,
+  type AttachmentData,
+} from "@/components/ai-elements/attachments"
+import {
   Reasoning,
   ReasoningContent,
   ReasoningTrigger,
@@ -49,6 +56,14 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockCopyButton,
+  CodeBlockFilename,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "@/components/ai-elements/code-block"
 import {
   Terminal,
   TerminalActions,
@@ -88,6 +103,7 @@ import type {
   MessageRegenerateSnapshot,
   MessageReplySnapshot,
   MessageVersion,
+  WorkbenchMessageAttachment,
   WorkbenchTimelineChatMessageItem,
   WorkbenchTimelineItem,
   WorkbenchTimelinePermissionItem,
@@ -290,6 +306,10 @@ function ChatMessageItem({
           const versionItem = applyVersionToTimelineItem(item, version)
           const versionAgent = resolveAgentProfile(agentProfiles, versionItem.agentId)
           const versionTargetMessageId = version.messageId ?? pinTargetMessageId
+          const displayContent = getChatDisplayContent(
+            versionItem,
+            version.content
+          )
           const isRegenerateParticipant =
             versionItem.role === "assistant" &&
             (versions.length > 1 || Boolean(versionItem.regeneratedFromId))
@@ -334,9 +354,12 @@ function ChatMessageItem({
                   ) : null}
                   {versionItem.regeneratedFromId ? <RegeneratedMarker /> : null}
                   {versionItem.replyTo ? <ReplyPreview replyTo={versionItem.replyTo} /> : null}
-                  <MessageResponse>
-                    {getChatDisplayContent(versionItem, version.content)}
-                  </MessageResponse>
+                  {displayContent ? (
+                    <MessageResponse>{displayContent}</MessageResponse>
+                  ) : null}
+                  {versionItem.attachments?.length ? (
+                    <MessageAttachments attachments={versionItem.attachments} />
+                  ) : null}
                   {versionItem.role === "user" && versionItem.regenerateRequests?.length ? (
                     <RegenerateRequestSummary
                       count={versionItem.regenerateRequests.length}
@@ -424,6 +447,38 @@ function ChatMessageItem({
   )
 }
 
+function MessageAttachments({
+  attachments,
+}: {
+  attachments: WorkbenchMessageAttachment[]
+}) {
+  return (
+    <Attachments
+      className="ml-0 max-w-full justify-start"
+      variant="grid"
+    >
+      {attachments.map((attachment) => (
+        <Attachment data={toAttachmentData(attachment)} key={attachment.id}>
+          <AttachmentPreview />
+          <AttachmentInfo />
+        </Attachment>
+      ))}
+    </Attachments>
+  )
+}
+
+function toAttachmentData(
+  attachment: WorkbenchMessageAttachment
+): AttachmentData {
+  return {
+    id: attachment.id,
+    type: "file",
+    url: attachment.url,
+    filename: attachment.filename,
+    mediaType: attachment.mediaType,
+  }
+}
+
 function RegeneratedMarker() {
   return (
     <div className="mb-2 inline-flex w-fit items-center gap-1.5 rounded-sm bg-muted px-2 py-1 text-muted-foreground text-xs">
@@ -478,6 +533,7 @@ function createDefaultMessageVersion(
     ...(messageId ? { messageId } : {}),
     ...(item.regeneratedFromId ? { regeneratedFromId: item.regeneratedFromId } : {}),
     content: item.text,
+    ...(item.attachments?.length ? { attachments: item.attachments } : {}),
     ...(item.agentId ? { agentId: item.agentId } : {}),
     time: item.time,
     ...(item.status ? { status: item.status } : {}),
@@ -503,6 +559,7 @@ function applyVersionToTimelineItem(
     ...item,
     agentId: version.agentId ?? item.agentId,
     text: version.content,
+    attachments: version.attachments ?? getFallbackVersionAttachments(item, version),
     time: version.time ?? item.time,
     status: version.status ?? item.status,
     generation: version.generation,
@@ -518,6 +575,20 @@ function applyVersionToTimelineItem(
     sources: version.sources,
     artifacts: version.artifacts,
   }
+}
+
+function getFallbackVersionAttachments(
+  item: WorkbenchTimelineChatMessageItem,
+  version: MessageVersion
+): WorkbenchMessageAttachment[] | undefined {
+  if (version.regeneratedFromId) return undefined
+
+  const versionTargetsItem =
+    !version.messageId ||
+    version.messageId === item.persistedMessageId ||
+    version.id === item.persistedMessageId ||
+    version.id === item.id
+  return versionTargetsItem ? item.attachments : undefined
 }
 
 function ReplyPreview({ replyTo }: { replyTo: MessageReplySnapshot }) {
@@ -812,6 +883,10 @@ function ReasoningTimelineItem({
 }
 
 function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
+  if (item.toolName === "edit_file" && !item.externalProvider) {
+    return <EditFileDiffView item={item} />
+  }
+
   if (item.toolName === "bash" && !item.externalProvider) {
     return <BashToolTerminalView item={item} />
   }
@@ -828,6 +903,93 @@ function ToolBlockView({ item }: { item: WorkbenchTimelineToolItem }) {
         <ToolOutput errorText={item.errorText} output={item.output} />
       </ToolContent>
     </Tool>
+  )
+}
+
+function EditFileDiffView({ item }: { item: WorkbenchTimelineToolItem }) {
+  const data = getRecord(item.output)
+  const input = getRecord(item.input)
+  const diff = getRecord(data?.diff)
+  const diffText = getString(diff?.text)
+  const path = getString(data?.path) ?? getString(input?.path) ?? item.title
+  const metaItems = formatEditFileMetaItems(item, data, diff)
+
+  if (!diffText) {
+    return (
+      <EditFileStatusView
+        errorText={item.errorText}
+        metaItems={metaItems}
+        path={path}
+        status={item.status}
+      />
+    )
+  }
+
+  return (
+    <CodeBlock
+      className="not-prose mb-0 max-w-[min(720px,100%)] rounded-md shadow-sm"
+      code={diffText}
+      language="diff"
+      showLineNumbers={false}
+    >
+      <CodeBlockHeader className="gap-3">
+        <CodeBlockTitle className="min-w-0 flex-1">
+          <CodeBlockFilename className="truncate">{path}</CodeBlockFilename>
+        </CodeBlockTitle>
+        <CodeBlockActions>
+          {metaItems.length ? (
+            <div className="hidden max-w-72 truncate text-muted-foreground text-xs sm:block">
+              {metaItems.join(" / ")}
+            </div>
+          ) : null}
+          <CodeBlockCopyButton
+            aria-label="Copy edit diff"
+            className="size-7"
+          />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+    </CodeBlock>
+  )
+}
+
+function EditFileStatusView({
+  errorText,
+  metaItems,
+  path,
+  status,
+}: {
+  errorText?: string
+  metaItems: string[]
+  path: string
+  status: WorkbenchTimelineToolItem["status"]
+}) {
+  const failed = status === "output-error" || Boolean(errorText)
+  const running = status === "input-available" || status === "input-streaming"
+  const statusIcon = failed ? (
+    <XCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+  ) : running ? (
+    <Loader2Icon className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+  ) : (
+    <CheckCircleIcon className="mt-0.5 size-4 shrink-0 text-green-600" />
+  )
+
+  return (
+    <div className="not-prose flex max-w-[min(720px,100%)] items-start gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+      {statusIcon}
+      <div className="min-w-0 flex-1">
+        <div className={failed ? "truncate text-destructive" : "truncate text-foreground"}>
+          {path}
+        </div>
+        {metaItems.length ? (
+          <div className="mt-1 truncate text-muted-foreground text-xs">
+            {metaItems.join(" / ")}
+          </div>
+        ) : null}
+        {errorText ? (
+          <div className="mt-2 text-destructive text-xs">{errorText}</div>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -961,6 +1123,29 @@ function formatToolStatusLabel(status: WorkbenchTimelineToolItem["status"]): str
     case "output-denied":
       return "denied"
   }
+}
+
+function formatEditFileMetaItems(
+  item: WorkbenchTimelineToolItem,
+  data: Record<string, unknown> | undefined,
+  diff: Record<string, unknown> | undefined
+): string[] {
+  const replacements = getNumber(data?.replacements)
+  const additions = getNumber(diff?.additions)
+  const deletions = getNumber(diff?.deletions)
+  const metaItems = [formatToolStatusLabel(item.status)]
+
+  if (replacements !== undefined) {
+    metaItems.push(`${replacements} replacement${replacements === 1 ? "" : "s"}`)
+  }
+  if (additions !== undefined || deletions !== undefined) {
+    metaItems.push(`+${additions ?? 0} -${deletions ?? 0}`)
+  }
+  if (diff?.truncated === true) {
+    metaItems.push("preview")
+  }
+
+  return metaItems
 }
 
 function formatBashTerminalOutput({
