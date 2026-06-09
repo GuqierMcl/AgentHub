@@ -417,7 +417,7 @@ function AgentDetailContent({
   onAvatarEditOpenChange: (open: boolean) => void
 }) {
   return (
-    <ScrollArea className="min-h-0 flex-1">
+    <ScrollArea className="h-full">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-7">
         <div className="flex items-start gap-4">
           <button
@@ -490,7 +490,7 @@ export function AgentDetailsPanel({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}
         transition={{ duration: 0.15, ease: "easeOut" }}
-        className="h-full"
+        className="flex min-h-0 flex-1 flex-col"
       >
         {loading ? (
           <LoadingDetails />
