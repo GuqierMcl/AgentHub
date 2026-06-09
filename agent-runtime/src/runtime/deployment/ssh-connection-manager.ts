@@ -331,7 +331,7 @@ export class SshDeploymentConnectionManager {
           }))
           settle({
             status: "failed",
-            summary: "Remote command timed out",
+            summary: "远程命令超时",
             data: {
               commandId,
               connectionId: connection.connectionId,
@@ -432,7 +432,7 @@ export class SshDeploymentConnectionManager {
 
           settle({
             status: "completed",
-            summary: `Remote command exited with code ${exitCode ?? "unknown"}`,
+            summary: `远程命令退出，代码 ${exitCode ?? "未知"}`,
             data: {
               commandId,
               connectionId: connection.connectionId,
@@ -458,7 +458,7 @@ export class SshDeploymentConnectionManager {
     if (!connection) {
       return {
         status: "failed",
-        summary: "Deployment connection not found",
+        summary: "部署连接未找到",
         error: {
           code: "DEPLOYMENT_CONNECTION_NOT_FOUND",
           message: `Deployment connection ${connectionId} was not found`,
@@ -480,7 +480,7 @@ export class SshDeploymentConnectionManager {
 
     return {
       status: "completed",
-      summary: "Deployment connection closed",
+      summary: "部署连接已关闭",
       data: {
         connectionId,
         connectionStatus: "disconnected",
@@ -512,7 +512,7 @@ export class SshDeploymentConnectionManager {
 
       return {
         status: "completed",
-        summary: `Uploaded ${uploaded.fileCount} deployment artifact file${uploaded.fileCount === 1 ? "" : "s"}`,
+        summary: `已上传 ${uploaded.fileCount} 个部署构件文件`,
         data: {
           connectionId: connection.connectionId,
           localPath: input.localLogicalPath,
@@ -532,7 +532,7 @@ export class SshDeploymentConnectionManager {
       }))
       return {
         status: "failed",
-        summary: "Deployment artifact upload failed",
+        summary: "部署构件上传失败",
         error: {
           code: "DEPLOYMENT_UPLOAD_FAILED",
           message,
@@ -550,7 +550,7 @@ export class SshDeploymentConnectionManager {
     if (!connection) {
       return {
         status: "failed",
-        summary: "Deployment connection not found",
+        summary: "部署连接未找到",
         error: {
           code: "DEPLOYMENT_CONNECTION_NOT_FOUND",
           message: `Deployment connection ${connectionId} was not found`,
@@ -565,7 +565,7 @@ export class SshDeploymentConnectionManager {
 
     return {
       status: "completed",
-      summary: "Deployment connection closed",
+      summary: "部署连接已关闭",
       data: {
         connectionId,
         connectionStatus: "disconnected",

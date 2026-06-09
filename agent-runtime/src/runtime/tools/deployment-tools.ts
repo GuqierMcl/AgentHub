@@ -86,7 +86,7 @@ function isApprovedToolCall(context: ToolExecutionContext): boolean {
 function serviceUnavailable(toolName: string): ToolExecutionResult {
   return {
     status: "failed",
-    summary: "Deployment service is not configured",
+    summary: "部署服务未配置",
     error: {
       code: "DEPLOYMENT_SERVICE_UNAVAILABLE",
       message: `${toolName} cannot run because the deployment service is not configured`,
@@ -107,7 +107,7 @@ async function prepareCommandApproval(
   try {
     approvalContext = await service.getCommandApprovalContext(input, context)
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Deployment command context is unavailable"
+    const message = error instanceof Error ? error.message : "部署命令上下文不可用"
     return {
       type: "deny",
       result: {
@@ -125,7 +125,7 @@ async function prepareCommandApproval(
   return {
     type: "ask",
     approval: {
-      reason: `${context.agent.name} wants to run a remote deployment command on ${approvalContext.server.displayName}.`,
+      reason: `${context.agent.name} 想要在 ${approvalContext.server.displayName} 上运行远程部署命令。`,
       riskLevel: "high",
       data: {
         permissionType: "deployment",

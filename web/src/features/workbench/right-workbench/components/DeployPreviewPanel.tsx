@@ -14,7 +14,6 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { useTabStore } from "@/store/tab-store"
 
@@ -67,6 +66,15 @@ async function copyText(value: string | undefined, label: string): Promise<void>
   toast.success(`${label}已复制`)
 }
 
+type DeployPreviewPanelContentProps = {
+  snapshot: DeploymentSnapshot | null
+  progressValue?: number
+  logText?: string
+  disconnecting: boolean
+  onOpenPreview: () => void
+  onDisconnect: () => void
+}
+
 export function DeployPreviewPanel() {
   const activeConversationId = useWorkbenchStore((state) => state.activeConversationId)
   const snapshot = useWorkbenchStore((state) =>
@@ -107,6 +115,29 @@ export function DeployPreviewPanel() {
     }
   }
 
+  return (
+    <DeployPreviewPanelContent
+      disconnecting={disconnecting}
+      logText={logText}
+      onDisconnect={() => void handleDisconnect()}
+      onOpenPreview={handleOpenPreview}
+      progressValue={progressValue}
+      snapshot={snapshot}
+    />
+  )
+}
+
+export function DeployPreviewPanelContent({
+  snapshot,
+  progressValue = getProgressValue(snapshot),
+  logText = snapshot?.logs.map((entry) => {
+    const prefix = entry.stream === "stderr" ? "err" : entry.stream === "stdout" ? "out" : "sys"
+    return `[${new Date(entry.timestamp).toLocaleTimeString()}] ${prefix} ${entry.text.replace(/\n$/, "")}`
+  }).join("\n") ?? "",
+  disconnecting,
+  onOpenPreview,
+  onDisconnect,
+}: DeployPreviewPanelContentProps) {
   if (!snapshot) {
     return (
       <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background">
@@ -127,17 +158,17 @@ export function DeployPreviewPanel() {
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background">
-      <ScrollArea className="min-h-0 min-w-0 flex-1">
+      <div className="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto">
         <div className="flex w-full min-w-0 max-w-full flex-col gap-4 p-4">
-          <section className="min-w-0 max-w-full rounded-md border bg-background">
-            <div className="flex min-w-0 items-center justify-between gap-3 border-border border-b px-3 py-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <ServerIcon className="size-4 text-primary" />
-                <div className="min-w-0">
-                  <h3 className="truncate font-medium text-sm">
+          <section className="w-full min-w-0 max-w-full overflow-hidden rounded-md border bg-background">
+            <div className="flex w-full min-w-0 max-w-full items-center justify-between gap-3 overflow-hidden border-border border-b px-3 py-2">
+              <div className="flex min-w-0 max-w-full flex-1 items-center gap-2 overflow-hidden">
+                <ServerIcon className="size-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <h3 className="max-w-full truncate font-medium text-sm">
                     {snapshot.title ?? "Deployment"}
                   </h3>
-                  <p className="truncate text-muted-foreground text-xs">
+                  <p className="max-w-full truncate text-muted-foreground text-xs">
                     {snapshot.server?.displayName ?? "未选择服务器"}
                     {snapshot.server?.hostLabel ? ` · ${snapshot.server.hostLabel}` : ""}
                   </p>
@@ -228,7 +259,7 @@ export function DeployPreviewPanel() {
             />
           </section>
         </div>
-      </ScrollArea>
+      </div>
 
       <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 border-border border-t p-3">
         <Button
@@ -253,7 +284,7 @@ export function DeployPreviewPanel() {
         </Button>
         <Button
           disabled={!snapshot.deploymentUrl}
-          onClick={handleOpenPreview}
+          onClick={onOpenPreview}
           size="sm"
           type="button"
           variant="outline"
@@ -263,7 +294,7 @@ export function DeployPreviewPanel() {
         </Button>
         <Button
           disabled={disconnecting || !snapshot.connectionId || !canDisconnect(snapshot.connectionStatus)}
-          onClick={() => void handleDisconnect()}
+          onClick={onDisconnect}
           size="sm"
           type="button"
           variant="destructive"

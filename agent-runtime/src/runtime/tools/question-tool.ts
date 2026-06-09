@@ -20,7 +20,7 @@ export function createQuestionTool(): ToolDefinition<QuestionToolInput, { reques
     async execute(): Promise<ToolExecutionResult<{ requestId?: string }>> {
       return {
         status: "failed",
-        summary: "question is a deferred interaction tool and cannot execute directly",
+        summary: "question 是延迟交互工具，不能直接执行",
         error: {
           code: "QUESTION_DEFERRED_TOOL",
           message: "The question tool waits for user input through the Runtime continuation flow",

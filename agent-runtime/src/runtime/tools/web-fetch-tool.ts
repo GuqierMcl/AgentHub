@@ -64,13 +64,13 @@ function parseHttpUrl(url: string): URL | ToolExecutionResult<WebFetchResult> {
   try {
     parsed = new URL(url)
   } catch {
-    return createFailure<WebFetchResult>("NETWORK_INVALID_URL", "web_fetch requires a valid URL")
+    return createFailure<WebFetchResult>("NETWORK_INVALID_URL", "web_fetch 需要有效的 URL")
   }
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return createFailure<WebFetchResult>(
       "NETWORK_UNSUPPORTED_PROTOCOL",
-      "web_fetch only supports http and https URLs",
+      "web_fetch 仅支持 http 和 https URL",
       {
         protocol: parsed.protocol,
       }
@@ -273,7 +273,7 @@ export function createWebFetchTool(): ToolDefinition<WebFetchInput, WebFetchResu
 
         return {
           status: "completed",
-          summary: `${input.method} ${finalUrl} returned ${response.status}`,
+          summary: `${input.method} ${finalUrl} 返回 ${response.status}`,
           data: {
             url: requestUrl,
             finalUrl,
@@ -292,7 +292,7 @@ export function createWebFetchTool(): ToolDefinition<WebFetchInput, WebFetchResu
         if (error instanceof ResponseTooLargeError) {
           return createFailure<WebFetchResult>(
             "NETWORK_RESPONSE_TOO_LARGE",
-            `Response exceeded maxResponseBytes (${error.maxResponseBytes})`,
+            `响应超出最大字节数 (${error.maxResponseBytes})`,
             {
               maxResponseBytes: error.maxResponseBytes,
               bytesRead: error.bytesRead,
@@ -315,7 +315,7 @@ export function createWebFetchTool(): ToolDefinition<WebFetchInput, WebFetchResu
         if (abort.timedOut()) {
           return createFailure<WebFetchResult>(
             "NETWORK_TIMEOUT",
-            `Request timed out after ${input.timeoutMs}ms`,
+            `请求在 ${input.timeoutMs}ms 后超时`,
             {
               timeoutMs: input.timeoutMs,
               url: requestUrl,
@@ -326,7 +326,7 @@ export function createWebFetchTool(): ToolDefinition<WebFetchInput, WebFetchResu
         if (context.signal.aborted) {
           return createFailure<WebFetchResult>(
             "TOOL_EXECUTION_ABORTED",
-            "web_fetch was cancelled",
+            "web_fetch 已取消",
             {
               url: requestUrl,
             },
@@ -335,7 +335,7 @@ export function createWebFetchTool(): ToolDefinition<WebFetchInput, WebFetchResu
           )
         }
 
-        const message = error instanceof Error ? error.message : "Network request failed"
+        const message = error instanceof Error ? error.message : "网络请求失败"
         return createFailure<WebFetchResult>(
           "NETWORK_REQUEST_FAILED",
           message,

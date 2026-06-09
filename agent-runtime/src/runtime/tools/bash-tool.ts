@@ -138,7 +138,7 @@ async function resolveWorkspaceCwd(
   if (!handle) {
     return createFailure<BashResult>(
       "WORKSPACE_NOT_BOUND",
-      "bash is unavailable because this run has no bound workspace"
+      "bash 不可用，因为此运行没有绑定工作区"
     )
   }
 
@@ -146,7 +146,7 @@ async function resolveWorkspaceCwd(
   if (isAbsolute(logicalInput)) {
     return createFailure<BashResult>(
       "BASH_INVALID_CWD",
-      "bash cwd must be relative to the bound workspace",
+      "bash 工作目录必须相对于绑定的工作区",
       {
         cwd: logicalInput,
       }
@@ -159,7 +159,7 @@ async function resolveWorkspaceCwd(
   } catch {
     return createFailure<BashResult>(
       "WORKSPACE_PATH_NOT_FOUND",
-      "The bound workspace root no longer exists"
+      "绑定的工作区根目录已不存在"
     )
   }
 
@@ -170,7 +170,7 @@ async function resolveWorkspaceCwd(
   } catch {
     return createFailure<BashResult>(
       "WORKSPACE_PATH_NOT_FOUND",
-      `bash cwd ${logicalInput} does not exist`,
+      `bash 工作目录 ${logicalInput} 不存在`,
       {
         cwd: logicalInput,
       }
@@ -180,7 +180,7 @@ async function resolveWorkspaceCwd(
   if (!isWithinPath(actualCwd, rootPath)) {
     return createFailure<BashResult>(
       "WORKSPACE_PATH_OUTSIDE_ROOT",
-      "bash cwd must stay inside the bound workspace",
+      "bash 工作目录必须在绑定的工作区内",
       {
         cwd: logicalInput,
       }
@@ -191,7 +191,7 @@ async function resolveWorkspaceCwd(
   if (!cwdStat?.isDirectory()) {
     return createFailure<BashResult>(
       "WORKSPACE_NOT_A_DIRECTORY",
-      `bash cwd ${logicalInput} is not a directory`,
+      `bash 工作目录 ${logicalInput} 不是目录`,
       {
         cwd: logicalInput,
       }
@@ -261,7 +261,7 @@ function isApprovedToolCall(context: ToolExecutionContext): boolean {
 function createDeniedResult(input: BashInput, match: RuleMatch, shell: ResolvedRuntimeShell): ToolExecutionResult<BashResult> {
   return createFailure<BashResult>(
     "BASH_COMMAND_DENIED",
-    `bash command denied by rule "${match.pattern}"`,
+    `bash 命令被规则 "${match.pattern}" 拒绝`,
     {
       command: input.command,
       cwd: normalizeWorkspacePath(input.cwd),
@@ -525,7 +525,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
         if (context.signal.aborted || result.isCanceled) {
           return createFailure<BashResult>(
             "TOOL_EXECUTION_ABORTED",
-            "bash command was cancelled",
+            "bash 命令已取消",
             {
               command: input.command,
               cwd: cwdResolution.logicalCwd,
@@ -538,7 +538,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
         if (result.timedOut) {
           return createFailure<BashResult>(
             "BASH_TIMEOUT",
-            `bash command timed out after ${input.timeoutMs}ms`,
+            `bash 命令在 ${input.timeoutMs}ms 后超时`,
             {
               command: input.command,
               cwd: cwdResolution.logicalCwd,
@@ -551,7 +551,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
         if (result.isMaxBuffer) {
           return createFailure<BashResult>(
             "BASH_OUTPUT_TOO_LARGE",
-            `bash output exceeded the internal max buffer`,
+            `bash 输出超出内部缓冲区上限`,
             {
               command: input.command,
               cwd: cwdResolution.logicalCwd,
@@ -580,7 +580,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
 
         return {
           status: "completed",
-          summary: `bash exited with code ${data.exitCode ?? "unknown"}`,
+          summary: `bash 退出，代码 ${data.exitCode ?? "未知"}`,
           data,
         }
       } catch (error) {
@@ -591,7 +591,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
         if (context.signal.aborted) {
           return createFailure<BashResult>(
             "TOOL_EXECUTION_ABORTED",
-            "bash command was cancelled",
+            "bash 命令已取消",
             {
               command: input.command,
               cwd: cwdResolution.logicalCwd,
@@ -601,7 +601,7 @@ export function createBashTool(): ToolDefinition<BashInput, BashResult> {
           )
         }
 
-        const message = error instanceof Error ? error.message : "bash command failed"
+        const message = error instanceof Error ? error.message : "bash 命令执行失败"
         return createFailure<BashResult>(
           "BASH_EXECUTION_FAILED",
           message,

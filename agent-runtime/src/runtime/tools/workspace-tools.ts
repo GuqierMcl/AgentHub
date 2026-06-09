@@ -72,7 +72,7 @@ function joinPattern(basePath: string, pattern: string): string {
 function createUnsupportedResult<TData = unknown>(toolName: string): ToolExecutionResult<TData> {
   return {
     status: "failed",
-    summary: `${toolName} is unavailable because this run has no bound workspace`,
+    summary: `${toolName} 不可用，因为此运行没有绑定工作区`,
     error: {
       code: "WORKSPACE_NOT_BOUND",
       message: `A bound workspace is required for ${toolName}`,
@@ -121,7 +121,7 @@ function createApprovalFailureResult<TData = unknown>(
 ): ToolExecutionResult<TData> {
   return {
     status: "failed",
-    summary: `${toolName} requires approval for ${request.logicalPath}`,
+    summary: `${toolName} 需要审批才能访问 ${request.logicalPath}`,
     data: {
       requestId: request.requestId,
       logicalPath: request.logicalPath,
@@ -250,7 +250,7 @@ async function runWithAccess<TData>(
 function formatListResult(entries: WorkspaceListEntry[], path: string): ToolExecutionResult<{ entries: WorkspaceListEntry[] }> {
   return {
     status: "completed",
-    summary: `Listed ${entries.length} entr${entries.length === 1 ? "y" : "ies"} under ${path}`,
+    summary: `列出 ${path} 下的 ${entries.length} 个条目`,
     data: {
       entries,
     },
@@ -270,7 +270,7 @@ function formatReadResult(result: {
 }> {
   return {
     status: "completed",
-    summary: `Read ${result.path}`,
+    summary: `读取 ${result.path}`,
     data: result,
   }
 }
@@ -278,7 +278,7 @@ function formatReadResult(result: {
 function formatGlobResult(matches: string[], pattern: string): ToolExecutionResult<{ matches: string[] }> {
   return {
     status: "completed",
-    summary: `Found ${matches.length} match${matches.length === 1 ? "" : "es"} for ${pattern}`,
+    summary: `在 ${pattern} 中找到 ${matches.length} 个匹配`,
     data: {
       matches,
     },
@@ -288,7 +288,7 @@ function formatGlobResult(matches: string[], pattern: string): ToolExecutionResu
 function formatGrepResult(matches: WorkspaceGrepMatch[], pattern: string): ToolExecutionResult<{ matches: WorkspaceGrepMatch[] }> {
   return {
     status: "completed",
-    summary: `Found ${matches.length} line match${matches.length === 1 ? "" : "es"} for ${pattern}`,
+    summary: `在 ${pattern} 中找到 ${matches.length} 行匹配`,
     data: {
       matches,
     },
@@ -298,7 +298,7 @@ function formatGrepResult(matches: WorkspaceGrepMatch[], pattern: string): ToolE
 function formatWriteResult(result: WorkspaceWriteFileResult): ToolExecutionResult<WorkspaceWriteFileResult> {
   return {
     status: "completed",
-    summary: `${result.created ? "Created" : "Wrote"} ${result.path}`,
+    summary: `${result.created ? "创建" : "写入"} ${result.path}`,
     data: result,
   }
 }
@@ -306,7 +306,7 @@ function formatWriteResult(result: WorkspaceWriteFileResult): ToolExecutionResul
 function formatEditResult(result: WorkspaceEditFileResult): ToolExecutionResult<WorkspaceEditFileResult> {
   return {
     status: "completed",
-    summary: `Edited ${result.path} with ${result.replacements} replacement${result.replacements === 1 ? "" : "s"}`,
+    summary: `编辑 ${result.path}，替换了 ${result.replacements} 处`,
     data: result,
   }
 }

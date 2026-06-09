@@ -48,7 +48,7 @@ export function createRunTaskTool(): ToolDefinition<RunTaskInput, RunTaskModelDa
       if (!executeTask) {
         return {
           status: "failed",
-          summary: "run_task is not available in this execution context",
+          summary: "run_task 在此执行上下文中不可用",
           error: {
             code: "TOOL_RUN_TASK_UNAVAILABLE",
             message: "run_task is not available in this execution context",

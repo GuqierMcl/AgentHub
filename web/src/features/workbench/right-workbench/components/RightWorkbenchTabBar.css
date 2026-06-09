@@ -1,31 +1,24 @@
-.right-workbench-tab-scroll [data-slot="scroll-area-viewport"] {
-  overflow-x: auto !important;
-  overflow-y: hidden !important;
+.right-workbench-tab-scroll {
   scrollbar-color: var(--border) transparent;
   scrollbar-width: thin;
 }
 
-.right-workbench-tab-scroll [data-slot="scroll-area-viewport"]::-webkit-scrollbar {
+.right-workbench-tab-scroll::-webkit-scrollbar {
   display: block;
   height: 0.625rem;
 }
 
-.right-workbench-tab-scroll [data-slot="scroll-area-viewport"]::-webkit-scrollbar-track {
+.right-workbench-tab-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.right-workbench-tab-scroll [data-slot="scroll-area-viewport"]::-webkit-scrollbar-thumb {
+.right-workbench-tab-scroll::-webkit-scrollbar-thumb {
   background-clip: padding-box;
   background-color: var(--border);
   border: 2px solid transparent;
   border-radius: 9999px;
 }
 
-.right-workbench-tab-scroll [data-slot="scroll-area-viewport"]::-webkit-scrollbar-thumb:hover {
+.right-workbench-tab-scroll::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in oklch, var(--border) 90%, var(--foreground));
-}
-
-.right-workbench-tab-scroll
-  [data-slot="scroll-area-scrollbar"][data-orientation="vertical"] {
-  display: none;
 }

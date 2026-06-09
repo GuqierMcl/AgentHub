@@ -39,7 +39,7 @@ export function createDeploymentEvent(
 function unavailable(toolName: string): ToolExecutionResult {
   return {
     status: "failed",
-    summary: "Deployment service is not configured",
+    summary: "部署服务未配置",
     error: {
       code: "DEPLOYMENT_SERVICE_UNAVAILABLE",
       message: `${toolName} cannot run because the deployment service is not configured`,
@@ -81,8 +81,8 @@ export class DefaultDeploymentService implements DeploymentService {
       return {
         status: "completed",
         summary: servers.length === 0
-          ? "No deployment servers are configured"
-          : `Found ${servers.length} deployment server${servers.length === 1 ? "" : "s"}`,
+          ? "没有配置部署服务器"
+          : `找到 ${servers.length} 个部署服务器`,
         data: {
           servers,
         },
@@ -215,7 +215,7 @@ export class DefaultDeploymentService implements DeploymentService {
 
     return {
       status: "completed",
-      summary: "Deployment status updated",
+      summary: "部署状态已更新",
       data: {
         deploymentId,
         status: data.status ?? "running",
@@ -251,7 +251,7 @@ export class DefaultDeploymentService implements DeploymentService {
     if (!context.workspaceService) {
       return {
         status: "failed",
-        summary: "Deployment artifact upload requires a bound workspace",
+        summary: "部署构件上传需要绑定工作区",
         error: {
           code: "WORKSPACE_NOT_BOUND",
           message: "Deployment artifact upload requires a bound workspace",
@@ -271,7 +271,7 @@ export class DefaultDeploymentService implements DeploymentService {
     if (access.kind !== "allowed") {
       return {
         status: "failed",
-        summary: "Deployment artifact path is not available",
+        summary: "部署构件路径不可用",
         error: {
           code: access.kind === "approval_required"
             ? "DEPLOYMENT_UPLOAD_REQUIRES_APPROVAL"

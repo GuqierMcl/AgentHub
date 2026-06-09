@@ -52,7 +52,7 @@ export function createWritePlanTool(): ToolDefinition<WritePlanInput, WritePlanM
     async execute(input): Promise<ToolExecutionResult<WritePlanModelData>> {
       return {
         status: "completed",
-        summary: `Plan updated with ${input.tasks.length} task(s).`,
+        summary: `计划已更新，包含 ${input.tasks.length} 个任务。`,
         data: {
           plan: input,
           taskCount: input.tasks.length,

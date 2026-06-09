@@ -480,7 +480,7 @@ export function WorkbenchContentLayout({
           className="h-full min-h-0 min-w-0"
           id="workspace"
           collapsible
-          defaultSize="0px"
+          defaultSize={"40%"}
           minSize="17rem"
           panelRef={workspacePanelRef}
           groupResizeBehavior="preserve-pixel-size"

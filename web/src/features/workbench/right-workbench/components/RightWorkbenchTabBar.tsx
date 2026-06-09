@@ -11,7 +11,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 
 import "./RightWorkbenchTabBar.css"
@@ -43,8 +42,8 @@ export function RightWorkbenchTabBar({
   const isSingletonOpen = useTabStore((s) => s.isSingletonOpen)
 
   return (
-    <div className="flex shrink-0 items-center gap-1 border-border border-b px-2 py-1.5">
-      <ScrollArea className="right-workbench-tab-scroll min-w-0 flex-1">
+    <div className="flex min-w-0 shrink-0 items-center gap-1 border-border border-b px-2 py-1.5">
+      <div className="right-workbench-tab-scroll min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
         <div className="flex h-8 w-max items-center gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon
@@ -53,7 +52,7 @@ export function RightWorkbenchTabBar({
             return (
               <button
                 className={cn(
-                  "group/tab relative flex h-8 flex-none items-center gap-1.5 rounded-md px-2.5 text-xs! transition-colors",
+                  "group/tab relative flex h-8 max-w-48 min-w-0 flex-none items-center gap-1.5 rounded-md px-2.5 text-xs! transition-colors",
                   isActive
                     ? "bg-muted text-foreground"
                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -63,7 +62,7 @@ export function RightWorkbenchTabBar({
                 type="button"
               >
                 <Icon className="size-4 shrink-0" />
-                <span className="truncate">{tab.title}</span>
+                <span className="min-w-0 truncate">{tab.title}</span>
                 <span
                   className={cn(
                     "-mr-1 flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity",
@@ -84,7 +83,7 @@ export function RightWorkbenchTabBar({
             )
           })}
         </div>
-      </ScrollArea>
+      </div>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

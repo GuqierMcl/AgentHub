@@ -447,7 +447,7 @@ export class RunManager {
     if (!approved) {
       const failed = createRunEvent(runId, "tool.failed", request.agentId, {
         status: "failed",
-        summary: reason ?? `Tool ${request.toolName} execution was denied`,
+        summary: reason ?? `工具 ${request.toolName} 执行被拒绝`,
         error: {
           code: "TOOL_EXECUTION_DENIED",
           message: reason ?? `Tool ${request.toolName} execution was denied`,
@@ -536,7 +536,7 @@ export class RunManager {
     }))
     this.emit(this.createQuestionToolTerminalEvent(request, "tool.completed", {
       status: "completed",
-      summary: "User answered the question request",
+      summary: "用户已回答问题请求",
       data: {
         requestId: request.requestId,
         answers: normalizedAnswers,
@@ -784,7 +784,7 @@ export class RunManager {
     if (!this.deploymentService?.closeConnectionById) {
       return {
         status: "failed",
-        summary: "Deployment service is not configured",
+        summary: "部署服务未配置",
         error: {
           code: "DEPLOYMENT_SERVICE_UNAVAILABLE",
           message: "Deployment service is not configured",
@@ -1937,7 +1937,7 @@ export class RunManager {
           parentAgentId,
           groupId,
           parentTaskId,
-          summary: "Invalid input for question",
+          summary: "问题输入无效",
           error: {
             code: "TOOL_INVALID_INPUT",
             message: "Invalid input for question",
@@ -2049,7 +2049,7 @@ export class RunManager {
         parentAgentId,
         groupId,
         parentTaskId,
-        summary: "Invalid input for question",
+        summary: "问题输入无效",
         error: {
           code: "TOOL_INVALID_INPUT",
           message: "Invalid input for question",
@@ -2137,7 +2137,7 @@ export class RunManager {
       }))
       this.emit(this.createQuestionToolTerminalEvent(request, "tool.failed", {
         status: "cancelled",
-        summary: "Question request was cancelled",
+        summary: "问题请求已取消",
         error: {
           code: "QUESTION_CANCELLED",
           message: "Question request was cancelled",
@@ -2190,7 +2190,7 @@ export class RunManager {
   }): RunEvent {
     const event = createRunEvent(options.runId, "tool.started", options.agentId, {
       riskLevel: "low",
-      summary: "Question requested",
+      summary: "问题已请求",
     })
     event.toolCallId = options.toolCallId
     event.toolName = "question"
