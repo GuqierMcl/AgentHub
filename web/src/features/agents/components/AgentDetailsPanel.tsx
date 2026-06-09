@@ -492,7 +492,7 @@ export function AgentDetailsPanel({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}
         transition={{ duration: 0.15, ease: "easeOut" }}
-        className="h-full"
+        className="flex min-h-0 flex-col h-full"
       >
         {loading ? (
           <LoadingDetails />
