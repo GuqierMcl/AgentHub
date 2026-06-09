@@ -10,8 +10,11 @@ let publicDir = ""
 beforeAll(async () => {
   publicDir = await mkdtemp(join(tmpdir(), "agenthub-static-"))
   await mkdir(join(publicDir, "assets"))
+  await mkdir(join(publicDir, "agent-icons"))
   await writeFile(join(publicDir, "index.html"), "<div id=\"root\"></div>")
   await writeFile(join(publicDir, "assets", "app.js"), "console.log('ok')")
+  await writeFile(join(publicDir, "logo.png"), "logo-image")
+  await writeFile(join(publicDir, "agent-icons", "opencode.svg"), "<svg />")
 })
 
 afterAll(async () => {
@@ -38,6 +41,27 @@ describe("attachStaticWeb", () => {
 
     expect(response.status).toBe(200)
     expect(await response.text()).toContain("console.log('ok')")
+  })
+
+  it("serves root public files instead of rewriting them to the SPA index", async () => {
+    const response = await createApp().request("/logo.png")
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("logo-image")
+  })
+
+  it("serves nested public files outside the assets directory", async () => {
+    const response = await createApp().request("/agent-icons/opencode.svg")
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("<svg />")
+  })
+
+  it("does not rewrite missing file-like static paths to the SPA index", async () => {
+    const response = await createApp().request("/missing.png")
+
+    expect(response.status).toBe(404)
+    expect(await response.text()).not.toContain("id=\"root\"")
   })
 
   it("does not let SPA fallback swallow unknown API routes", async () => {

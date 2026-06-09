@@ -247,6 +247,8 @@ Web 静态托管属于 HubServer 启动装配层，不属于领域 router。
 - 静态资源和 SPA fallback 在 API router 之后注册。
 - SPA fallback 不得吞掉未知 `/api/*` 请求。未知 API 应返回 404 JSON 错误，而不是 `index.html`。
 - `/assets/*`、`/favicon.*`、`/manifest.*` 等静态文件从 `public/` 读取。
+- `public/` 根级文件和任意子目录静态资源也必须直接读取，例如 `/logo.png`、`/agent-icons/*.svg`、`/agent-icons/*.png`。HubServer 不应只白名单 `/assets/*`，否则 Vite `public/` 资源会在生产中被 SPA fallback 错误改写。
+- 未命中的文件型静态路径不应返回 `index.html`；例如 `/missing.png` 应返回 404，避免浏览器把 HTML 当成图片、字体、worker 或 manifest 解析。
 - 前端路由路径返回 `public/index.html`。
 - 静态托管启用条件：`--no-web = false` 且 `--public-dir` 存在。
 - CLI/Desktop 生产启动下缺失 `public/` 必须启动失败。

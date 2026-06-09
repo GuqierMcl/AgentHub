@@ -45,6 +45,7 @@
 - Web 在 `App` 根部维护一条全局 `EventSource("/api/events")`，用于消费 HubServer 的 best-effort 产品状态通知。该通道只处理 conversation 标题、最近消息和 Run 状态等低频事件；不用于聊天 timeline，不做 replay，不做断线期间漏事件补偿。收到 conversation 事件后刷新 TanStack Query；收到 run 状态事件后只更新已打开 conversation 的 Zustand runtime state。
 - 左侧一级导航在模块导航下方、用户栏上方展示系统服务状态面板。Web 首次加载时读取一次 `GET /api/system/services/status`，后续通过 HubServer 全局事件 `service.status.changed` 更新共享 service status store，不做浏览器侧轮询，也不直接访问 Agent Runtime 或 OpenCode server。展开导航时显示 AgentRuntime、OpenCode、Codex、Claude Code、Capability Discovery、MCP Runtime 的紧凑中文状态；折叠导航时显示聚合状态点与 tooltip。`idle` 显示为“就绪”并使用可用态颜色；Runtime 已有 connected workspace MCP client / tool cache 时，`mcp-runtime` 由 Runtime 上报 `running`，显示为“运行中”；Codex/Claude Code 未接入时显示“未接入”。
 - 当前智能体头像 V1 由前端共享 resolver 根据 agent id/origin 解析：系统预设使用图标库，外部智能体可使用静态资源，未知或用户自定义智能体使用 initials/hash 兜底；API 契约暂不包含头像字段。
+- Web 产品静态图片资源放在 `web/public/`，例如 `logo.png` 和 `agent-icons/*`。生产环境由 HubServer 从发行包 `public/` 直接托管这些根级文件和嵌套目录；前端可以使用根绝对路径 `/logo.png`、`/agent-icons/opencode.svg`。此类静态资源请求不得被 SPA fallback 改写成 `index.html`。
 - 页面根容器填满视口，不产生 `body` 级滚动；模块内的列表、消息流、详情表单与产物内容各自在内部滚动。
 - 网页预览面板内点击链接时，不在当前 iframe 内跳转；而是新开一个网页预览 tab。新 tab 标题优先使用页面 `document.title`，取不到时回退为目标 URL 的 hostname。
 - 当同一 Web 应用运行在 Electrobun 桌面壳内时，`AppShell` 可以通过 Electrobun 注入的 `window.__electrobunWindowId` 与 `window.__electrobunWebviewId` 检测桌面运行时，并渲染自定义 `DesktopTitleBar`。普通浏览器不显示该标题栏，保持原 Web 布局。
