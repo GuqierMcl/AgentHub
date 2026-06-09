@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, startTransition } from "react"
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { usePanelRef } from "react-resizable-panels"
+import { useShallow } from "zustand/react/shallow"
 import { toast } from "sonner"
 
 import {
@@ -25,6 +26,7 @@ import { runStreamManager } from "../runtime/run-stream-manager"
 import { submitWorkbenchMessage } from "../runtime/submit-message"
 import {
   isTerminalRunStatus,
+  selectConversationRuntimeRenderState,
   useWorkbenchStore,
 } from "../store/workbench-store"
 import { ChatPanel } from "./ChatPanel"
@@ -61,9 +63,9 @@ export function WorkbenchContentLayout({
   const consumeWorkspaceFocusRequest = useTabStore(
     (s) => s.consumeWorkspaceFocusRequest
   )
-  const runtimeState = useWorkbenchStore((s) =>
-    activeConversationId ? s.conversations[activeConversationId] : undefined
-  )
+  const runtimeState = useWorkbenchStore(useShallow((s) =>
+    selectConversationRuntimeRenderState(s, activeConversationId)
+  ))
   const setDraft = useWorkbenchStore((s) => s.setDraft)
   const hydrateTimelineFromReplay = useWorkbenchStore((s) => s.hydrateTimelineFromReplay)
   const markRunSubmitted = useWorkbenchStore((s) => s.markRunSubmitted)
@@ -98,6 +100,10 @@ export function WorkbenchContentLayout({
 
   const conversationDetail = conversationQuery.data
   const agentSummaries = agentsQuery.data?.agents ?? EMPTY_AGENT_SUMMARIES
+  const loadingMessages =
+    Boolean(activeConversationId) &&
+    Boolean(conversationDetail) &&
+    (messagesQuery.isLoading || (messagesQuery.isFetching && !messagesQuery.data))
 
   useEffect(() => {
     if (!conversationDetail) return
@@ -196,11 +202,6 @@ export function WorkbenchContentLayout({
       timelineItems,
     }
   }, [conversationDetail, resolvedAgents, runtimeState])
-
-  const handleDraftChange = useCallback((draft: string) => {
-    if (!activeConversationId) return
-    setDraft(activeConversationId, draft)
-  }, [activeConversationId, setDraft])
 
   const handleSubmit = useCallback(async (input: ChatSubmitInput) => {
     if (!activeConversationId || !conversationDetail) return
@@ -455,10 +456,9 @@ export function WorkbenchContentLayout({
                 conversation={activeConversation}
                 connectionStatus={runtimeState?.connectionStatus ?? "idle"}
                 deploymentSnapshot={runtimeState?.deploymentSnapshot ?? null}
-                draft={runtimeState?.draft ?? ""}
                 isWorkspaceOpen={!isWorkspaceCollapsed}
+                loadingMessages={loadingMessages}
                 onCancelRun={handleCancelActiveRun}
-                onDraftChange={handleDraftChange}
                 onOpenWorkspaceTab={handleOpenWorkspaceTab}
                 onRegenerate={handleRegenerate}
                 onSubmit={handleSubmit}

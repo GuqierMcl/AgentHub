@@ -2,7 +2,10 @@ import { describe, expect, it, beforeEach } from "bun:test"
 
 import type { ActiveRunSnapshot, ConversationTimelineRunSnapshot, PersistedMessage } from "../api/messages"
 import { useTabStore } from "@/store/tab-store"
-import { useWorkbenchStore } from "./workbench-store"
+import {
+  selectConversationRuntimeRenderState,
+  useWorkbenchStore,
+} from "./workbench-store"
 
 function persistedMessage(input: Partial<PersistedMessage>): PersistedMessage {
   return {
@@ -1158,5 +1161,29 @@ describe("workbench persisted message replay", () => {
         durationMs: 42,
       },
     })
+  })
+
+  it("keeps draft-only edits out of the parent render state selector", () => {
+    const conversationId = "conv_selector"
+    useWorkbenchStore.getState().addUserMessage(conversationId, "Hello")
+    const before = selectConversationRuntimeRenderState(
+      useWorkbenchStore.getState(),
+      conversationId
+    )
+
+    useWorkbenchStore.getState().setDraft(conversationId, "typing")
+    const after = selectConversationRuntimeRenderState(
+      useWorkbenchStore.getState(),
+      conversationId
+    )
+
+    expect(before).toBeDefined()
+    expect(after).toBeDefined()
+    expect("draft" in (after as Record<string, unknown>)).toBe(false)
+    expect(after?.timelineItems).toBe(before?.timelineItems)
+    expect(after?.deploymentSnapshot).toBe(before?.deploymentSnapshot)
+    expect(after?.activeRuntimeRunId).toBe(before?.activeRuntimeRunId)
+    expect(after?.runStatus).toBe(before?.runStatus)
+    expect(after?.connectionStatus).toBe(before?.connectionStatus)
   })
 })

@@ -56,7 +56,16 @@ type ConversationRuntimeState = {
   events: RuntimeRunEvent[]
 }
 
-type WorkbenchStore = {
+export type ConversationRuntimeRenderState = Pick<
+  ConversationRuntimeState,
+  | "timelineItems"
+  | "deploymentSnapshot"
+  | "activeRuntimeRunId"
+  | "runStatus"
+  | "connectionStatus"
+>
+
+export type WorkbenchStore = {
   activeConversationId: string | null
   conversations: Record<string, ConversationRuntimeState>
   setActiveConversationId: (conversationId: string | null) => void
@@ -156,6 +165,23 @@ function getOrCreateState(
 
 export function isTerminalRunStatus(status: RuntimeRunStatus | "idle" | "submitted"): boolean {
   return terminalRunStatuses.has(status)
+}
+
+export function selectConversationRuntimeRenderState(
+  state: WorkbenchStore,
+  conversationId: string | null
+): ConversationRuntimeRenderState | undefined {
+  if (!conversationId) return undefined
+  const current = state.conversations[conversationId]
+  if (!current) return undefined
+
+  return {
+    timelineItems: current.timelineItems,
+    deploymentSnapshot: current.deploymentSnapshot,
+    activeRuntimeRunId: current.activeRuntimeRunId,
+    runStatus: current.runStatus,
+    connectionStatus: current.connectionStatus,
+  }
 }
 
 export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
