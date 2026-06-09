@@ -1,5 +1,4 @@
 import { APP_NAME } from "@/config/app"
-import pkg from "../../../../package.json"
 
 import type { SettingsTabId } from "../types"
 import {
@@ -107,7 +106,6 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
       <SidebarFooter>
         <div className="px-2 text-xs" style={{ color: "var(--sidebar-foreground, oklch(0.48 0.015 250))" }}>
           <div className="font-medium">{APP_NAME}</div>
-          <div>{pkg.version}</div>
         </div>
       </SidebarFooter>
     </Sidebar>
