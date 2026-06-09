@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react"
 import { BotIcon, CameraIcon } from "lucide-react"
+import { AnimatePresence, motion } from "motion/react"
 
 import { AgentAvatar } from "@/components/agent-avatar"
 import { Badge } from "@/components/ui/badge"
@@ -15,7 +16,7 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { RadialIntro } from "@/components/animate-ui/components/community/radial-intro"
 import { Ripple } from "@/components/ui/ripple"
-import type { AgentDetail, AgentSummary, AvatarOverridesManifest } from "../types"
+import type { AgentDetail, AgentOverride, AgentSummary, AvatarOverridesManifest } from "../types"
 import { AgentModelControl } from "./AgentModelControl"
 import { ExternalAgentSettingsPanel } from "./ExternalAgentSettingsPanel"
 import { AvatarEditDialog } from "./AvatarEditDialog"
@@ -339,78 +340,82 @@ function LoadingDetails() {
   )
 }
 
-export function AgentDetailsPanel({
-  agent,
+function EmptyState({
   agents,
-  avatarManifest,
-  canConfigureModel,
-  loading,
-  onConfigureModel,
-}: AgentDetailsPanelProps) {
-  const [avatarEditOpen, setAvatarEditOpen] = useState(false)
-  const { data: localManifest } = useAvatarOverrides()
-  const manifest = avatarManifest ?? localManifest
-  const currentOverride = agent ? (manifest?.agents[agent.id] ?? null) : null
+  manifest,
+}: {
+  agents: AgentSummary[]
+  manifest: AvatarOverridesManifest | null | undefined
+}) {
+  const orbitItems = agents.map((a, i) => ({
+    id: i,
+    name: a.name,
+    content: (
+      <AgentAvatar
+        agent={a}
+        override={manifest?.agents[a.id] ?? null}
+        className="size-full"
+      />
+    ),
+  }))
 
-  if (loading) {
-    return <LoadingDetails />
-  }
-
-  if (!agent) {
-    const orbitItems = agents.map((a, i) => ({
-      id: i,
-      name: a.name,
-      content: (
-        <AgentAvatar
-          agent={a}
-          override={manifest?.agents[a.id] ?? null}
-          className="size-full"
-        />
-      ),
-    }))
-
-    if (orbitItems.length === 0) {
-      return (
-        <div className="relative h-full">
-          <Ripple className="text-foreground/10" />
-          <Empty className="h-full rounded-none border-0">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <BotIcon />
-              </EmptyMedia>
-              <EmptyTitle>选择一个智能体</EmptyTitle>
-              <EmptyDescription>查看配置详情，或编辑你的自定义智能体。</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </div>
-      )
-    }
-
-    const hints = [
-      "你想了解哪一个智能体？",
-      "点击左侧，探索你的智能体",
-      "选择一个智能体，开启对话",
-      "哪位智能体引起你的注意？",
-      "点击一位智能体，查看详情",
-      "探索你的智能体团队",
-      "选择一个智能体开始吧",
-      "左侧选择一位，看看它的能力",
-      "每位智能体都有独特的本领",
-      "发现适合你的智能体",
-    ]
-    const hint = hints[Math.floor(Math.random() * hints.length)]
-
+  if (orbitItems.length === 0) {
     return (
-      <div className="relative flex h-full flex-col items-center justify-center gap-6">
+      <div className="relative h-full">
         <Ripple className="text-foreground/10" />
-        <RadialIntro imageSize={48} orbitItems={orbitItems} stageSize={280} />
-        <p className="text-muted-foreground/80 text-sm tracking-wide">
-          {hint}
-        </p>
+        <Empty className="h-full rounded-none border-0">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <BotIcon />
+            </EmptyMedia>
+            <EmptyTitle>选择一个智能体</EmptyTitle>
+            <EmptyDescription>查看配置详情，或编辑你的自定义智能体。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       </div>
     )
   }
 
+  const hints = [
+    "你想了解哪一个智能体？",
+    "点击左侧，探索你的智能体",
+    "选择一个智能体，开启对话",
+    "哪位智能体引起你的注意？",
+    "点击一位智能体，查看详情",
+    "探索你的智能体团队",
+    "选择一个智能体开始吧",
+    "左侧选择一位，看看它的能力",
+    "每位智能体都有独特的本领",
+    "发现适合你的智能体",
+  ]
+  const hint = hints[Math.floor(Math.random() * hints.length)]
+
+  return (
+    <div className="relative flex h-full flex-col items-center justify-center gap-6">
+      <Ripple className="text-foreground/10" />
+      <RadialIntro imageSize={48} orbitItems={orbitItems} stageSize={280} />
+      <p className="text-muted-foreground/80 text-sm tracking-wide">
+        {hint}
+      </p>
+    </div>
+  )
+}
+
+function AgentDetailContent({
+  agent,
+  currentOverride,
+  canConfigureModel,
+  onConfigureModel,
+  avatarEditOpen,
+  onAvatarEditOpenChange,
+}: {
+  agent: AgentDetail
+  currentOverride: AgentOverride | null
+  canConfigureModel: boolean
+  onConfigureModel: () => void
+  avatarEditOpen: boolean
+  onAvatarEditOpenChange: (open: boolean) => void
+}) {
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-7">
@@ -418,7 +423,7 @@ export function AgentDetailsPanel({
           <button
             type="button"
             className="group relative shrink-0"
-            onClick={() => setAvatarEditOpen(true)}
+            onClick={() => onAvatarEditOpenChange(true)}
             title="自定义头像"
           >
             <AgentAvatar agent={agent} override={currentOverride} size="lg" />
@@ -455,9 +460,56 @@ export function AgentDetailsPanel({
           agent={agent}
           currentOverride={currentOverride}
           open={avatarEditOpen}
-          onOpenChange={setAvatarEditOpen}
+          onOpenChange={onAvatarEditOpenChange}
         />
       </div>
     </ScrollArea>
+  )
+}
+
+export function AgentDetailsPanel({
+  agent,
+  agents,
+  avatarManifest,
+  canConfigureModel,
+  loading,
+  onConfigureModel,
+}: AgentDetailsPanelProps) {
+  const [avatarEditOpen, setAvatarEditOpen] = useState(false)
+  const { data: localManifest } = useAvatarOverrides()
+  const manifest = avatarManifest ?? localManifest
+  const currentOverride = agent ? (manifest?.agents[agent.id] ?? null) : null
+
+  const contentKey = loading ? "loading" : agent ? `agent-${agent.id}` : "empty"
+
+  return (
+    <AnimatePresence mode="popLayout">
+      <motion.div
+        key={contentKey}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        className="h-full"
+      >
+        {loading ? (
+          <LoadingDetails />
+        ) : !agent ? (
+          <EmptyState
+            agents={agents}
+            manifest={manifest}
+          />
+        ) : (
+          <AgentDetailContent
+            agent={agent}
+            currentOverride={currentOverride}
+            canConfigureModel={canConfigureModel}
+            onConfigureModel={onConfigureModel}
+            avatarEditOpen={avatarEditOpen}
+            onAvatarEditOpenChange={setAvatarEditOpen}
+          />
+        )}
+      </motion.div>
+    </AnimatePresence>
   )
 }
