@@ -107,6 +107,57 @@ describe("RealOpenCodeClient", () => {
                 },
               },
             ],
+            connected: ["anthropic"],
+            default: { anthropic: "claude-sonnet-4-5" },
+          },
+        }),
+      },
+    }
+    const client = new RealOpenCodeClient({ server: createServer(sdkClient) })
+
+    await expect(client.listModels("D:\\workspace")).resolves.toEqual({
+      provider: "opencode",
+      models: [
+        {
+          providerID: "anthropic",
+          providerName: "Anthropic",
+          modelID: "claude-sonnet-4-5",
+          modelName: "Claude Sonnet 4.5",
+        },
+      ],
+      warnings: [],
+    })
+  })
+
+  test("filters OpenCode SDK provider catalog to connected providers", async () => {
+    const sdkClient = {
+      provider: {
+        list: async () => ({
+          data: {
+            all: [
+              {
+                id: "anthropic",
+                name: "Anthropic",
+                models: {
+                  "claude-sonnet-4-5": {
+                    id: "claude-sonnet-4-5",
+                    name: "Claude Sonnet 4.5",
+                  },
+                },
+              },
+              {
+                id: "openai",
+                name: "OpenAI",
+                models: {
+                  "gpt-5": {
+                    id: "gpt-5",
+                    name: "GPT-5",
+                  },
+                },
+              },
+            ],
+            connected: ["anthropic"],
+            default: { anthropic: "claude-sonnet-4-5" },
           },
         }),
       },

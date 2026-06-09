@@ -1590,9 +1590,22 @@ function normalizeOpenCodeModelCatalog(catalog: unknown): OpenCodeModelCatalog {
   const models: OpenCodeModelCatalog["models"] = []
   const catalogRecord = getRecord(catalog)
   const providers = Array.isArray(catalogRecord?.all) ? catalogRecord.all : []
+  const connectedProviderIds = Array.isArray(catalogRecord?.connected)
+    ? new Set(
+        catalogRecord.connected.filter(
+          (providerID): providerID is string =>
+            typeof providerID === "string" && providerID.trim().length > 0
+        )
+      )
+    : new Set<string>()
 
   if (!Array.isArray(catalogRecord?.all)) {
     warnings.push("OpenCode provider catalog did not include an all array.")
+  }
+  if (!Array.isArray(catalogRecord?.connected)) {
+    warnings.push("OpenCode provider catalog did not include a connected array.")
+  } else if (providers.length > 0 && connectedProviderIds.size === 0) {
+    warnings.push("OpenCode did not report any connected providers.")
   }
 
   for (const providerValue of providers) {
@@ -1604,6 +1617,9 @@ function normalizeOpenCodeModelCatalog(catalog: unknown): OpenCodeModelCatalog {
     const providerID = getRecordString(provider, "id")
     if (!providerID) {
       warnings.push("Skipped OpenCode provider without an id.")
+      continue
+    }
+    if (!connectedProviderIds.has(providerID)) {
       continue
     }
 

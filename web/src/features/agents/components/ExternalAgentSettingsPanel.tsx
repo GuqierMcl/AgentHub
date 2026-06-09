@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertCircleIcon, RefreshCwIcon, SaveIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -34,6 +34,8 @@ import {
   buildOpenCodeExternalSettingsPayload,
   filterExternalSettingsForProvider,
   resolveExternalSettingsProvider,
+  shouldAutoLoadOpenCodeModelCatalog,
+  shouldShowOpenCodeSelectedModelFallback,
 } from "../external-agent-settings-state"
 import type {
   AgentDetail,
@@ -166,13 +168,11 @@ function OpenCodeSettingsFields({
   selectedConversationId: string
 }) {
   const selectedModel = decodeOpenCodeModelKey(modelKey)
-  const selectedModelInCatalog = selectedModel
-    ? catalogModels.some(
-        (model) =>
-          model.providerID === selectedModel.providerID &&
-          model.modelID === selectedModel.modelID
-      )
-    : true
+  const showSelectedModelFallback = shouldShowOpenCodeSelectedModelFallback({
+    selectedModel,
+    catalogModels,
+    catalogLoading,
+  })
 
   return (
     <FieldGroup>
@@ -246,7 +246,7 @@ function OpenCodeSettingsFields({
           <SelectContent>
             <SelectGroup>
               <SelectItem value={SDK_DEFAULT_MODEL}>SDK 默认</SelectItem>
-              {selectedModel && !selectedModelInCatalog ? (
+              {selectedModel && showSelectedModelFallback ? (
                 <SelectItem value={modelKey}>
                   {selectedModel.providerID} / {selectedModel.modelID}
                 </SelectItem>
@@ -313,6 +313,7 @@ export function ExternalAgentSettingsPanel({
   const [catalogWarnings, setCatalogWarnings] = useState<string[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
   const openCodeCatalogRequestIdRef = useRef(0)
+  const openCodeCatalogAutoLoadConversationIdRef = useRef<string | null>(null)
   const selectedConversationIdRef = useRef(selectedConversationId)
 
   useEffect(() => {
@@ -408,6 +409,7 @@ export function ExternalAgentSettingsPanel({
   useEffect(() => {
     if (provider !== "opencode") {
       openCodeCatalogRequestIdRef.current += 1
+      openCodeCatalogAutoLoadConversationIdRef.current = null
       setConversations([])
       setSelectedConversationId("")
       setCatalogModels([])
@@ -469,7 +471,7 @@ export function ExternalAgentSettingsPanel({
     return settings.model ?? "SDK 默认"
   }, [settings])
 
-  const loadOpenCodeCatalog = async () => {
+  const loadOpenCodeCatalog = useCallback(async () => {
     const requestedConversationId = selectedConversationId
     if (!requestedConversationId) {
       return
@@ -506,7 +508,25 @@ export function ExternalAgentSettingsPanel({
         setCatalogLoading(false)
       }
     }
-  }
+  }, [selectedConversationId])
+
+  useEffect(() => {
+    const conversationId = selectedConversationId.trim()
+    if (
+      !shouldAutoLoadOpenCodeModelCatalog({
+        provider,
+        selectedConversationId,
+        catalogLoading,
+        catalogAutoLoadConversationId:
+          openCodeCatalogAutoLoadConversationIdRef.current,
+      })
+    ) {
+      return
+    }
+
+    openCodeCatalogAutoLoadConversationIdRef.current = conversationId
+    void loadOpenCodeCatalog()
+  }, [catalogLoading, loadOpenCodeCatalog, provider, selectedConversationId])
 
   const handleOpenCodeConversationChange = (conversationId: string) => {
     openCodeCatalogRequestIdRef.current += 1

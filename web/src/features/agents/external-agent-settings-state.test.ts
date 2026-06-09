@@ -7,6 +7,8 @@ import {
   buildOpenCodeExternalSettingsPayload,
   filterExternalSettingsForProvider,
   resolveExternalSettingsProvider,
+  shouldAutoLoadOpenCodeModelCatalog,
+  shouldShowOpenCodeSelectedModelFallback,
 } from "./external-agent-settings-state"
 import type { AgentDetail } from "./types"
 
@@ -156,5 +158,91 @@ describe("external agent settings payload helpers", () => {
       provider: "claude-code",
       permissionMode: "default",
     })
+  })
+
+  test("auto-loads OpenCode catalog once per selected conversation", () => {
+    expect(
+      shouldAutoLoadOpenCodeModelCatalog({
+        provider: "opencode",
+        selectedConversationId: "conversation-1",
+        catalogLoading: false,
+        catalogAutoLoadConversationId: null,
+      })
+    ).toBe(true)
+
+    expect(
+      shouldAutoLoadOpenCodeModelCatalog({
+        provider: "opencode",
+        selectedConversationId: "conversation-1",
+        catalogLoading: false,
+        catalogAutoLoadConversationId: "conversation-1",
+      })
+    ).toBe(false)
+    expect(
+      shouldAutoLoadOpenCodeModelCatalog({
+        provider: "opencode",
+        selectedConversationId: "conversation-1",
+        catalogLoading: true,
+        catalogAutoLoadConversationId: null,
+      })
+    ).toBe(false)
+    expect(
+      shouldAutoLoadOpenCodeModelCatalog({
+        provider: "claude-code",
+        selectedConversationId: "conversation-1",
+        catalogLoading: false,
+        catalogAutoLoadConversationId: null,
+      })
+    ).toBe(false)
+    expect(
+      shouldAutoLoadOpenCodeModelCatalog({
+        provider: "opencode",
+        selectedConversationId: "  ",
+        catalogLoading: false,
+        catalogAutoLoadConversationId: null,
+      })
+    ).toBe(false)
+  })
+
+  test("only shows an unavailable OpenCode selected model while catalog is loading", () => {
+    const selectedModel = {
+      providerID: "openai",
+      modelID: "gpt-5",
+    }
+    const catalogModels = [
+      {
+        providerID: "anthropic",
+        modelID: "claude-sonnet-4-5",
+      },
+    ]
+
+    expect(
+      shouldShowOpenCodeSelectedModelFallback({
+        selectedModel,
+        catalogModels,
+        catalogLoading: true,
+      })
+    ).toBe(true)
+    expect(
+      shouldShowOpenCodeSelectedModelFallback({
+        selectedModel,
+        catalogModels,
+        catalogLoading: false,
+      })
+    ).toBe(false)
+    expect(
+      shouldShowOpenCodeSelectedModelFallback({
+        selectedModel: catalogModels[0],
+        catalogModels,
+        catalogLoading: true,
+      })
+    ).toBe(false)
+    expect(
+      shouldShowOpenCodeSelectedModelFallback({
+        selectedModel: null,
+        catalogModels,
+        catalogLoading: true,
+      })
+    ).toBe(false)
   })
 })

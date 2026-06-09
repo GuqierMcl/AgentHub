@@ -36,6 +36,19 @@ type CodexSettingsFormState = {
   [key: string]: unknown
 }
 
+type OpenCodeCatalogAutoLoadState = {
+  provider: ExternalProvider | null
+  selectedConversationId: string
+  catalogLoading: boolean
+  catalogAutoLoadConversationId: string | null
+}
+
+type OpenCodeSelectedModelFallbackState = {
+  selectedModel: OpenCodeModelRef | null
+  catalogModels: OpenCodeModelRef[]
+  catalogLoading: boolean
+}
+
 function optionalTrimmed(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
   return trimmed ? trimmed : undefined
@@ -59,6 +72,37 @@ export function filterExternalSettingsForProvider<P extends ExternalProvider>(
   return settings?.provider === provider
     ? (settings as Extract<ExternalAgentSettings, { provider: P }>)
     : null
+}
+
+export function shouldAutoLoadOpenCodeModelCatalog({
+  provider,
+  selectedConversationId,
+  catalogLoading,
+  catalogAutoLoadConversationId,
+}: OpenCodeCatalogAutoLoadState): boolean {
+  const conversationId = optionalTrimmed(selectedConversationId)
+  return Boolean(
+    provider === "opencode" &&
+      conversationId &&
+      !catalogLoading &&
+      catalogAutoLoadConversationId !== conversationId
+  )
+}
+
+export function shouldShowOpenCodeSelectedModelFallback({
+  selectedModel,
+  catalogModels,
+  catalogLoading,
+}: OpenCodeSelectedModelFallbackState): boolean {
+  return Boolean(
+    selectedModel &&
+      catalogLoading &&
+      !catalogModels.some(
+        (model) =>
+          model.providerID === selectedModel.providerID &&
+          model.modelID === selectedModel.modelID
+      )
+  )
 }
 
 export function buildOpenCodeExternalSettingsPayload(

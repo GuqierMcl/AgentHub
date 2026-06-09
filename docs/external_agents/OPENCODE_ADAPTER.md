@@ -233,7 +233,7 @@ AgentHub 可以保存一份只作用于 AgentHub-originated runs 的 OpenCode SD
 
 OpenCode: AgentHub may select `{ providerID, modelID }` only from an OpenCode SDK model catalog resolved for a workspace. The selector must not use AgentHub ProviderService models.
 
-模型候选必须由 Runtime 通过 OpenCode SDK / OpenCode server 按当前 workspace 解析。HubServer 和 Web 只消费 Runtime 返回的 OpenCode model catalog，不得用 AgentHub ProviderService 的 provider/model 列表填充 OpenCode 选择器。Adapter 仍必须在 `message.completed.data.externalModel` 中回传 OpenCode 实际使用的 provider/model；当 runtime override 与实际使用模型不同，以实际使用模型作为消息和 Run 详情的展示事实。
+模型候选必须由 Runtime 通过 OpenCode SDK / OpenCode server 按当前 workspace 解析。Runtime 只返回 OpenCode `provider.list({ directory })` 中 `connected` provider 的模型；未连接或未配置凭据的 provider 即使出现在 `all` 目录中，也不得进入 AgentHub 模型选择器。HubServer 和 Web 只消费 Runtime 返回的 OpenCode model catalog，不得用 AgentHub ProviderService 的 provider/model 列表填充 OpenCode 选择器。Adapter 仍必须在 `message.completed.data.externalModel` 中回传 OpenCode 实际使用的 provider/model；当 runtime override 与实际使用模型不同，以实际使用模型作为消息和 Run 详情的展示事实。
 
 ### 8.2 模型状态展示可行性
 
