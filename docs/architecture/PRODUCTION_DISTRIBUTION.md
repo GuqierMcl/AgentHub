@@ -292,11 +292,12 @@ Agent Runtime 生产构建为 Bun bundle，但产品入口不是 Runtime 本身�
 - `initDatabase()` 在生产环境不得执行 `bunx --bun prisma generate`。
 - 生产 bundle 运行时不得依赖 `prisma/schema.prisma` 或 `src/generated/prisma/*` 源码文件做时间戳检查；这些源码文件不随发行包分发。Prisma Client 的新鲜度由 `build:hub` 的构建期 `prisma generate` 和发行包 smoke 验证。
 - `build:hub` 在构建期读取 `hub-server/prisma/migrations/*/migration.sql`，生成内置 `src/generated/prisma-migrations.ts` manifest。
+- migration manifest 的主 checksum 必须基于 LF 规范化后的 SQL 文本计算，避免 Windows CRLF 与 Linux/macOS LF checkout 生成不同 checksum。manifest 可以记录历史 raw/CRLF checksum 作为兼容 checksum。
 - HubServer 生产启动时先运行内置轻量 SQL migration runner，再初始化 Prisma Client。
 - 生产数据库模式由 sidecar 参数或 `NODE_ENV=production` 触发；CLI/Desktop 启动包都会传 sidecar 参数。
 - 生产 migration runner 只执行构建期 manifest 中的 SQL，不调用 `bunx`、Prisma CLI 或源码生成步骤；如果 `agenthub_schema_migrations` 为空但数据库已存在业务表，则先把当前 manifest 作为基线写入，再继续后续增量迁移。
 - migration runner 在 `hub.db` 中维护 `agenthub_schema_migrations` 表，记录 migration 名称、checksum 和应用时间。
-- 已应用 migration 的 checksum 与当前应用内置 manifest 不一致时，HubServer 启动失败。
+- 已应用 migration 的 checksum 与当前应用内置 manifest 不一致时，HubServer 启动失败；如果它匹配 manifest 中的兼容 checksum，runner 视为同一迁移的历史换行格式并把数据库记录升级为主 checksum。
 - SQLite 数据文件继续位于 HubServer 数据目录下。
 - 启动时不得删除、截断或重建 `hub.db-wal` / `hub.db-shm`。
 - Native/WASM 依赖必须在发行包 smoke test 中验证。

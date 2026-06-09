@@ -8,6 +8,7 @@ const PROJECT_ROOT = resolve(import.meta.dir, "..", "..")
 export interface SqlMigration {
   name: string
   checksum: string
+  compatibleChecksums?: readonly string[]
   sql: string
 }
 
@@ -69,6 +70,23 @@ function readAppliedMigrations(db: Database): Map<string, string> {
     .all() as AppliedMigrationRow[]
 
   return new Map(rows.map((row) => [row.migration_name, row.checksum]))
+}
+
+function isCompatibleAppliedChecksum(
+  migration: SqlMigration,
+  appliedChecksum: string,
+): boolean {
+  return migration.compatibleChecksums?.includes(appliedChecksum) ?? false
+}
+
+function updateAppliedMigrationChecksum(db: Database, migration: SqlMigration): void {
+  db
+    .query(`
+      UPDATE agenthub_schema_migrations
+      SET checksum = ?
+      WHERE migration_name = ?
+    `)
+    .run(migration.checksum, migration.name)
 }
 
 function hasApplicationTables(db: Database): boolean {
@@ -162,9 +180,13 @@ export function runSqlMigrationsOnDatabase(
     const appliedChecksum = applied.get(migration.name)
     if (appliedChecksum) {
       if (appliedChecksum !== migration.checksum) {
-        throw new Error(
-          `Migration checksum mismatch for ${migration.name}. The database has ${appliedChecksum} but the application has ${migration.checksum}.`,
-        )
+        if (!isCompatibleAppliedChecksum(migration, appliedChecksum)) {
+          throw new Error(
+            `Migration checksum mismatch for ${migration.name}. The database has ${appliedChecksum} but the application has ${migration.checksum}.`,
+          )
+        }
+        updateAppliedMigrationChecksum(db, migration)
+        applied.set(migration.name, migration.checksum)
       }
       result.skipped += 1
       continue

@@ -28,6 +28,23 @@ describe("migration manifest generation", () => {
     )
   })
 
+  it("uses a line-ending-stable checksum and records legacy raw checksums", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agenthub-migrations-"))
+    await mkdir(join(root, "20240101000000_first"))
+    const canonicalSql = "CREATE TABLE first(id TEXT);\nINSERT INTO first(id) VALUES ('a');\n"
+    const crlfSql = canonicalSql.replaceAll("\n", "\r\n")
+    await writeFile(join(root, "20240101000000_first", "migration.sql"), crlfSql)
+
+    const [migration] = await readPrismaMigrations(root)
+
+    expect(migration.checksum).toBe(
+      createHash("sha256").update(canonicalSql).digest("hex"),
+    )
+    expect(migration.compatibleChecksums).toContain(
+      createHash("sha256").update(crlfSql).digest("hex"),
+    )
+  })
+
   it("renders a TypeScript migration manifest", () => {
     const source = renderMigrationManifest([
       {

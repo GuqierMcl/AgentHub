@@ -50,6 +50,37 @@ describe("SQL migration runner", () => {
     db.close()
   })
 
+  it("accepts compatible legacy checksums and upgrades them to the canonical checksum", () => {
+    const db = new Database(":memory:")
+    db.exec(`
+      CREATE TABLE agenthub_schema_migrations (
+        migration_name TEXT NOT NULL PRIMARY KEY,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO agenthub_schema_migrations (migration_name, checksum, applied_at)
+      VALUES ('001_create_items', 'legacy-crlf-sha', '2026-06-08T09:36:51.518Z');
+    `)
+
+    const result = runSqlMigrationsOnDatabase(db, [
+      {
+        name: "001_create_items",
+        checksum: "canonical-lf-sha",
+        compatibleChecksums: ["legacy-crlf-sha"],
+        sql: "CREATE TABLE items(id TEXT PRIMARY KEY);",
+      },
+    ])
+
+    expect(result).toEqual({ applied: 0, skipped: 1 })
+    expect(
+      queryOne<{ checksum: string }>(
+        db,
+        "SELECT checksum FROM agenthub_schema_migrations WHERE migration_name = '001_create_items'",
+      ).checksum,
+    ).toBe("canonical-lf-sha")
+    db.close()
+  })
+
   it("fails when an applied migration checksum changes", () => {
     const db = new Database(":memory:")
     runSqlMigrationsOnDatabase(db, [

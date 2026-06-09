@@ -3,6 +3,26 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import type { SqlMigration } from "../src/lib/migrations"
 
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+function normalizeSqlForChecksum(sql: string): string {
+  return sql.replace(/\r\n?/g, "\n")
+}
+
+function toCrlf(sql: string): string {
+  return normalizeSqlForChecksum(sql).replace(/\n/g, "\r\n")
+}
+
+function getCompatibleChecksums(sql: string, canonicalChecksum: string): string[] | undefined {
+  const checksums = new Set<string>()
+  checksums.add(sha256(sql))
+  checksums.add(sha256(toCrlf(sql)))
+  checksums.delete(canonicalChecksum)
+  return checksums.size > 0 ? [...checksums].sort() : undefined
+}
+
 export async function readPrismaMigrations(migrationsDir: string): Promise<SqlMigration[]> {
   const entries = await readdir(migrationsDir, { withFileTypes: true })
   const migrationNames = entries
@@ -13,9 +33,11 @@ export async function readPrismaMigrations(migrationsDir: string): Promise<SqlMi
   const migrations: SqlMigration[] = []
   for (const name of migrationNames) {
     const sql = await readFile(join(migrationsDir, name, "migration.sql"), "utf8")
+    const checksum = sha256(normalizeSqlForChecksum(sql))
     migrations.push({
       name,
-      checksum: createHash("sha256").update(sql).digest("hex"),
+      checksum,
+      compatibleChecksums: getCompatibleChecksums(sql, checksum),
       sql,
     })
   }
