@@ -85,7 +85,7 @@
 - 任意 live `deployment.*` 事件到达当前 active conversation 时，如果右侧产物工作台折叠或“部署预览”单例 tab 未打开，Web 应自动展开并激活“部署预览”标签页；从 `timelineRuns` 历史 replay 恢复时不触发自动聚焦。`deployment.preview.requested` 额外带打开预览/浏览器标签页的 action 语义，但同样只在 live SSE 中执行；历史 replay 只保存 URL，不自动打开标签页。刷新、切会话再回来或应用重启后，部署历史仍应可见；Runtime 内存 SSH 连接不会恢复，UI 必须把历史连接显示为 disconnected/stale。
 - 外部智能体原生工具继续复用 AgentHub 的普通 Tool UI，不建立 OpenCode 专属渲染链路。会话恢复时，持久化 `MessagePart(type="tool")` 必须恢复为 assistant 消息内的 `toolItems`；否则 live 时闪现过的外部工具会在刷新或 snapshot merge 后消失。外部工具的 `data.externalProvider` 是渲染边界：即使 OpenCode 原生工具名为 `bash` 或 `edit_file`，也不得进入内部 AgentHub `bash` Terminal 或 `edit_file` CodeBlock 专用视图，除非该 tool 没有外部 provider 标记。
 - Task 卡片标题只来自任务 title / instruction 的短摘要兜底，不得使用 `task.completed.data.summary` 作为标题；`summary` 可能包含子智能体完整输出，应保留为运行结果/上下文数据，而不是 UI 标题。
-- SSE 事件进入 Web 后按 animation frame 批量写入 Zustand；`receivedEventIds` 使用 per-conversation `Set` 去重，轻量 event log 只保留最近一段 UI 相关事件，避免子智能体和工具调用产生大量诊断事件时触发每事件一次的全量重渲染。
+- SSE 事件进入 Web 后按约 50ms 的 UI flush 窗口批量写入 Zustand；同一窗口内相邻且同目标的 `message.delta` / `reasoning.delta` 会先合并为一个 UI delta，但必须携带并登记所有原始 Runtime event id，确保后续 replay 去重仍然准确。`receivedEventIds` 使用 per-conversation `Set` 去重，轻量 event log 只保留最近一段 UI 相关事件，避免子智能体和工具调用产生大量诊断事件时触发每事件一次的全量重渲染。
 - Timeline 渲染层复用本仓库 `ai-elements` 组件：chat message 使用 `Message`，普通 tool 使用 `Tool`，内部 `edit_file` 使用 `CodeBlock` 展示 unified diff，`bash` tool 直接使用 `Terminal` 展示命令状态和 stdout/stderr 结果，task 使用 `Task`，permission 使用 `Confirmation`，reasoning 使用 `Reasoning`。Plan 不作为聊天流 item 渲染，而是在产物工作台“会话状态”标签页使用 `Queue` 展示。Timeline 渲染不得再依赖 workbench mock agent 数据，智能体头像与名称来自 conversation detail + runtime agents 查询结果。
 
 ## Activity 生命周期约束

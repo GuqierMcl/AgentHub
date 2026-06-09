@@ -17,6 +17,7 @@ import {
   createLocalRunStatusItem,
   createLocalUserTimelineItem,
 } from "../runtime/timeline-projection"
+import { getConsumedRuntimeEventIds } from "../runtime/run-event-coalescing"
 import type {
   Artifact,
   ArtifactKind,
@@ -657,11 +658,14 @@ function applyEnvelopesToRuntimeState(
 
   for (const envelope of sortEnvelopes(envelopes)) {
     const event = envelope.event
-    if (receivedEventIds.has(event.id)) {
+    const consumedEventIds = getConsumedRuntimeEventIds(event)
+    if (consumedEventIds.every((eventId) => receivedEventIds.has(eventId))) {
       continue
     }
 
-    receivedEventIds.add(event.id)
+    for (const eventId of consumedEventIds) {
+      receivedEventIds.add(eventId)
+    }
     activeRuntimeRunId = activeRuntimeRunId ?? event.runId
     changed = true
 

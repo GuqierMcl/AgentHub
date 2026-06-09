@@ -5,6 +5,9 @@ import {
 import { queryClient } from "@/lib/query-client"
 import { workbenchQueryKeys } from "../api/query-keys"
 import { isTerminalRunStatus, useWorkbenchStore } from "../store/workbench-store"
+import { coalesceRunEventEnvelopes } from "./run-event-coalescing"
+
+const LIVE_EVENT_FLUSH_INTERVAL_MS = 50
 
 const runtimeEventTypes = [
   "run.started",
@@ -112,7 +115,6 @@ class RunStreamManager {
     const flushId = this.pendingFlushes.get(conversationId)
     if (flushId !== undefined) {
       this.pendingFlushes.delete(conversationId)
-      globalThis.cancelAnimationFrame?.(flushId)
       window.clearTimeout(flushId)
     }
     useWorkbenchStore.getState().setConnectionStatus(conversationId, status)
@@ -131,9 +133,7 @@ class RunStreamManager {
       this.pendingFlushes.delete(conversationId)
       this.flushEvents(conversationId)
     }
-    const flushId = typeof globalThis.requestAnimationFrame === "function"
-      ? globalThis.requestAnimationFrame(flush)
-      : window.setTimeout(flush, 16)
+    const flushId = window.setTimeout(flush, LIVE_EVENT_FLUSH_INTERVAL_MS)
     this.pendingFlushes.set(conversationId, flushId)
   }
 
@@ -146,7 +146,7 @@ class RunStreamManager {
     this.pendingEvents.delete(conversationId)
     useWorkbenchStore.getState().applyRuntimeEventEnvelopes(
       conversationId,
-      envelopes,
+      coalesceRunEventEnvelopes(envelopes),
       { source: "live" }
     )
 
