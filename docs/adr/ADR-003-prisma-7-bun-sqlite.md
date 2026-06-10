@@ -1,4 +1,4 @@
-# ADR-002: hub-server 迁移到 Prisma 7 + Bun SQLite 适配器
+# ADR-003: hub-server 迁移到 Prisma 7 + Bun SQLite 适配器
 
 ## 状态
 
