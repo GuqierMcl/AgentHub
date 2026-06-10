@@ -1,7 +1,7 @@
 import { MessageSquarePlusIcon, BotIcon } from "lucide-react"
 
 import { GravityStarsBackground } from "@/components/animate-ui/components/backgrounds/gravity-stars"
-import { LiquidButton } from "@/components/animate-ui/components/buttons/liquid"
+import { RainbowButton } from "@/components/ui/rainbow-button"
 import { TypingAnimation } from "@/components/ui/typing-animation"
 import { useAppNavStore } from "@/store/app-nav-store"
 
@@ -89,23 +89,23 @@ export function WorkbenchWelcome({ onCreateConversation }: WorkbenchWelcomeProps
                   className="flex items-center gap-3 animate-fade-in-up"
                   style={{ animationDelay: "100ms" }}
               >
-                  <LiquidButton
-                      className="pointer-events-auto shadow-lg border border-transparent hover:border-primary-foreground [--liquid-button-background-color:var(--primary)] [--liquid-button-color:var(--primary-foreground)] text-primary-foreground hover:text-primary"
+                  <RainbowButton
+                      className="pointer-events-auto shadow-lg"
                       onClick={onCreateConversation}
                       type="button"
                   >
                       <MessageSquarePlusIcon data-icon="inline-start" />
                       新建会话
-                  </LiquidButton>
-                  <LiquidButton
-                      className="pointer-events-auto shadow-lg border border-transparent hover:border-primary"
-                      variant="ghost"
+                  </RainbowButton>
+                  <RainbowButton
+                      className="pointer-events-auto"
+                      variant="outline"
                       type="button"
                       onClick={() => selectModule("agents")}
                   >
                       <BotIcon data-icon="inline-start" />
                       智能体
-                  </LiquidButton>
+                  </RainbowButton>
               </div>
           </div>
       </div>
